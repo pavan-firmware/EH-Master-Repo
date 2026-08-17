@@ -1,0 +1,1618 @@
+You are working on my Smart Home ecosystem product + app + firmware architecture.
+
+IMPORTANT:
+Do NOT immediately start changing code.
+
+First inspect and understand the existing project completely:
+- existing app architecture
+- routes
+- screens
+- components
+- design system
+- theme system
+- state management
+- API layer
+- device models
+- existing routines/automation system
+- authentication
+- backend integration
+- current smart-device UI
+- existing product/device data
+- existing settings
+- existing OTA/update-related implementation if any
+
+Do not destroy or replace existing working functionality.
+
+My goal is to build this as a production-grade consumer smart-home platform, not a demo.
+
+==================================================
+1. CORE PRODUCT VISION
+==================================================
+
+I am building a smart-home product ecosystem.
+
+Users can purchase different physical products and add them to one Home in the app.
+
+Examples:
+
+- Smart Switch 1X
+- Smart Switch 2X
+- Smart Switch 3X
+- Smart Switch 4X
+- Smart Socket 1X
+- Smart Socket 2X
+- Smart Socket 3X
+- Smart Light
+- CCT Smart Bulb
+- Smart + Local Switch
+- Smart + Local Socket
+- Smart + Local Fan Controller
+- Smart Fan Speed Controller
+- Smart Light + Local Switch
+- Smart Socket + Local Switch
+- future sensors
+- future appliances
+- future energy-monitoring devices
+- future products not yet defined
+
+The architecture MUST allow me to add new product types and variants later without redesigning the whole application.
+
+==================================================
+2. MOST IMPORTANT ARCHITECTURE PRINCIPLE
+==================================================
+
+The application MUST NOT contain hardcoded UI definitions for every individual product.
+
+Instead use a metadata/capability-driven architecture.
+
+The app should receive device/product metadata and dynamically generate the appropriate UI.
+
+For example:
+
+{
+  "productId": "eh-smart-switch-3x",
+  "productFamily": "smart_switch",
+  "variant": "3x",
+  "hardwareRevision": "HW_1_0",
+  "firmwareChannel": "stable",
+  "channels": 3,
+  "capabilities": [
+    "switch",
+    "relay",
+    "local_control",
+    "remote_control",
+    "energy_monitoring",
+    "ota"
+  ],
+  "controls": [
+    {
+      "id": "channel_1",
+      "type": "switch",
+      "label": "Light"
+    },
+    {
+      "id": "channel_2",
+      "type": "switch",
+      "label": "Fan"
+    },
+    {
+      "id": "channel_3",
+      "type": "switch",
+      "label": "Socket"
+    }
+  ],
+  "telemetry": {
+    "power": true,
+    "voltage": true,
+    "current": true,
+    "energy": true
+  },
+  "automation": {
+    "supported": true
+  }
+}
+
+The actual schema must be designed properly and normalized.
+
+The app should use capabilities and metadata to generate:
+- device cards
+- device detail screens
+- controls
+- status indicators
+- energy information
+- automation options
+- settings
+- firmware update options
+- diagnostics
+- device-specific controls
+
+Do NOT create separate hardcoded UI implementations for every SKU unless absolutely necessary.
+
+==================================================
+3. PRODUCT FAMILY + VARIANT MODEL
+==================================================
+
+Create a reusable hierarchy:
+
+Brand
+  ↓
+Product Family
+  ↓
+Product Model
+  ↓
+Variant
+  ↓
+Hardware Revision
+  ↓
+Firmware Version
+
+Example:
+
+EH
+ └── Smart Switch
+      ├── 1X
+      ├── 2X
+      ├── 3X
+      └── 4X
+
+EH
+ └── Smart Socket
+      ├── 1X
+      ├── 2X
+      └── 3X
+
+EH
+ └── Smart Fan
+      ├── 1X
+      └── Pro
+
+Each product should have:
+- unique product ID
+- SKU
+- product family
+- variant
+- hardware revision
+- supported firmware
+- capabilities
+- images
+- icon
+- marketing name
+- technical name
+- electrical specifications
+- supported controls
+- supported telemetry
+- automation capabilities
+- Matter capability if applicable
+- Thread capability if applicable
+- Wi-Fi capability
+- BLE provisioning capability
+- OTA capability
+- energy monitoring capability
+- supported local controls
+- supported remote controls
+
+==================================================
+4. PRODUCT METADATA MUST DRIVE APP UI
+==================================================
+
+The app should NOT do this:
+
+if product == "switch_1x"
+show this UI
+
+if product == "switch_2x"
+show another UI
+
+if product == "socket_3x"
+show another hardcoded UI
+
+Instead:
+
+Product metadata
+      ↓
+Capability engine
+      ↓
+UI renderer
+      ↓
+Device UI
+
+Example:
+
+channels = 3
+
+automatically generate:
+- Channel 1
+- Channel 2
+- Channel 3
+
+If:
+energyMonitoring = true
+
+show:
+- Power
+- Voltage
+- Current
+- Energy usage
+
+If:
+fanSpeedControl = true
+
+show:
+- speed slider
+- speed levels
+- current speed
+
+If:
+cct = true
+
+show:
+- brightness
+- color temperature
+- presets
+
+If:
+dimmer = true
+
+show:
+- brightness slider
+
+If:
+localSwitch = true
+
+show local-control status/events.
+
+This architecture MUST be reusable for future products.
+
+==================================================
+5. PRODUCT IMAGES / DATA COLLECTION
+==================================================
+
+When creating a new product or variant, the system should request the required product information.
+
+Example:
+
+Create Product:
+
+Product name
+Product family
+Variant
+SKU
+Product images
+Front image
+Back image
+Installed image
+Packaging image
+Technical diagram
+Channel count
+Electrical rating
+Voltage
+Current
+Power rating
+Energy monitoring support
+Local switch support
+Fan speed support
+CCT support
+Dimmer support
+Matter support
+Thread support
+Wi-Fi support
+BLE provisioning support
+OTA support
+
+The system should clearly identify required and optional fields.
+
+Do not force unnecessary fields.
+
+Allow future metadata fields to be added without breaking old devices.
+
+==================================================
+6. DEVICE REGISTRATION
+==================================================
+
+Every physical device must have a unique identity.
+
+Use a device model such as:
+
+deviceId
+productId
+variantId
+hardwareRevision
+firmwareVersion
+serialNumber
+manufacturingBatch
+manufacturingDate
+macAddress
+ownership
+homeId
+roomId
+installation metadata
+capabilities
+lastSeen
+online status
+connection type
+health status
+
+Each physical product should be uniquely identifiable.
+
+Production onboarding should support:
+- QR code
+- BLE provisioning
+- Wi-Fi provisioning
+- device claiming
+- secure ownership binding
+- factory reset
+- re-adding device
+- moving device to another Home
+- device replacement
+
+==================================================
+7. DEVICE ADD FLOW
+==================================================
+
+The customer experience should be:
+
+Install product
+↓
+Power ON
+↓
+Open app
+↓
+Add Device
+↓
+Scan QR
+↓
+Nearby device discovered through BLE
+↓
+Secure provisioning
+↓
+Connect to Home Wi-Fi
+↓
+Register device
+↓
+Select Home
+↓
+Select Room
+↓
+Configure channel names
+↓
+Test each channel
+↓
+Complete
+
+The user should NOT need to understand:
+- ESP32
+- IP address
+- MQTT
+- Thread
+- Thread Border Router
+- gateway
+- MAC address
+- networking details
+
+These are engineering details.
+
+==================================================
+8. LOCAL CONTROL
+==================================================
+
+Local control is a CORE requirement.
+
+When the user is inside the home and the Internet is unavailable:
+
+Phone
+ ↓
+Home LAN
+ ↓
+Device
+ ↓
+Relay/load
+
+The device must remain locally controllable.
+
+Do NOT make normal home control dependent on cloud availability.
+
+Local control should be low latency.
+
+==================================================
+9. REMOTE CONTROL
+==================================================
+
+When the user is outside the home:
+
+Phone
+ ↓
+Internet
+ ↓
+EH Cloud
+ ↓
+Home
+ ↓
+Device
+
+Remote control must work from anywhere with Internet connectivity at the home and phone.
+
+The app should automatically choose:
+- local path when appropriate
+- cloud path when remote
+
+The user should not need to manually select "local" or "cloud".
+
+==================================================
+10. PHYSICAL LOCAL SWITCH + APP STATE SYNCHRONIZATION
+==================================================
+
+This is a critical requirement.
+
+Every smart switch product can have physical local controls.
+
+Example:
+
+Wall switch
+ ↓
+ESP32
+ ↓
+Relay
+ ↓
+Load
+
+If user physically presses the wall switch:
+
+ESP32 detects event
+↓
+changes output
+↓
+confirms actual output state
+↓
+creates state event
+↓
+updates local app
+↓
+updates cloud when available
+↓
+updates Matter ecosystem when applicable
+
+The app must NOT assume state from the last command.
+
+The actual device state is the source of truth.
+
+Example:
+
+Physical switch:
+OFF → ON
+
+Then:
+
+actualState = ON
+
+and all interfaces must converge to ON.
+
+Same for:
+- app command
+- physical switch
+- automation
+- voice assistant
+- Matter command
+- scheduled routine
+
+All must eventually produce one consistent actual state.
+
+==================================================
+11. DEVICE STATE MODEL
+==================================================
+
+Design a proper state model.
+
+Separate:
+
+desiredState
+actualState
+reportedState
+connectionState
+lastCommand
+lastEvent
+lastUpdated
+
+Do not confuse:
+"command sent successfully"
+with
+"physical output is actually ON".
+
+For relay devices:
+command → relay action → state confirmation → state event.
+
+For physical switches:
+input event → control logic → output state → state event.
+
+==================================================
+12. ENERGY MONITORING
+==================================================
+
+I want products to automatically show electricity usage in the app where hardware supports it.
+
+Metadata should support:
+
+voltage
+current
+instantPower
+energyToday
+energyThisWeek
+energyThisMonth
+totalEnergy
+powerFactor if hardware supports it
+frequency if hardware supports it
+load status
+
+Example UI:
+
+Living Room Light
+
+ON
+
+Power
+42 W
+
+Today
+0.32 kWh
+
+This Month
+8.4 kWh
+
+If a product does not have energy measurement hardware:
+
+Do NOT fake the values.
+
+The UI should automatically hide unsupported telemetry.
+
+==================================================
+13. HARDWARE CAPABILITY MODEL
+==================================================
+
+The firmware and app must use a capability model.
+
+Possible capabilities:
+
+switch
+relay
+socket
+light
+dimmer
+cct
+fan
+fan_speed
+energy
+voltage
+current
+power
+temperature
+motion
+door
+sensor
+local_switch
+button
+touch
+matter
+thread
+wifi
+ble
+ota
+automation
+scene
+timer
+schedule
+
+New capabilities should be addable without rewriting the whole app.
+
+==================================================
+14. FIRMWARE ARCHITECTURE
+==================================================
+
+Use a common firmware platform.
+
+Do NOT create completely unrelated firmware projects for every product.
+
+Use:
+
+COMMON FIRMWARE PLATFORM
+        ↓
+Product configuration
+        ↓
+Product-specific build
+
+Example:
+
+EH Smart Switch 1X
+EH Smart Switch 2X
+EH Smart Switch 3X
+EH Smart Socket 1X
+EH Smart Socket 3X
+EH Smart Fan
+EH CCT Bulb
+
+They should share reusable firmware modules.
+
+Firmware layers should be approximately:
+
+boot
+security
+hardware abstraction
+GPIO
+relay/load driver
+button/switch input
+device state manager
+energy measurement
+Wi-Fi
+BLE provisioning
+local protocol
+cloud protocol
+OTA
+Matter
+Thread where applicable
+automation/device behavior
+diagnostics
+logging
+factory reset
+configuration storage
+
+Keep product-specific code isolated.
+
+==================================================
+15. FIRMWARE REPOSITORY STRUCTURE
+==================================================
+
+Design a scalable repository strategy.
+
+I want separate product repositories where appropriate, but common firmware code must be reusable.
+
+Recommended conceptual structure:
+
+eh-firmware-platform
+│
+├── common
+│   ├── core
+│   ├── drivers
+│   ├── networking
+│   ├── security
+│   ├── ota
+│   ├── state
+│   ├── telemetry
+│   ├── diagnostics
+│   ├── provisioning
+│   ├── automation
+│   └── protocol
+│
+├── products
+│   ├── smart-switch-1x
+│   ├── smart-switch-2x
+│   ├── smart-switch-3x
+│   ├── smart-socket-1x
+│   ├── smart-socket-2x
+│   ├── smart-socket-3x
+│   ├── smart-fan
+│   ├── smart-cct-bulb
+│   └── future-products
+│
+└── configs
+    ├── production
+    ├── development
+    └── test
+
+If a separate Git repository per product is more appropriate for production, keep a shared versioned common firmware library/package/submodule strategy.
+
+Do not duplicate common code.
+
+==================================================
+16. PRODUCT-SPECIFIC FIRMWARE
+==================================================
+
+Example:
+
+smart-switch-3x
+
+configuration:
+channels = 3
+inputs = 3
+relayOutputs = 3
+energy = true
+fanSpeed = false
+cct = false
+localSwitch = true
+matter = true/false depending on SKU
+thread = true/false depending on SKU
+wifi = true
+ble = true
+ota = true
+
+smart-fan
+
+configuration:
+fanSpeed = true
+speedLevels = 5
+localSwitch = true
+relay = true
+energy = true
+
+smart-cct-bulb
+
+configuration:
+brightness = true
+cct = true
+temperatureRange = ...
+energy = optional
+
+
+Do not hardcode product behavior across unrelated modules.
+
+==================================================
+17. PCB ARCHITECTURE
+
+Use:
+
+Common platform
++
+Product-specific load/control PCB
+
+Do not unnecessarily create a completely different electronics architecture for every SKU.
+
+Common where economically sensible:
+
+ESP32-C6 module/platform
+security
+provisioning
+communication
+debug
+firmware architecture
+power architecture where appropriate
+
+Product-specific:
+
+relay count
+load type
+current rating
+socket arrangement
+switch inputs
+fan control
+CCT driver
+dimmer
+sensing
+energy measurement
+enclosure
+connectors
+
+The final PCB architecture must always respect electrical safety, creepage/clearance, isolation, surge protection, thermal requirements and applicable certification requirements.
+
+==================================================
+18. PRODUCT VARIANT STRATEGY
+
+Do NOT assume every product must contain every feature.
+
+Use product tiers.
+
+Example:
+
+EH Smart Basic
+
+Wi-Fi
+BLE setup
+local control
+remote control
+physical control
+OTA
+security
+state synchronization
+
+EH Smart Plus
+
+everything in Basic
+Matter
+Alexa/Google/Apple ecosystem interoperability
+
+EH Smart Pro
+
+everything in Plus
+Thread where useful
+large-home deployment
+advanced diagnostics
+advanced automation
+additional sensors/features
+
+However, do not create artificial limitations that make Basic products unreliable.
+
+All products must maintain:
+
+safe electrical operation
+reliable local control
+secure identity
+OTA
+correct state synchronization
+==================================================
+19. WIFI / THREAD / MATTER / BORDER ROUTER
+
+Use the following conceptual architecture.
+
+Wi-Fi:
+Main connectivity for normal products.
+
+Thread:
+Optional mesh technology for suitable products and large-home scenarios.
+
+Matter:
+Interoperability/application standard for supported products.
+
+BLE:
+Primarily provisioning/commissioning/service.
+
+Thread Border Router:
+A networking function connecting Thread to the home's IP network.
+
+Do NOT force customers to buy a proprietary EH Hub for every installation.
+
+Normal Wi-Fi products should work with the customer's existing home router.
+
+Thread products should be able to use compatible Thread Border Router infrastructure.
+
+An EH Gateway/Border Router may exist as an optional premium product for cases where customers need it.
+
+Do NOT expose these engineering concepts unnecessarily in the normal app UI.
+
+==================================================
+20. MATTER / ALEXA / GOOGLE / APPLE
+
+Where supported, use Matter for interoperability.
+
+Do not make the entire EH ecosystem dependent on one third-party platform.
+
+Your architecture must preserve:
+
+Your App
++
+Your Cloud
++
+Local Control
++
+Matter interoperability
+
+A customer should be able to use:
+
+EH App
+Alexa
+Google Home
+Apple Home
+where supported by the product/certification.
+==================================================
+21. AUTOMATIONS / ROUTINES
+
+My app already supports routines/automations.
+
+Every device's metadata must describe automation capabilities.
+
+Example:
+
+Smart Switch:
+
+Triggers:
+
+switched on
+switched off
+power threshold
+time
+device state
+
+Actions:
+
+turn on
+turn off
+toggle
+
+Smart Fan:
+
+Triggers:
+
+speed changed
+power threshold
+time
+
+Actions:
+
+set speed
+turn on
+turn off
+
+Smart CCT bulb:
+
+Actions:
+
+on/off
+brightness
+CCT
+scene/preset
+
+Automation UI must be generated from capabilities.
+
+Do not hardcode every device into the routine engine.
+
+==================================================
+22. LOCAL AUTOMATION
+
+Where possible, critical home automations should execute locally.
+
+Example:
+
+Motion sensor
+↓
+Local automation engine
+↓
+Light ON
+
+Internet outage should not unnecessarily break local home behavior.
+
+Cloud can synchronize/configure automations.
+
+==================================================
+23. DEVICE EVENTS
+
+Design an event model.
+
+Examples:
+
+device.online
+device.offline
+switch.changed
+relay.changed
+power.changed
+energy.updated
+fan.speed_changed
+cct.changed
+device.added
+device.removed
+device.reset
+firmware.update_started
+firmware.update_progress
+firmware.update_completed
+firmware.update_failed
+
+Physical switch events must be first-class events.
+
+==================================================
+24. OTA / FIRMWARE MANAGEMENT
+
+The app/admin system must support:
+
+one device update
+selected devices
+all devices of one product
+selected product variants
+all eligible devices
+staged rollout
+firmware version targeting
+hardware compatibility
+update progress
+success/failure
+rollback
+update history
+
+Example UI:
+
+Firmware Update
+
+Smart Switch 1X
+120 devices
+
+Smart Switch 2X
+240 devices
+
+Smart Switch 3X
+510 devices
+
+Smart Socket 3X
+190 devices
+
+Update Selected
+
+Device update states:
+
+Queued
+Downloading
+Installing
+Rebooting
+Verifying
+Success
+Failed
+Rolled Back
+
+The system must NEVER send incompatible firmware to a device.
+
+Firmware compatibility must be based on:
+productId
+hardwareRevision
+bootloader compatibility
+minimum firmware version
+feature compatibility
+
+==================================================
+25. OTA SECURITY
+
+Production firmware architecture must support:
+
+signed firmware
+secure boot
+encrypted firmware/storage where appropriate
+secure OTA transport
+firmware integrity verification
+rollback
+anti-downgrade policy where appropriate
+device identity
+secure credentials
+unique device credentials
+manufacturing provisioning
+
+Do not store production secrets in source code.
+
+==================================================
+26. HOME / ROOM / DEVICE DATA MODEL
+
+Use hierarchy:
+
+Account
+↓
+Home
+↓
+Floor
+↓
+Room
+↓
+Device
+↓
+Channel
+
+Example:
+
+Home:
+EH Home
+
+Floor:
+Ground Floor
+
+Room:
+Living Room
+
+Device:
+Smart Switch 3X
+
+Channels:
+Light
+Fan
+Socket
+
+The same architecture must support:
+
+apartments
+1-floor homes
+3-floor homes
+villas
+multiple homes per account
+==================================================
+27. PRODUCT DISCOVERY / CATALOG
+
+Create a product catalog architecture.
+
+App can fetch:
+
+product families
+models
+variants
+availability
+images
+specifications
+supported features
+compatible firmware
+installation requirements
+
+When user selects:
+"Add Device"
+
+the app should dynamically determine which products are supported.
+
+==================================================
+28. FUTURE PRODUCT EXTENSIBILITY
+
+I must be able to add a future product like:
+
+"EH Smart Curtain Controller"
+
+without rewriting:
+
+app navigation
+device architecture
+automation engine
+OTA engine
+cloud device model
+
+I should mainly add:
+
+product metadata
+capabilities
+firmware
+device-specific hardware driver
+UI schema if truly necessary
+images/specifications
+
+The architecture must be schema-driven.
+
+==================================================
+29. APP UI GENERATION
+
+Create reusable UI primitives:
+
+SwitchControl
+SliderControl
+FanSpeedControl
+BrightnessControl
+CCTControl
+PowerMeter
+EnergyChart
+DeviceStatus
+ChannelCard
+SensorValue
+AutomationTrigger
+AutomationAction
+FirmwareStatus
+ConnectionStatus
+DiagnosticStatus
+
+Metadata decides which components are shown.
+
+Example:
+
+capabilities:
+["switch", "energy"]
+
+UI:
+SwitchControl
+PowerMeter
+EnergyChart
+
+Another device:
+
+capabilities:
+["fan", "fan_speed", "energy"]
+
+UI:
+PowerControl
+FanSpeedControl
+PowerMeter
+EnergyChart
+
+Another:
+
+capabilities:
+["light", "brightness", "cct"]
+
+UI:
+PowerControl
+BrightnessControl
+CCTControl
+
+==================================================
+30. PRODUCT IMAGES
+
+Product metadata must support:
+
+hero image
+front image
+back image
+installation image
+wiring diagram
+channel diagram
+product thumbnail
+room mockup image
+technical image
+
+Do not hardcode image URLs in components.
+
+Images should come from product metadata/content configuration.
+
+==================================================
+31. DEVICE CONFIGURATION
+
+Device metadata should distinguish:
+
+Product capability
+from
+Individual device configuration.
+
+Example:
+
+Product:
+Smart Switch 3X
+
+Device A:
+Living Room
+Channel 1 = Ceiling Light
+Channel 2 = Fan
+Channel 3 = Wall Light
+
+Device B:
+Kitchen
+Channel 1 = Main Light
+Channel 2 = Exhaust
+Channel 3 = Socket
+
+Same product.
+Different user configuration.
+
+==================================================
+32. ENERGY DATA
+
+Design telemetry so that the app can support:
+
+real-time power
+historical energy
+daily
+weekly
+monthly
+yearly
+device-level
+channel-level
+home-level totals
+
+If hardware supports only some measurements, metadata determines what is displayed.
+
+Never display fake measurements.
+
+==================================================
+33. DIAGNOSTICS
+
+Device detail should optionally support:
+
+online/offline
+Wi-Fi signal
+connection type
+firmware version
+hardware revision
+uptime
+last seen
+last error
+relay status
+input status
+energy sensor health
+OTA status
+
+Advanced diagnostics can be hidden from normal users and exposed through service/admin mode.
+
+==================================================
+34. MANUFACTURING DATA
+
+Production system should support:
+
+serial number
+MAC
+device ID
+product ID
+hardware revision
+batch
+factory test status
+manufacturing date
+firmware loaded at factory
+production calibration
+energy sensor calibration if applicable
+
+Device should leave factory with unique identity.
+
+==================================================
+35. FACTORY RESET
+
+Support:
+
+physical reset
+app reset
+factory service reset
+
+Factory reset should remove user ownership/configuration appropriately but preserve manufacturing identity required for secure re-provisioning.
+
+==================================================
+36. REPOSITORY ORGANIZATION
+
+Create a clear separation:
+
+/app
+/backend
+/cloud
+/firmware
+/product-definitions
+/shared-schemas
+/docs
+/manufacturing
+/tools
+
+Firmware repositories should be product-oriented but share common platform code.
+
+Product definitions should be centralized/versioned.
+
+Example:
+
+product-definitions/
+smart-switch/
+1x/
+2x/
+3x/
+smart-socket/
+1x/
+2x/
+3x/
+smart-fan/
+smart-cct-bulb/
+
+Each product definition should contain metadata, capabilities, images, electrical specs, firmware compatibility and UI capabilities.
+
+==================================================
+37. VERSIONING
+
+Use versioning for:
+
+product schema
+device schema
+firmware
+hardware revision
+API
+capability schema
+
+Old devices must continue working when new products are added.
+
+Never break existing devices because a new product was introduced.
+
+==================================================
+38. BACKWARD COMPATIBILITY
+
+The app must support old firmware devices.
+
+Backend must support multiple firmware versions.
+
+New app versions must gracefully handle devices with missing capabilities.
+
+Example:
+
+If old device doesn't support energy:
+
+Do not crash.
+
+Hide energy UI.
+
+If old device doesn't support Matter:
+
+Do not show Matter control.
+
+If old device has 2 channels:
+
+Do not expect 3.
+
+==================================================
+39. PRODUCTION QUALITY
+
+Do not optimize only for demo functionality.
+
+Prioritize:
+
+reliability
+security
+low latency
+offline local operation
+state consistency
+OTA safety
+backward compatibility
+manufacturing scalability
+serviceability
+observability
+testability
+certification readiness
+
+==================================================
+40. REQUIRED DELIVERABLE BEFORE IMPLEMENTATION
+
+Before modifying the project, produce:
+
+Current architecture analysis
+Proposed final architecture
+Product family model
+Product metadata schema
+Capability schema
+Device state model
+Event model
+Firmware architecture
+Firmware repository structure
+PCB/product variant strategy
+OTA architecture
+Local/cloud communication flow
+Physical switch synchronization flow
+Energy telemetry flow
+Automation integration flow
+Matter/Thread/Wi-Fi architecture
+Product catalog architecture
+App dynamic UI architecture
+Required backend APIs
+Database schema changes
+Security model
+Testing strategy
+Manufacturing provisioning flow
+Product onboarding flow
+Future-product addition workflow
+
+Do NOT start implementation until this architecture is internally consistent.
+
+==================================================
+41. IMPORTANT RULE
+
+Do not introduce:
+
+unnecessary hub dependency
+unnecessary gateway dependency
+hardcoded product UIs
+duplicated firmware logic
+duplicated product metadata
+fake energy values
+cloud-only home control
+app-only state assumptions
+incompatible OTA
+product-specific hacks that break the common platform
+==================================================
+42. FINAL PRODUCT EXPERIENCE
+
+The user experience should feel like:
+
+Buy product
+↓
+Install
+↓
+Power ON
+↓
+Open EH App
+↓
+Scan QR
+↓
+Device detected
+↓
+Connect
+↓
+Select Home
+↓
+Select Room
+↓
+Configure channels
+↓
+Test
+↓
+Done
+
+Then:
+
+Physical switch
+OR
+EH App
+OR
+Automation
+OR
+Matter/voice assistant
+
+can control the device.
+
+All paths update the same actual device state.
+
+The user can later:
+
+Add Device
+
+and add another product without buying another starter kit or creating another Home.
+
+==================================================
+43. DO NOT ASSUME MY CURRENT PRODUCT LIST IS FINAL
+
+Current known products:
+
+Smart Switches
+Smart Sockets
+Smart + Local Switch combinations
+Smart + Local Socket combinations
+Smart Fan Speed Controller
+Smart + Local Fan Controller
+Smart CCT Bulb
+other smart lighting products
+
+Future products will be added.
+
+Therefore architecture must be product-agnostic and capability-driven.
+
+==================================================
+44. MOST IMPORTANT FINAL GOAL
+
+I want one professional EH Smart Home ecosystem where:
+
+ONE APP
+ONE ACCOUNT
+MULTIPLE HOMES
+MULTIPLE FLOORS
+MULTIPLE ROOMS
+UNLIMITED PRODUCT TYPES
+UNLIMITED PRODUCT VARIANTS
+ONE DEVICE MODEL
+ONE CAPABILITY SYSTEM
+ONE AUTOMATION SYSTEM
+ONE OTA SYSTEM
+ONE CLOUD
+LOCAL + REMOTE CONTROL
+PHYSICAL + APP + AUTOMATION + VOICE CONTROL
+ENERGY MONITORING
+FUTURE PRODUCT SUPPORT
+
+The app should regenerate device UI based on product/device metadata and capabilities instead of static product-specific UI code.
+
+The firmware architecture should follow the same principle.
+
+The backend/cloud should follow the same principle.
+
+The product repository structure should follow the same principle.
+
+==================================================
+45. IMPLEMENTATION RULE
+
+First inspect my existing codebase.
+
+Then map:
+
+EXISTING
+vs
+REQUIRED
+
+Do not blindly rewrite.
+
+Identify what can be reused.
+
+Identify what needs refactoring.
+
+Identify what must be newly implemented.
+
+Create a migration plan.
+
+Then implement in controlled phases.
+
+After each major phase:
+
+run tests
+verify build
+verify types
+verify existing screens
+verify existing features
+verify device metadata
+verify local control flow
+verify cloud flow
+verify OTA data model
+verify automation compatibility
+
+Do not break existing UI/UX unnecessarily.
+
+Keep the current visual design system unless a change is required for the architecture.
+
+==================================================
+46. FINAL EXPECTATION
+
+The result must be a scalable production-grade foundation, not just a working prototype.
+
+The architecture must allow me to add:
+
+"EH Smart XYZ"
+
+in the future by defining:
+
+product metadata
++
+capabilities
++
+hardware/firmware
++
+images
++
+electrical specifications
++
+firmware compatibility
+
+and the app should automatically know how to display and control it.
+
+Before implementation, show me the complete proposed architecture and folder/repository structure and explain why each part exists.

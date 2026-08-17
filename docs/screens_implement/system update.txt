@@ -1,0 +1,856 @@
+System Update Nested Screen Implementation Plan
+
+When user taps:
+
+Settings → System update
+
+open one reusable:
+
+SystemUpdatePage
+
+Purpose:
+
+Check, understand, and safely install EH Home software/firmware updates.
+
+This screen should support app updates, Hub firmware, and Node/device firmware later, but current implementation should show only update types that actually exist.
+
+1. Navigation
+Settings
+   ↓
+System update
+   ↓
+SystemUpdatePage
+
+Back:
+
+SystemUpdatePage
+      ↓
+Settings
+
+Keep Settings selected in bottom navigation.
+
+2. Header
+
+Use same nested Settings pattern:
+
+←   System update
+
+Subtitle:
+
+Keep EH Home and your devices up to date.
+
+Optional help icon:
+
+?
+
+Tap it → short explanation about why updates matter.
+
+3. Top Update Status Card
+
+This is the most important part.
+
+Everything up to date
+┌─────────────────────────────────────┐
+│              ✓                      │
+│                                     │
+│       Everything is up to date      │
+│                                     │
+│       EH Home                    │
+│       Version 1.0.0                 │
+│                                     │
+│       Last checked just now         │
+└─────────────────────────────────────┘
+
+Primary action:
+
+[ Check for updates ]
+Update available
+┌─────────────────────────────────────┐
+│              ↓                      │
+│                                     │
+│       Update available              │
+│                                     │
+│       Version 1.1.0                 │
+│       42 MB                         │
+│                                     │
+│       Security and reliability      │
+│       improvements                  │
+│                                     │
+│       [ View update ]               │
+└─────────────────────────────────────┘
+
+Don't immediately start downloading.
+
+User should see what is being updated first.
+
+4. Multiple Update Sources
+
+Because EH Home will eventually have:
+
+Flutter App
+Hub
+ESP32 Node
+
+do not create one fake generic version.
+
+Use an update target model:
+
+UpdateTarget
+├── app
+├── hub
+└── device
+
+Then show only the targets relevant to the current system.
+
+Example:
+
+YOUR SYSTEM
+
+
+EH Home app
+Version 1.4.0
+✓ Up to date
+
+
+Smart Home Hub
+Firmware 2.1.0
+↓ Update available
+
+
+Bedroom Node
+Firmware 1.0.4
+✓ Up to date
+
+For your current architecture, where Node firmware exists but backend/hub update infrastructure isn't ready, don't pretend a real OTA update is available.
+
+5. Current Preview Release
+
+Since your current firmware/backend integration is still being built:
+
+System update
+
+
+EH Home
+Version 1.0.0
+
+
+No updates available.
+
+
+Device firmware updates will become
+available after your home is securely
+connected.
+
+If update service isn't implemented yet:
+
+Update service unavailable
+
+
+Connect your home to check device
+firmware updates.
+
+Don't show a fake:
+
+Update ready
+
+just to fill the UI.
+
+6. Update Details Screen
+
+When user taps:
+
+View update
+
+open:
+
+← System update
+
+
+Version 1.1.0
+
+
+Security and reliability update
+
+
+42 MB
+
+
+What's new
+────────────────────────
+
+
+• Improved device connection stability
+• Faster home synchronization
+• Improved routine reliability
+• Security improvements
+
+
+────────────────────────
+
+
+Before you update
+
+
+• Keep your device powered on.
+• Keep it connected to the network.
+• Do not unplug during the update.
+
+
+[ Update now ]
+
+This gives the user confidence before an important operation.
+
+7. Release Notes
+
+Always make release notes human-readable.
+
+Good:
+
+What's new
+
+
+Better connection reliability
+Improved device setup
+Improved routine execution
+Security improvements
+
+Avoid engineering text like:
+
+BLE stack patch
+NVS migration
+GATT service optimization
+
+unless shown in a technical diagnostics area.
+
+8. Update Compatibility
+
+Before allowing update:
+
+Device compatibility
+
+
+✓ Supported hardware
+✓ Battery / power sufficient
+✓ Network available
+✓ Device reachable
+
+If one condition fails:
+
+Update can't start yet
+
+
+Your device is offline.
+
+
+Reconnect the device and try again.
+
+This should be based on actual device state.
+
+9. Update Preparation
+
+After user taps:
+
+Update now
+
+show:
+
+Preparing update...
+
+
+✓ Checking device
+✓ Checking firmware
+● Preparing download
+○ Installing
+○ Verifying
+
+Don't jump straight to:
+
+Downloading 100%
+
+without showing what the system is doing.
+
+10. Download State
+Downloading update
+
+
+Version 1.1.0
+
+
+68%
+██████████████░░░░
+
+
+Keep your device connected.
+
+If update is large:
+
+42 MB
+28 MB downloaded
+11. Installation State
+
+This is the most sensitive state.
+
+Installing update
+
+
+Please don't turn off your device.
+
+
+██████████████████
+
+
+Installing...
+
+If the Node reboots:
+
+Restarting device
+
+
+Your device may be unavailable
+for a few moments.
+
+The user must understand this is expected.
+
+12. Verification
+
+Never consider update successful merely because the file was written.
+
+Use:
+
+Installing
+   ↓
+Device reboot
+   ↓
+Device reconnect
+   ↓
+Version verification
+   ↓
+Success
+
+UI:
+
+Verifying update
+
+
+✓ Device restarted
+✓ Device connected
+✓ Firmware version verified
+
+
+Version 1.1.0
+
+Only then show:
+
+Update complete.
+
+13. Successful Completion
+Update complete
+
+
+EH Home
+Version 1.1.0
+
+
+✓ Installation successful
+
+
+Your device is back online.
+
+
+[ Done ]
+
+Optionally:
+
+Updated just now
+14. Failed Update
+
+This needs serious handling.
+
+Update couldn't be completed
+
+
+Your device is still running
+its previous firmware.
+
+
+No changes were made to your
+current working version.
+
+
+[ Try again ]
+
+
+[ Get help ]
+
+Never tell the user:
+
+Update failed
+
+without explaining whether the existing firmware remains safe.
+
+For OTA systems, rollback/boot selection should ensure the previous working image remains usable where supported.
+
+15. Device Offline During Update
+Update paused
+
+
+Your device went offline.
+
+
+Reconnect the device to continue.
+
+
+[ Try again ]
+
+Don't automatically keep retrying forever.
+
+16. Low Power / Power Safety
+
+If the device is battery-powered:
+
+Update unavailable
+
+
+Battery level is too low.
+
+
+Charge the device before updating.
+
+If your device is mains-powered, don't display battery checks that don't apply.
+
+Again:
+
+UI must follow actual product capability.
+
+17. Network Failure
+Couldn't download the update
+
+
+Check your internet connection
+and try again.
+
+
+[ Retry ]
+
+If firmware is transferred locally from phone to Node, the error model changes accordingly.
+
+Don't hard-code cloud assumptions.
+
+18. Update History
+
+A production system should eventually have:
+
+Update history
+
+
+Version 1.1.0
+Installed Aug 15 · 1:22 PM
+✓ Successful
+
+
+Version 1.0.2
+Installed Jul 28 · 6:40 PM
+✓ Successful
+
+Tap one:
+
+Version 1.0.2
+Release notes
+Installation result
+Device
+Timestamp
+
+But for the first release, this can remain read-only or omitted until real update records exist.
+
+19. Automatic Update Option
+
+Eventually:
+
+Update preferences
+
+
+Automatic updates
+[ ON ]
+
+
+Install updates automatically
+when your home is idle.
+
+But don't add this until your update engine can safely determine:
+
+device available
+safe update window
+power state
+network state
+rollback
+verification
+
+For a production smart-home product, automatic OTA should never be a simple timer-based action.
+
+20. Update Scheduling
+
+Later:
+
+Update preferences
+
+
+Preferred update time
+10:00 PM
+
+
+Don't update while devices
+are actively in use
+
+This is useful for systems where an update causes temporary device downtime.
+
+21. Firmware vs App Update
+
+This distinction should be explicit.
+
+App update
+EH Home app
+Version 2.0.0
+
+
+Update through
+Google Play / App Store
+Device firmware update
+Smart Mist Maker
+Firmware 1.2.0
+
+
+Update through EH Home
+
+Don't make users think the Flutter app is updating itself from your custom OTA screen.
+
+22. Node-specific update flow
+
+For your current ESP32 Node:
+
+EH Home app
+       ↓
+Secure connection
+       ↓
+Node authentication
+       ↓
+Read current firmware
+       ↓
+Check compatibility
+       ↓
+Transfer firmware
+       ↓
+ESP32 OTA write
+       ↓
+Reboot
+       ↓
+Node reconnects
+       ↓
+Verify firmware version
+       ↓
+Success
+
+The Node should not be declared updated until the final verification succeeds.
+
+23. Firmware Information
+
+Advanced section:
+
+CURRENT VERSIONS
+
+
+EH Home
+1.0.0
+
+
+Smart Mist Maker
+1.0.2
+
+
+Hardware revision
+REV-A
+
+
+Device ID
+SH-8EF248
+
+Keep technical identifiers here, not in the main update card.
+
+24. Security Rules
+
+This part is critical for production.
+
+OTA should use:
+
+Signed firmware
++
+Authenticated update source
++
+Version validation
++
+Integrity verification
++
+Rollback protection
+
+The app should never simply accept an arbitrary .bin file and install it on a production device.
+
+The UI does not need to explain cryptography, but the backend/firmware implementation must enforce it.
+
+25. Don't Allow Downgrade Casually
+
+Example:
+
+Current version
+1.2.0
+
+
+Available
+1.1.0
+
+Don't offer:
+
+Downgrade
+
+normally.
+
+If rollback is required for support, make it an advanced recovery mechanism with explicit authorization.
+
+26. Update State Model
+
+Use an explicit state machine:
+
+UpdateState
+
+
+idle
+checking
+updateAvailable
+preparing
+downloading
+verifyingDownload
+installing
+restarting
+verifyingInstallation
+completed
+failed
+paused
+cancelled
+
+This is much better than:
+
+bool isUpdating;
+27. Update Model
+
+Use:
+
+SystemUpdate
+├── target
+├── currentVersion
+├── availableVersion
+├── size
+├── releaseNotes[]
+├── publishedAt
+├── compatibility
+├── securityUpdate
+└── status
+
+For update history:
+
+UpdateRecord
+├── id
+├── target
+├── fromVersion
+├── toVersion
+├── startedAt
+├── completedAt
+├── result
+└── failureReason
+28. Repository Architecture
+
+Create:
+
+UpdateRepository
+├── getCurrentVersions()
+├── checkForUpdates()
+├── getUpdateDetails(target)
+├── prepareUpdate(target)
+├── startUpdate(target)
+├── getUpdateProgress(target)
+├── cancelUpdate(target)
+└── getUpdateHistory(target)
+
+Each mutation should return explicit results:
+
+success
+unsupported
+unauthorized
+unavailable
+failed
+
+This matches your existing repository architecture.
+
+29. Preview Release Behavior
+
+Because your current firmware/backend doesn't yet have the complete production OTA infrastructure:
+
+Supported now
+Show current firmware version
+Show update status
+Show preview release notes
+Show update architecture
+Not falsely supported
+Actual firmware installation
+Actual OTA transfer
+Actual reboot verification
+Actual rollback
+
+Until those exist, show:
+
+Device firmware updates will be available after secure home setup is complete.
+
+Don't let a fake Update now button pretend that an ESP32 was actually updated.
+
+30. Settings Integration
+
+When the Settings main page shows:
+
+System update
+Your system is up to date
+
+or:
+
+System update
+1 update available
+
+that summary should be driven by the same UpdateRepository.
+
+Do not have:
+
+SettingsPage
+
+and:
+
+SystemUpdatePage
+
+maintain separate update states.
+
+31. Activity Integration
+
+A successful real update should generate an Activity event:
+
+System update completed
+Smart Mist Maker was updated to version 1.1.0.
+
+A failed update:
+
+System update failed
+Smart Mist Maker remains on version 1.0.2.
+
+Then:
+
+Activity
+   ↓
+Update event
+   ↓
+System Update Detail
+
+This connects your Settings → Update → Activity architecture.
+
+32. Testing
+Update list/status
+Up to date
+Update available
+Update service unavailable
+Multiple devices
+Unsupported device
+Download
+Success
+Network failure
+Timeout
+Retry
+Installation
+Success
+Device restart
+Verification failure
+Rollback
+Device offline
+Security
+Invalid firmware
+Incompatible firmware
+Unauthorized update
+Downgrade attempt
+UI
+360dp
+RMX2001
+Long release notes
+Long version names
+No overflow
+Loading/error states
+Navigation
+Settings
+ ↓
+System update
+ ↓
+Update details
+ ↓
+Install
+ ↓
+Result
+ ↓
+Activity
+33. Final screen hierarchy
+Settings
+   ↓
+System update
+   ↓
+SystemUpdatePage
+   │
+   ├── Current status
+   │
+   ├── Available update
+   │      ↓
+   │   Update details
+   │      ↓
+   │   Compatibility
+   │      ↓
+   │   Install
+   │      ↓
+   │   Progress
+   │      ↓
+   │   Verify
+   │      ↓
+   │   Success / Failure
+   │
+   ├── Current versions
+   │
+   ├── Update history
+   │
+   └── Update preferences
+Final production principle
+
+The most important rule for EH Home OTA is:
+
+Downloaded
+    ≠
+Installed
+
+
+Installed
+    ≠
+Verified
+
+
+Verified
+    =
+Update complete
+
+And for the current project:
+
+UI preview
+    ↓
+No fake firmware update
+    ↓
+Repository boundary ready
+    ↓
+Real ESP32 OTA later
+
+This keeps the System Update screen production-grade now while remaining honest about what your current ESP32 Node/backend actually supports.

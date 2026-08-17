@@ -1,0 +1,38 @@
+name: smart_home_application_v1
+description: "EH Home — smart home control app."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_reactive_ble: 5.5.0
+  permission_handler: 12.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/branding/logo.png
+  adaptive_icon_background: "#090D14"
+  adaptive_icon_foreground: assets/branding/logo.png
+  web:
+    generate: true
+    image_path: assets/branding/logo.png
+    background_color: "#090D14"
+    theme_color: "#155CC8"
+  remove_alpha_ios: true
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/logo.png
+    - assets/branding/app_startup_without_loading.png

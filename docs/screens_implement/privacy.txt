@@ -1,0 +1,904 @@
+Privacy Nested Screen Implementation Plan
+
+When the user taps:
+
+Settings → Privacy
+
+open a dedicated:
+
+PrivacyPage
+
+The purpose should be very clear:
+
+Let the user understand what EH Home collects, why it is used, what is stored locally or remotely, and what they can control.
+
+This screen should be transparent, calm, and simple. Privacy should never feel like a legal maze.
+
+1. Navigation
+Settings
+   ↓
+Privacy
+   ↓
+PrivacyPage
+
+Back:
+
+PrivacyPage → Settings
+
+Keep Settings selected in the bottom navigation.
+
+2. Header
+
+Use the same nested-screen design:
+
+←   Privacy                              ?
+
+Subtitle:
+
+Manage your data and privacy preferences.
+
+Keep the header compact.
+
+3. Privacy Status Card
+
+At the top, give the user an immediate summary.
+
+Example
+┌─────────────────────────────────────┐
+│              🛡                     │
+│                                     │
+│       Your privacy is in your      │
+│       control                       │
+│                                     │
+│       Review what EH Home       │
+│       stores and shares.            │
+└─────────────────────────────────────┘
+
+Do not display claims such as:
+
+Your data is completely private
+
+unless your actual architecture guarantees that statement.
+
+Use neutral, verifiable wording.
+
+4. Your Data Section
+YOUR DATA
+
+Provide clear categories.
+
+┌─────────────────────────────────────┐
+│ Home and device data              › │
+│ Devices, rooms, and configuration   │
+├─────────────────────────────────────┤
+│ Activity history                  › │
+│ Events recorded by your home       │
+├─────────────────────────────────────┤
+│ Routine data                      › │
+│ Your routines and automation rules │
+├─────────────────────────────────────┤
+│ Account information               › │
+│ Information used for your account  │
+└─────────────────────────────────────┘
+
+Each row opens a dedicated explanation.
+
+5. Home and Device Data
+
+Nested screen:
+
+←   Home and device data
+
+
+EH Home may store information
+needed to manage your home and devices.
+
+
+HOME
+
+
+Home name
+Location
+Time zone
+
+
+DEVICES
+
+
+Device name
+Device type
+Device configuration
+Firmware version
+Connection status
+
+
+WHY WE USE IT
+
+
+To display and manage your home,
+devices, rooms, and settings.
+
+Be specific about actual data.
+
+Do not invent categories that the product does not collect.
+
+6. Activity History
+
+Nested screen:
+
+←   Activity history
+
+
+Activity records help you understand
+what happened in your home.
+
+
+Examples:
+
+
+• Device state changes
+• Routine executions
+• Connection events
+• System events
+• Device warnings
+
+
+Storage
+[ Local / Cloud / Hybrid ]
+
+
+Retention
+[ Actual configured policy ]
+
+
+[ Manage activity data ]
+
+The storage and retention labels must reflect the real architecture.
+
+7. Routine Data
+
+Show:
+
+←   Routine data
+
+
+Your routines may include:
+
+
+• Routine name
+• Trigger
+• Conditions
+• Actions
+• Schedule
+• Device references
+
+
+Used to run and display your routines.
+
+Do not say:
+
+Routines are stored only locally
+
+unless that is actually true.
+
+8. Account Information
+
+If your app has accounts:
+
+←   Account information
+
+
+Information used for your EH Home account
+
+
+• Account identity
+• Home ownership
+• Home membership
+• Access permissions
+
+If there is no cloud account system yet, clearly mark the current state:
+
+Account services will become available after account/backend integration.
+
+Don't build fake cloud privacy controls before the backend exists.
+
+9. Permissions Section
+
+This is important for a mobile app.
+
+PERMISSIONS
+
+Show actual permissions:
+
+┌─────────────────────────────────────┐
+│ Bluetooth                           │
+│ Used to discover and set up devices│
+│ Allowed                           › │
+├─────────────────────────────────────┤
+│ Notifications                       │
+│ Used for alerts and routine updates│
+│ Allowed                           › │
+├─────────────────────────────────────┤
+│ Location                            │
+│ Used only when location features   │
+│ need it                            › │
+└─────────────────────────────────────┘
+
+Do not list a permission just because Android/iOS makes it technically possible.
+
+Only show permissions your app actually uses.
+
+10. Permission Detail
+
+Tap Bluetooth:
+
+←   Bluetooth access
+
+
+EH Home uses Bluetooth to:
+
+
+• Find nearby EH Home devices
+• Set up devices
+• Connect securely during setup
+
+
+Current status
+Allowed
+
+
+[ Open system settings ]
+
+This is better than simply saying:
+
+Bluetooth: Allowed
+
+because the user understands why the permission exists.
+
+11. Notifications
+
+Tap Notifications:
+
+←   Notifications
+
+
+EH Home can send notifications
+for important home events.
+
+
+Examples:
+
+
+• Device warnings
+• Routine results
+• System updates
+• Connection issues
+
+
+Current status
+Enabled
+
+
+[ Open system settings ]
+
+Later you can provide in-app notification categories.
+
+12. Location
+
+Do not make location sound mandatory.
+
+Example:
+
+←   Location
+
+
+Location is only used when a EH Home
+feature needs it.
+
+
+Possible uses:
+
+
+• Home time zone
+• Sunrise and sunset routines
+• Local home features
+
+
+Current status
+Not requested
+
+
+[ Allow location ]
+
+If your product does not actually need location for these features, do not list them.
+
+13. Privacy Preferences
+
+Section:
+
+PRIVACY PREFERENCES
+
+Possible controls:
+
+Personalized notifications
+[ ON ]
+
+
+Diagnostic data sharing
+[ OFF ]
+
+
+Usage analytics
+[ OFF ]
+
+However:
+
+Only expose these controls if the backend/app actually supports them.
+
+Do not create switches that only change Flutter state without changing real behavior.
+
+14. Diagnostic Data Sharing
+
+This is especially relevant to your IoT support architecture.
+
+Show:
+
+Diagnostic data
+
+
+Help Haven understand device and
+connection problems.
+
+
+When enabled, support may receive
+technical information such as:
+
+
+• Device model
+• Firmware version
+• Connection state
+• Recent error information
+
+
+It does not include:
+• Wi-Fi passwords
+• Security keys
+• Account passwords
+
+The second list must match your actual implementation.
+
+15. Before Support Upload
+
+When Help & Support asks to include diagnostics:
+
+Diagnostics sharing
+
+
+Review information before sending.
+
+
+Included:
+✓ Device model
+✓ Firmware version
+✓ Connection state
+✓ Recent errors
+
+
+Not included:
+✓ Wi-Fi password
+✓ Security credentials
+
+
+[ Review ]
+[ Continue ]
+
+This provides a strong privacy boundary.
+
+16. Data Storage Section
+
+Show users where their data lives, but only accurately.
+
+Example:
+
+DATA STORAGE
+
+
+Home data
+Stored on your Haven system
+
+
+Activity
+Stored locally and synchronized when available
+
+
+Account data
+Stored with EH Home services
+
+The exact wording must match your actual local/cloud/hybrid architecture.
+
+17. Data Export
+
+For a future production backend, consider:
+
+YOUR DATA
+
+
+Download your data
+
+Nested:
+
+Download your data
+
+
+You can request a copy of your
+EH Home information.
+
+
+Includes:
+• Home details
+• Device configuration
+• Routines
+• Activity history
+
+
+[ Request data ]
+
+Do not implement this visually until your backend can actually generate the export.
+
+18. Delete Activity
+
+Potentially:
+
+Delete activity history
+
+Confirmation:
+
+Delete activity history?
+
+
+This will remove your stored activity
+history from the supported EH Home systems.
+
+
+This action cannot be undone.
+
+
+[ Cancel ]
+[ Delete history ]
+
+Only enable this once deletion can actually be performed across every relevant data store.
+
+19. Delete Home Data
+
+This should be separate from:
+
+Factory reset
+
+because these are not necessarily the same thing.
+
+Factory reset
+Device configuration reset
+Remove home
+Home/account relationship removed
+Delete cloud data
+Remote data deletion
+
+Do not combine all three into one destructive action.
+
+20. Privacy Policy
+
+Section:
+
+LEGAL & INFORMATION
+
+Show:
+
+Privacy policy
+Terms of service
+Data practices
+
+Each should open the appropriate current document.
+
+Do not ship placeholder legal text pretending to be final.
+
+21. Privacy Policy Availability
+
+If the actual legal content is not ready:
+
+Privacy policy
+
+
+This document will be available
+when EH Home services launch.
+
+But for a real public production release, the actual legal documents should be provided by the company/legal team.
+
+22. Security Information
+
+Add:
+
+SECURITY
+
+Possible:
+
+Device security
+Secure device communication
+
+
+Account security
+Manage account security
+
+
+Connected sessions
+Review active sessions
+
+Again, only expose operations that actually exist.
+
+23. Device Security Screen
+
+For your ESP32 architecture, eventually:
+
+Device security
+
+
+Smart Mist Maker
+✓ Authenticated
+
+
+Secure communication
+Active
+
+
+Firmware integrity
+Verified
+
+Do not show technical cryptographic implementation details to normal users.
+
+For example, don't expose raw certificate hashes unless there is a support/diagnostic reason.
+
+24. Connected Sessions
+
+If cloud accounts exist later:
+
+Connected sessions
+
+
+This phone
+Current
+
+
+Chrome
+Last active yesterday
+
+
+[ Sign out other sessions ]
+
+This belongs to account/security, not device connectivity.
+
+25. Data Retention
+
+This should be transparent.
+
+Example:
+
+Activity history
+Kept for 30 days
+
+
+Support requests
+Kept until resolved
+
+
+Account data
+Kept while your account is active
+
+But never invent retention periods.
+
+Your implementation should read these from the actual data policy/configuration.
+
+26. Privacy Repository
+
+Create a dedicated:
+
+PrivacyRepository
+
+Potential interface:
+
+PrivacyRepository
+├── getPrivacySummary()
+├── getDataCategories()
+├── getPermissions()
+├── getPrivacyPreferences()
+├── updatePrivacyPreferences()
+├── requestDataExport()
+└── deleteSupportedData()
+
+Every mutation should return:
+
+success
+unsupported
+unauthorized
+unavailable
+failed
+27. Privacy Data Model
+PrivacySummary
+├── dataCategories[]
+├── permissions[]
+├── preferences[]
+├── storageLocations[]
+└── retentionPolicies[]
+
+Permission:
+
+PrivacyPermission
+├── type
+├── status
+├── purpose
+└── systemSettingsAvailable
+
+Preference:
+
+PrivacyPreference
+├── id
+├── enabled
+├── supported
+└── description
+
+This allows the UI to remain truthful.
+
+28. Privacy Page Should Not Own Device State
+
+For example:
+
+Device health
+
+belongs to:
+
+DeviceHealthRepository
+
+Privacy only explains:
+
+what data exists
+how it is used
+what permissions exist
+what controls exist
+
+Don't duplicate technical device logic here.
+
+29. Loading State
+Privacy
+
+
+Loading your privacy settings...
+
+Use skeletons if the information is dynamic.
+
+30. Error State
+
+If privacy data cannot load:
+
+Couldn't load privacy settings
+
+
+Try again.
+
+
+[ Try again ]
+
+Don't show outdated settings without marking them as such.
+
+31. Offline Behavior
+
+Basic privacy information should ideally remain available offline:
+
+What data we use
+Why we use it
+Basic permission explanations
+Privacy policy
+
+Interactive operations requiring backend connectivity should clearly say:
+
+You're offline
+
+
+This action requires a connection.
+32. No Fake Controls
+
+This is especially important for privacy.
+
+Don't create:
+
+Analytics
+[ OFF ]
+
+if switching it has no real effect.
+
+Don't create:
+
+Delete my data
+
+if the backend doesn't actually delete the data.
+
+A production privacy screen must be more trustworthy than the rest of the app, not less.
+
+33. Recommended Main Privacy Screen
+
+The final UX should be:
+
+← Privacy
+
+
+Manage your data and privacy preferences.
+
+
+
+
+┌─────────────────────────────────────┐
+│ 🛡                                  │
+│ Your privacy is in your control    │
+│ Review what EH Home stores and  │
+│ why it is used.                    │
+└─────────────────────────────────────┘
+
+
+
+
+YOUR DATA
+
+
+[ Home and device data             › ]
+[ Activity history                  › ]
+[ Routine data                      › ]
+[ Account information               › ]
+
+
+
+
+PERMISSIONS
+
+
+[ Bluetooth                         › ]
+[ Notifications                     › ]
+[ Location                          › ]
+
+
+
+
+PRIVACY PREFERENCES
+
+
+[ Diagnostic data sharing       OFF ›]
+
+
+
+
+DATA MANAGEMENT
+
+
+[ Download your data                › ]
+[ Delete activity history            › ]
+
+
+
+
+SECURITY
+
+
+[ Device security                   › ]
+[ Connected sessions                › ]
+
+
+
+
+LEGAL & INFORMATION
+
+
+[ Privacy policy                    › ]
+[ Terms of service                  › ]
+34. Important Production Rule
+
+Your privacy architecture should follow the same principle used everywhere else in EH Home:
+
+UI
+ ↓
+Repository
+ ↓
+Actual supported behavior
+
+Never:
+
+UI switch
+ ↓
+local boolean
+ ↓
+"Privacy setting saved"
+
+without actual enforcement.
+
+For example:
+
+Diagnostic sharing
+      ↓
+User changes OFF
+      ↓
+Repository
+      ↓
+Backend/app configuration
+      ↓
+Actual diagnostic collection changes
+      ↓
+Confirmed UI
+35. Testing
+Privacy page
+Sections
+Navigation
+Loading
+Error
+Offline
+360dp / RMX2001
+No overflow
+Data categories
+Correct descriptions
+Correct storage information
+Correct retention information
+Permissions
+Actual permission state
+Open system settings
+Denied state
+Not requested state
+Privacy controls
+Enabled
+Disabled
+Unsupported
+Backend failure
+Confirmation after successful update
+Data management
+Export request
+Delete history
+Cancellation
+Failure
+Confirmation
+Security
+Device security
+Connected sessions
+36. Final Navigation Architecture
+Settings
+   ↓
+Privacy
+   │
+   ├── Home and device data
+   ├── Activity history
+   ├── Routine data
+   ├── Account information
+   │
+   ├── Permissions
+   │     ├── Bluetooth
+   │     ├── Notifications
+   │     └── Location
+   │
+   ├── Privacy preferences
+   │
+   ├── Data management
+   │     ├── Download data
+   │     └── Delete supported data
+   │
+   ├── Security
+   │     ├── Device security
+   │     └── Connected sessions
+   │
+   └── Legal
+         ├── Privacy policy
+         └── Terms
+Final production principle
+
+The Privacy screen should answer four questions immediately:
+
+What data does EH Home have?
+
+Why does it need that data?
+
+Where is the data handled?
+
+What can I control?
+
+That is the correct production direction for EH Home. It also fits cleanly with the architecture you've already established for Rooms, Routines, Activity, Device Health, Home Connection, and Settings.

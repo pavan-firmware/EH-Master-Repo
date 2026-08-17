@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/telemetry/telemetry.schema.json",
+  "title": "Telemetry",
+  "description": "General device environment, diagnostic, and energy telemetry envelope.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deviceId",
+    "timestamp",
+    "sequenceNumber"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "energy": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.ehhome.io/energy/energy-telemetry.schema.json"
+      }
+    },
+    "rssi": {
+      "type": "integer",
+      "minimum": -120,
+      "maximum": 0
+    },
+    "freeHeapBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "uptimeSeconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sequenceNumber": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "energy": [
+        {
+          "schemaVersion": 1,
+          "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+          "channelIndex": 1,
+          "v_mv": 230450,
+          "i_ma": 812,
+          "p_mw": 187120,
+          "e_tot_wh": 142508,
+          "e_int_mwh": 259800,
+          "freq_mhz": 50010,
+          "pf_x1000": 980,
+          "flags": 0,
+          "timestamp": "2026-03-01T12:00:00Z",
+          "sequenceNumber": 48102
+        }
+      ],
+      "rssi": -62,
+      "freeHeapBytes": 148520,
+      "uptimeSeconds": 86400,
+      "timestamp": "2026-03-01T12:00:00Z",
+      "sequenceNumber": 48102
+    }
+  ]
+}

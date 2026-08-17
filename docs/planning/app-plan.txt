@@ -1,0 +1,91 @@
+# Production Consumer Smart-Home App Plan
+
+## Product Scope and Access
+
+Build the empty Flutter project into a responsive Android/iOS consumer app for secure setup, live monitoring, local and remote control, automations, alerts, diagnostics, factory reset, and firmware updates.
+
+- **Owner:** home/member management, firmware scheduling, sensitive settings, device removal, and factory reset.
+- **Member:** assigned-device control, permitted automations, alerts, and permitted diagnostics.
+- **Safety rule:** fire, gas, and intrusion remain enforced by local ESP32/hardware logic. The app provides alerts, instructions, and acknowledgement only; it cannot silence, disarm, or override safety outputs.
+
+## Consumer UI and UX Contract
+
+- Use a **calm modern home** visual system: light neutral surfaces, dark readable text, generous spacing, familiar room imagery/icons, subtle motion, and restrained brand color. Reserve red/orange only for genuine safety or urgent attention.
+- Design the first screen around **home health and rooms**: a concise overall status, active alert banner when needed, favorite controls, then room cards with a clear at-a-glance summary.
+- Use a five-area navigation model: **Home**, **Rooms**, **Automations**, **Activity**, and **Settings**. Keep advanced configuration within the relevant device or settings screen instead of exposing it globally.
+- Use friendly product language. Examples: “Room device” or a user-assigned name instead of “node”; “System update” instead of “firmware/OTA”; “Nearby setup” instead of “BLE provisioning”; “Connection” instead of “MQTT/device shadow”; and “Backup connection active” rather than GSM terminology.
+- Technical information—hardware revision, transport, raw signal values, error codes, event payloads, and logs—appears only in an owner-only **Technical details** section and in exportable support bundles. Each technical failure has a plain-language explanation and recovery action first.
+- Build screens around decisions customers understand:
+  - “Is my home okay?” rather than raw telemetry.
+  - “Which room needs attention?” rather than device identifiers.
+  - “When this happens, do this” automation builder rather than rules/conditions syntax.
+  - “Update available / Updating / Up to date” rather than OTA partition terminology.
+- Present every control with its current result: immediate pending feedback, plain success/failure message, last-updated time, and clear offline/stale state. Never imply an action succeeded before the hub confirms it.
+- Use 44–48 dp minimum touch targets, scalable text, high contrast, screen-reader labels, reduced-motion support, loading skeletons instead of blocking spinners, and responsive phone/tablet layouts.
+- Keep forms short and guided. Onboarding shows one task at a time, explains why Bluetooth/Wi‑Fi permission is needed, and offers a recoverable retry path.
+- Safety alerts use a dedicated full-screen state with the event, affected room, timestamp, immediate safety instructions, emergency contact guidance, and an **Acknowledge** action—not a dismiss/silence action.
+- Factory reset and system updates use clear consequences, progress, and recoverable states; never show engineering terms, partition names, or raw error codes unless the owner opens Technical details.
+
+## BLE Commissioning and Offline Local Control
+
+- Use the hub ESP32’s native BLE GATT interface for commissioning and supported non-safety local control on Android and iOS. The hub is the phone’s sole BLE endpoint; nodes are managed through it.
+- Commissioning sequence:
+
+  `BLE discovery → QR-backed device identification → encrypted/authenticated pairing → Wi‑Fi provisioning → cloud/home binding → authorized commands`
+
+- Each unit has a unique QR bootstrap payload: device ID, hardware revision, public-key/certificate fingerprint, and high-entropy one-time setup credential. Setup mode requires physical local activation and expires automatically.
+- Protected GATT operations require encrypted/authenticated BLE plus device-verified challenge-response with the setup credential. The hub stores its own trusted owner/member authorization state after binding; authorization is never based only on app UI.
+- After commissioning, the hub establishes a locally authenticated BLE session. Protected GATT commands are authorized using the hub’s locally stored owner/member permissions and session expiry; local BLE control does not depend on cloud availability.
+- Cloud credentials authorize cloud APIs only. Membership changes synchronize to the hub when connected; existing offline permissions remain bounded by local session expiry and the last synchronized authorization state.
+- Handle unavailable Bluetooth, denied scan/connect permissions, unavailable location prerequisites where applicable, platform settings recovery, and pairing retry. [Android Bluetooth permissions](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions), [Apple Bluetooth/Core Bluetooth](https://developer.apple.com/bluetooth/)
+
+## Customer Experience
+
+- **Account and homes:** email verification, sign-in, password reset, secure sessions, privacy consent, multiple homes, owner invitations, permissions, and member removal.
+- **Onboarding:** QR scan, nearby setup, authentication, Wi‑Fi handoff, cloud registration, room/device naming, capability assignment, and health verification.
+- **Dashboard and rooms:** live cards, Home/Away state, clear stale/offline indicators, favorites, device health, and controls/readings driven only by reported installed capabilities.
+- **Automations:** templates for plant care, tank alerts, lighting, intrusion, schedules, and thresholds. Use plain-language sentences and show a human-readable summary before saving.
+- **Alerts:** push notifications, event history, acknowledgement records, safety guidance, and connectivity/notification-delivery status. GSM/SMS information is shown only for production SKUs that report that capability.
+- **Diagnostics:** friendly health checks, guided recovery, and owner-consented redacted support-bundle export. Detailed sensor values, signal/storage metrics, and firmware history remain behind Technical details.
+- **Factory reset:** owner-only and recent-authentication protected. After physical confirmation, the device immediately clears local Wi‑Fi, pairings, automations, and local household authorization. Cloud revocation and household-binding removal complete when connectivity returns; until then, the backend marks the device reset/pending re-provisioning and rejects reuse of its former household authorization.
+
+## App–Device Contract and LCD
+
+- Use versioned reported/desired device shadows. Reported state includes identity, hardware revision, capabilities, sensor/actuator state, health, connectivity, local-rule state, firmware state, and error codes.
+- Commands include unique ID, target, action, parameters, expiry, idempotency key, and lifecycle:
+
+  `accepted → executing → succeeded | failed | expired`
+
+- The app shows optimistic pending state, reconciles only from device acknowledgement, retries idempotent commands only, and never replays expired or safety-sensitive requests.
+- The I²C 16×2 LCD is firmware-owned. The app and LCD render the same reported update state; firmware shows concise target, phase, progress, verification, restart, success, rollback, and error states.
+- Capability metadata prevents incorrect controls, including ultrasonic tank/presence mode, IR sensor type, and optional GSM hardware.
+
+## Device-Enforced OTA and Production Security
+
+- System-update jobs are persisted per hub and node:
+
+  `preflight → local prerequisite checks → scheduled → downloading → manifest/image verification → staged → flashing inactive OTA partition → reboot → boot validation → complete | rolled back | failed`
+
+- Before download, the device verifies local prerequisites including target hardware revision, available storage, power stability, connectivity, and safe update conditions. The downloaded firmware manifest and image are then verified for image type, hardware compatibility, signature, integrity, release policy, and minimum security version before staging or flashing.
+- The app/backend may schedule and deliver firmware, but the device is final authority. It rejects firmware that fails device-side authenticity, integrity, compatibility, or security-version validation.
+- Select and lock the production hardware SKU from an ESP32 variant that supports the required BLE, OTA partitions, eFuse configuration, Secure Boot, and Flash Encryption capabilities before production security provisioning.
+- Production devices use Secure Boot with Flash Encryption where supported by the selected ESP32 variant. Disable JTAG/debug and insecure bootloader access according to the production security configuration.
+- The device trusts firmware signing keys established during secure production provisioning. Secure Boot verifies firmware authenticity. Firmware compatibility is enforced using device/hardware metadata, while vulnerable older firmware is blocked by the eFuse-backed anti-rollback security version. Signing-key rotation and revocation use the selected ESP32 Secure Boot key-management mechanism and a tested production recovery procedure.
+- Each firmware image contains a `security_version`. When anti-rollback is enabled, the ESP32 bootloader compares it with the device’s eFuse-backed security version; images below that device value are rejected during OTA/boot.
+- After post-boot diagnostics pass, firmware calls `esp_ota_mark_app_valid_cancel_rollback()` to mark the new image valid and cancel rollback. With ESP-IDF anti-rollback enabled, the device updates its eFuse-backed security version as part of this validation flow. [ESP-IDF OTA, rollback, and anti-rollback](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/ota.html)
+- The update UI shows prerequisites, owner-selected idle window, hub/device progress, LCD-mirrored phase, retry guidance, validation outcome, rollback history, and audit events. Normal updates are owner-scheduled; critical updates may be mandatory.
+- During update, affected controls are unavailable with a plain-language explanation; unrelated devices and local safety behavior continue operating.
+
+## Quality, Privacy, and Release Gates
+
+- Use modular Flutter features, typed models, repository interfaces, encrypted storage, local cache, test fakes, and provider-neutral cloud/realtime/local-network adapters.
+- Use platform-standard TLS validation for all production traffic. Evaluate certificate/public-key pinning only for controlled endpoints, with backup pins, telemetry, and a tested pin-rotation procedure before activation.
+- Maintain a responsive feel through bounded lists, telemetry coalescing, incremental rendering, background parsing, and explicit loading/error/offline states.
+- Test consumer wording and comprehension with non-technical users, plus accessibility, text scaling, low-end-device performance, denied permissions, offline local control, update failure/recovery, and alert acknowledgement.
+- Release through internal QA, closed beta, pilot homes, staged store rollout, crash/performance monitoring, privacy-safe analytics, feature flags, and rollbackable remote configuration.
+
+## Assumptions
+
+- Flutter remains the shared Android/iOS client; the current repository is a blank starter.
+- Firmware/cloud teams implement the versioned APIs, BLE GATT protocol, local authorization store, shadow/events, secure-update metadata, production key provisioning, and security configuration.
+- Initial language is English, with all user-facing text externalized for localization.

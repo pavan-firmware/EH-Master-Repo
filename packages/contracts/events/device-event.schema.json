@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/events/device-event.schema.json",
+  "title": "DeviceEvent",
+  "description": "Hardware event or manual trigger emitted by the physical device.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "deviceId",
+    "channelIndex",
+    "eventType",
+    "source",
+    "payload",
+    "timestamp",
+    "sequenceNumber"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "channelIndex": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "eventType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "APP",
+        "PHYSICAL_SWITCH",
+        "AUTOMATION",
+        "MATTER",
+        "VOICE",
+        "SYSTEM"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sequenceNumber": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "eventId": "0194fe23-7a1b-7890-a123-456789222222",
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "channelIndex": 1,
+      "eventType": "switch.changed",
+      "source": "PHYSICAL_SWITCH",
+      "payload": { "power": true },
+      "timestamp": "2026-03-01T12:00:00.020Z",
+      "sequenceNumber": 5891
+    }
+  ]
+}

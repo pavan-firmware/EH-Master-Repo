@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/command/command.schema.json",
+  "title": "Command",
+  "description": "Transport-neutral command payload targeting a specific device channel.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "commandId",
+    "deviceId",
+    "channelIndex",
+    "action",
+    "params",
+    "idempotencyKey",
+    "source",
+    "timestamp",
+    "expiresAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "commandId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "channelIndex": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "APP",
+        "PHYSICAL_SWITCH",
+        "AUTOMATION",
+        "MATTER",
+        "VOICE",
+        "SYSTEM"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "commandId": "0194fe23-7a1b-7890-a123-456789111111",
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "channelIndex": 1,
+      "action": "setPower",
+      "params": { "value": true },
+      "idempotencyKey": "idem_0194fe237a1b7890",
+      "source": "APP",
+      "timestamp": "2026-03-01T12:00:00Z",
+      "expiresAt": "2026-03-01T12:00:15Z"
+    }
+  ]
+}

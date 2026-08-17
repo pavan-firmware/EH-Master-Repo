@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/state/channel-state.schema.json",
+  "title": "ChannelState",
+  "description": "Discrete state of an individual device channel, decoupling desired vs reported state.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "channelIndex",
+    "reportedState",
+    "confidence",
+    "updatedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "channelIndex": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "desiredState": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Requested target state from user or automation"
+    },
+    "reportedState": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Authoritative state measured/confirmed by hardware"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "PENDING",
+        "CONFIRMED",
+        "FAILED",
+        "UNAVAILABLE"
+      ]
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "channelIndex": 1,
+      "desiredState": { "power": true },
+      "reportedState": { "power": true },
+      "confidence": "CONFIRMED",
+      "updatedAt": "2026-03-01T12:00:00Z"
+    }
+  ]
+}

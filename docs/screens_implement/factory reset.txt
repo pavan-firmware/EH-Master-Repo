@@ -1,0 +1,958 @@
+Factory Reset Nested Screen Implementation Plan
+
+When the user taps:
+
+Settings → Factory reset
+
+this should open a dedicated Factory Reset / Reset Home flow.
+
+This is the most sensitive action in the Settings area. It must be intentionally slower, explicit, authenticated, and impossible to trigger accidentally.
+
+The screen should clearly explain what will be reset, what will remain, what the user must do first, and whether the action affects the physical device, the EH Home configuration, or both.
+
+1. First: Define What “Factory Reset” Actually Means
+
+Before implementation, do not use the term “factory reset” for multiple different operations.
+
+Your system can potentially have three different destructive operations:
+
+1. Reset physical device
+2. Remove device from this home
+3. Remove/reset the entire home
+
+These are not the same.
+
+Physical device reset
+ESP32 / device
+→ erase configuration
+→ remove Wi-Fi credentials
+→ remove pairing/configuration
+→ restore factory defaults
+Remove device from home
+Home
+→ remove device relationship
+→ device may remain configured physically
+Reset entire home
+Home
+→ remove home configuration
+→ remove device associations
+→ remove memberships/invitations
+→ reset supported home settings
+
+Your current Settings label says:
+
+Factory reset — Remove this home from the device
+
+That wording is ambiguous.
+
+For production, I recommend changing the main action to one of these, depending on the actual backend behavior:
+
+If it resets the physical device:
+
+Factory reset device
+
+If it removes the home relationship:
+
+Remove home from this device
+
+If it resets the entire EH Home:
+
+Reset this home
+
+Do not use one phrase for three different behaviors.
+
+2. Recommended Navigation
+Settings
+   ↓
+Factory reset
+   ↓
+FactoryResetPage
+
+Use:
+
+FactoryResetPage
+
+as the initial warning screen.
+
+Back:
+
+FactoryResetPage
+      ↓
+Settings
+
+The user should be able to back out at every stage.
+
+3. Initial Screen — Strong Warning
+
+The first screen should not immediately show a large destructive button without explanation.
+
+Recommended:
+
+←   Factory reset
+
+Then a warning card:
+
+┌─────────────────────────────────────┐
+│              !                      │
+│                                     │
+│        Reset your device            │
+│                                     │
+│ This will remove the current home   │
+│ configuration from the device.     │
+└─────────────────────────────────────┘
+
+Use a restrained destructive visual treatment.
+
+Avoid making the entire screen bright red. That looks alarming rather than professional.
+
+4. Explain Exactly What Will Happen
+
+Section:
+
+WHAT WILL HAPPEN
+
+Example:
+
+✓ The device's home configuration
+  will be removed.
+
+
+✓ Wi-Fi configuration will be removed.
+
+
+✓ The device will return to setup mode.
+
+
+✓ You will need to set up the device again.
+
+Then:
+
+WHAT WILL NOT HAPPEN
+
+If applicable:
+
+• Your EH account will not be deleted.
+• Other homes will not be affected.
+• Other devices will not be reset.
+
+These statements must be based on the actual implementation.
+
+Do not claim that something is preserved if the backend actually deletes it.
+
+5. Identify Exactly What Will Be Reset
+
+The user should never wonder:
+
+Which device am I resetting?
+
+Show:
+
+DEVICE TO RESET
+
+
+Smart Mist Maker
+SH-8EF248
+Plant Corner
+
+
+● Connected
+
+If this screen is actually resetting the whole home, then show:
+
+HOME TO RESET
+
+
+Pavan's home
+
+
+4 rooms
+8 devices
+3 people
+
+The reset scope must be visually obvious.
+
+6. Show Dependencies
+
+Before resetting, determine whether there are dependencies.
+
+Example:
+
+BEFORE YOU RESET
+
+
+This device is currently used by:
+
+
+• 2 routines
+• 1 room
+• 3 recent automations
+
+Then:
+
+After reset, these routines may no longer
+be able to run until the device is set up again.
+
+This is important for EH Home because your Routines architecture explicitly references devices.
+
+7. Routine Impact
+
+If a device being reset is referenced by routines:
+
+3 routines use this device
+
+
+Plant care
+Kitchen alert
+Night mist
+
+
+These routines will remain saved, but
+their actions may become unavailable
+until the device is connected again.
+
+This is much better than silently breaking routines.
+
+Important rule
+
+Do not automatically delete routines just because a device is reset.
+
+The routines should move to an unavailable state where appropriate:
+
+Plant care
+⚠ Action unavailable
+Mist maker needs to be set up again.
+
+That is consistent with your existing Routines architecture.
+
+8. Activity Impact
+
+Factory reset should also be explicit about Activity.
+
+Example:
+
+ACTIVITY HISTORY
+
+
+Previous activity records will remain
+available unless you choose to delete them.
+
+
+
+Or, if the actual operation removes them:
+
+Activity history related to this device
+will be removed.
+
+Again, this must match the actual data behavior.
+
+Don't automatically assume reset means history deletion.
+
+9. Security Requirement
+
+This action should require strong confirmation.
+
+Do not allow:
+
+Tap reset
+→ immediately execute
+
+Recommended:
+
+Reset
+ ↓
+Confirm identity / authority
+ ↓
+Confirm exact scope
+ ↓
+Optional physical-device authorization
+ ↓
+Execute
+
+At minimum, the backend should verify that the current user has sufficient permission.
+
+For home management:
+
+Owner
+
+or another explicitly authorized role should be required.
+
+A regular member should not be able to factory-reset the home/device simply because they can open Settings.
+
+10. Physical Device Authorization
+
+For a real ESP32 product, a high-risk destructive action may require stronger authorization than a normal UI action.
+
+Depending on the actual architecture, this might be:
+
+Authenticated account
++
+Secure device session
++
+Physical-device confirmation
+
+For example, the UI could ask the user to:
+
+Press and hold the device button for 5 seconds to confirm reset.
+
+Only implement this if the firmware actually supports it.
+
+Do not create a UI claiming there is a physical confirmation mechanism unless the ESP32 firmware implements it.
+
+11. Confirmation Screen
+
+After the explanation:
+
+FINAL CONFIRMATION
+
+
+You are about to reset:
+
+
+Smart Mist Maker
+SH-8EF248
+
+
+This action cannot be undone.
+
+
+[ Cancel ]
+
+
+[ Continue ]
+
+But even here, I would not yet execute.
+
+12. High-Risk Final Confirmation
+
+For a destructive action, require deliberate confirmation.
+
+Example:
+
+Confirm factory reset
+
+
+Type:
+
+
+RESET
+
+
+[ RESET                      ]
+
+
+[ Cancel ]
+
+
+[ Factory reset ]
+
+The button remains disabled until the required confirmation is entered.
+
+This is appropriate for a true device factory reset.
+
+For a less destructive "remove device from home" operation, typing RESET may be excessive.
+
+The confirmation level should match the actual risk.
+
+13. Better Alternative for Device Reset
+
+For a consumer product, you can also use:
+
+Press and hold to confirm
+
+but only if the interaction is technically reliable and accessible.
+
+A text-confirmation step is often easier to make deterministic.
+
+14. Preview Mode
+
+Your current app still does not have the complete production reset backend.
+
+Therefore:
+
+Preview mode
+    ↓
+Show the complete flow
+    ↓
+Do NOT reset hardware
+    ↓
+Do NOT delete real data
+
+When the user reaches the final step:
+
+Factory reset is unavailable
+
+
+Secure device reset is not yet
+available in this preview.
+
+
+Connect your home when reset support
+is available.
+
+
+[ Back ]
+
+Do not pretend:
+
+Reset successful
+
+That would violate the same reliability rule you've established for Routines and Home Connection.
+
+15. Repository Architecture
+
+Create a dedicated boundary:
+
+ResetRepository
+├── getResetImpact(scope)
+├── validateResetAuthorization(scope)
+├── requestPhysicalConfirmation(scope)
+├── beginReset(scope)
+├── getResetProgress()
+├── cancelReset()
+└── verifyReset()
+
+Potential result types:
+
+success
+unauthorized
+unsupported
+unavailable
+confirmationRequired
+inProgress
+failed
+timeout
+cancelled
+verificationFailed
+
+This lets the UI behave correctly in every state.
+
+16. Reset Scope Model
+
+Define the scope explicitly.
+
+ResetScope
+├── device
+├── home
+└── configuration
+
+Then:
+
+ResetRequest
+├── scope
+├── targetId
+├── initiatedBy
+├── confirmation
+└── authorization
+
+This prevents accidentally calling a generic:
+
+reset()
+
+that has unclear semantics.
+
+17. Reset Impact Model
+
+Before execution:
+
+ResetImpact
+├── target
+├── devicesAffected[]
+├── routinesAffected[]
+├── roomsAffected[]
+├── peopleAffected[]
+├── activityImpact
+├── dataDeletionImpact
+└── requiresPhysicalConfirmation
+
+Then the UI can render a truthful summary.
+
+18. Progress Screen
+
+Once reset is actually authorized:
+
+Resetting your device...
+
+
+✓ Closing device session
+✓ Removing home configuration
+● Clearing Wi-Fi settings
+○ Resetting device
+○ Verifying reset
+
+Don't just display:
+
+Resetting...
+
+The user should understand the major stages.
+
+19. Physical Device Reboot
+
+For the ESP32:
+
+Resetting device
+
+
+The device may restart several times.
+
+
+Please keep it powered on.
+
+This is especially important because a factory reset may involve:
+
+NVS erase
+Wi-Fi credentials removal
+configuration reset
+reboot
+advertising/setup mode
+
+The user shouldn't unplug the device during that process.
+
+20. Verification
+
+This is mandatory.
+
+Resetting
+   ↓
+Device reboot
+   ↓
+Device discovered
+   ↓
+Read current state
+   ↓
+Verify factory-default state
+
+Only then:
+
+Reset complete
+
+Never treat:
+
+erase config command sent
+
+as successful reset.
+
+21. Successful Completion
+
+For device reset:
+
+Reset complete
+
+
+Smart Mist Maker
+SH-8EF248
+
+
+The device is ready to be set up again.
+
+
+[ Add this device ]
+[ Done ]
+
+This is a very useful UX detail.
+
+After a factory reset, the natural next action is:
+
+Set it up again
+
+So make that the primary action.
+
+22. Home Reset Completion
+
+If the scope is the entire home:
+
+Home reset complete
+
+
+Pavan's home has been reset.
+
+
+Your devices are ready to be configured
+again.
+
+
+[ Set up devices ]
+
+Only show that if the actual backend performed the operation.
+
+23. Failure State
+
+If reset fails:
+
+Reset couldn't be completed
+
+
+Your device may still be using its
+previous configuration.
+
+
+Keep the device powered on and try again.
+
+
+[ Try again ]
+[ Get help ]
+
+This wording is important.
+
+Don't imply:
+
+Device is reset
+
+unless verification succeeded.
+
+24. Verification Failure
+
+This is a separate condition:
+
+Reset status couldn't be confirmed
+
+
+The reset command was sent, but Haven
+couldn't verify the device's final state.
+
+
+Do not unplug the device yet.
+
+
+[ Check again ]
+[ Get help ]
+
+This is much safer than reporting a false success.
+
+25. Timeout
+Reset is taking longer than expected
+
+
+The device hasn't responded yet.
+
+
+Keep it powered on while we check
+its status.
+
+
+[ Check again ]
+26. Device Already Offline
+
+If the physical device is completely unreachable:
+
+Device is offline
+
+
+A secure reset cannot be completed
+while the device is unavailable.
+
+
+[ Try reconnecting ]
+
+Do not offer a remote reset if your architecture doesn't actually support it.
+
+27. Activity Integration
+
+Successful reset should create a system event:
+
+Device reset completed
+Smart Mist Maker was restored to factory settings.
+
+Failed reset:
+
+Device reset failed
+The device reset could not be verified.
+
+This should appear in Activity where appropriate.
+
+28. Routines Integration
+
+If a device is reset:
+
+Device reset
+   ↓
+Device no longer configured
+   ↓
+DeviceRepository state changes
+   ↓
+Affected routines
+   ↓
+Routine availability recalculated
+
+Example:
+
+Plant care
+
+
+⚠ Device unavailable
+
+
+Mist maker needs to be set up again.
+
+Again:
+
+Do not delete the routine automatically.
+
+29. Rooms Integration
+
+If the reset removes the device association from a room:
+
+Plant Corner
+
+
+Before
+2 devices
+
+
+After reset
+1 configured device
+
+The Rooms page should update from repository state.
+
+Do not maintain a separate Rooms-side reset state.
+
+30. Home Profile Integration
+
+Home statistics should update if the device is removed from the home:
+
+Before:
+8 devices
+
+
+After:
+7 devices
+
+Again, this should come from the actual Home/Device repositories.
+
+31. Privacy/Data Impact
+
+The reset flow should clearly distinguish physical configuration from personal data.
+
+For example:
+
+A device factory reset removes its
+configuration from the device.
+
+
+It does not automatically delete your
+EH Home account or historical activity
+unless explicitly stated.
+
+That distinction is important.
+
+32. Don't Use "Factory Reset" for Account Deletion
+
+These should remain separate:
+
+Factory reset
+→ Device configuration
+
+
+Remove home
+→ Home/device relationship
+
+
+Delete account
+→ Account and associated data
+
+Do not combine them.
+
+33. Main Screen Final Structure
+
+The nested page should look conceptually like:
+
+← Factory reset
+
+
+Reset your device to its factory state.
+
+
+
+
+┌─────────────────────────────────────┐
+│            !                        │
+│       Reset Smart Mist Maker        │
+│       SH-8EF248                     │
+│                                     │
+│ This will remove its current home   │
+│ configuration and Wi-Fi settings.  │
+└─────────────────────────────────────┘
+
+
+
+
+WHAT WILL HAPPEN
+
+
+✓ Wi-Fi settings will be removed
+✓ Home configuration will be removed
+✓ Device will return to setup mode
+✓ You will need to set it up again
+
+
+
+
+IMPACT
+
+
+Routines affected         2
+Room                      Plant Corner
+Activity history          Preserved
+
+
+
+
+BEFORE YOU CONTINUE
+
+
+Keep the device powered on.
+
+
+This action cannot be undone.
+
+
+
+
+            [ Continue ]
+
+Then the confirmation stage:
+
+Confirm factory reset
+
+
+Type RESET to continue.
+
+
+[ RESET ]
+
+
+[ Cancel ]      [ Factory reset ]
+34. Final State Machine
+
+Use an explicit state machine:
+
+FactoryResetState
+
+
+idle
+↓
+loadingImpact
+↓
+impactReady
+↓
+authorizationRequired
+↓
+confirmationRequired
+↓
+confirming
+↓
+resetting
+↓
+restarting
+↓
+verifying
+↓
+completed
+
+Failure branches:
+
+unauthorized
+unsupported
+offline
+timeout
+failed
+verificationFailed
+cancelled
+
+This is much safer than:
+
+bool isResetting;
+35. Test Plan
+Scope
+Correct device
+Correct home
+Correct target
+No accidental cross-device reset
+Authorization
+Owner allowed
+Member denied
+Unauthorized state
+Session expired
+Confirmation
+Cancel
+Back
+Incorrect confirmation
+Correct confirmation
+Repeated taps
+Reset execution
+Success
+Timeout
+Device offline
+Device reboot
+Verification success
+Verification failure
+Integration
+
+After successful reset verify:
+
+Device state updated
+Room updated
+Home counts updated
+Routine availability updated
+Activity event created
+UI
+360dp
+RMX2001
+Large text
+Long device names
+Error states
+No overflow
+36. Final Architecture
+Settings
+   ↓
+Factory reset
+   ↓
+FactoryResetPage
+   ↓
+ResetController
+   ↓
+ResetRepository
+   │
+   ├── Authorization
+   ├── Impact analysis
+   ├── Device reset
+   ├── Verification
+   └── Result
+   │
+   ├──────────────┬───────────────┐
+   ▼              ▼               ▼
+DeviceRepo    RoomRepo       RoutineRepo
+   │              │               │
+   └──────────────┼───────────────┘
+                  ▼
+            ActivityRepository
+Final production principle
+
+For this screen, the most important rule is:
+
+Never tell the user that a reset completed until the physical device/backend state has been verified.
+
+So:
+
+Reset command sent
+        ≠
+Reset successful
+
+and:
+
+Device rebooted
+        ≠
+Factory state verified
+
+Only:
+
+Command
+ ↓
+Device reset
+ ↓
+Device responds
+ ↓
+Factory-default state verified
+ ↓
+UI = Reset complete
+
+That approach keeps the Factory Reset flow consistent with the same production-grade reliability rules you have already established for Routines, Activity, Home Connection, Device Health, and Settings.

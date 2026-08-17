@@ -1,0 +1,28 @@
+# ==============================================================================
+# EH HOME MONOREPO — CODEOWNERS
+# ==============================================================================
+# Syntax: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# NOTE: Replace placeholder comments with verified GitHub team or username handles
+# before enabling GitHub Branch Protection Rule "Require review from Code Owners".
+# ==============================================================================
+
+# Global Default
+# * @eh-home-team
+
+# Core Contracts & Capabilities
+# /packages/contracts/ @eh-architecture-team
+# /product-definitions/ @eh-product-team
+
+# Backend Services & Relational Database
+# /backend/ @eh-backend-team
+
+# Flutter Mobile Application
+# /smart_home_application_v1/ @eh-mobile-team
+
+# Firmware Platforms
+# /firmware/ @eh-embedded-team
+
+# Architecture Documentation & ADRs
+# /docs/adr/ @eh-architecture-team
+# /docs/architecture/ @eh-architecture-team

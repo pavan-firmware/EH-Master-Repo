@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/authorization/home-membership.schema.json",
+  "title": "HomeMembership",
+  "description": "User-to-Home association and RBAC role assignment.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "homeId",
+    "userId",
+    "role",
+    "invitedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "homeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "OWNER",
+        "ADMIN",
+        "MEMBER",
+        "GUEST"
+      ]
+    },
+    "invitedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "acceptedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "homeId": "11111111-2222-3333-4444-555555555555",
+      "userId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "role": "OWNER",
+      "invitedAt": "2026-03-01T10:00:00Z",
+      "acceptedAt": "2026-03-01T10:00:00Z"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/authorization/device-authorization.schema.json",
+  "title": "DeviceAuthorization",
+  "description": "Device ownership binding, Home/Room placement, and user customization.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deviceId",
+    "homeId",
+    "customName",
+    "claimedAt",
+    "claimedByUserId"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "homeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "roomId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "customName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "channelLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Mapping from channel index string (e.g. '1', '2') to user-customized label"
+    },
+    "claimedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "claimedByUserId": {
+      "type": "string",
+      "format": "uuid"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "homeId": "11111111-2222-3333-4444-555555555555",
+      "roomId": "99999999-8888-7777-6666-555555555555",
+      "customName": "Living Room Main Switchboard",
+      "channelLabels": {
+        "1": "Ceiling Light",
+        "2": "Ceiling Fan",
+        "3": "Accent Wall Light"
+      },
+      "claimedAt": "2026-03-01T10:05:00Z",
+      "claimedByUserId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/api/api-envelope.schema.json",
+  "title": "ApiEnvelope",
+  "description": "Standard REST API response wrapper for all EH backend endpoints.",
+  "type": "object",
+  "required": [
+    "success",
+    "timestamp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "success": {
+      "type": "boolean"
+    },
+    "data": {
+      "description": "Payload if success is true"
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "details": { "type": "object" }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

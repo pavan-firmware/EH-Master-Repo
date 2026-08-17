@@ -1,0 +1,900 @@
+“Connect your home” Nested Screen Implementation Plan
+
+When the user taps:
+
+Settings → Connect your home
+
+this should open the Home Connection / Setup flow.
+
+The main purpose of this screen is:
+
+Show how the EH Home app is connected to the user's home, help complete missing connections, and clearly separate Bluetooth discovery from Wi-Fi/home connectivity.
+
+This screen should not assume that every product uses a Hub. Your current architecture has an ESP32 Node, while Hub functionality can be added later. So the UI should be transport-independent.
+
+1. Navigation
+Settings
+   ↓
+Connect your home
+   ↓
+HomeConnectionPage
+
+Use one reusable page:
+
+HomeConnectionPage
+
+The page should work with:
+
+BLE only
+BLE + Wi-Fi
+Hub + Wi-Fi
+Future local/cloud architecture
+
+without redesigning the UI.
+
+2. Header
+
+Use the same nested Settings pattern:
+
+←   Connect your home
+
+Subtitle:
+
+Connect EH Home to your devices and home network.
+
+Keep it short.
+
+3. Overall Connection Status
+
+At the top, give the user one clear overall status.
+
+Connected
+┌─────────────────────────────────────┐
+│  ✓                                   │
+│                                      │
+│  Your home is connected              │
+│                                      │
+│  Devices can communicate with Haven │
+│  Home normally.                      │
+│                                      │
+│  ● Connected                         │
+└─────────────────────────────────────┘
+Not connected
+┌─────────────────────────────────────┐
+│  ○                                   │
+│                                      │
+│  Your home isn't connected yet      │
+│                                      │
+│  Connect your devices to get        │
+│  started.                            │
+│                                      │
+│        [ Start setup ]               │
+└─────────────────────────────────────┘
+Partial connection
+┌─────────────────────────────────────┐
+│  !                                   │
+│                                      │
+│  Your home is partially connected   │
+│                                      │
+│  Some devices may be unavailable.   │
+│                                      │
+│        [ Fix connection ]            │
+└─────────────────────────────────────┘
+
+This distinction is important.
+
+4. Connection Components
+
+Do not show one generic:
+
+Connected
+
+Show the actual connection layers separately.
+
+CONNECTION
+
+
+┌─────────────────────────────────────┐
+│ Bluetooth                          │
+│ Used for nearby device setup        │
+│                              Ready  │
+├─────────────────────────────────────┤
+│ Home Wi-Fi                          │
+│ Used for normal device communication│
+│                              Connected │
+├─────────────────────────────────────┤
+│ EH Home service                       │
+│ Home services and synchronization   │
+│                              Connected │
+└─────────────────────────────────────┘
+
+But only display a layer if your actual architecture uses it.
+
+For your current Node development stage, you may initially have:
+
+Bluetooth
+Ready / Connected
+
+
+Wi-Fi
+Not configured
+
+Don't show:
+
+Hub connected
+
+until you actually have a Hub.
+
+5. Current Node Architecture
+
+Because your current firmware is an ESP32 Node, the UI should support:
+
+Flutter
+   ↓
+BLE
+   ↓
+ESP32 Node
+
+During setup:
+
+BLE connection
+   ↓
+Device verification
+   ↓
+Wi-Fi provisioning
+   ↓
+Node joins home Wi-Fi
+   ↓
+Connection confirmed
+
+The user should see this as:
+
+Connect your device
+       ↓
+Connect it to Wi-Fi
+       ↓
+Done
+
+Not:
+
+BLE GATT provisioning
+6. Primary Action
+
+The primary button should depend on state.
+
+Not connected
+[ Connect your home ]
+BLE permission required
+[ Allow Bluetooth ]
+Bluetooth off
+[ Turn on Bluetooth ]
+Wi-Fi required
+[ Connect to Wi-Fi ]
+Setup in progress
+[ Setting up… ]
+
+Disable repeated taps while an operation is running.
+
+7. Setup Progress
+
+During setup, show an explicit progress flow.
+
+SETUP
+
+
+✓ Find your device
+✓ Connect securely
+● Connect to home Wi-Fi
+○ Verify connection
+○ Finish setup
+
+This is much better than a generic loading spinner.
+
+The underlying state can be:
+
+discovering
+connecting
+authenticating
+provisioning
+verifying
+completed
+8. Bluetooth Step
+
+If Bluetooth is required:
+
+Bluetooth
+
+
+Bluetooth is used to securely
+set up nearby EH Home devices.
+
+
+● Ready
+
+
+[ Continue ]
+
+If permission is denied:
+
+Bluetooth permission needed
+
+
+EH Home needs Bluetooth to
+find and set up your device.
+
+
+[ Allow Bluetooth ]
+
+If disabled:
+
+Bluetooth is off
+
+
+Turn on Bluetooth to continue.
+
+
+[ Turn on Bluetooth ]
+9. Device Selection
+
+The Connect Your Home flow can reuse your Add a Room Device discovery architecture.
+
+For example:
+
+Nearby device
+
+
+Smart Mist Maker
+SH-8EF248
+
+
+● Ready to connect
+
+If multiple devices are available:
+
+Nearby devices
+
+
+Smart Mist Maker
+SH-8EF248
+
+
+Smart Light
+SH-72A931
+
+The user selects the device.
+
+Don't duplicate the BLE scanning implementation.
+
+Use the same shared device-discovery component/repository used by:
+
+Settings
+→ Add a room device
+10. Secure Verification
+
+After connecting:
+
+Verifying your device
+
+
+We're checking that this is
+a trusted EH Home device.
+
+
+● Verifying…
+
+Success:
+
+Device verified
+
+
+✓ Secure connection established
+
+Failure:
+
+We couldn't verify this device
+
+
+For your security, setup can't
+continue.
+
+
+[ Try again ]
+[ Get help ]
+
+Never reveal technical cryptographic details to the normal user.
+
+11. Wi-Fi Setup
+
+After BLE verification:
+
+Connect to your home Wi-Fi
+
+
+Choose your network
+
+
+[ Home Wi-Fi                  › ]
+
+
+Password
+
+
+[ ••••••••••••• ]
+
+
+[ Connect ]
+
+For a production implementation:
+
+Don't log passwords.
+Don't display passwords by default.
+Don't persist them unnecessarily in app storage.
+Provision them securely to the device.
+Clear temporary credential state after setup.
+12. Network Discovery
+
+If the device can discover local Wi-Fi networks:
+
+Choose your home network
+
+
+● Home Wi-Fi
+  Strong signal
+
+
+○ Home Wi-Fi 5G
+  Strong signal
+
+
+○ Guest Network
+  Medium signal
+
+If your actual hardware does not support the relevant network types, don't show them.
+
+UI must follow actual firmware capabilities.
+
+13. Wi-Fi Connection Progress
+
+After Connect:
+
+Connecting your device
+
+
+✓ Wi-Fi details sent
+● Connecting to Home Wi-Fi
+○ Verifying internet connection
+
+If local-only operation is supported:
+
+✓ Connected to Home Wi-Fi
+✓ Local connection verified
+
+If cloud services are required:
+
+✓ Connected to Home Wi-Fi
+● Connecting EH Home services
+
+Again, don't show cloud status if your current architecture doesn't have cloud support.
+
+14. Verification Step
+
+This is critical.
+
+Don't mark the home as connected simply because Wi-Fi credentials were accepted.
+
+Use:
+
+Wi-Fi connected
+       ↓
+Device reports back
+       ↓
+Authenticated confirmation
+       ↓
+Connection state = confirmed
+
+UI:
+
+Verifying your connection
+
+
+✓ Device connected to Wi-Fi
+✓ Device responding
+✓ EH Home connection confirmed
+
+Only now should the app show:
+
+Home connected
+
+15. Final Success Screen
+You're connected
+
+
+✓ Your home is ready
+
+
+5 rooms
+8 devices
+Connected to Home Wi-Fi
+
+
+You can now control your Haven
+devices normally.
+
+
+[ Done ]
+
+The numbers must come from actual data.
+
+16. Partial Connection
+
+Example:
+
+Your home is partially connected
+
+
+✓ Living Room
+✓ Plant Corner
+⚠ Kitchen sensor unavailable
+
+
+Your home is connected, but
+1 device needs attention.
+
+
+[ Review devices ]
+
+This is better than:
+
+Home connected
+
+when only some devices are available.
+
+17. Device Offline After Setup
+
+If the home is connected but one node goes offline:
+
+Home connection
+● Connected
+
+
+8 devices
+7 online · 1 offline
+
+
+[ Review devices ]
+
+This is a device availability problem, not necessarily a home connection failure.
+
+Keep these concepts separate:
+
+Home connection
+Device connectivity
+Device telemetry freshness
+18. Home Connection States
+
+Define an explicit state model:
+
+HomeConnectionState
+
+
+notConfigured
+permissionRequired
+bluetoothDisabled
+discovering
+deviceSelected
+connecting
+authenticating
+wifiRequired
+wifiProvisioning
+verifying
+connected
+partiallyConnected
+offline
+failed
+cancelled
+
+Don't build this using scattered booleans like:
+
+isBluetoothConnected
+isWifiConnected
+isHomeConnected
+isLoading
+
+That becomes unreliable quickly.
+
+19. Connection Repository
+
+Create:
+
+HomeConnectionRepository
+
+Suggested boundary:
+
+HomeConnectionRepository
+├── getConnectionState()
+├── startDiscovery()
+├── connectToDevice(deviceId)
+├── authenticateDevice(deviceId)
+├── getAvailableNetworks()
+├── provisionWiFi(credentials)
+├── verifyConnection()
+├── disconnect()
+└── retry()
+
+Return explicit results:
+
+success
+unauthorized
+unsupported
+unavailable
+timeout
+failed
+20. Connection Draft
+
+During setup, don't immediately modify the actual Home model.
+
+Use:
+
+HomeConnectionDraft
+├── selectedDeviceId
+├── transport
+├── wifiNetwork?
+├── setupState
+└── validation
+
+Then:
+
+Draft
+ ↓
+Setup
+ ↓
+Verification
+ ↓
+Confirmed
+ ↓
+Home state updated
+21. Validation
+
+Create:
+
+HomeConnectionValidator
+
+Validate:
+
+Bluetooth available
+device selected
+device verified
+Wi-Fi network selected
+Wi-Fi credentials valid
+required device capabilities available
+confirmation received
+
+Return:
+
+HomeConnectionValidation
+├── isValid
+├── errors[]
+└── warnings[]
+22. Existing Device Setup Reuse
+
+Important architectural decision:
+
+Do not duplicate device provisioning logic between these two screens:
+
+Settings
+→ Add a room device
+
+
+Settings
+→ Connect your home
+
+Instead:
+
+Shared Device Commissioning Engine
+               │
+       ┌───────┴───────┐
+       ▼               ▼
+Add Room Device    Connect Home
+
+Both can use:
+
+DeviceDiscoveryRepository
+DeviceAuthenticationRepository
+WiFiProvisioningRepository
+
+This will prevent bugs where one setup flow works differently from the other.
+
+23. Difference Between “Add Device” and “Connect Home”
+
+This distinction is important in your product.
+
+Add a room device
+
+Purpose:
+
+Add one specific physical device.
+
+Flow:
+
+Discover
+→ Select node
+→ Verify
+→ Configure
+→ Assign room
+→ Finish
+Connect your home
+
+Purpose:
+
+Establish the home's overall connection.
+
+Flow may involve:
+
+Discover/verify
+→ Configure home connectivity
+→ Wi-Fi
+→ Confirm home connection
+→ Synchronize devices
+
+Don't make the two screens appear identical.
+
+They share infrastructure but have different user goals.
+
+24. If the User Already Has Connected Devices
+
+When they tap Connect your home:
+
+Your home is already partly configured
+
+
+4 devices found
+3 connected
+1 needs setup
+
+
+[ Finish home setup ]
+
+Don't make them unnecessarily re-add existing devices.
+
+25. Reconnection
+
+If the home was previously configured but is currently offline:
+
+Home connection lost
+
+
+Your devices are still configured.
+
+
+Last connected
+10:42 AM
+
+
+[ Reconnect ]
+
+This is very different from first-time setup.
+
+Do not force the user through full provisioning again.
+
+26. Network Change
+
+If user wants to change Wi-Fi:
+
+Home Wi-Fi
+Home Wi-Fi
+
+
+[ Change network ]
+
+Then:
+
+Change your home network?
+
+
+Your connected devices may
+temporarily disconnect while
+the new network is configured.
+
+
+[ Cancel ]
+[ Continue ]
+
+This should be an explicit flow.
+
+Don't silently replace Wi-Fi credentials.
+
+27. Connection Troubleshooting
+
+Provide a compact troubleshooting section:
+
+Need help?
+
+
+Bluetooth is off
+Wi-Fi isn't available
+Device is too far away
+Device is already set up
+
+
+[ Troubleshooting guide ]
+
+But don't overload the first screen.
+
+Only surface the relevant problem.
+
+28. Activity Integration
+
+After successful home connection, create an Activity event:
+
+Home connected
+EH Home successfully connected to your home network.
+
+After failure:
+
+Home connection failed
+Your device couldn't connect to the selected Wi-Fi network.
+
+This integrates naturally with your existing Activity architecture.
+
+29. Settings Home Update
+
+After connection succeeds, the main Settings card should change from:
+
+Connect your home
+Bluetooth and Wi-Fi setup
+
+to something like:
+
+Connect your home
+
+
+Connected
+Bluetooth + Wi-Fi
+
+Or:
+
+Connect your home
+
+
+1 device needs attention
+
+This prevents Settings from looking outdated.
+
+30. Home Profile Update
+
+Your previously planned Home Profile should also update:
+
+Home connected
+5 rooms
+8 devices
+7 online
+1 attention
+
+without requiring an app restart.
+
+Use repository/state updates.
+
+31. Failure Handling
+Bluetooth failure
+Couldn't connect to your device
+
+
+Make sure Bluetooth is on and
+the device is nearby.
+
+
+[ Try again ]
+Wi-Fi failure
+Couldn't connect to Wi-Fi
+
+
+Check the password and try again.
+
+
+[ Try again ]
+[ Choose another network ]
+Device authentication failure
+Couldn't verify this device
+
+
+For your security, setup cannot
+continue.
+
+
+[ Try again ]
+Timeout
+Connection timed out
+
+
+The device didn't respond in time.
+
+
+[ Try again ]
+
+Don't show generic:
+
+Something went wrong.
+
+unless there is genuinely no better error classification.
+
+32. Navigation
+Settings
+   ↓
+Connect your home
+   ↓
+HomeConnectionPage
+   │
+   ├── First-time setup
+   │      ↓
+   │   Device discovery
+   │      ↓
+   │   Verification
+   │      ↓
+   │   Wi-Fi
+   │      ↓
+   │   Confirmation
+   │
+   ├── Already connected
+   │      ↓
+   │   Connection overview
+   │
+   └── Offline
+          ↓
+       Reconnect
+33. Final architecture
+                 Settings
+                    │
+            Connect your home
+                    │
+                    ▼
+          HomeConnectionPage
+                    │
+             ConnectionController
+                    │
+        ┌───────────┼────────────┐
+        ▼           ▼            ▼
+   Device        Wi-Fi       Home state
+ Discovery       Setup        Repository
+        │           │            │
+        ▼           ▼            ▼
+      ESP32 Node / future Hub / backend
+                    │
+                    ▼
+             Authenticated ACK
+                    │
+                    ▼
+             Home = Connected
+34. Production rules
+
+The most important rules for this screen are:
+
+BLE connected
+    ≠
+Home connected
+Wi-Fi credentials accepted
+    ≠
+Home connected
+One device online
+    ≠
+Entire home healthy
+Flutter local state
+    ≠
+Confirmed device state
+
+The final state should only become:
+
+✓ Home connected
+
+after the actual connection flow has been confirmed by the device/backend architecture.
+
+Final user experience
+
+The user should experience this as:
+
+Connect your home → Find/verify device → Connect Wi-Fi → Confirm connection → Done
+
+while underneath, EH Home can handle:
+
+BLE → secure authentication → provisioning → Wi-Fi → device confirmation → repository update → Activity event → Home/Rooms/Routines state refresh.
+
+That gives you a clean production foundation for the current ESP32 Node and leaves room for a future Hub without forcing Hub-specific assumptions into the Flutter UI.

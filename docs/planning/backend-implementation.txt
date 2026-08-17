@@ -1,0 +1,2073 @@
+CONTINUATION OF PREVIOUS MASTER PROMPT
+
+==================================================
+47. BACKEND IMPLEMENTATION — PRODUCTION STANDARD
+==================================================
+
+Now extend the previously defined architecture into a production-grade IoT backend.
+
+Do NOT build this as a simple CRUD application.
+
+Treat the backend as a scalable IoT platform.
+
+Primary goals:
+
+- reliability
+- security
+- low latency
+- offline/local operation
+- cloud remote operation
+- device state consistency
+- large device fleet support
+- metadata-driven products
+- OTA fleet management
+- telemetry
+- energy analytics
+- automation
+- observability
+- backward compatibility
+- production maintainability
+
+==================================================
+48. TECHNOLOGY BASELINE
+==================================================
+
+Use the following baseline unless the existing project has a strong technical reason to use an equivalent:
+
+Backend:
+- Node.js
+- TypeScript
+- Fastify
+
+Database:
+- PostgreSQL
+
+Cache / distributed coordination:
+- Redis
+
+Device messaging:
+- MQTT 5 over TLS
+
+Application API:
+- HTTPS REST API
+
+Application real-time updates:
+- WebSocket
+
+Background jobs:
+- BullMQ / Redis-backed workers where appropriate
+
+Object storage:
+- S3-compatible object storage
+
+API documentation:
+- OpenAPI
+
+Validation:
+- JSON Schema / TypeScript schema validation
+
+Testing:
+- unit tests
+- integration tests
+- contract tests
+- end-to-end tests
+
+Deployment:
+- Docker
+- environment-based configuration
+- CI/CD
+
+Do NOT introduce microservices unnecessarily at the beginning.
+
+Start with a modular monolith with clean internal boundaries.
+
+The architecture must allow later extraction of high-load modules into services.
+
+==================================================
+49. MODULAR BACKEND ARCHITECTURE
+==================================================
+
+Organize the backend into strong domain modules.
+
+Example:
+
+backend/
+│
+├── src/
+│   ├── app/
+│   ├── config/
+│   ├── plugins/
+│   │
+│   ├── auth/
+│   ├── users/
+│   ├── homes/
+│   ├── floors/
+│   ├── rooms/
+│   │
+│   ├── products/
+│   ├── product-definitions/
+│   ├── capabilities/
+│   │
+│   ├── devices/
+│   ├── device-state/
+│   ├── device-commands/
+│   ├── device-events/
+│   ├── device-provisioning/
+│   │
+│   ├── telemetry/
+│   ├── energy/
+│   │
+│   ├── automations/
+│   ├── scenes/
+│   ├── schedules/
+│   │
+│   ├── firmware/
+│   ├── ota/
+│   │
+│   ├── matter/
+│   ├── connectivity/
+│   │
+│   ├── notifications/
+│   ├── diagnostics/
+│   ├── audit/
+│   │
+│   ├── realtime/
+│   ├── mqtt/
+│   ├── jobs/
+│   │
+│   └── shared/
+│
+├── tests/
+├── migrations/
+├── scripts/
+└── docs/
+
+Every module must have clear boundaries.
+
+Avoid circular dependencies.
+
+==================================================
+50. DOMAIN-DRIVEN DATA MODEL
+==================================================
+
+Create a proper relational data model.
+
+Core entities:
+
+User
+Account
+Home
+Floor
+Room
+
+ProductFamily
+Product
+ProductVariant
+ProductCapability
+ProductImage
+ProductSpecification
+
+Device
+DeviceChannel
+DeviceCapability
+DeviceCredential
+DeviceInstallation
+DeviceOwnership
+
+DeviceState
+ChannelState
+DeviceCommand
+DeviceEvent
+
+Telemetry
+EnergyReading
+EnergyAggregate
+
+Automation
+AutomationTrigger
+AutomationCondition
+AutomationAction
+AutomationExecution
+
+FirmwareRelease
+FirmwareArtifact
+FirmwareCompatibility
+OTAJob
+OTADeviceJob
+
+Notification
+AuditLog
+
+Do NOT duplicate product information inside every device record.
+
+Use references:
+
+device.productVariantId
+
+Then resolve capabilities through the product definition plus device-specific configuration.
+
+==================================================
+51. PRODUCT METADATA MODEL
+==================================================
+
+Design the product metadata schema so new products can be added without modifying the application core.
+
+Required conceptual fields:
+
+productFamily
+productId
+variantId
+sku
+displayName
+description
+icon
+images
+electricalSpecifications
+capabilities
+controls
+telemetry
+automationCapabilities
+connectivity
+firmwareCompatibility
+hardwareRevisions
+matterSupport
+threadSupport
+wifiSupport
+bleSupport
+otaSupport
+
+Use versioned schemas.
+
+Example:
+
+schemaVersion: 1
+
+Never assume metadata will remain unchanged forever.
+
+==================================================
+52. CAPABILITY MODEL
+==================================================
+
+Create a strongly defined capability registry.
+
+Examples:
+
+switch
+relay
+socket
+light
+dimmer
+brightness
+cct
+fan
+fan_speed
+energy
+voltage
+current
+power
+temperature
+humidity
+motion
+door
+local_switch
+button
+touch
+wifi
+ble
+thread
+matter
+ota
+automation
+scene
+schedule
+
+Each capability should define:
+
+- capability ID
+- supported properties
+- commands
+- events
+- telemetry
+- UI rendering hints
+- automation triggers
+- automation actions
+- validation rules
+
+Example:
+
+fan_speed:
+
+properties:
+speed
+speedLevels
+direction if supported
+
+commands:
+setSpeed
+increaseSpeed
+decreaseSpeed
+
+events:
+speedChanged
+
+automation:
+speedChanged
+setSpeed
+
+Do NOT hardcode capability behavior inside random UI components.
+
+==================================================
+53. DEVICE MODEL
+==================================================
+
+A device must contain:
+
+deviceId
+serialNumber
+productVariantId
+hardwareRevision
+firmwareVersion
+manufacturingBatch
+manufacturingDate
+homeId
+roomId
+ownershipId
+connectionType
+lastSeenAt
+onlineStatus
+provisioningStatus
+securityStatus
+
+Channel:
+
+channelId
+channelIndex
+name
+type
+configuration
+capabilities
+
+Example:
+
+Device:
+EH-SW-3X-001
+
+Channels:
+
+1 → Living Room Light
+2 → Fan
+3 → Wall Light
+
+Do not assume channel names from the product.
+
+The customer configuration determines names.
+
+==================================================
+54. DESIRED STATE VS ACTUAL STATE
+==================================================
+
+This is a critical production requirement.
+
+Maintain clear distinction between:
+
+desiredState
+reportedState
+actualState
+connectionState
+
+Never consider a command successful just because the backend accepted it.
+
+Command lifecycle:
+
+CREATED
+QUEUED
+SENT
+ACKNOWLEDGED
+APPLIED
+FAILED
+TIMEOUT
+EXPIRED
+
+Device must confirm actual state.
+
+Example:
+
+App:
+Light ON
+
+Backend:
+command accepted
+
+Device:
+relay changed
+
+Device:
+actualState = ON
+
+Device:
+state event
+
+Backend:
+state updated
+
+App:
+ON
+
+==================================================
+55. COMMAND IDENTITY
+==================================================
+
+Every device command must contain:
+
+commandId
+deviceId
+channelId
+commandType
+payload
+source
+createdAt
+expiresAt
+correlationId
+
+Source examples:
+
+APP
+PHYSICAL_SWITCH
+AUTOMATION
+MATTER
+VOICE
+SYSTEM
+OTA
+
+Commands must be traceable end-to-end.
+
+==================================================
+56. MQTT ARCHITECTURE
+==================================================
+
+Use MQTT 5 over TLS for cloud-device communication.
+
+Design a versioned topic namespace.
+
+Example conceptual structure:
+
+eh/v1/devices/{deviceId}/command
+eh/v1/devices/{deviceId}/state
+eh/v1/devices/{deviceId}/event
+eh/v1/devices/{deviceId}/telemetry
+eh/v1/devices/{deviceId}/availability
+eh/v1/devices/{deviceId}/ota
+eh/v1/devices/{deviceId}/diagnostics
+
+Do NOT finalize topics without defining:
+
+- QoS
+- retained message policy
+- message expiry
+- payload schema
+- authentication
+- authorization
+- retry behavior
+- idempotency
+- correlation ID
+- ordering expectations
+
+Use MQTT retained messages only where semantically appropriate.
+
+Do not use retained messages as a replacement for the database.
+
+==================================================
+57. MQTT PAYLOAD CONTRACT
+==================================================
+
+Create versioned JSON payload schemas.
+
+Example command:
+
+{
+  "schemaVersion": 1,
+  "commandId": "...",
+  "deviceId": "...",
+  "channelId": "ch1",
+  "command": "setPower",
+  "value": true,
+  "source": "APP",
+  "timestamp": "..."
+}
+
+Example state:
+
+{
+  "schemaVersion": 1,
+  "deviceId": "...",
+  "channelId": "ch1",
+  "state": {
+    "power": true
+  },
+  "source": "PHYSICAL_SWITCH",
+  "timestamp": "..."
+}
+
+Example telemetry:
+
+{
+  "schemaVersion": 1,
+  "deviceId": "...",
+  "timestamp": "...",
+  "voltage": 230.2,
+  "current": 0.82,
+  "power": 188.7,
+  "energy": 0.0024
+}
+
+All payloads must be validated.
+
+==================================================
+58. MQTT QUALITY OF SERVICE
+==================================================
+
+Choose QoS based on message semantics.
+
+Do NOT blindly use QoS 2 everywhere.
+
+Define separately:
+
+- state messages
+- commands
+- telemetry
+- events
+- OTA control
+- availability
+
+Document why each QoS level is used.
+
+==================================================
+59. IDEMPOTENCY
+==================================================
+
+Commands must be safe against duplicate delivery.
+
+If:
+
+commandId = CMD123
+
+is received twice, the device/backend must not accidentally toggle a relay twice.
+
+Prefer explicit commands:
+
+set ON
+set OFF
+
+instead of:
+
+toggle
+
+where reliable idempotency is required.
+
+If toggle is supported, implement proper command deduplication.
+
+==================================================
+60. OFFLINE DEVICE BEHAVIOR
+==================================================
+
+When a device is offline:
+
+Backend must know:
+
+lastSeenAt
+connectionState
+lastKnownState
+
+App must clearly distinguish:
+
+OFF
+
+from
+
+OFFLINE
+
+Example:
+
+Light:
+OFF
+
+versus:
+
+Light:
+OFFLINE
+
+Do NOT display OFF merely because the device cannot be reached.
+
+==================================================
+61. LOCAL CONTROL ARCHITECTURE
+==================================================
+
+Local control must not depend on the cloud.
+
+Inside home:
+
+App
+ ↓
+Local discovery
+ ↓
+Local device endpoint
+ ↓
+Device
+ ↓
+Load
+
+The device should remain operational if Internet is unavailable.
+
+The backend can synchronize state later.
+
+Design conflict resolution carefully.
+
+Example:
+
+Cloud thinks:
+OFF
+
+Device physically:
+ON
+
+Device reported state must eventually become authoritative for actual output state.
+
+==================================================
+62. LOCAL DISCOVERY / PROVISIONING
+==================================================
+
+Use BLE primarily for onboarding/provisioning/service.
+
+Flow:
+
+QR scan
+ ↓
+Device identity
+ ↓
+BLE discovery
+ ↓
+Secure provisioning
+ ↓
+Wi-Fi credentials
+ ↓
+Device joins network
+ ↓
+Device claims ownership
+ ↓
+Backend registration
+ ↓
+Home/Room assignment
+
+Do not expose low-level networking information to normal users.
+
+==================================================
+63. DEVICE OWNERSHIP SECURITY
+==================================================
+
+Implement secure device claiming.
+
+A random person nearby must not be able to claim an already-owned device.
+
+Device lifecycle:
+
+FACTORY
+ ↓
+PROVISIONING
+ ↓
+CLAIMED
+ ↓
+ACTIVE
+ ↓
+TRANSFER_PENDING
+ ↓
+TRANSFERRED
+ ↓
+RESET
+
+Define secure ownership transfer.
+
+==================================================
+64. DEVICE CREDENTIALS
+==================================================
+
+Do not use one shared secret for all devices.
+
+Every production device must have unique credentials/identity.
+
+Never commit:
+
+- production passwords
+- device secrets
+- private keys
+- cloud credentials
+
+to Git repositories.
+
+Use secure manufacturing provisioning.
+
+==================================================
+65. AUTHENTICATION
+==================================================
+
+Implement secure user authentication.
+
+Support:
+
+- access token/session
+- refresh mechanism
+- secure logout
+- token rotation where appropriate
+- password hashing
+- rate limiting
+- account lockout/abuse protection
+- email verification if applicable
+- optional MFA architecture for future
+
+Do not store raw passwords.
+
+==================================================
+66. AUTHORIZATION
+==================================================
+
+Implement resource-level authorization.
+
+Example:
+
+User A must NOT control User B's device by guessing deviceId.
+
+Every request must verify ownership/access:
+
+User
+ ↓
+Account/Home
+ ↓
+Room
+ ↓
+Device
+
+Use authorization checks at the service/domain layer, not only UI.
+
+==================================================
+67. HOME SHARING
+==================================================
+
+Support future:
+
+Owner
+Admin
+Member
+Guest
+
+Permissions:
+
+view
+control
+manage
+addDevice
+removeDevice
+configure
+updateFirmware
+
+Do not assume one account = one person forever.
+
+==================================================
+68. REAL-TIME APP UPDATES
+==================================================
+
+Use WebSocket for app real-time state updates.
+
+Example:
+
+Physical switch pressed:
+
+Device
+ ↓
+MQTT
+ ↓
+Backend
+ ↓
+WebSocket
+ ↓
+App
+
+App must update without refresh.
+
+WebSocket events must include:
+
+eventId
+deviceId
+channelId
+eventType
+payload
+timestamp
+
+==================================================
+69. EVENT SOURCING / HISTORY
+==================================================
+
+Do not implement full event sourcing unless justified.
+
+But maintain an auditable event history for important device actions.
+
+Examples:
+
+Light turned ON
+source = PHYSICAL_SWITCH
+
+Fan speed changed
+source = APP
+
+Socket turned OFF
+source = AUTOMATION
+
+Firmware updated
+source = OTA
+
+This is useful for:
+- debugging
+- customer support
+- analytics
+- automation debugging
+- security auditing
+
+==================================================
+70. ENERGY TELEMETRY ARCHITECTURE
+==================================================
+
+Energy-capable products report:
+
+voltage
+current
+power
+energy
+frequency if available
+powerFactor if available
+
+Separate:
+
+REAL-TIME TELEMETRY
+
+from
+
+HISTORICAL ENERGY DATA.
+
+Do not store high-frequency raw telemetry indefinitely.
+
+Implement aggregation:
+
+raw
+ ↓
+short-term processing
+ ↓
+minute aggregate
+ ↓
+hour aggregate
+ ↓
+day aggregate
+ ↓
+month aggregate
+
+Use appropriate retention policies.
+
+==================================================
+71. ENERGY ACCURACY
+==================================================
+
+Never calculate or display energy values unless hardware supports valid measurement.
+
+Store calibration metadata where required.
+
+Example:
+
+energyMeterCalibrationVersion
+voltageCalibration
+currentCalibration
+powerCalibration
+
+Device reports measurement quality/status if supported.
+
+==================================================
+72. AUTOMATION ENGINE
+==================================================
+
+Build a capability-driven automation engine.
+
+Model:
+
+Trigger
+ ↓
+Conditions
+ ↓
+Actions
+
+Example:
+
+Trigger:
+6:00 PM
+
+Condition:
+Home occupied
+
+Action:
+Living Light ON
+
+Another:
+
+Trigger:
+Power > 1500W
+
+Condition:
+Kitchen
+
+Action:
+Notify user
+
+Another:
+
+Trigger:
+Motion detected
+
+Action:
+Hall Light ON
+
+Automation definitions must reference device IDs and capability IDs.
+
+==================================================
+73. LOCAL VS CLOUD AUTOMATION
+==================================================
+
+Every automation must declare execution policy:
+
+LOCAL_ONLY
+CLOUD_ONLY
+LOCAL_PREFERRED
+CLOUD_PREFERRED
+
+Where possible, safety/latency-sensitive automations should execute locally.
+
+Cloud should synchronize configuration and history.
+
+==================================================
+74. AUTOMATION FAILURE HANDLING
+==================================================
+
+Define behavior when:
+
+device offline
+sensor unavailable
+cloud unavailable
+local engine unavailable
+condition cannot be evaluated
+action fails
+
+Do not silently fail.
+
+Record:
+
+automationExecutionId
+status
+failureReason
+deviceResponse
+timestamp
+
+==================================================
+75. OTA ARCHITECTURE
+==================================================
+
+Firmware releases must be first-class backend objects.
+
+FirmwareRelease:
+
+releaseId
+productVariantId
+hardwareRevision
+version
+channel
+artifact
+checksum
+signature
+releaseNotes
+minimumFirmware
+createdAt
+status
+
+Firmware compatibility must be explicit.
+
+Never allow:
+
+Smart Socket firmware
+to be installed on
+Smart Switch hardware.
+
+==================================================
+76. OTA ROLLOUT
+==================================================
+
+Support:
+
+single device
+selected devices
+product variant
+hardware revision
+percentage rollout
+staged rollout
+full rollout
+
+Example:
+
+Stage 1:
+1%
+
+Stage 2:
+10%
+
+Stage 3:
+50%
+
+Stage 4:
+100%
+
+Monitor failure rate between stages.
+
+Automatically pause rollout when configured failure thresholds are exceeded.
+
+==================================================
+77. OTA DEVICE STATE MACHINE
+==================================================
+
+OTA states:
+
+ELIGIBLE
+QUEUED
+DOWNLOADING
+DOWNLOADED
+VERIFYING
+INSTALLING
+REBOOTING
+HEALTH_CHECK
+SUCCESS
+FAILED
+ROLLED_BACK
+
+Persist OTA state.
+
+App/admin must show fleet status.
+
+==================================================
+78. FIRMWARE SECURITY
+==================================================
+
+Production firmware must use:
+
+signed firmware
+secure boot
+flash encryption where appropriate
+secure key handling
+anti-rollback where appropriate
+integrity verification
+
+Never trust firmware metadata alone.
+
+Device must cryptographically verify firmware before installation.
+
+==================================================
+79. MATTER / THREAD ABSTRACTION
+==================================================
+
+Do not make business logic depend directly on Matter or Thread.
+
+Create adapters:
+
+DeviceControlInterface
+LocalTransport
+MQTTTransport
+MatterAdapter
+ThreadConnectivityAdapter
+
+Business layer should operate using:
+
+setState()
+getState()
+reportState()
+subscribeEvents()
+
+Transport details stay below the abstraction layer.
+
+==================================================
+80. GATEWAY / BORDER ROUTER
+==================================================
+
+Do not make a proprietary gateway mandatory for all products.
+
+Wi-Fi products:
+
+Device
+ ↓
+Home Router
+
+Thread products:
+
+Device
+ ↓
+Thread
+ ↓
+Compatible Thread Border Router
+ ↓
+Home IP network
+
+Optional EH Gateway can provide:
+
+Thread Border Router
+Matter controller
+local automation
+local management
+network bridge
+diagnostics
+
+But do not force it on basic customers.
+
+==================================================
+81. MATTER INTEGRATION
+==================================================
+
+Matter-enabled products should maintain their EH ecosystem identity.
+
+Matter is an interoperability layer, not the source of truth for EH product management.
+
+EH backend/device model remains authoritative for:
+
+- device metadata
+- product information
+- firmware
+- energy history
+- automation
+- diagnostics
+- user ownership
+
+Matter integration should synchronize supported state.
+
+==================================================
+82. DATABASE TRANSACTIONS
+==================================================
+
+Use database transactions for operations that must be atomic.
+
+Examples:
+
+device ownership transfer
+device removal
+home membership changes
+OTA job creation
+automation creation
+product metadata publishing
+
+Do not use transactions blindly around external network calls.
+
+Use proper outbox/event patterns where needed.
+
+==================================================
+83. OUTBOX PATTERN
+==================================================
+
+For critical backend events:
+
+Database transaction
+ +
+Outbox record
+ ↓
+Worker
+ ↓
+MQTT/WebSocket/notification
+
+This prevents:
+
+Database updated
+but event lost
+
+scenarios.
+
+Implement an outbox pattern where it materially improves reliability.
+
+==================================================
+84. RETRY STRATEGY
+==================================================
+
+Every external operation must have controlled retry behavior.
+
+Use:
+
+exponential backoff
+jitter
+maximum retry count
+dead-letter handling
+
+Do NOT create infinite retry loops.
+
+Distinguish:
+
+transient error
+permanent error
+authentication error
+validation error
+device offline
+
+==================================================
+85. RATE LIMITING
+==================================================
+
+Protect:
+
+authentication
+device command APIs
+product APIs
+OTA APIs
+public endpoints
+
+against abuse.
+
+Use Redis-backed rate limiting if needed.
+
+Do not rate-limit internal device traffic blindly.
+
+==================================================
+86. OBSERVABILITY
+==================================================
+
+Production backend must have:
+
+structured logs
+metrics
+traces where appropriate
+request IDs
+correlation IDs
+device command IDs
+OTA job IDs
+automation execution IDs
+
+Every important operation must be traceable.
+
+Example:
+
+requestId
+ ↓
+commandId
+ ↓
+MQTT message
+ ↓
+device event
+ ↓
+state update
+ ↓
+WebSocket event
+
+==================================================
+87. LOGGING
+==================================================
+
+Never log secrets.
+
+Never log:
+
+passwords
+tokens
+private keys
+device credentials
+full sensitive user data
+
+Use structured logs.
+
+Example:
+
+{
+  "level": "info",
+  "event": "device_command_applied",
+  "deviceId": "...",
+  "commandId": "...",
+  "source": "APP"
+}
+
+==================================================
+88. HEALTH CHECKS
+==================================================
+
+Expose internal health checks for:
+
+database
+Redis
+MQTT
+object storage
+workers
+
+Separate:
+
+liveness
+
+from
+
+readiness.
+
+A service being alive does not mean all dependencies are healthy.
+
+==================================================
+89. DATABASE MIGRATIONS
+==================================================
+
+Never modify production database manually.
+
+Use versioned migrations.
+
+Every schema change must be reproducible.
+
+Migration process:
+
+development
+ ↓
+test
+ ↓
+staging
+ ↓
+production
+
+Include rollback strategy where practical.
+
+==================================================
+90. API VERSIONING
+==================================================
+
+Use:
+
+/api/v1
+
+Do not break existing clients.
+
+When schema changes:
+
+v2
+
+or backward-compatible evolution.
+
+Device protocol versions must also be independently versioned.
+
+==================================================
+91. CONTRACT-FIRST DEVELOPMENT
+==================================================
+
+Create shared contracts for:
+
+App ↔ Backend
+Backend ↔ Device
+Backend ↔ Automation
+Backend ↔ OTA
+Backend ↔ Matter integration
+
+Use schemas.
+
+The same schema should generate or validate:
+
+TypeScript types
+API validation
+MQTT payload validation
+tests
+
+Avoid manually maintaining duplicate interfaces.
+
+==================================================
+92. SHARED SCHEMA PACKAGE
+==================================================
+
+Create something conceptually like:
+
+packages/
+└── contracts/
+    ├── api/
+    ├── device/
+    ├── mqtt/
+    ├── product/
+    ├── capabilities/
+    ├── automation/
+    ├── ota/
+    └── telemetry/
+
+App and backend should consume shared contracts where architecture permits.
+
+Firmware should have equivalent machine-readable protocol definitions or generated representations.
+
+==================================================
+93. TESTING STRATEGY
+==================================================
+
+Implement:
+
+Unit tests
+Integration tests
+API tests
+Database tests
+MQTT contract tests
+Device protocol tests
+Automation tests
+OTA tests
+Security tests
+End-to-end tests
+
+Critical flows must have automated tests:
+
+Add Device
+Claim Device
+Local Control
+Remote Control
+Physical Switch Event
+Energy Telemetry
+Automation
+OTA
+Factory Reset
+Ownership Transfer
+
+==================================================
+94. DEVICE SIMULATOR
+==================================================
+
+Create a device simulator.
+
+It should emulate:
+
+online/offline
+relay channels
+physical switch events
+energy telemetry
+firmware versions
+OTA
+device state
+MQTT messages
+
+Example:
+
+simulator:
+
+EH-SW-3X-001
+
+Then test:
+
+App
+ ↓
+Backend
+ ↓
+MQTT
+ ↓
+Simulator
+
+without requiring physical hardware.
+
+This is essential for backend development before hardware is available.
+
+==================================================
+95. HARDWARE-IN-THE-LOOP TESTING
+==================================================
+
+Later support:
+
+real ESP32 device
+ ↓
+test MQTT broker
+ ↓
+test backend
+ ↓
+test app
+
+Use automated test scenarios where possible.
+
+==================================================
+96. DEVELOPMENT ENVIRONMENTS
+==================================================
+
+Create:
+
+development
+staging
+production
+
+Each environment must have separate:
+
+database
+MQTT namespace/broker
+credentials
+object storage
+firmware artifacts
+
+Never allow development firmware to accidentally target production devices.
+
+==================================================
+97. CONFIGURATION
+==================================================
+
+Use environment variables/secrets management.
+
+Separate:
+
+application configuration
+environment configuration
+secret credentials
+
+Never hardcode:
+
+database password
+MQTT password
+JWT secrets
+cloud API keys
+device provisioning secrets
+
+==================================================
+98. CI/CD
+==================================================
+
+Create CI pipeline:
+
+Pull Request
+ ↓
+lint
+ ↓
+typecheck
+ ↓
+unit tests
+ ↓
+integration tests
+ ↓
+build
+ ↓
+security checks
+ ↓
+artifact creation
+
+Deployment:
+
+main
+ ↓
+build
+ ↓
+test
+ ↓
+staging
+ ↓
+verification
+ ↓
+production
+
+Firmware and backend releases must be independently versioned.
+
+==================================================
+99. BACKEND SECURITY
+==================================================
+
+Implement protection against:
+
+broken access control
+injection
+authentication abuse
+credential leakage
+replay attacks
+command duplication
+device impersonation
+firmware tampering
+unauthorized OTA
+unsafe device claiming
+rate abuse
+
+Follow modern secure engineering practices.
+
+Do not invent cryptography.
+
+Use established libraries and protocols.
+
+==================================================
+100. API DESIGN EXAMPLES
+==================================================
+
+Examples:
+
+GET /api/v1/homes
+
+GET /api/v1/homes/:homeId/devices
+
+GET /api/v1/devices/:deviceId
+
+GET /api/v1/devices/:deviceId/state
+
+POST /api/v1/devices/:deviceId/commands
+
+GET /api/v1/devices/:deviceId/events
+
+GET /api/v1/devices/:deviceId/energy
+
+GET /api/v1/products
+
+GET /api/v1/products/:productId
+
+POST /api/v1/devices/provision
+
+POST /api/v1/devices/:deviceId/claim
+
+POST /api/v1/devices/:deviceId/reset
+
+GET /api/v1/firmware/releases
+
+POST /api/v1/ota/jobs
+
+GET /api/v1/ota/jobs/:jobId
+
+POST /api/v1/automations
+
+GET /api/v1/automations
+
+PATCH /api/v1/automations/:automationId
+
+DELETE /api/v1/automations/:automationId
+
+Do not implement blindly.
+First define request/response schemas and authorization rules.
+
+==================================================
+101. ADMIN / FLEET MANAGEMENT
+==================================================
+
+Create backend capability for an internal admin console.
+
+Admin should be able to see:
+
+total devices
+online devices
+offline devices
+firmware versions
+hardware revisions
+product distribution
+OTA status
+failed devices
+energy telemetry health
+MQTT connection health
+device errors
+
+Admin should be able to:
+
+publish product metadata
+publish firmware
+create OTA rollout
+pause rollout
+resume rollout
+inspect device
+inspect events
+inspect diagnostics
+
+Normal customer must never have admin access.
+
+==================================================
+102. PRODUCT LIFECYCLE
+==================================================
+
+Product metadata lifecycle:
+
+DRAFT
+ ↓
+VALIDATING
+ ↓
+STAGED
+ ↓
+PUBLISHED
+ ↓
+DEPRECATED
+ ↓
+RETIRED
+
+Do not let incomplete product definitions reach production users.
+
+==================================================
+103. DEVICE LIFECYCLE
+==================================================
+
+Device lifecycle:
+
+MANUFACTURED
+ ↓
+FACTORY_TESTED
+ ↓
+UNCLAIMED
+ ↓
+PROVISIONING
+ ↓
+CLAIMED
+ ↓
+ACTIVE
+ ↓
+OFFLINE
+ ↓
+RESET / TRANSFER
+ ↓
+RETIRED
+
+Implement appropriate transitions.
+
+==================================================
+104. DATA RETENTION
+==================================================
+
+Define retention separately for:
+
+device events
+telemetry
+energy aggregates
+audit logs
+OTA logs
+diagnostic logs
+
+Do not retain unlimited high-frequency telemetry.
+
+==================================================
+105. SCALABILITY TARGET
+==================================================
+
+Do not hardcode architecture around a small number of devices.
+
+The system should conceptually scale:
+
+10 devices
+100 devices
+1,000 devices
+10,000 devices
+100,000 devices
+and beyond.
+
+Do not prematurely optimize for millions of devices, but do not create architectural bottlenecks that make future scaling impossible.
+
+==================================================
+106. NO PREMATURE MICROSERVICES
+==================================================
+
+Start as a modular monolith.
+
+Extract services only when justified by:
+
+- independent scaling
+- failure isolation
+- deployment independence
+- team ownership
+- resource characteristics
+
+Potential future services:
+
+device-ingestion
+telemetry-processing
+automation-engine
+ota-service
+notification-service
+
+Do not create these as separate services now unless the existing project already requires them.
+
+==================================================
+107. FAILURE SCENARIOS
+==================================================
+
+Explicitly test:
+
+Internet down
+Wi-Fi down
+MQTT unavailable
+Redis unavailable
+PostgreSQL unavailable
+Device offline
+App offline
+Cloud unavailable
+Duplicate command
+Delayed command
+Out-of-order event
+OTA failure
+Device reboot
+Power failure during OTA
+Firmware rollback
+Physical switch during cloud outage
+Automation during Internet outage
+
+Define expected behavior for each.
+
+==================================================
+108. MOST IMPORTANT STATE RULE
+==================================================
+
+The physical device is the authority for ACTUAL OUTPUT STATE.
+
+Example:
+
+App says:
+ON
+
+but device says:
+OFF
+
+Then actual state = OFF.
+
+The backend must not blindly overwrite the physical truth.
+
+The system should reconcile:
+
+desired state
+reported state
+actual state
+
+according to the device protocol.
+
+==================================================
+109. FINAL END-TO-END CONTRACT
+==================================================
+
+The complete system must follow:
+
+PRODUCT METADATA
+        ↓
+CAPABILITIES
+        ↓
+DEVICE CONFIGURATION
+        ↓
+FIRMWARE
+        ↓
+DEVICE PROTOCOL
+        ↓
+MQTT / LOCAL TRANSPORT
+        ↓
+BACKEND DEVICE SERVICE
+        ↓
+STATE + EVENTS + TELEMETRY
+        ↓
+AUTOMATION / ENERGY / OTA
+        ↓
+REST + WEBSOCKET
+        ↓
+APP
+        ↓
+METADATA-DRIVEN UI
+
+No layer should independently invent a different definition of the same device.
+
+==================================================
+110. IMPLEMENTATION ORDER
+==================================================
+
+Do NOT implement everything simultaneously.
+
+Implement in this order:
+
+PHASE 1
+Architecture + schemas
+
+PHASE 2
+PostgreSQL schema + migrations
+
+PHASE 3
+Product metadata + capability engine
+
+PHASE 4
+Device model + ownership
+
+PHASE 5
+Authentication + authorization
+
+PHASE 6
+MQTT infrastructure + device protocol
+
+PHASE 7
+Device command/state/event system
+
+PHASE 8
+Local control integration
+
+PHASE 9
+WebSocket real-time synchronization
+
+PHASE 10
+Energy telemetry
+
+PHASE 11
+Automation engine
+
+PHASE 12
+OTA infrastructure
+
+PHASE 13
+Matter/Thread abstraction
+
+PHASE 14
+Admin/fleet management
+
+PHASE 15
+Observability + security hardening
+
+PHASE 16
+Production testing + deployment
+
+After each phase:
+- run tests
+- verify existing app functionality
+- verify contracts
+- document changes
+- do not silently break previous phases
+
+==================================================
+111. REQUIRED DOCUMENTATION
+==================================================
+
+Create and maintain:
+
+docs/
+├── architecture.md
+├── backend.md
+├── database.md
+├── api.md
+├── device-protocol.md
+├── mqtt.md
+├── product-metadata.md
+├── capabilities.md
+├── state-machine.md
+├── automation.md
+├── energy.md
+├── ota.md
+├── security.md
+├── provisioning.md
+├── matter-thread.md
+├── testing.md
+├── manufacturing.md
+└── deployment.md
+
+Every major architecture decision must be documented.
+
+==================================================
+112. FINAL IMPLEMENTATION STANDARD
+==================================================
+
+The implementation must be:
+
+production-oriented
+secure-by-default
+testable
+observable
+versioned
+backward compatible
+metadata-driven
+capability-driven
+hardware-aware
+firmware-aware
+OTA-safe
+local-first for home control
+cloud-enabled for remote control
+scalable
+maintainable
+
+Do NOT optimize for "it works on my machine".
+
+Do NOT use mock data where real architecture is required.
+
+Do NOT fake device states.
+
+Do NOT fake energy readings.
+
+Do NOT hardcode product-specific UI where metadata can solve it.
+
+Do NOT create unnecessary hubs.
+
+Do NOT create unnecessary microservices.
+
+Do NOT expose engineering complexity to normal customers.
+
+==================================================
+113. BEFORE WRITING IMPLEMENTATION CODE
+==================================================
+
+First inspect the existing project and produce:
+
+A. Current backend architecture
+B. Current database architecture
+C. Current API architecture
+D. Current device model
+E. Current app-device communication
+F. Current automation implementation
+G. Current product metadata implementation
+H. Current authentication
+I. Current deployment
+J. Current weaknesses
+
+Then produce:
+
+1. Proposed architecture diagram
+2. Folder structure
+3. Database ER model
+4. Product metadata schema
+5. Capability schema
+6. Device state machine
+7. MQTT topic architecture
+8. MQTT payload schemas
+9. API contract
+10. WebSocket event contract
+11. OTA architecture
+12. Energy data pipeline
+13. Automation architecture
+14. Security model
+15. Testing architecture
+16. Migration plan
+
+Only after I approve the architecture should you perform major implementation.
+
+==================================================
+114. NON-NEGOTIABLE GOAL
+==================================================
+
+I am building a real smart-home product company.
+
+Do not treat this as a college project or prototype.
+
+The architecture must support a product ecosystem where:
+
+One app
+One account
+Multiple homes
+Multiple floors
+Multiple rooms
+Multiple product families
+Multiple variants
+Multiple hardware revisions
+Multiple firmware versions
+Thousands+ of devices
+Local control
+Remote control
+Physical controls
+Automations
+Energy monitoring
+OTA
+Matter
+Thread
+Wi-Fi
+BLE provisioning
+Future products
+
+can coexist under one coherent platform.
+
+The user experience must remain simple even though the backend is technically sophisticated.
+
+==================================================
+115. FINAL RULE
+==================================================
+
+Whenever there is a conflict between:
+
+short-term implementation convenience
+
+and
+
+long-term production architecture,
+
+prefer the production architecture,
+
+BUT avoid unnecessary complexity.
+
+Build the simplest architecture that can safely scale.
+
+Do not introduce technology merely because it is "MNC".
+
+Every technology must have a clearly documented reason.
+
+==================================================
+END OF BACKEND IMPLEMENTATION CONTINUATION
+==================================================

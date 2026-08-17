@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/hardware-profile.schema.json",
+  "title": "HardwareProfile",
+  "description": "Hardware specification, MCU silicon target, memory, and peripheral configuration.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mcuFamily",
+    "flashSizeBytes",
+    "hasEnergyMetering",
+    "maxRelayAmpsPerChannel"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "mcuFamily": {
+      "type": "string",
+      "enum": [
+        "esp32-c3",
+        "esp32-s3",
+        "esp32-c6",
+        "nrf5340",
+        "nrf52840",
+        "efr32mg24",
+        "generic-arm"
+      ]
+    },
+    "flashSizeBytes": {
+      "type": "integer",
+      "minimum": 1048576
+    },
+    "psramSizeBytes": {
+      "type": ["integer", "null"]
+    },
+    "hasEnergyMetering": {
+      "type": "boolean"
+    },
+    "energyMeterChip": {
+      "type": ["string", "null"]
+    },
+    "maxRelayAmpsPerChannel": {
+      "type": "number",
+      "minimum": 0
+    },
+    "maxTotalAmps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "gpioMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "mcuFamily": "esp32-c6",
+      "flashSizeBytes": 4194304,
+      "psramSizeBytes": null,
+      "hasEnergyMetering": true,
+      "energyMeterChip": "BL0942",
+      "maxRelayAmpsPerChannel": 10.0,
+      "maxTotalAmps": 16.0,
+      "gpioMap": {
+        "relay_ch1": 18,
+        "relay_ch2": 19,
+        "relay_ch3": 20,
+        "switch_in_ch1": 4,
+        "switch_in_ch2": 5,
+        "switch_in_ch3": 6
+      }
+    }
+  ]
+}

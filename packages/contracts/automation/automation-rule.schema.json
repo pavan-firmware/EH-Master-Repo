@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/automation/automation-rule.schema.json",
+  "title": "AutomationRule",
+  "description": "Rule graph defining triggers, conditions, actions, and execution policy.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "automationId",
+    "homeId",
+    "name",
+    "enabled",
+    "executionPolicy",
+    "triggers",
+    "actions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "automationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "homeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "executionPolicy": {
+      "type": "string",
+      "enum": [
+        "DEVICE_LOCAL",
+        "LOCAL_ONLY",
+        "LOCAL_PREFERRED",
+        "CLOUD_PREFERRED",
+        "CLOUD_ONLY"
+      ]
+    },
+    "triggers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "config"],
+        "properties": {
+          "kind": { "type": "string" },
+          "deviceId": { "type": "string", "format": "uuid" },
+          "channelIndex": { "type": "integer" },
+          "config": { "type": "object" }
+        }
+      }
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "config"],
+        "properties": {
+          "kind": { "type": "string" },
+          "config": { "type": "object" }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["deviceId", "channelIndex", "action", "params"],
+        "properties": {
+          "deviceId": { "type": "string", "format": "uuid" },
+          "channelIndex": { "type": "integer" },
+          "action": { "type": "string" },
+          "params": { "type": "object" }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "automationId": "0194fe23-7a1b-7890-a123-456789333333",
+      "homeId": "11111111-2222-3333-4444-555555555555",
+      "name": "Evening Porch Lights",
+      "enabled": true,
+      "executionPolicy": "LOCAL_PREFERRED",
+      "triggers": [
+        {
+          "kind": "time.schedule",
+          "config": { "time": "18:30", "days": [1, 2, 3, 4, 5] }
+        }
+      ],
+      "conditions": [],
+      "actions": [
+        {
+          "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+          "channelIndex": 1,
+          "action": "setPower",
+          "params": { "value": true }
+        }
+      ]
+    }
+  ]
+}

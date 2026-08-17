@@ -1,0 +1,145 @@
+You should build this in stages. Do not start with every sensor, SIM800L, OTA, and safety circuit at once—the first goal is a reliable one-node + one-hub prototype that your Flutter app can read and control.
+One important correction: the flame-sensor and MQ-9 breakout boards are useful prototype sensors, but they are not certified fire/CO/gas alarms. Do not market or rely on them as life-safety equipment, and do not let a Bluetooth command disable an alarm. Use certified, independent alarms in a real home.
+Target v1 architecture
+Hub ESP32: BLE setup/local control, I²C LCD, SD event log, local automations, cloud connection, later SIM800L and APR33A3.
+Room-node ESP32: reads room sensors and drives non-safety actuators such as the mist maker.
+Network: for the first version, hub and nodes join the same home Wi‑Fi and each use authenticated TLS MQTT to the backend. This is much more reliable than trying to make an ESP32 act as an MQTT router.
+Flutter app: BLE connects only to the hub for setup and local controls; normal live data and history come from the backend/device shadow.
+Hardware setup: buy/build first
+Use ESP32 DevKit boards during development—not bare WROOM modules.
+Minimum prototype equipment:
+2× ESP32 DevKit V1 / WROOM-32 development boards
+5 V, 3 A regulated power supply for the node; 5 V, 2 A for the hub
+Breadboard, jumper wires, multimeter, USB data cables
+2× 10 kΩ resistors and 1× 4.7 kΩ resistor set
+Logic-level MOSFET driver board or correctly rated relay module for the mist maker
+Voltage-divider resistors / level shifter modules
+I²C 16×2 LCD with I²C backpack
+3.3 V-compatible microSD SPI module and microSD card
+Add only after the base system works:
+SIM800L, its dedicated 3.8–4.2 V / 2 A supply, and 1000–2200 µF low-ESR capacitor at its power pins
+APR33A3 and speaker
+TCS34725 colour sensor, if that is your actual colour-sensor module
+A custom PCB, enclosure, production security features
+Never power the mist maker or SIM800L from the ESP32 5 V/3.3 V pins or a USB port.
+Room-node wiring plan
+Use the following pin map for the first full sensor node. All grounds must be common.
+Function	ESP32 GPIO	Notes
+I²C SDA / LCD or TCS34725	21	3.3 V I²C only
+I²C SCL	22	3.3 V I²C only
+DHT11 data	4	Add 4.7–10 kΩ pull-up if your module lacks one
+IR digital output	16	Power sensor at 3.3 V
+Flame sensor digital output	17	Prototype alert input only
+Sound sensor digital output	18	Treat as noise threshold, not voice recognition
+HC-SR04 trigger	25	3.3 V output is normally accepted
+HC-SR04 echo	26	Must use a 5 V → 3.3 V voltage divider
+Mist-maker MOSFET/relay control	27	GPIO never drives the load directly
+Soil sensor analogue output	34	ADC1 input; power sensor at 3.3 V
+NTC divider midpoint	35	ADC1 input
+MQ-9 analogue output	36	ADC1 input, conditioned to ≤3.3 V
+LDR divider midpoint	39	ADC1 input
+
+
+Use only ADC1 pins while Wi‑Fi is enabled. Calibrate and average analogue readings; ESP32’s ADC values are not inherently precise. Espressif’s current ADC driver supports calibrated one-shot readings. ESP-IDF ADC documentation
+Electrical rules:
+Do not connect any 5 V signal directly to ESP32 GPIO.
+HC-SR04 Echo must pass through a divider, for example 1 kΩ from Echo to GPIO and 2 kΩ from GPIO to GND.
+Use capacitive soil probes, not exposed-resistance probes, for a durable plant-care device.
+Build the NTC as a 3.3 V resistor divider: 3.3 V → 10 kΩ fixed resistor → GPIO35 → NTC → GND.
+Build the LDR similarly with a fixed resistor.
+Calibrate “dry” and “wet” soil readings per probe; do not hard-code generic percentage thresholds.
+Select the MOSFET/relay after checking the mist maker’s real voltage and current rating.
+Hub wiring plan
+Function	ESP32 GPIO	Notes
+LCD / I²C SDA	21	Shared I²C bus
+LCD / I²C SCL	22	Shared I²C bus
+SD card SCK	18	SPI
+SD card MISO	19	SPI
+SD card MOSI	23	SPI
+SD card CS	5	Use a 3.3 V-compatible SD module
+SIM800L UART RX/TX	16 / 17	Later stage; level-shift ESP32 TX to SIM800L RX
+APR33A3 controls	25, 26, 27	Confirm module datasheet before final wiring
+
+
+Do not include HC-05 in the production design. It is Classic Bluetooth, does not fit the app’s “hub native BLE only” model, is poorly supported on iOS, and must never be able to arm/disarm safety functions. Keep it only as an experimental bench module if desired.
+Firmware implementation plan
+Create a separate ESP-IDF workspace beside the Flutter app:
+firmware/
+  common/                 shared models, MQTT client, crypto, config validation
+  hub/
+    main/
+    components/ble/
+    components/network/
+    components/lcd/
+    components/sd_log/
+    components/rules/
+    components/ota/
+  node/
+    main/
+    components/sensors/
+    components/actuators/
+    components/network/
+    components/ota/
+Use ESP-IDF, not Arduino, and pin the project to one tested release. ESP-IDF provides BLE Wi‑Fi provisioning, OTA partitions, rollback, Secure Boot, and Flash Encryption support.
+Node firmware order
+Boot, NVS storage, watchdog, Wi‑Fi connection, unique device ID.
+Implement one sensor at a time: DHT11 → soil moisture → LDR → ultrasonic → remaining sensors.
+Add a sensor_poll_task with separate read intervals and median/average filtering.
+Publish versioned reported state through MQTT.
+Accept validated non-safety commands for mist maker and configurable thresholds.
+Store configuration in NVS: room name, installed capabilities, tank/presence ultrasonic mode, calibration data.
+Add OTA only after normal telemetry/control is stable.
+Hub firmware order
+Wi‑Fi connection and MQTT client.
+I²C LCD showing connection and update status.
+BLE commissioning and local control.
+Device-shadow aggregation and local automation evaluation.
+SD event logging with bounded log size.
+APR33A3 software announcements.
+SIM800L SMS fallback.
+Signed OTA with rollback.
+Production security provisioning.
+Use the official BLE provisioning service for Wi‑Fi credentials, with proof-of-possession from the QR bootstrap record. ESP-IDF’s provisioning stack supports BLE transport and secure sessions; newer IDF releases separate it into the network_provisioning component. Espressif provisioning guide
+Device/app protocol
+Every device should publish a reported state like:
+{
+  "schemaVersion": 1,
+  "deviceId": "node-001",
+  "timestamp": "2026-08-12T10:00:00Z",
+  "connectivity": "wifi",
+  "capabilities": ["temperatureHumidity", "soil", "mistMaker"],
+  "sensors": {"temperatureC": 27.1, "humidityPct": 63, "soilPct": 42},
+  "actuators": {"mistMaker": "off"},
+  "health": {"status": "healthy"}
+}
+Every command should include an ID and expiry:
+{
+  "commandId": "uuid",
+  "action": "setMistMaker",
+  "parameters": {"enabled": true},
+  "expiresAt": "2026-08-12T10:05:00Z",
+  "idempotencyKey": "uuid"
+}
+Firmware must publish command lifecycle events: accepted, executing, succeeded, failed, or expired. The Flutter UI should update its final state only from that acknowledgement.
+Flutter integration changes
+Your current Flutter project has UI pages and fake repositories, but no device transport dependency. Implement these next:
+Replace UnavailableConnectionRepository with a real BLE implementation for the hub.
+Add a cloud/device-shadow repository for live state, history, alerts, and commands.
+Add BLE permissions for Android and iOS.
+Keep BLE restricted to setup and supported local hub controls.
+Use a native platform bridge for Espressif provisioning, or implement the exact secured GATT protocol on both Flutter and firmware. Do not send Wi‑Fi passwords through an unsecured custom BLE characteristic.
+Secure update and production phase
+Use a partition table with factory/recovery, ota_0, ota_1, NVS, and encrypted storage. An update must download, verify its manifest/signature, write only to the inactive OTA slot, boot-test, then mark itself valid. ESP-IDF supports rollback when boot validation fails; anti-rollback should be enabled only after your release/security-version process is established. ESP-IDF OTA, rollback, and anti-rollback
+Enable Secure Boot, Flash Encryption, debug/JTAG restrictions, per-device credentials, and signed firmware only for the production PCB/batch. These eFuse steps are irreversible, so never enable them on your first development boards.
+Milestones
+Flash ESP-IDF “blink” and Wi‑Fi examples on both boards.
+Read DHT11 and soil sensor from one node; log values over serial.
+Send node telemetry to an MQTT test broker and display it in Flutter.
+Control the mist maker through a protected MOSFET/relay driver.
+Add the hub LCD, BLE setup, and authenticated local control.
+Add remaining sensors with calibration and fault reporting.
+Add SD logging, cloud shadow, automations, and alerts.
+Add SIM800L and APR33A3 after power and base reliability tests.
+Add OTA rollback and then production security.
+Only then design the custom hub/node PCBs and enclosures.
+Acceptance before moving to PCB: 72-hour soak test, Wi‑Fi-loss recovery, power-cycle recovery, mist-load testing, SD failure handling, invalid-command rejection, and OTA power-interruption rollback.

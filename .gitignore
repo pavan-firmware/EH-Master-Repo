@@ -1,0 +1,155 @@
+# ==============================================================================
+# EH HOME MONOREPO — ROOT .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. OS & SYSTEM ARTIFACTS
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ------------------------------------------------------------------------------
+# 2. LOGS, CACHES & TEMPORARY FILES
+# ------------------------------------------------------------------------------
+*.log
+*.tmp
+*.temp
+*.cache
+*.bak
+*.swp
+*.swo
+*.orig
+*~
+.directory
+
+# ------------------------------------------------------------------------------
+# 3. ENVIRONMENT, SECRETS & CREDENTIALS (CRITICAL)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+service-account*.json
+id_rsa*
+id_ed25519*
+signing-keys/
+certs/private/
+
+# ------------------------------------------------------------------------------
+# 4. NODE.JS & JAVASCRIPT / TYPESCRIPT
+# ------------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log*
+coverage/
+.nyc_output/
+dist/
+out/
+.turbo/
+.cache/
+
+# ------------------------------------------------------------------------------
+# 5. FLUTTER & DART (smart_home_application_v1)
+# ------------------------------------------------------------------------------
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+
+# ------------------------------------------------------------------------------
+# 6. ANDROID
+# ------------------------------------------------------------------------------
+.gradle/
+**/android/.gradle/
+**/android/local.properties
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+**/android/captures/
+**/android/.cxx/
+
+# ------------------------------------------------------------------------------
+# 7. IOS & MACOS
+# ------------------------------------------------------------------------------
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.h
+**/ios/Flutter/Generated.m
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+
+# ------------------------------------------------------------------------------
+# 8. LINUX & WINDOWS DESKTOP
+# ------------------------------------------------------------------------------
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# ------------------------------------------------------------------------------
+# 9. ESP-IDF & EMBEDDED FIRMWARE BUILD OUTPUTS
+# ------------------------------------------------------------------------------
+**/firmware/**/build/
+**/firmware/**/managed_components/
+**/firmware/**/sdkconfig.local
+**/firmware/**/sdkconfig.old
+**/firmware/**/dependencies.lock
+*.elf
+*.map
+*.bin
+*.hex
+*.uf2
+*.a
+*.o
+*.d
+*.ninja
+.ninja_deps
+.ninja_log
+.bin_timestamp
+
+# ------------------------------------------------------------------------------
+# 10. PYTHON & UTILITY TOOLS
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+
+# ------------------------------------------------------------------------------
+# 11. IDE & EDITORS
+# ------------------------------------------------------------------------------
+.idea/
+*.sublime-project
+*.sublime-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

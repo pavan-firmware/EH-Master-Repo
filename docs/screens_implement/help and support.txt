@@ -1,0 +1,899 @@
+Help & Support Nested Screen Implementation Plan
+
+When the user taps:
+
+Settings → Help and support
+
+this should open a dedicated Help & Support screen.
+
+The purpose is:
+
+Help the user solve common EH Home problems quickly, then provide a clear path to contact support when self-help is not enough.
+
+It should be much more useful than simply displaying a list of FAQ links.
+
+1. Navigation
+Settings
+   ↓
+Help and support
+   ↓
+HelpSupportPage
+
+Use one reusable:
+
+HelpSupportPage
+
+Back:
+
+HelpSupportPage
+      ↓
+Settings
+
+Keep Settings selected in the bottom navigation.
+
+2. Header
+
+Use the same nested-screen visual language:
+
+←   Help and support
+
+Subtitle:
+
+Get help with your home, devices, and EH Home.
+
+Keep it simple.
+
+3. Primary Search
+
+This should be one of the most important controls.
+
+┌─────────────────────────────────────┐
+│ 🔍  What can we help with?          │
+└─────────────────────────────────────┘
+
+Examples of searches:
+
+"Device is offline"
+"How do I add a device?"
+"Bluetooth won't connect"
+"Change Wi-Fi"
+"Create a routine"
+"Firmware update"
+
+The search should search your structured help content, not arbitrary app strings.
+
+4. Suggested Help
+
+Below search:
+
+NEED HELP WITH?
+
+Show common problem shortcuts based on actual product usage.
+
+Example:
+
+┌─────────────────────────────────────┐
+│ Bluetooth connection                 │
+│ Can't find or connect your device › │
+├─────────────────────────────────────┤
+│ Device offline                       │
+│ Help reconnect a device            › │
+├─────────────────────────────────────┤
+│ Wi-Fi connection                     │
+│ Change or reconnect your network   › │
+├─────────────────────────────────────┤
+│ Add a device                         │
+│ Set up a new EH Home device          › │
+└─────────────────────────────────────┘
+
+These should be driven by actual support articles.
+
+5. Getting Started Section
+GETTING STARTED
+
+Possible entries:
+
+Add your first device
+Connect your home
+Set up a room
+Create a routine
+Invite someone to your home
+
+Each opens a support article or guided flow.
+
+6. Troubleshooting Section
+
+This should be one of the biggest sections.
+
+TROUBLESHOOTING
+
+
+Bluetooth
+Device offline
+Wi-Fi connection
+Device setup failed
+Routine didn't run
+Sensor data is unavailable
+Device update failed
+
+Each article should use a predictable structure.
+
+7. Support Article Structure
+
+When user opens:
+
+Device offline
+
+show:
+
+← Help
+
+
+Device offline
+
+
+Try these steps:
+
+
+1. Make sure the device is powered on.
+2. Check that your home is connected.
+3. Check the device connection in
+   Device health.
+4. Restart the device if needed.
+
+
+────────────────────────
+
+
+Still having trouble?
+
+
+[ Check device health ]
+[ Contact support ]
+
+Don't overwhelm users with engineering explanations.
+
+8. Guided Troubleshooting
+
+For certain problems, use an interactive troubleshooting flow rather than a static article.
+
+Example:
+
+Device offline
+
+
+Is the device powered on?
+
+
+○ Yes
+○ No
+
+
+
+If:
+
+Yes
+ ↓
+Is the home connected?
+
+Then:
+
+Yes
+ ↓
+Is the device visible in
+Device health?
+
+This can become:
+
+TroubleshootingSession
+
+and produce a recommended action.
+
+9. Device-Specific Help
+
+Because EH Home has different device types, help should be capability/device aware.
+
+For:
+
+Gas sensor
+
+show:
+
+Gas sensor help
+├── Offline
+├── Sensor reading unavailable
+├── Maintenance
+└── Installation
+
+For:
+
+Mist maker
+
+show:
+
+Mist maker help
+├── Offline
+├── Not responding
+├── Routine not running
+└── Maintenance
+
+Don't display irrelevant help articles.
+
+10. Contextual Help from Device Health
+
+This is a strong production feature.
+
+If Device Health says:
+
+Kitchen air sensor
+Offline
+
+and user opens Help:
+
+show:
+
+Recommended for you
+
+
+Kitchen air sensor is offline.
+
+
+[ Troubleshoot this device ]
+
+This connects:
+
+Device Health
+     ↓
+Help & Support
+
+without making the user manually search.
+
+11. Contextual Help from Routines
+
+If a routine failed:
+
+Plant care could not complete
+Mist maker offline
+
+tapping:
+
+Get help
+
+should open:
+
+Why didn't Plant care run?
+
+
+The mist maker was unavailable
+when the routine tried to execute.
+
+
+[ Check device ]
+[ View routine ]
+
+Not just the generic Help page.
+
+12. Search Results
+
+If user searches:
+
+Wi-Fi
+
+show:
+
+Search results
+
+
+Wi-Fi connection
+
+
+How to connect your home to Wi-Fi
+→
+
+
+Change your home Wi-Fi
+→
+
+
+Device won't connect to Wi-Fi
+→
+
+
+Wi-Fi troubleshooting
+→
+
+If no result:
+
+No matching help found
+
+
+Try a different search term.
+
+
+[ Browse all help ]
+[ Contact support ]
+13. Categories
+
+Instead of showing one giant FAQ list, organize content:
+
+HELP TOPICS
+
+
+Getting started
+Devices
+Rooms
+Routines
+Connections
+Updates
+Account & home
+Privacy & security
+
+This makes the system scalable.
+
+14. Contact Support
+
+Have a clear secondary section:
+
+CAN'T FIND THE ANSWER?
+
+
+┌─────────────────────────────────────┐
+│ Contact support                     │
+│ Tell us what is happening and we'll │
+│ help you troubleshoot it.          ›│
+└─────────────────────────────────────┘
+
+Don't make this more prominent than self-service help unless your product requires human support as the primary channel.
+
+15. Support Request Flow
+
+Tap:
+
+Contact support
+
+Open:
+
+← Contact support
+
+
+How can we help?
+
+
+Category
+[ Device problem           ▼ ]
+
+
+Subject
+[ Can't connect my sensor  ]
+
+
+Describe the problem
+[                         ]
+[                         ]
+
+
+Optional
+Add diagnostic information
+☑ Include device status
+☑ Include recent activity
+
+
+[ Send request ]
+
+This is particularly useful for IoT support because diagnostics can dramatically reduce troubleshooting time.
+
+16. Diagnostic Attachment
+
+If the user agrees, you can include useful non-sensitive diagnostic information:
+
+Device
+SH-8EF248
+
+
+Model
+SH-MIST-V1
+
+
+Firmware
+1.0.0
+
+
+Connection
+Offline
+
+
+Last seen
+6:35 PM
+
+
+Home connection
+Connected
+
+But:
+
+Do not automatically include passwords, Wi-Fi credentials, secrets, tokens, or private message contents.
+
+And the UI should clearly tell the user what diagnostic information will be shared.
+
+17. Support Request State
+
+After sending:
+
+Support request sent
+
+
+Reference
+SUP-10284
+
+
+We'll use the information you provided
+to help troubleshoot your issue.
+
+
+[ Done ]
+
+If the system does not actually have support ticket infrastructure yet:
+
+Support requests aren't available yet.
+
+
+Please use the help guides for now.
+
+Do not show fake ticket IDs.
+
+18. Contact Support Failure
+Couldn't send your request
+
+
+Check your connection and try again.
+
+
+[ Try again ]
+
+Keep the user's typed issue safely in the draft so they don't have to re-enter it.
+
+19. Help Article Design
+
+Every article should have:
+
+Article
+├── id
+├── title
+├── category
+├── summary
+├── steps[]
+├── relatedArticles[]
+├── supportedDeviceTypes[]
+├── updatedAt
+└── actions[]
+
+Example:
+
+Device offline
+category = troubleshooting
+
+
+steps:
+1. Check power
+2. Check home connection
+3. Open Device health
+4. Reconnect device
+20. Help Article Actions
+
+Articles can provide contextual actions.
+
+Example:
+
+Bluetooth article
+[ Open Bluetooth settings ]
+Device offline
+[ Check device health ]
+Add device
+[ Add a room device ]
+Wi-Fi
+[ Connect your home ]
+
+This makes Help much more useful than static documentation.
+
+21. Important Safety Handling
+
+Your Help system must be extremely careful with safety-related devices.
+
+For example, for a gas sensor:
+
+Do not say:
+
+The sensor is probably fine.
+
+Instead:
+
+Gas sensor status unavailable
+
+
+The sensor has not reported recently.
+Its current safety state cannot be confirmed.
+
+
+Follow the safety instructions for
+your physical device and environment.
+
+
+[ Check device ]
+
+Help content should never override the product's safety instructions.
+
+22. Emergency / Critical Event Behavior
+
+If a safety-critical event is active, Help should not become the primary action screen.
+
+Example:
+
+Gas detected
+
+
+Follow your product's emergency
+safety instructions.
+
+
+[ View safety information ]
+
+Do not bury critical guidance inside ordinary FAQs.
+
+23. Help Content Repository
+
+Create:
+
+HelpRepository
+├── getCategories()
+├── searchArticles(query)
+├── getArticle(id)
+├── getRecommendedArticles(context)
+└── getRelatedArticles(articleId)
+
+Potential implementations:
+
+PreviewHelpRepository
+LocalHelpRepository
+CloudHelpRepository
+
+For your current application, local structured content is enough.
+
+24. Search Architecture
+
+Don't put:
+
+if (query.contains("wifi"))
+
+throughout your widgets.
+
+Use a search layer:
+
+HelpSearchService
+
+that searches:
+
+title
+keywords
+summary
+category
+supportedDeviceTypes
+
+This will make the feature scalable.
+
+25. Context Model
+
+To produce smart recommendations:
+
+HelpContext
+├── currentRoute
+├── selectedDeviceId?
+├── selectedRoutineId?
+├── activeIssues[]
+├── connectionState
+└── deviceState
+
+Then:
+
+HelpContext
+    ↓
+Recommended articles
+
+Example:
+
+Kitchen Air Sensor offline
+        ↓
+Recommended help:
+"Device offline"
+"Sensor data unavailable"
+
+This is much better than generic search results.
+
+26. Support Safety
+
+Do not let users submit arbitrary diagnostic data automatically.
+
+The support flow should clearly say:
+
+Diagnostics
+
+
+We can include device and connection
+information to help diagnose the problem.
+
+
+[ View what will be shared ]
+
+Then:
+
+Included:
+✓ Device model
+✓ Firmware version
+✓ Connection state
+✓ Recent error codes
+
+
+Not included:
+✓ Wi-Fi password
+✓ Security keys
+✓ Personal account password
+
+This is a strong privacy design.
+
+27. Help Screen Main Layout
+
+Recommended production structure:
+
+← Help and support
+
+
+Get help with your home, devices,
+and EH Home.
+
+
+
+
+┌─────────────────────────────────────┐
+│ 🔍  What can we help with?          │
+└─────────────────────────────────────┘
+
+
+
+
+NEED HELP WITH?
+
+
+[ Device offline                    › ]
+[ Bluetooth connection              › ]
+[ Wi-Fi connection                  › ]
+[ Add a device                      › ]
+
+
+
+
+GETTING STARTED
+
+
+[ Connect your home                › ]
+[ Add your first device            › ]
+[ Create a routine                 › ]
+[ Invite someone                   › ]
+
+
+
+
+TROUBLESHOOTING
+
+
+[ Devices                           › ]
+[ Connections                       › ]
+[ Routines                          › ]
+[ Updates                           › ]
+
+
+
+
+HELP TOPICS
+
+
+[ Getting started       › ]
+[ Devices               › ]
+[ Routines              › ]
+[ Privacy & security    › ]
+
+
+
+
+CAN'T FIND THE ANSWER?
+
+
+[ Contact support                    › ]
+28. Loading State
+
+Show article skeletons or:
+
+Loading help...
+
+Don't display empty sections during loading.
+
+29. Offline Help
+
+One important advantage:
+
+Basic help content should ideally be available offline.
+
+For example:
+
+Bluetooth troubleshooting
+Device offline
+Factory reset guidance
+Add device basics
+
+can be bundled with the app.
+
+If cloud help is unavailable:
+
+You're offline
+
+
+Basic help is still available.
+
+This is particularly useful for a smart-home app where the user may be offline precisely because something is broken.
+
+30. Help Content Updates
+
+Later, support articles can be remotely updated:
+
+Local help content
+       +
+Remote help content
+
+But remote help should be cached so the app isn't completely dependent on internet access.
+
+31. Support History
+
+Later you can add:
+
+My support requests
+
+with:
+
+SUP-10284
+Device offline
+Open
+
+
+SUP-10117
+Setup problem
+Resolved
+
+Don't add this to the first release unless your support backend exists.
+
+32. Repository + Navigation Architecture
+Settings
+   ↓
+Help and support
+   ↓
+HelpSupportPage
+   │
+   ├── Search
+   │      ↓
+   │   HelpSearchResults
+   │
+   ├── Category
+   │      ↓
+   │   HelpCategoryPage
+   │      ↓
+   │   HelpArticlePage
+   │
+   ├── Contextual troubleshoot
+   │      ↓
+   │   TroubleshootingFlow
+   │
+   └── Contact support
+          ↓
+      SupportRequestPage
+33. Integration with the rest of EH Home
+
+This is where the Help system becomes genuinely useful.
+
+Device Health
+      ↓
+device offline
+      ↓
+Help
+      ↓
+Troubleshoot device
+Routine
+      ↓
+execution failed
+      ↓
+Help
+      ↓
+why didn't routine run?
+Add Device
+      ↓
+setup failed
+      ↓
+Help
+      ↓
+device setup troubleshooting
+System Update
+      ↓
+update failed
+      ↓
+Help
+      ↓
+firmware update troubleshooting
+
+So Help is not isolated documentation. It becomes the recovery layer across EH Home.
+
+34. Testing
+Help page
+Search
+Categories
+Suggested help
+Empty state
+Offline state
+Navigation
+Search
+Exact match
+Partial match
+Related keyword
+No result
+Articles
+Correct content
+Device filtering
+Related articles
+Action buttons
+Contextual help
+Device offline → correct article
+Routine failed → correct article
+Update failed → correct article
+Setup failed → correct article
+Support
+Form validation
+Submit success
+Submit failure
+Draft preservation
+Diagnostic consent
+Responsive
+360dp
+RMX2001
+Large font scale
+Long article titles
+No overflow
+35. Final Architecture
+                    HELP & SUPPORT
+                         │
+                 HelpRepository
+                         │
+       ┌─────────────────┼─────────────────┐
+       ▼                 ▼                 ▼
+   Categories        Search           Context
+       │                 │                 │
+       └─────────────────┼─────────────────┘
+                         ▼
+                   Help Article
+                         │
+             ┌───────────┼───────────┐
+             ▼           ▼           ▼
+        Device Help  Routine Help  System Help
+             │           │           │
+             └───────────┼───────────┘
+                         ▼
+                Contextual Actions
+                         │
+       ┌─────────────────┼─────────────────┐
+       ▼                 ▼                 ▼
+ Device Health     Connect Home      System Update
+Final production principle
+
+The best EH Home Help experience should be:
+
+Search → Understand → Take action → Recover
+
+not:
+
+Search → Read a long FAQ → Figure it out yourself.
+
+And because this is an IoT product, Help should always be connected to the actual device state and available capabilities, while never exposing unnecessary technical details or making unsupported claims.

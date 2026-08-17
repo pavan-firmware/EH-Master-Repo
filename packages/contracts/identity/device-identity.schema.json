@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/identity/device-identity.schema.json",
+  "title": "DeviceIdentity",
+  "description": "Immutable logical hardware identity and tracking metadata for an EH device.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deviceId",
+    "serialNumber",
+    "productVariantId",
+    "hardwareRevision",
+    "firmwareFamily"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "description": "Schema format version"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Canonical immutable logical UUID for this physical hardware instance"
+    },
+    "serialNumber": {
+      "type": "string",
+      "pattern": "^EH-[A-Z0-9]+-[0-9]{4}W[0-9]{2}-[0-9]{5,}$",
+      "description": "Physical serial number stamped on manufacturing label"
+    },
+    "productVariantId": {
+      "type": "string",
+      "pattern": "^eh-[a-z0-9-]+$",
+      "description": "Reference to product variant in product catalog"
+    },
+    "hardwareRevision": {
+      "type": "string",
+      "pattern": "^HW_[0-9]+_[0-9]+$",
+      "description": "Physical PCB hardware revision code"
+    },
+    "firmwareFamily": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Target firmware binary track for OTA compatibility"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "serialNumber": "EH-SW3X-2026W12-00891",
+      "productVariantId": "eh-smart-switch-3x",
+      "hardwareRevision": "HW_1_0",
+      "firmwareFamily": "esp32c6-switch-platform"
+    }
+  ]
+}

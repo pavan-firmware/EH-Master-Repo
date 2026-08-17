@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/product-metadata.schema.json",
+  "title": "ProductMetadata",
+  "description": "Canonical definition of an EH Home product variant, its channels, capabilities, and electrical properties.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "productVariantId",
+    "productFamily",
+    "displayName",
+    "channelCount",
+    "channels",
+    "hardwareProfile",
+    "connectivityProfile",
+    "capabilities",
+    "firmwareFamily",
+    "supportedHardwareRevisions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "productVariantId": {
+      "type": "string",
+      "pattern": "^eh-[a-z0-9-]+$"
+    },
+    "productFamily": {
+      "type": "string",
+      "enum": [
+        "smart_switch",
+        "smart_socket",
+        "smart_climate",
+        "smart_lighting",
+        "smart_sensor",
+        "smart_controller"
+      ]
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "channelCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["channelIndex", "defaultLabel", "capabilities"],
+        "additionalProperties": false,
+        "properties": {
+          "channelIndex": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "defaultLabel": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "hardwareProfile": {
+      "$ref": "https://contracts.ehhome.io/product/hardware-profile.schema.json"
+    },
+    "connectivityProfile": {
+      "$ref": "https://contracts.ehhome.io/product/connectivity-profile.schema.json"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "electricalSpecifications": {
+      "type": "object",
+      "required": ["voltageRange", "frequencyHz"],
+      "additionalProperties": false,
+      "properties": {
+        "voltageRange": {
+          "type": "string"
+        },
+        "frequencyHz": {
+          "type": "string"
+        },
+        "maxCurrentPerChannelAmps": {
+          "type": "number"
+        },
+        "maxTotalCurrentAmps": {
+          "type": "number"
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "format": "uri-reference"
+      }
+    },
+    "firmwareFamily": {
+      "type": "string"
+    },
+    "supportedHardwareRevisions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "productVariantId": "eh-smart-switch-3x",
+      "productFamily": "smart_switch",
+      "displayName": "EH Smart Switch 3X",
+      "channelCount": 3,
+      "channels": [
+        {
+          "channelIndex": 1,
+          "defaultLabel": "Channel 1",
+          "capabilities": ["relay", "local_switch", "energy", "ota"]
+        },
+        {
+          "channelIndex": 2,
+          "defaultLabel": "Channel 2",
+          "capabilities": ["relay", "local_switch", "energy", "ota"]
+        },
+        {
+          "channelIndex": 3,
+          "defaultLabel": "Channel 3",
+          "capabilities": ["relay", "local_switch", "energy", "ota"]
+        }
+      ],
+      "hardwareProfile": {
+        "schemaVersion": 1,
+        "mcuFamily": "esp32-c6",
+        "flashSizeBytes": 4194304,
+        "psramSizeBytes": null,
+        "hasEnergyMetering": true,
+        "energyMeterChip": "BL0942",
+        "maxRelayAmpsPerChannel": 10.0,
+        "maxTotalAmps": 16.0
+      },
+      "connectivityProfile": {
+        "schemaVersion": 1,
+        "supportsWifi": true,
+        "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"],
+        "supportsBle": true,
+        "bleVersion": "5.0",
+        "supportsThread": false,
+        "threadVersion": null,
+        "supportsMatter": false,
+        "matterDeviceType": null
+      },
+      "capabilities": [
+        "switch",
+        "relay",
+        "local_switch",
+        "energy",
+        "voltage",
+        "current",
+        "power",
+        "ota",
+        "automation",
+        "scene",
+        "schedule"
+      ],
+      "electricalSpecifications": {
+        "voltageRange": "90V - 250V AC",
+        "frequencyHz": "50/60Hz",
+        "maxCurrentPerChannelAmps": 10.0,
+        "maxTotalCurrentAmps": 16.0
+      },
+      "images": {
+        "hero": "assets/products/smart_switch_3x/hero.png",
+        "thumbnail": "assets/products/smart_switch_3x/thumb.png"
+      },
+      "firmwareFamily": "esp32c6-switch-platform",
+      "supportedHardwareRevisions": ["HW_1_0", "HW_1_1"]
+    }
+  ]
+}

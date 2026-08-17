@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/command/command-receipt.schema.json",
+  "title": "CommandReceipt",
+  "description": "Deterministic command acknowledgement returned by the device or transport router.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "commandId",
+    "deviceId",
+    "channelIndex",
+    "status",
+    "timestamp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "commandId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "channelIndex": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "RECEIVED",
+        "APPLIED",
+        "FAILED",
+        "OVERRIDDEN",
+        "TIMEOUT",
+        "EXPIRED"
+      ]
+    },
+    "failureReason": {
+      "type": ["string", "null"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "commandId": "0194fe23-7a1b-7890-a123-456789111111",
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "channelIndex": 1,
+      "status": "APPLIED",
+      "failureReason": null,
+      "timestamp": "2026-03-01T12:00:00.085Z"
+    }
+  ]
+}

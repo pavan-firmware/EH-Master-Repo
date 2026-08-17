@@ -1,0 +1,78 @@
+name: EH Home Monorepo CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-contracts-and-backend:
+    name: Contracts, Catalog, Simulator & Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache-dependency-path: package-lock.json
+
+      - name: Run Canonical Contract Tests
+        run: node packages/contracts/tests/contract-test.js
+
+      - name: Validate Product Catalog Definitions
+        run: node product-definitions/tests/validate-products.js
+
+      - name: Run Device Simulator Compliance Tests
+        run: node tools/device-simulator/test-simulator.js
+
+      - name: Verify PostgreSQL Migrations Parity & Capability Sync
+        run: node backend/migrations/verify-migrations.js
+
+      - name: Run Backend Database & Repository Integration Tests
+        run: node backend/tests/integration.test.js
+
+      - name: Run Backend Hardening Test Suite
+        run: node backend/tests/hardening.test.js
+
+      - name: Run Backend Product Catalog Service & API Tests
+        run: node backend/tests/product-catalog.test.js
+
+  validate-flutter-app:
+    name: Flutter Analyze & Test (smart_home_application_v1)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smart_home_application_v1
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java (for Android toolchain if needed)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.12.2'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: Run Flutter Analyzer
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run Flutter Test Suite (Unit, Widget & Capability Engine)
+        run: flutter test

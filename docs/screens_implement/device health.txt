@@ -1,0 +1,961 @@
+Device Health Nested Screen Implementation Plan
+
+When the user taps:
+
+Settings → Device health
+
+open a dedicated Device Health screen.
+
+The purpose is:
+
+Give the user one trustworthy view of device connectivity, freshness, warnings, and basic health—without exposing unnecessary engineering details.
+
+This should be a diagnostics and health overview, not another Devices management page.
+
+1. Navigation
+Settings
+   ↓
+Device health
+   ↓
+DeviceHealthPage
+
+Use one reusable screen:
+
+DeviceHealthPage(home)
+
+Back:
+
+Device Health → Settings
+
+The bottom navigation remains on Settings because this is a nested Settings screen.
+
+2. Header
+
+Use the same nested Settings pattern:
+
+←   Device health                         ?
+
+Subtitle:
+
+Check device connections and care for your home.
+
+Optional help icon:
+
+?
+
+opens a short explanation:
+
+Device health shows connection status, recent communication, and issues that may need your attention.
+
+Do not use technical terminology in the default UI.
+
+3. Overall Health Summary
+
+This should be the first and most important element.
+
+Healthy home
+┌─────────────────────────────────────┐
+│              ✓                      │
+│                                     │
+│       Your devices look good        │
+│                                     │
+│       7 of 7 devices online         │
+│                                     │
+│       ● All devices healthy         │
+│                                     │
+│       Checked just now              │
+└─────────────────────────────────────┘
+Warning state
+┌─────────────────────────────────────┐
+│              !                      │
+│                                     │
+│       1 device needs attention      │
+│                                     │
+│       6 of 7 devices online         │
+│                                     │
+│       ● 1 issue detected            │
+│                                     │
+│       Checked just now              │
+└─────────────────────────────────────┘
+Unknown state
+┌─────────────────────────────────────┐
+│              ?                      │
+│                                     │
+│       Device health unavailable     │
+│                                     │
+│       Some devices haven't reported │
+│       recently.                     │
+│                                     │
+│       Last checked 18 min ago       │
+└─────────────────────────────────────┘
+
+Do not display “Healthy” when telemetry is stale or unknown.
+
+4. Health Summary Metrics
+
+Under the summary, use compact metrics:
+
+┌────────────┐ ┌────────────┐ ┌────────────┐
+│     7      │ │     6      │ │     1      │
+│  Devices   │ │  Online    │ │ Attention  │
+└────────────┘ └────────────┘ └────────────┘
+
+Optional:
+
+┌────────────┐
+│     0      │
+│   Offline  │
+└────────────┘
+
+These values must come from actual device state.
+
+5. Health Status Must Be Explicit
+
+Use a proper state model.
+
+DeviceHealthState
+├── healthy
+├── attention
+├── offline
+├── stale
+├── updating
+└── unknown
+
+Do not reduce everything to:
+
+isConnected = true/false
+
+For example:
+
+Online
++
+No recent telemetry
+=
+Stale
+
+not:
+
+Healthy
+6. Devices Section
+
+Section:
+
+YOUR DEVICES
+
+Display devices grouped by room or prioritized by health.
+
+Example:
+
+┌─────────────────────────────────────┐
+│ 💡  Main light                      │
+│     Living Room                     │
+│     ● Online · Updated just now   › │
+├─────────────────────────────────────┤
+│ 🌡  Temperature sensor              │
+│     Living Room                     │
+│     ● Online · Updated 1 min ago  › │
+├─────────────────────────────────────┤
+│ ⚠  Kitchen air sensor               │
+│     Kitchen                         │
+│     ! Needs attention              › │
+└─────────────────────────────────────┘
+7. Put Problems First
+
+If there are many devices, don't make the user scroll through healthy devices to find a problem.
+
+Recommended ordering:
+
+1. Critical
+2. Attention
+3. Offline
+4. Stale
+5. Updating
+6. Healthy
+
+Example:
+
+NEEDS ATTENTION
+Kitchen air sensor
+Offline
+
+
+OTHER DEVICES
+Living room light
+Online
+
+
+Temperature sensor
+Online
+
+This is much more useful than alphabetical ordering for a health screen.
+
+8. Device Health Card
+
+Use one reusable component:
+
+DeviceHealthTile
+├── icon
+├── name
+├── room
+├── state
+├── lastSeen
+├── telemetryFreshness
+├── healthMessage
+└── action
+
+Example:
+
+┌─────────────────────────────────────┐
+│ [icon]  Kitchen Air Sensor        › │
+│         Kitchen                     │
+│         Offline                     │
+│         Last seen 7 min ago         │
+└─────────────────────────────────────┘
+9. Healthy Device
+
+Keep healthy information compact.
+
+Main light
+Living Room
+● Online · Updated just now
+
+Don't show:
+
+BLE RSSI -48
+GATT connected
+GPIO state
+NVS status
+
+on the main health screen.
+
+Those belong in advanced diagnostics.
+
+10. Offline Device
+
+Use clear language:
+
+Kitchen air sensor
+Kitchen
+
+
+● Offline
+
+
+Last seen
+6:35 PM
+
+
+[ Check device ]
+
+Don't say:
+
+Health failed
+
+because the actual issue is connectivity.
+
+11. Stale Device
+
+This is an important distinction.
+
+Example:
+
+Temperature sensor
+Living Room
+
+
+● Connected
+
+
+Last updated
+28 minutes ago
+
+
+⚠ Data may be outdated
+
+The device may still be reachable, but its data is stale.
+
+Do not call it fully healthy.
+
+12. Unknown Device State
+
+If the system cannot establish the current state:
+
+Plant moisture sensor
+
+
+State unavailable
+
+
+We haven't received a recent
+update from this device.
+
+
+Last update
+Unknown
+
+This is better than guessing:
+
+Offline
+
+or:
+
+Healthy
+13. Safety Device Handling
+
+For sensors such as:
+
+Gas sensor
+Smoke sensor
+Water leak sensor
+
+use stricter messaging.
+
+Example:
+
+Kitchen gas sensor
+
+
+Current status unavailable
+
+
+The sensor has not reported recently.
+Its current safety state cannot be confirmed.
+
+
+Last update
+6:35 PM
+
+
+[ Check device ]
+
+Never show:
+
+Safe
+
+when the safety telemetry is stale or unavailable.
+
+This rule should be enforced at the domain layer, not just visually.
+
+14. Device Detail Navigation
+
+Tapping a health card:
+
+DeviceHealthPage
+      ↓
+DeviceDetailPage(deviceId)
+
+Example:
+
+Kitchen Air Sensor
+        ↓
+Device Details
+
+Do not create a separate HealthDevicePage.
+
+Reuse your main Device Detail architecture.
+
+15. Room Health Summary
+
+For a larger home, add a compact room grouping:
+
+ROOM HEALTH
+
+
+Living Room
+✓ 3 devices healthy
+
+
+Kitchen
+! 1 issue detected
+
+
+Plant Corner
+✓ 2 devices healthy
+
+
+Water Tank
+✓ 1 device healthy
+
+Tap Kitchen:
+
+Kitchen
+  ↓
+RoomDetailPage
+
+This makes Device Health a useful cross-room overview.
+
+16. "View all devices"
+
+If you show only important devices at first:
+
+YOUR DEVICES                       View all
+
+Then:
+
+Device Health
+   ↓
+All devices
+
+For example:
+
+7 devices
+
+
+Sort by
+[ Health ▼ ]
+
+
+Filter
+[ All | Attention | Offline ]
+
+Do not duplicate the full Rooms screen.
+
+17. Health Checks Section
+
+A useful production feature is an explicit health-check section.
+
+HEALTH CHECKS
+
+
+Connection
+✓ Devices reachable
+
+
+Telemetry
+✓ Recent updates received
+
+
+Home network
+✓ Connected
+
+
+Firmware
+✓ No critical update pending
+
+This is useful because "device health" isn't only device online/offline.
+
+18. Don't Overstate "Health"
+
+Be careful with language.
+
+Instead of:
+
+Everything is healthy
+
+when you only know connectivity:
+
+Use:
+
+All devices are online
+
+If you have actual health checks:
+
+No issues detected
+
+Only say:
+
+Healthy
+
+when the underlying system has enough evidence to justify it.
+
+19. Last Checked
+
+At the summary level:
+
+Last checked just now
+
+If stale:
+
+Last checked 18 min ago
+
+If unavailable:
+
+Health check unavailable
+
+This builds user trust.
+
+20. Refresh
+
+Add a subtle refresh action:
+
+Device health                         ↻
+
+or:
+
+[ Check again ]
+
+The action should trigger:
+
+HealthRepository.refresh()
+
+and not simply refresh the Flutter widget.
+
+21. Refresh Progress
+
+During refresh:
+
+Checking device health…
+
+
+● Contacting home
+● Checking devices
+● Checking recent telemetry
+
+Then:
+
+Health check complete
+7 devices checked
+22. Device Health Actions
+
+Depending on actual state:
+
+Online
+View device
+Offline
+Check device
+Stale
+Refresh device
+Updating
+View update
+Unknown
+Troubleshoot
+
+Don't show the same CTA for all devices.
+
+23. Troubleshooting
+
+For an offline device:
+
+DEVICE OFFLINE
+
+
+Try these steps:
+
+
+1. Make sure the device is powered on.
+2. Keep it within reliable network range.
+3. Check your home connection.
+4. Try reconnecting the device.
+
+
+[ Try again ]
+
+The exact guidance should be adapted to the device type.
+
+24. Connection Architecture
+
+Your Device Health screen should distinguish:
+
+Device connected
+Device reachable
+Telemetry current
+Home connected
+
+These are different states.
+
+For example:
+
+Device
+● Online
+
+
+Telemetry
+⚠ Updated 30 min ago
+
+
+Home
+● Connected
+
+The device may be online while its sensor data is stale.
+
+25. Data Model
+
+Create a dedicated health model:
+
+DeviceHealth
+├── deviceId
+├── connectionState
+├── healthState
+├── lastSeen
+├── telemetryFreshness
+├── batteryState?
+├── firmwareState?
+├── activeIssues[]
+├── checkedAt
+└── safetyState?
+
+Issue:
+
+HealthIssue
+├── id
+├── severity
+├── title
+├── description
+├── deviceId
+├── detectedAt
+├── resolvedAt?
+└── recommendedAction
+26. Repository Architecture
+
+Create:
+
+DeviceHealthRepository
+├── getHomeHealth()
+├── getDeviceHealth(deviceId)
+├── refreshHealth()
+├── getActiveIssues()
+└── getHealthHistory(deviceId)
+
+Future implementations:
+
+PreviewDeviceHealthRepository
+LocalDeviceHealthRepository
+CloudDeviceHealthRepository
+HybridDeviceHealthRepository
+
+Use the same interface.
+
+27. Health Controller
+
+Architecture:
+
+DeviceHealthPage
+       ↓
+DeviceHealthController
+       ↓
+DeviceHealthRepository
+       ↓
+DeviceRepository
+       ↓
+Home connection / backend / hub
+
+Don't query BLE directly from Flutter widgets.
+
+28. Loading State
+
+Use skeletons:
+
+Device health
+
+
+██████████████████
+██████████
+
+
+██████████████████
+████████████
+
+
+██████████████████
+████████████
+
+Then replace with real states.
+
+29. Empty State
+
+If no devices exist:
+
+No devices to check
+
+
+Add your first device to see
+its health here.
+
+
+[ Add a device ]
+30. No Issues State
+
+This is the normal success state:
+
+✓ No issues detected
+
+
+All connected devices are online
+and reporting recent updates.
+
+
+Checked just now
+
+This is better than an empty page.
+
+31. Error State
+
+If the health service itself cannot be reached:
+
+Couldn't check device health
+
+
+We couldn't get the latest health
+information from your home.
+
+
+[ Try again ]
+
+Do not show:
+
+All devices healthy.
+
+The data wasn't available.
+
+32. Offline Home
+
+If the whole home is unavailable:
+
+Your home is offline
+
+
+We can't confirm the current state
+of your devices.
+
+
+Last successful check
+10:42 AM
+
+
+[ Try reconnecting ]
+
+You may still show last-known information clearly labeled:
+
+Last known:
+Kitchen sensor
+Online · 10:42 AM
+33. Activity Integration
+
+Health events should create Activity events where appropriate.
+
+Example:
+
+Device Health
+   ↓
+Kitchen sensor offline
+   ↓
+Activity
+   ↓
+Kitchen air sensor went offline
+
+If it reconnects:
+
+Kitchen air sensor is back online
+
+This creates continuity between:
+
+Device Health
+Activity
+Device Detail
+34. Routines Integration
+
+If a required device becomes unavailable:
+
+Device Health
+   ↓
+Mist maker offline
+   ↓
+Routine availability
+   ↓
+Plant care
+   ↓
+Partially available / unavailable
+
+So the Routines screen can show:
+
+Device unavailable
+
+without duplicating health detection logic.
+
+35. Rooms Integration
+
+Rooms should consume the same device state.
+
+Example:
+
+DeviceHealthRepository
+        ↓
+Kitchen air sensor = offline
+        │
+        ├── Device Health → Offline
+        ├── Rooms → Kitchen → 1 issue
+        ├── Home → 1 device needs attention
+        └── Activity → Device went offline
+
+This is an important architectural rule:
+
+One source of truth for device health.
+
+Don't independently calculate device status on every screen.
+
+36. Production UI Structure
+
+Final screen:
+
+← Device health                         ↻
+
+
+Check device connections and
+care for your home.
+
+
+
+
+┌─────────────────────────────────────┐
+│               ✓                     │
+│                                     │
+│       7 of 7 devices online        │
+│       No issues detected            │
+│                                     │
+│       Checked just now              │
+└─────────────────────────────────────┘
+
+
+
+
+HEALTH
+
+
+┌────────────┐ ┌────────────┐ ┌────────────┐
+│     7      │ │     7      │ │     0      │
+│  Devices   │ │  Online    │ │ Attention  │
+└────────────┘ └────────────┘ └────────────┘
+
+
+
+
+NEEDS ATTENTION
+
+
+[ Only shown if issues exist ]
+
+
+
+
+YOUR DEVICES
+
+
+┌─────────────────────────────────────┐
+│ 💡 Main light                       │
+│    Living Room                      │
+│    ● Online · Updated just now   › │
+├─────────────────────────────────────┤
+│ 🌡 Temperature sensor               │
+│    Living Room                      │
+│    ● Online · Updated 1 min ago   ›│
+├─────────────────────────────────────┤
+│ ⚠ Kitchen air sensor                │
+│    Kitchen                          │
+│    ! Offline · Last seen 6:35 PM  ›│
+└─────────────────────────────────────┘
+
+
+
+
+ROOM HEALTH
+
+
+Living Room       ✓ 3 healthy
+Kitchen           ! 1 issue
+Plant Corner      ✓ 2 healthy
+Water Tank        ✓ 1 healthy
+
+
+
+
+HEALTH CHECKS
+
+
+✓ Home connection
+✓ Device connectivity
+✓ Recent telemetry
+37. Production Rules
+
+For EH Home, these rules should be mandatory:
+
+Online ≠ Healthy
+
+
+Online ≠ Fresh telemetry
+
+
+Offline ≠ Sensor unsafe
+
+
+Unknown ≠ Healthy
+
+
+Stale safety data ≠ Safe
+
+
+Last known state ≠ Current state
+
+And:
+
+Device Health
+      ↓
+single source of truth
+      ↓
+Home
+Rooms
+Routines
+Activity
+Device Detail
+
+That is the architecture I would use.
+
+38. Test Plan
+Health state tests
+All healthy
+One attention
+One offline
+Multiple offline
+Stale telemetry
+Unknown state
+Updating
+Safety telemetry unavailable
+Repository tests
+Successful health refresh
+Partial response
+Timeout
+Backend unavailable
+Pagination/history if implemented
+Incorrect/missing device reference
+UI tests
+Summary counts
+Problem prioritization
+Device cards
+Room grouping
+Refresh
+Empty state
+Error state
+Offline home
+360dp / RMX2001
+No overflow
+Integration
+
+Verify one device state is reflected consistently across:
+
+Device Health
+Rooms
+Home
+Routines
+Activity
+Device Detail
+Final architecture
+                  Device Health
+                       │
+                DeviceHealthRepository
+                       │
+             ┌─────────┴─────────┐
+             ▼                   ▼
+       Device state         Telemetry state
+             │                   │
+             └─────────┬─────────┘
+                       ▼
+                Health calculation
+                       │
+        ┌──────────────┼──────────────┐
+        ▼              ▼              ▼
+      Home           Rooms         Routines
+        │              │              │
+        └──────────────┼──────────────┘
+                       ▼
+                    Activity
+
+The key production decision is to make Device Health the authoritative interpretation layer for device connectivity/freshness, while the actual raw device state remains owned by your device/backend repository. That prevents Home, Rooms, Routines, and Activity from developing conflicting definitions of what “online,” “offline,” or “healthy” means.

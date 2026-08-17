@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/capability/capability-schema.schema.json",
+  "title": "CapabilitySchema",
+  "description": "Standardized schema for capability registration, properties, supported commands, events, and UI hints.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "capabilityId",
+    "version",
+    "displayName",
+    "properties",
+    "commands",
+    "events",
+    "uiComponentHint"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "capabilityId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "readable", "writable"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["boolean", "integer", "number", "string", "object", "array"]
+          },
+          "readable": { "type": "boolean" },
+          "writable": { "type": "boolean" },
+          "minimum": { "type": "number" },
+          "maximum": { "type": "number" },
+          "enum": { "type": "array" },
+          "unit": { "type": "string" }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": { "type": "string" },
+          "params": { "type": "object" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "telemetryFields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "uiComponentHint": {
+      "type": "string",
+      "description": "Standard Flutter widget name that handles this capability"
+    },
+    "automationTriggers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "automationActions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "capabilityId": "switch",
+      "version": 1,
+      "displayName": "Power Switch",
+      "description": "Standard binary relay power control",
+      "properties": {
+        "power": {
+          "type": "boolean",
+          "readable": true,
+          "writable": true
+        }
+      },
+      "commands": [
+        {
+          "action": "setPower",
+          "params": {
+            "value": { "type": "boolean" }
+          },
+          "description": "Turn relay power on or off"
+        },
+        {
+          "action": "toggle",
+          "description": "Toggle relay state"
+        }
+      ],
+      "events": ["switch.on", "switch.off"],
+      "telemetryFields": [],
+      "uiComponentHint": "EHSwitchCard",
+      "automationTriggers": ["switch.on", "switch.off"],
+      "automationActions": ["setPower", "toggle"]
+    }
+  ]
+}

@@ -1,0 +1,242 @@
+{
+  "switch": {
+    "schemaVersion": 1,
+    "capabilityId": "switch",
+    "version": 1,
+    "displayName": "Switch",
+    "description": "Binary power control for circuits and loads",
+    "properties": {
+      "power": { "type": "boolean", "readable": true, "writable": true }
+    },
+    "commands": [
+      { "action": "setPower", "params": { "value": { "type": "boolean" } } },
+      { "action": "toggle" }
+    ],
+    "events": ["switch.on", "switch.off"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHSwitchCard",
+    "automationTriggers": ["switch.on", "switch.off"],
+    "automationActions": ["setPower", "toggle"]
+  },
+  "relay": {
+    "schemaVersion": 1,
+    "capabilityId": "relay",
+    "version": 1,
+    "displayName": "Relay Actuator",
+    "description": "Physical electromechanical relay output",
+    "properties": {
+      "closed": { "type": "boolean", "readable": true, "writable": true }
+    },
+    "commands": [
+      { "action": "setClosed", "params": { "value": { "type": "boolean" } } }
+    ],
+    "events": ["relay.opened", "relay.closed"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHRelayIndicator",
+    "automationTriggers": ["relay.opened", "relay.closed"],
+    "automationActions": ["setClosed"]
+  },
+  "local_switch": {
+    "schemaVersion": 1,
+    "capabilityId": "local_switch",
+    "version": 1,
+    "displayName": "Physical Switch Input",
+    "description": "Physical manual wall switch or button interrupt",
+    "properties": {
+      "lastToggleTimestamp": { "type": "string", "readable": true, "writable": false }
+    },
+    "commands": [],
+    "events": ["local_switch.toggled", "local_switch.held"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHManualControlBadge",
+    "automationTriggers": ["local_switch.toggled", "local_switch.held"],
+    "automationActions": []
+  },
+  "energy": {
+    "schemaVersion": 1,
+    "capabilityId": "energy",
+    "version": 1,
+    "displayName": "Energy Monitoring",
+    "description": "Deterministic integer fixed-point electrical metering",
+    "properties": {
+      "e_tot_wh": { "type": "integer", "readable": true, "writable": false, "unit": "Wh" },
+      "p_mw": { "type": "integer", "readable": true, "writable": false, "unit": "mW" }
+    },
+    "commands": [],
+    "events": ["energy.threshold_exceeded"],
+    "telemetryFields": ["v_mv", "i_ma", "p_mw", "e_tot_wh", "e_int_mwh", "freq_mhz", "pf_x1000"],
+    "uiComponentHint": "EHEnergyCard",
+    "automationTriggers": ["energy.threshold_exceeded"],
+    "automationActions": []
+  },
+  "voltage": {
+    "schemaVersion": 1,
+    "capabilityId": "voltage",
+    "version": 1,
+    "displayName": "AC Line Voltage",
+    "description": "RMS AC voltage monitoring",
+    "properties": {
+      "v_mv": { "type": "integer", "readable": true, "writable": false, "unit": "mV" }
+    },
+    "commands": [],
+    "events": ["voltage.surge", "voltage.brownout"],
+    "telemetryFields": ["v_mv"],
+    "uiComponentHint": "EHVoltageBadge",
+    "automationTriggers": ["voltage.surge", "voltage.brownout"],
+    "automationActions": []
+  },
+  "current": {
+    "schemaVersion": 1,
+    "capabilityId": "current",
+    "version": 1,
+    "displayName": "Current Meter",
+    "description": "RMS load current monitoring",
+    "properties": {
+      "i_ma": { "type": "integer", "readable": true, "writable": false, "unit": "mA" }
+    },
+    "commands": [],
+    "events": ["current.overcurrent"],
+    "telemetryFields": ["i_ma"],
+    "uiComponentHint": "EHCurrentBadge",
+    "automationTriggers": ["current.overcurrent"],
+    "automationActions": []
+  },
+  "power": {
+    "schemaVersion": 1,
+    "capabilityId": "power",
+    "version": 1,
+    "displayName": "Active Power",
+    "description": "Real-time active power draw",
+    "properties": {
+      "p_mw": { "type": "integer", "readable": true, "writable": false, "unit": "mW" }
+    },
+    "commands": [],
+    "events": ["power.peak"],
+    "telemetryFields": ["p_mw"],
+    "uiComponentHint": "EHPowerBadge",
+    "automationTriggers": ["power.peak"],
+    "automationActions": []
+  },
+  "fan_speed": {
+    "schemaVersion": 1,
+    "capabilityId": "fan_speed",
+    "version": 1,
+    "displayName": "Fan Speed Control",
+    "description": "Multi-step capacitive/triac fan speed regulator",
+    "properties": {
+      "speed": { "type": "integer", "readable": true, "writable": true, "minimum": 0, "maximum": 5 }
+    },
+    "commands": [
+      { "action": "setSpeed", "params": { "speed": { "type": "integer", "minimum": 0, "maximum": 5 } } },
+      { "action": "stepUp" },
+      { "action": "stepDown" }
+    ],
+    "events": ["fan.speed_changed"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHFanSpeedDial",
+    "automationTriggers": ["fan.speed_changed"],
+    "automationActions": ["setSpeed", "stepUp", "stepDown"]
+  },
+  "brightness": {
+    "schemaVersion": 1,
+    "capabilityId": "brightness",
+    "version": 1,
+    "displayName": "Brightness Dimmer",
+    "description": "Continuous phase-cut or PWM dimming level",
+    "properties": {
+      "level": { "type": "integer", "readable": true, "writable": true, "minimum": 0, "maximum": 100 }
+    },
+    "commands": [
+      { "action": "setLevel", "params": { "level": { "type": "integer", "minimum": 0, "maximum": 100 } } }
+    ],
+    "events": ["dimmer.level_changed"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHDimmerSlider",
+    "automationTriggers": ["dimmer.level_changed"],
+    "automationActions": ["setLevel"]
+  },
+  "cct": {
+    "schemaVersion": 1,
+    "capabilityId": "cct",
+    "version": 1,
+    "displayName": "Correlated Color Temperature",
+    "description": "Tunable white lighting control",
+    "properties": {
+      "tempK": { "type": "integer", "readable": true, "writable": true, "minimum": 2700, "maximum": 6500 }
+    },
+    "commands": [
+      { "action": "setColorTemp", "params": { "tempK": { "type": "integer", "minimum": 2700, "maximum": 6500 } } }
+    ],
+    "events": ["cct.temp_changed"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHCCTDial",
+    "automationTriggers": ["cct.temp_changed"],
+    "automationActions": ["setColorTemp"]
+  },
+  "ota": {
+    "schemaVersion": 1,
+    "capabilityId": "ota",
+    "version": 1,
+    "displayName": "Over-The-Air Firmware Updates",
+    "description": "Secure dual-partition OTA support with Ed25519 verification",
+    "properties": {
+      "firmwareVersion": { "type": "string", "readable": true, "writable": false }
+    },
+    "commands": [
+      { "action": "startOTA", "params": { "manifestUrl": { "type": "string" } } }
+    ],
+    "events": ["ota.progress", "ota.success", "ota.failed"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHOTAStatusBadge",
+    "automationTriggers": ["ota.success", "ota.failed"],
+    "automationActions": []
+  },
+  "automation": {
+    "schemaVersion": 1,
+    "capabilityId": "automation",
+    "version": 1,
+    "displayName": "Local Automation Target",
+    "description": "Supports participating in local trigger-action rules",
+    "properties": {},
+    "commands": [],
+    "events": [],
+    "telemetryFields": [],
+    "uiComponentHint": "EHAutomationBadge",
+    "automationTriggers": [],
+    "automationActions": []
+  },
+  "scene": {
+    "schemaVersion": 1,
+    "capabilityId": "scene",
+    "version": 1,
+    "displayName": "Scene Preset Target",
+    "description": "Supports saving and activating channel scenes",
+    "properties": {},
+    "commands": [
+      { "action": "applyScene", "params": { "sceneId": { "type": "string" } } }
+    ],
+    "events": ["scene.applied"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHSceneButton",
+    "automationTriggers": ["scene.applied"],
+    "automationActions": ["applyScene"]
+  },
+  "schedule": {
+    "schemaVersion": 1,
+    "capabilityId": "schedule",
+    "version": 1,
+    "displayName": "On-Device Scheduler",
+    "description": "Device RTC-backed local schedule execution",
+    "properties": {
+      "scheduleCount": { "type": "integer", "readable": true, "writable": false }
+    },
+    "commands": [
+      { "action": "setSchedule", "params": { "schedule": { "type": "object" } } }
+    ],
+    "events": ["schedule.triggered"],
+    "telemetryFields": [],
+    "uiComponentHint": "EHScheduleManager",
+    "automationTriggers": ["schedule.triggered"],
+    "automationActions": ["setSchedule"]
+  }
+}

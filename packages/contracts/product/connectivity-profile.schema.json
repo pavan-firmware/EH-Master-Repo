@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/connectivity-profile.schema.json",
+  "title": "ConnectivityProfile",
+  "description": "Radio and network capabilities supported by the device hardware and firmware.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "supportsWifi",
+    "supportsBle",
+    "supportsThread",
+    "supportsMatter"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "supportsWifi": {
+      "type": "boolean"
+    },
+    "wifiStandards": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["802.11b", "802.11g", "802.11n", "802.11ax"]
+      }
+    },
+    "supportsBle": {
+      "type": "boolean"
+    },
+    "bleVersion": {
+      "type": ["string", "null"]
+    },
+    "supportsThread": {
+      "type": "boolean"
+    },
+    "threadVersion": {
+      "type": ["string", "null"]
+    },
+    "supportsMatter": {
+      "type": "boolean"
+    },
+    "matterDeviceType": {
+      "type": ["string", "null"]
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "supportsWifi": true,
+      "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"],
+      "supportsBle": true,
+      "bleVersion": "5.0",
+      "supportsThread": false,
+      "threadVersion": null,
+      "supportsMatter": false,
+      "matterDeviceType": null
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/identity/network-identity.schema.json",
+  "title": "NetworkIdentity",
+  "description": "Dynamic network interfaces, MAC addresses, and IP descriptors for an active device.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deviceId"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "wifiMacAddress": {
+      "type": ["string", "null"],
+      "pattern": "^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$"
+    },
+    "threadExtendedAddress": {
+      "type": ["string", "null"],
+      "pattern": "^0x[0-9A-Fa-f]{16}$"
+    },
+    "currentIpv4Address": {
+      "type": ["string", "null"],
+      "format": "ipv4"
+    },
+    "currentIpv6Address": {
+      "type": ["string", "null"],
+      "format": "ipv6"
+    },
+    "bleMacAddress": {
+      "type": ["string", "null"],
+      "pattern": "^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "wifiMacAddress": "24:DC:C3:4A:8B:12",
+      "threadExtendedAddress": "0xDEADBEEF00112233",
+      "currentIpv4Address": "192.168.1.145",
+      "currentIpv6Address": null,
+      "bleMacAddress": "24:DC:C3:4A:8B:13"
+    }
+  ]
+}

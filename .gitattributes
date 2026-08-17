@@ -1,0 +1,69 @@
+# ==============================================================================
+# EH HOME MONOREPO — ROOT .gitattributes
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. DEFAULT LINE ENDINGS & ENCODING
+# ------------------------------------------------------------------------------
+* text=auto eol=lf
+
+# ------------------------------------------------------------------------------
+# 2. SOURCE CODE & CONFIGURATION (LF Text)
+# ------------------------------------------------------------------------------
+*.dart          text eol=lf diff=dart
+*.ts            text eol=lf
+*.tsx           text eol=lf
+*.js            text eol=lf
+*.mjs           text eol=lf
+*.cjs           text eol=lf
+*.json          text eol=lf
+*.json5         text eol=lf
+*.sql           text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.md            text eol=lf
+*.txt           text eol=lf
+*.c             text eol=lf diff=cpp
+*.h             text eol=lf diff=cpp
+*.cpp           text eol=lf diff=cpp
+*.hpp           text eol=lf diff=cpp
+*.html          text eol=lf
+*.css           text eol=lf
+*.xml           text eol=lf
+*.gradle        text eol=lf
+*.properties    text eol=lf
+*.cmake         text eol=lf
+CMakeLists.txt  text eol=lf
+Kconfig         text eol=lf
+sdkconfig       text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.env.example    text eol=lf
+
+# Shell scripts must strictly use LF
+*.sh            text eol=lf
+*.bash          text eol=lf
+
+# Windows PowerShell scripts
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# ------------------------------------------------------------------------------
+# 3. BINARY ASSETS & MEDIA
+# ------------------------------------------------------------------------------
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.webp          binary
+*.ico           binary
+*.pdf           binary
+*.ttf           binary
+*.otf           binary
+*.woff          binary
+*.woff2         binary
+*.jar           binary
+*.zip           binary
+*.tar.gz        binary
+*.svg           text eol=lf
