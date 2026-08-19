@@ -26,11 +26,15 @@ class _RoomsPageState extends State<RoomsPage> {
   _RoomFilter _filter = _RoomFilter.all;
   _RoomSort _sort = _RoomSort.nameAscending;
   int _filterPage = 0;
-  final _filterController = PageController(viewportFraction: _filterViewportFraction);
+  final _filterController = PageController(
+    viewportFraction: _filterViewportFraction,
+  );
 
   void _dismissSearch() {
     _searchFocus.unfocus(disposition: UnfocusDisposition.scope);
-    FocusManager.instance.primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+    FocusManager.instance.primaryFocus?.unfocus(
+      disposition: UnfocusDisposition.scope,
+    );
   }
 
   @override
@@ -94,9 +98,18 @@ class _RoomsPageState extends State<RoomsPage> {
       ),
       items: const [
         PopupMenuItem(value: _RoomSort.nameAscending, child: Text('Name: A-Z')),
-        PopupMenuItem(value: _RoomSort.nameDescending, child: Text('Name: Z-A')),
-        PopupMenuItem(value: _RoomSort.deviceCount, child: Text('Most devices')),
-        PopupMenuItem(value: _RoomSort.attentionFirst, child: Text('Needs attention first')),
+        PopupMenuItem(
+          value: _RoomSort.nameDescending,
+          child: Text('Name: Z-A'),
+        ),
+        PopupMenuItem(
+          value: _RoomSort.deviceCount,
+          child: Text('Most devices'),
+        ),
+        PopupMenuItem(
+          value: _RoomSort.attentionFirst,
+          child: Text('Needs attention first'),
+        ),
       ],
     );
     if (selected != null && mounted) {
@@ -176,7 +189,10 @@ class _RoomsPageState extends State<RoomsPage> {
                   decoration: InputDecoration(
                     hintText: 'Search rooms',
                     hintStyle: TextStyle(color: tokens.textTertiary),
-                    prefixIcon: Icon(Icons.search_rounded, color: tokens.textSecondary),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: tokens.textSecondary,
+                    ),
                     filled: true,
                     fillColor: tokens.surfaceCard,
                     contentPadding: const EdgeInsets.symmetric(vertical: 17),
@@ -190,7 +206,10 @@ class _RoomsPageState extends State<RoomsPage> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: tokens.bluePrimary, width: 1.5),
+                      borderSide: BorderSide(
+                        color: tokens.bluePrimary,
+                        width: 1.5,
+                      ),
                     ),
                   ),
                 ),
@@ -200,7 +219,8 @@ class _RoomsPageState extends State<RoomsPage> {
                   child: PageView(
                     controller: _filterController,
                     padEnds: false,
-                    onPageChanged: (value) => setState(() => _filterPage = value),
+                    onPageChanged: (value) =>
+                        setState(() => _filterPage = value),
                     children: [
                       _FilterChip(
                         icon: Icons.grid_view_rounded,
@@ -226,7 +246,8 @@ class _RoomsPageState extends State<RoomsPage> {
                         count: '$totalDevices devices',
                         selected: _filter == _RoomFilter.online,
                         color: tokens.success,
-                        onTap: () => setState(() => _filter = _RoomFilter.online),
+                        onTap: () =>
+                            setState(() => _filter = _RoomFilter.online),
                       ),
                       _FilterChip(
                         icon: Icons.circle,
@@ -247,7 +268,9 @@ class _RoomsPageState extends State<RoomsPage> {
                   pageIndex: _filterPage,
                   viewportFraction: _filterViewportFraction,
                   activeColor: tokens.bluePrimary,
-                  inactiveColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD6DDE8),
+                  inactiveColor: tokens.isDark
+                      ? tokens.borderControl
+                      : const Color(0xFFD6DDE8),
                 ),
                 const SizedBox(height: 17),
                 Row(
@@ -345,7 +368,9 @@ class RoomCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: tokens.surfaceCard,
             borderRadius: BorderRadius.circular(15),
-            border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+            border: tokens.isDark
+                ? Border.all(color: tokens.borderSubtle)
+                : null,
             boxShadow: tokens.isDark
                 ? null
                 : const [
@@ -404,7 +429,9 @@ class RoomCard extends StatelessWidget {
                     VerticalDivider(
                       width: 26,
                       thickness: 1,
-                      color: tokens.isDark ? tokens.borderSubtle : const Color(0xFFE4EAF2),
+                      color: tokens.isDark
+                          ? tokens.borderSubtle
+                          : const Color(0xFFE4EAF2),
                     ),
                   if (compact)
                     Icon(
@@ -577,19 +604,21 @@ class _FilterChip extends StatelessWidget {
           child: Ink(
             padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
             decoration: BoxDecoration(
-              color: selected
-                  ? tokens.blueSelectedBg
-                  : tokens.surfaceCard,
+              color: selected ? tokens.blueSelectedBg : tokens.surfaceCard,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: selected
-                    ? tokens.bluePrimary
-                    : tokens.borderControl,
+                color: selected ? tokens.bluePrimary : tokens.borderControl,
               ),
             ),
             child: Row(
               children: [
-                Icon(icon, color: selected ? (tokens.isDark ? tokens.blueSelectedText : color) : color, size: 29),
+                Icon(
+                  icon,
+                  color: selected
+                      ? (tokens.isDark ? tokens.blueSelectedText : color)
+                      : color,
+                  size: 29,
+                ),
                 const SizedBox(width: 11),
                 Expanded(
                   child: Column(
@@ -603,7 +632,9 @@ class _FilterChip extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: selected
-                              ? (tokens.isDark ? tokens.blueSelectedText : const Color(0xFF102142))
+                              ? (tokens.isDark
+                                    ? tokens.blueSelectedText
+                                    : const Color(0xFF102142))
                               : tokens.textPrimary,
                           fontWeight: FontWeight.w800,
                         ),
@@ -693,10 +724,14 @@ class _AddRoomBanner extends StatelessWidget {
       child: Ink(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: tokens.isDark ? tokens.surfaceElevated : const Color(0xFFF3F7FF),
+          color: tokens.isDark
+              ? tokens.surfaceElevated
+              : const Color(0xFFF3F7FF),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: tokens.isDark ? tokens.borderSubtle : const Color(0xFFCFDDF4),
+            color: tokens.isDark
+                ? tokens.borderSubtle
+                : const Color(0xFFCFDDF4),
           ),
         ),
         child: Column(
@@ -737,8 +772,8 @@ class _AddRoomBanner extends StatelessWidget {
               child: FilledButton.icon(
                 onPressed: onTap,
                 style: FilledButton.styleFrom(
-                  backgroundColor: tokens.blueDarker,
-                  foregroundColor: tokens.textPrimary,
+                  backgroundColor: tokens.bluePrimary,
+                  foregroundColor: Colors.white,
                 ),
                 icon: const Icon(Icons.add_rounded, size: 18),
                 label: const Text('Add room'),
@@ -758,7 +793,10 @@ String _sortLabel(_RoomSort sort) => switch (sort) {
   _RoomSort.attentionFirst => 'Attention first',
 };
 
-({Color background, Color foreground, IconData icon}) _roomPalette(String key, EHThemeTokens tokens) {
+({Color background, Color foreground, IconData icon}) _roomPalette(
+  String key,
+  EHThemeTokens tokens,
+) {
   if (tokens.isDark) {
     return switch (key) {
       'living' => (

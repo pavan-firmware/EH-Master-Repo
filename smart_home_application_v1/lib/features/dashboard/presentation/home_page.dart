@@ -96,7 +96,10 @@ class HomePage extends StatelessWidget {
               ),
               if (dashboard.routine != null) ...[
                 const SizedBox(height: 24),
-                _RoutineCard(routine: dashboard.routine!, onTap: onShowRoutines),
+                _RoutineCard(
+                  routine: dashboard.routine!,
+                  onTap: onShowRoutines,
+                ),
               ],
             ] else ...[
               _SetupSupportingContent(data: dashboard, onAction: onConnectHome),
@@ -170,7 +173,9 @@ class _HomeHeader extends StatelessWidget {
                     onPressed: onActivity,
                     icon: Icon(
                       Icons.notifications_none_rounded,
-                      color: tokens.isDark ? tokens.headerAction : const Color(0xFF102142),
+                      color: tokens.isDark
+                          ? tokens.headerAction
+                          : const Color(0xFF102142),
                       size: 27,
                     ),
                   ),
@@ -211,7 +216,9 @@ class _HomeHeader extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: tokens.isDark ? tokens.surfaceElevated : null,
-                    border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+                    border: tokens.isDark
+                        ? Border.all(color: tokens.borderSubtle)
+                        : null,
                     gradient: tokens.isDark
                         ? null
                         : const LinearGradient(
@@ -222,7 +229,9 @@ class _HomeHeader extends StatelessWidget {
                   ),
                   child: Icon(
                     Icons.person_rounded,
-                    color: tokens.isDark ? tokens.textPrimary : const Color(0xFF365171),
+                    color: tokens.isDark
+                        ? tokens.textPrimary
+                        : const Color(0xFF365171),
                     size: compact ? 20 : 22,
                   ),
                 ),
@@ -301,7 +310,9 @@ class _HomeOverviewCard extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: tokens.isDark ? tokens.surfaceCard : null,
-            border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+            border: tokens.isDark
+                ? Border.all(color: tokens.borderSubtle)
+                : null,
             gradient: tokens.isDark
                 ? null
                 : const LinearGradient(
@@ -336,19 +347,22 @@ class _ReadyOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+
+    const heroPrimary = Colors.white;
+
     final compact = MediaQuery.sizeOf(context).width < 380;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.home_outlined, color: tokens.textPrimary, size: 27),
+            Icon(Icons.home_outlined, color: heroPrimary, size: 27),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 'HOME OVERVIEW',
                 style: TextStyle(
-                  color: tokens.textPrimary,
+                  color: heroPrimary,
                   fontSize: compact ? 12 : 13,
                   letterSpacing: .7,
                   fontWeight: FontWeight.w800,
@@ -377,7 +391,9 @@ class _ReadyOverview extends StatelessWidget {
                     value: '${data.deviceCount}',
                     label: 'Devices',
                     detail: '${data.devicesOnline} online',
-                    accent: tokens.isDark ? tokens.success : const Color(0xFF72E7A5),
+                    accent: tokens.isDark
+                        ? tokens.success
+                        : const Color(0xFF72E7A5),
                     compact: compact,
                   ),
                 ),
@@ -388,7 +404,9 @@ class _ReadyOverview extends StatelessWidget {
                     value: '${data.roomCount}',
                     label: 'Rooms',
                     detail: '${data.activeRoomCount} active',
-                    accent: tokens.isDark ? tokens.bluePrimary : const Color(0xFF8EC3FF),
+                    accent: tokens.isDark
+                        ? tokens.bluePrimary
+                        : const Color(0xFF8EC3FF),
                     compact: compact,
                   ),
                 ),
@@ -399,7 +417,9 @@ class _ReadyOverview extends StatelessWidget {
                     value: data.networkLabel,
                     label: 'Connected',
                     detail: data.networkDetail,
-                    accent: tokens.isDark ? tokens.iconFgWater : const Color(0xFFE7A9FF),
+                    accent: tokens.isDark
+                        ? tokens.iconFgWater
+                        : const Color(0xFFE7A9FF),
                     compact: compact,
                   ),
                 ),
@@ -410,7 +430,9 @@ class _ReadyOverview extends StatelessWidget {
                     value: 'Security',
                     label: 'All sensors',
                     detail: 'normal',
-                    accent: tokens.isDark ? tokens.success : const Color(0xFF85F0DD),
+                    accent: tokens.isDark
+                        ? tokens.success
+                        : const Color(0xFF85F0DD),
                     compact: compact,
                   ),
                 ),
@@ -426,19 +448,28 @@ class _ReadyOverview extends StatelessWidget {
         const SizedBox(height: 12),
         Row(
           children: [
-            Icon(Icons.trending_up_rounded, color: tokens.isDark ? tokens.blueSelectedText : const Color(0xFFD2E2FF)),
+            Icon(
+              Icons.trending_up_rounded,
+              color: tokens.isDark
+                  ? tokens.blueSelectedText
+                  : const Color(0xFFD2E2FF),
+            ),
             const SizedBox(width: 13),
             Expanded(
               child: Text(
                 'View detailed home insights',
                 style: TextStyle(
-                  color: tokens.textPrimary,
+                  color: heroPrimary,
                   fontSize: compact ? 13 : 15,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: tokens.isDark ? tokens.headerAction : Colors.white, size: 28),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: tokens.isDark ? tokens.headerAction : Colors.white,
+              size: 28,
+            ),
           ],
         ),
       ],
@@ -462,7 +493,9 @@ class _CompactOverviewMetrics extends StatelessWidget {
                 icon: Icons.devices_other_rounded,
                 value: '${data.deviceCount} devices',
                 detail: '${data.devicesOnline} online',
-                accent: tokens.isDark ? tokens.success : const Color(0xFF72E7A5),
+                accent: tokens.isDark
+                    ? tokens.success
+                    : const Color(0xFF72E7A5),
               ),
             ),
             const SizedBox(width: 10),
@@ -471,7 +504,9 @@ class _CompactOverviewMetrics extends StatelessWidget {
                 icon: Icons.grid_view_rounded,
                 value: '${data.roomCount} rooms',
                 detail: '${data.activeRoomCount} active',
-                accent: tokens.isDark ? tokens.bluePrimary : const Color(0xFF8EC3FF),
+                accent: tokens.isDark
+                    ? tokens.bluePrimary
+                    : const Color(0xFF8EC3FF),
               ),
             ),
           ],
@@ -484,7 +519,9 @@ class _CompactOverviewMetrics extends StatelessWidget {
                 icon: Icons.wifi_rounded,
                 value: data.networkLabel,
                 detail: data.networkDetail,
-                accent: tokens.isDark ? tokens.iconFgWater : const Color(0xFFE7A9FF),
+                accent: tokens.isDark
+                    ? tokens.iconFgWater
+                    : const Color(0xFFE7A9FF),
               ),
             ),
             const SizedBox(width: 10),
@@ -493,7 +530,9 @@ class _CompactOverviewMetrics extends StatelessWidget {
                 icon: Icons.shield_outlined,
                 value: 'Security',
                 detail: 'All sensors normal',
-                accent: tokens.isDark ? tokens.success : const Color(0xFF85F0DD),
+                accent: tokens.isDark
+                    ? tokens.success
+                    : const Color(0xFF85F0DD),
               ),
             ),
           ],
@@ -519,10 +558,15 @@ class _CompactMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+
+    const heroPrimary = Colors.white;
+    const heroSecondary = Color(0xFFD9E8FF);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: tokens.isDark ? tokens.surfaceElevated : Colors.white.withValues(alpha: .10),
+        color: tokens.isDark
+            ? tokens.surfaceElevated
+            : Colors.white.withValues(alpha: .10),
         borderRadius: BorderRadius.circular(16),
         border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
       ),
@@ -539,7 +583,7 @@ class _CompactMetric extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: tokens.textPrimary,
+                    color: heroPrimary,
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
                   ),
@@ -549,7 +593,7 @@ class _CompactMetric extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: accent,
+                    color: heroSecondary,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -666,13 +710,17 @@ class _SetupOverview extends StatelessWidget {
                 data.state == HomeDashboardState.loading
                     ? Icons.bluetooth_searching_rounded
                     : Icons.add_circle_outline_rounded,
-                color: tokens.isDark ? tokens.textPrimary : const Color(0xFF1956A8),
+                color: tokens.isDark
+                    ? tokens.textPrimary
+                    : const Color(0xFF1956A8),
               ),
               const SizedBox(width: 9),
               Text(
                 data.primaryAction ?? 'Add a device',
                 style: TextStyle(
-                  color: tokens.isDark ? tokens.textPrimary : const Color(0xFF102142),
+                  color: tokens.isDark
+                      ? tokens.textPrimary
+                      : const Color(0xFF102142),
                   fontWeight: FontWeight.w800,
                   fontSize: 16,
                 ),
@@ -742,7 +790,8 @@ class _OverviewMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.ehColors;
+    const heroPrimary = Colors.white;
+    const heroSecondary = Color(0xFFD9E8FF);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -761,7 +810,7 @@ class _OverviewMetric extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: tokens.textPrimary,
+            color: heroPrimary,
             fontSize: compact ? 17 : 19,
             fontWeight: FontWeight.w800,
           ),
@@ -770,10 +819,7 @@ class _OverviewMetric extends StatelessWidget {
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: tokens.textSecondary,
-            fontSize: compact ? 9 : 10,
-          ),
+          style: TextStyle(color: heroPrimary, fontSize: compact ? 9 : 10),
         ),
         const SizedBox(height: 2),
         Text(
@@ -781,7 +827,7 @@ class _OverviewMetric extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: accent,
+            color: heroSecondary,
             fontSize: compact ? 9 : 10,
             fontWeight: FontWeight.w700,
           ),
@@ -821,14 +867,20 @@ class _SetupMetric extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: tokens.isDark ? tokens.surfaceElevated : Colors.white.withValues(alpha: .10),
+        color: tokens.isDark
+            ? tokens.surfaceElevated
+            : Colors.white.withValues(alpha: .10),
         borderRadius: BorderRadius.circular(15),
         border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: tokens.isDark ? tokens.bluePrimary : const Color(0xFFD4E5FF), size: 19),
+          Icon(
+            icon,
+            color: tokens.isDark ? tokens.bluePrimary : const Color(0xFFD4E5FF),
+            size: 19,
+          ),
           const SizedBox(height: 10),
           Text(
             value,
@@ -918,7 +970,11 @@ class _AttentionCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: tokens.isDark ? tokens.textSecondary : (critical ? const Color(0xFF913A35) : const Color(0xFF94523D)),
+                        color: tokens.isDark
+                            ? tokens.textSecondary
+                            : (critical
+                                  ? const Color(0xFF913A35)
+                                  : const Color(0xFF94523D)),
                         height: 1.3,
                       ),
                     ),
@@ -960,9 +1016,7 @@ class _SectionHeader extends StatelessWidget {
         ),
         TextButton(
           onPressed: onAction,
-          style: TextButton.styleFrom(
-            foregroundColor: tokens.bluePrimary,
-          ),
+          style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
           child: Text(
             action,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
@@ -1039,9 +1093,7 @@ class _RoomPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final palette = _roomPalette(room.iconKey, tokens);
-    final statusColor = room.isAttention
-        ? tokens.warning
-        : tokens.success;
+    final statusColor = room.isAttention ? tokens.warning : tokens.success;
     return Semantics(
       button: true,
       label: '${room.name}, ${room.deviceCount} devices, ${room.status}',
@@ -1055,7 +1107,9 @@ class _RoomPreviewCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: tokens.surfaceCard,
               borderRadius: BorderRadius.circular(20),
-              border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+              border: tokens.isDark
+                  ? Border.all(color: tokens.borderSubtle)
+                  : null,
               boxShadow: tokens.isDark
                   ? null
                   : const [
@@ -1109,14 +1163,13 @@ class _RoomPreviewCard extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   '${room.deviceCount} ${room.deviceCount == 1 ? 'device' : 'devices'}',
-                  style: TextStyle(
-                    color: tokens.textSecondary,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
                 ),
                 Divider(
                   height: 18,
-                  color: tokens.isDark ? tokens.borderSubtle : const Color(0xFFDAE0E9),
+                  color: tokens.isDark
+                      ? tokens.borderSubtle
+                      : const Color(0xFFDAE0E9),
                 ),
                 Text(
                   room.summary,
@@ -1268,7 +1321,9 @@ class _QuickControlCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: tokens.surfaceCard,
               borderRadius: BorderRadius.circular(20),
-              border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+              border: tokens.isDark
+                  ? Border.all(color: tokens.borderSubtle)
+                  : null,
               boxShadow: tokens.isDark
                   ? null
                   : const [
@@ -1310,7 +1365,9 @@ class _QuickControlCard extends StatelessWidget {
                 Text(
                   _controlValue(control, lightOn, lightPending),
                   style: TextStyle(
-                    color: unavailable ? tokens.textTertiary : visual.valueColor,
+                    color: unavailable
+                        ? tokens.textTertiary
+                        : visual.valueColor,
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
                   ),
@@ -1321,7 +1378,9 @@ class _QuickControlCard extends StatelessWidget {
                   child: SizedBox(
                     width: 108,
                     height: 32,
-                    child: Center(child: _controlAction(visual, unavailable, tokens)),
+                    child: Center(
+                      child: _controlAction(visual, unavailable, tokens),
+                    ),
                   ),
                 ),
               ],
@@ -1339,7 +1398,11 @@ class _QuickControlCard extends StatelessWidget {
     return item.value;
   }
 
-  Widget _controlAction(_ControlVisual visual, bool unavailable, EHThemeTokens tokens) {
+  Widget _controlAction(
+    _ControlVisual visual,
+    bool unavailable,
+    EHThemeTokens tokens,
+  ) {
     switch (control.kind) {
       case QuickControlKind.light:
         return _ControlToggle(
@@ -1358,7 +1421,9 @@ class _QuickControlCard extends StatelessWidget {
                 value: .4,
                 minHeight: 6,
                 borderRadius: BorderRadius.circular(99),
-                backgroundColor: tokens.isDark ? tokens.borderControl : const Color(0xFFE4EAF2),
+                backgroundColor: tokens.isDark
+                    ? tokens.borderControl
+                    : const Color(0xFFE4EAF2),
                 valueColor: AlwaysStoppedAnimation(visual.color),
               ),
             ),
@@ -1429,7 +1494,9 @@ class _ControlToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final offTrack = tokens.isDark ? tokens.switchTrackOff : const Color(0xFFE2E5EA);
+    final offTrack = tokens.isDark
+        ? tokens.switchTrackOff
+        : const Color(0xFFE2E5EA);
     final offThumb = tokens.isDark ? tokens.switchThumbOff : Colors.white;
     final onThumb = tokens.isDark ? tokens.switchThumbOn : Colors.white;
     final onTrack = tokens.isDark ? activeColor : activeColor;
@@ -1450,7 +1517,9 @@ class _ControlToggle extends StatelessWidget {
             borderRadius: BorderRadius.circular(99),
             border: value && enabled
                 ? null
-                : (tokens.isDark ? Border.all(color: tokens.borderControl) : Border.all(color: const Color(0xFFC7CCD5))),
+                : (tokens.isDark
+                      ? Border.all(color: tokens.borderControl)
+                      : Border.all(color: const Color(0xFFC7CCD5))),
           ),
           child: Align(
             alignment: value ? Alignment.centerRight : Alignment.centerLeft,
@@ -1489,7 +1558,9 @@ class _RoutineCard extends StatelessWidget {
             color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF8F5FF),
             borderRadius: BorderRadius.circular(21),
             border: Border.all(
-              color: tokens.isDark ? tokens.borderSubtle : const Color(0xFFE5DBFF),
+              color: tokens.isDark
+                  ? tokens.borderSubtle
+                  : const Color(0xFFE5DBFF),
             ),
           ),
           child: Row(
@@ -1498,12 +1569,16 @@ class _RoutineCard extends StatelessWidget {
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  color: tokens.isDark ? tokens.iconBgPurple : const Color(0xFFECE0FF),
+                  color: tokens.isDark
+                      ? tokens.iconBgPurple
+                      : const Color(0xFFECE0FF),
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Icon(
                   Icons.nightlight_round,
-                  color: tokens.isDark ? tokens.iconFgPurple : const Color(0xFF7955E6),
+                  color: tokens.isDark
+                      ? tokens.iconFgPurple
+                      : const Color(0xFF7955E6),
                   size: 30,
                 ),
               ),
@@ -1515,7 +1590,9 @@ class _RoutineCard extends StatelessWidget {
                     Text(
                       'Next routine',
                       style: TextStyle(
-                        color: tokens.isDark ? tokens.iconFgPurple : const Color(0xFF7653DE),
+                        color: tokens.isDark
+                            ? tokens.iconFgPurple
+                            : const Color(0xFF7653DE),
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -1541,7 +1618,9 @@ class _RoutineCard extends StatelessWidget {
               ),
               Icon(
                 Icons.chevron_right_rounded,
-                color: tokens.isDark ? tokens.iconFgPurple : const Color(0xFF7550DC),
+                color: tokens.isDark
+                    ? tokens.iconFgPurple
+                    : const Color(0xFF7550DC),
                 size: 30,
               ),
             ],
@@ -1616,17 +1695,49 @@ class _RoomPalette {
 _RoomPalette _roomPalette(String key, EHThemeTokens tokens) {
   if (tokens.isDark) {
     return switch (key) {
-      'kitchen' => _RoomPalette(Icons.kitchen_outlined, tokens.iconBgKitchen, tokens.iconFgKitchen),
-      'plant' => _RoomPalette(Icons.local_florist_outlined, tokens.iconBgPlant, tokens.iconFgPlant),
-      'water' => _RoomPalette(Icons.water_drop_outlined, tokens.iconBgWater, tokens.iconFgWater),
-      _ => _RoomPalette(Icons.weekend_rounded, tokens.iconBgBlue, tokens.iconFgBlue),
+      'kitchen' => _RoomPalette(
+        Icons.kitchen_outlined,
+        tokens.iconBgKitchen,
+        tokens.iconFgKitchen,
+      ),
+      'plant' => _RoomPalette(
+        Icons.local_florist_outlined,
+        tokens.iconBgPlant,
+        tokens.iconFgPlant,
+      ),
+      'water' => _RoomPalette(
+        Icons.water_drop_outlined,
+        tokens.iconBgWater,
+        tokens.iconFgWater,
+      ),
+      _ => _RoomPalette(
+        Icons.weekend_rounded,
+        tokens.iconBgBlue,
+        tokens.iconFgBlue,
+      ),
     };
   }
   return switch (key) {
-    'kitchen' => const _RoomPalette(Icons.kitchen_outlined, Color(0xFFFFECE9), Color(0xFF102142)),
-    'plant' => const _RoomPalette(Icons.local_florist_outlined, Color(0xFFF0ECFF), Color(0xFF102142)),
-    'water' => const _RoomPalette(Icons.water_drop_outlined, Color(0xFFE7F3FF), Color(0xFF102142)),
-    _ => const _RoomPalette(Icons.weekend_rounded, Color(0xFFF8EEDB), Color(0xFF102142)),
+    'kitchen' => const _RoomPalette(
+      Icons.kitchen_outlined,
+      Color(0xFFFFECE9),
+      Color(0xFF102142),
+    ),
+    'plant' => const _RoomPalette(
+      Icons.local_florist_outlined,
+      Color(0xFFF0ECFF),
+      Color(0xFF102142),
+    ),
+    'water' => const _RoomPalette(
+      Icons.water_drop_outlined,
+      Color(0xFFE7F3FF),
+      Color(0xFF102142),
+    ),
+    _ => const _RoomPalette(
+      Icons.weekend_rounded,
+      Color(0xFFF8EEDB),
+      Color(0xFF102142),
+    ),
   };
 }
 

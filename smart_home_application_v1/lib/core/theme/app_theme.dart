@@ -19,6 +19,7 @@ class EHThemeTokens extends ThemeExtension<EHThemeTokens> {
     required this.borderControl,
     required this.bluePrimary,
     required this.blueDarker,
+    required this.buttonText,
     required this.blueSelectedBg,
     required this.blueSelectedText,
     required this.gold,
@@ -74,6 +75,7 @@ class EHThemeTokens extends ThemeExtension<EHThemeTokens> {
 
   final Color bluePrimary;
   final Color blueDarker;
+  final Color buttonText;
   final Color blueSelectedBg;
   final Color blueSelectedText;
 
@@ -135,6 +137,7 @@ class EHThemeTokens extends ThemeExtension<EHThemeTokens> {
     borderControl: EHColors.darkBorderControl,
     bluePrimary: EHColors.darkBluePrimary,
     blueDarker: EHColors.darkBlueDarker,
+    buttonText: EHColors.darkButtonText,
     blueSelectedBg: EHColors.darkBlueSelectedBg,
     blueSelectedText: EHColors.darkBlueSelectedText,
     gold: EHColors.darkGold,
@@ -188,6 +191,7 @@ class EHThemeTokens extends ThemeExtension<EHThemeTokens> {
     borderControl: EHColors.lightBorderControl,
     bluePrimary: EHColors.lightBluePrimary,
     blueDarker: EHColors.lightBlueDarker,
+    buttonText: EHColors.lightButtonText,
     blueSelectedBg: EHColors.lightBlueSelectedBg,
     blueSelectedText: EHColors.lightBlueSelectedText,
     gold: EHColors.lightGold,
@@ -242,6 +246,7 @@ class EHThemeTokens extends ThemeExtension<EHThemeTokens> {
     Color? borderControl,
     Color? bluePrimary,
     Color? blueDarker,
+    Color? buttonText,
     Color? blueSelectedBg,
     Color? blueSelectedText,
     Color? gold,
@@ -278,59 +283,59 @@ class EHThemeTokens extends ThemeExtension<EHThemeTokens> {
     Color? iconFgKitchen,
     Color? iconBgPurple,
     Color? iconFgPurple,
-  }) =>
-      EHThemeTokens(
-        isDark: isDark ?? this.isDark,
-        bgApp: bgApp ?? this.bgApp,
-        bgSecondary: bgSecondary ?? this.bgSecondary,
-        surfaceCard: surfaceCard ?? this.surfaceCard,
-        surfaceElevated: surfaceElevated ?? this.surfaceElevated,
-        surfaceNav: surfaceNav ?? this.surfaceNav,
-        textPrimary: textPrimary ?? this.textPrimary,
-        textSecondary: textSecondary ?? this.textSecondary,
-        textTertiary: textTertiary ?? this.textTertiary,
-        sectionHeading: sectionHeading ?? this.sectionHeading,
-        borderSubtle: borderSubtle ?? this.borderSubtle,
-        borderControl: borderControl ?? this.borderControl,
-        bluePrimary: bluePrimary ?? this.bluePrimary,
-        blueDarker: blueDarker ?? this.blueDarker,
-        blueSelectedBg: blueSelectedBg ?? this.blueSelectedBg,
-        blueSelectedText: blueSelectedText ?? this.blueSelectedText,
-        gold: gold ?? this.gold,
-        goldBright: goldBright ?? this.goldBright,
-        goldContainer: goldContainer ?? this.goldContainer,
-        success: success ?? this.success,
-        successContainer: successContainer ?? this.successContainer,
-        warning: warning ?? this.warning,
-        warningContainer: warningContainer ?? this.warningContainer,
-        error: error ?? this.error,
-        errorContainer: errorContainer ?? this.errorContainer,
-        errorText: errorText ?? this.errorText,
-        navInactiveIcon: navInactiveIcon ?? this.navInactiveIcon,
-        navInactiveLabel: navInactiveLabel ?? this.navInactiveLabel,
-        navSelectedIcon: navSelectedIcon ?? this.navSelectedIcon,
-        navSelectedLabel: navSelectedLabel ?? this.navSelectedLabel,
-        switchTrackOff: switchTrackOff ?? this.switchTrackOff,
-        switchThumbOff: switchThumbOff ?? this.switchThumbOff,
-        switchTrackOn: switchTrackOn ?? this.switchTrackOn,
-        switchThumbOn: switchThumbOn ?? this.switchThumbOn,
-        chevron: chevron ?? this.chevron,
-        headerAction: headerAction ?? this.headerAction,
-        iconBgBlue: iconBgBlue ?? this.iconBgBlue,
-        iconFgBlue: iconFgBlue ?? this.iconFgBlue,
-        iconBgGreen: iconBgGreen ?? this.iconBgGreen,
-        iconFgGreen: iconFgGreen ?? this.iconFgGreen,
-        iconBgPlant: iconBgPlant ?? this.iconBgPlant,
-        iconFgPlant: iconFgPlant ?? this.iconFgPlant,
-        iconBgWater: iconBgWater ?? this.iconBgWater,
-        iconFgWater: iconFgWater ?? this.iconFgWater,
-        iconBgOrange: iconBgOrange ?? this.iconBgOrange,
-        iconFgOrange: iconFgOrange ?? this.iconFgOrange,
-        iconBgKitchen: iconBgKitchen ?? this.iconBgKitchen,
-        iconFgKitchen: iconFgKitchen ?? this.iconFgKitchen,
-        iconBgPurple: iconBgPurple ?? this.iconBgPurple,
-        iconFgPurple: iconFgPurple ?? this.iconFgPurple,
-      );
+  }) => EHThemeTokens(
+    isDark: isDark ?? this.isDark,
+    bgApp: bgApp ?? this.bgApp,
+    bgSecondary: bgSecondary ?? this.bgSecondary,
+    surfaceCard: surfaceCard ?? this.surfaceCard,
+    surfaceElevated: surfaceElevated ?? this.surfaceElevated,
+    surfaceNav: surfaceNav ?? this.surfaceNav,
+    textPrimary: textPrimary ?? this.textPrimary,
+    textSecondary: textSecondary ?? this.textSecondary,
+    textTertiary: textTertiary ?? this.textTertiary,
+    sectionHeading: sectionHeading ?? this.sectionHeading,
+    borderSubtle: borderSubtle ?? this.borderSubtle,
+    borderControl: borderControl ?? this.borderControl,
+    bluePrimary: bluePrimary ?? this.bluePrimary,
+    blueDarker: blueDarker ?? this.blueDarker,
+    buttonText: buttonText ?? this.buttonText,
+    blueSelectedBg: blueSelectedBg ?? this.blueSelectedBg,
+    blueSelectedText: blueSelectedText ?? this.blueSelectedText,
+    gold: gold ?? this.gold,
+    goldBright: goldBright ?? this.goldBright,
+    goldContainer: goldContainer ?? this.goldContainer,
+    success: success ?? this.success,
+    successContainer: successContainer ?? this.successContainer,
+    warning: warning ?? this.warning,
+    warningContainer: warningContainer ?? this.warningContainer,
+    error: error ?? this.error,
+    errorContainer: errorContainer ?? this.errorContainer,
+    errorText: errorText ?? this.errorText,
+    navInactiveIcon: navInactiveIcon ?? this.navInactiveIcon,
+    navInactiveLabel: navInactiveLabel ?? this.navInactiveLabel,
+    navSelectedIcon: navSelectedIcon ?? this.navSelectedIcon,
+    navSelectedLabel: navSelectedLabel ?? this.navSelectedLabel,
+    switchTrackOff: switchTrackOff ?? this.switchTrackOff,
+    switchThumbOff: switchThumbOff ?? this.switchThumbOff,
+    switchTrackOn: switchTrackOn ?? this.switchTrackOn,
+    switchThumbOn: switchThumbOn ?? this.switchThumbOn,
+    chevron: chevron ?? this.chevron,
+    headerAction: headerAction ?? this.headerAction,
+    iconBgBlue: iconBgBlue ?? this.iconBgBlue,
+    iconFgBlue: iconFgBlue ?? this.iconFgBlue,
+    iconBgGreen: iconBgGreen ?? this.iconBgGreen,
+    iconFgGreen: iconFgGreen ?? this.iconFgGreen,
+    iconBgPlant: iconBgPlant ?? this.iconBgPlant,
+    iconFgPlant: iconFgPlant ?? this.iconFgPlant,
+    iconBgWater: iconBgWater ?? this.iconBgWater,
+    iconFgWater: iconFgWater ?? this.iconFgWater,
+    iconBgOrange: iconBgOrange ?? this.iconBgOrange,
+    iconFgOrange: iconFgOrange ?? this.iconFgOrange,
+    iconBgKitchen: iconBgKitchen ?? this.iconBgKitchen,
+    iconFgKitchen: iconFgKitchen ?? this.iconFgKitchen,
+    iconBgPurple: iconBgPurple ?? this.iconBgPurple,
+    iconFgPurple: iconFgPurple ?? this.iconFgPurple,
+  );
 
   @override
   EHThemeTokens lerp(ThemeExtension<EHThemeTokens>? other, double t) {
@@ -350,22 +355,43 @@ class EHThemeTokens extends ThemeExtension<EHThemeTokens> {
       borderControl: Color.lerp(borderControl, other.borderControl, t)!,
       bluePrimary: Color.lerp(bluePrimary, other.bluePrimary, t)!,
       blueDarker: Color.lerp(blueDarker, other.blueDarker, t)!,
+      buttonText: Color.lerp(buttonText, other.buttonText, t)!,
       blueSelectedBg: Color.lerp(blueSelectedBg, other.blueSelectedBg, t)!,
-      blueSelectedText: Color.lerp(blueSelectedText, other.blueSelectedText, t)!,
+      blueSelectedText: Color.lerp(
+        blueSelectedText,
+        other.blueSelectedText,
+        t,
+      )!,
       gold: Color.lerp(gold, other.gold, t)!,
       goldBright: Color.lerp(goldBright, other.goldBright, t)!,
       goldContainer: Color.lerp(goldContainer, other.goldContainer, t)!,
       success: Color.lerp(success, other.success, t)!,
-      successContainer: Color.lerp(successContainer, other.successContainer, t)!,
+      successContainer: Color.lerp(
+        successContainer,
+        other.successContainer,
+        t,
+      )!,
       warning: Color.lerp(warning, other.warning, t)!,
-      warningContainer: Color.lerp(warningContainer, other.warningContainer, t)!,
+      warningContainer: Color.lerp(
+        warningContainer,
+        other.warningContainer,
+        t,
+      )!,
       error: Color.lerp(error, other.error, t)!,
       errorContainer: Color.lerp(errorContainer, other.errorContainer, t)!,
       errorText: Color.lerp(errorText, other.errorText, t)!,
       navInactiveIcon: Color.lerp(navInactiveIcon, other.navInactiveIcon, t)!,
-      navInactiveLabel: Color.lerp(navInactiveLabel, other.navInactiveLabel, t)!,
+      navInactiveLabel: Color.lerp(
+        navInactiveLabel,
+        other.navInactiveLabel,
+        t,
+      )!,
       navSelectedIcon: Color.lerp(navSelectedIcon, other.navSelectedIcon, t)!,
-      navSelectedLabel: Color.lerp(navSelectedLabel, other.navSelectedLabel, t)!,
+      navSelectedLabel: Color.lerp(
+        navSelectedLabel,
+        other.navSelectedLabel,
+        t,
+      )!,
       switchTrackOff: Color.lerp(switchTrackOff, other.switchTrackOff, t)!,
       switchThumbOff: Color.lerp(switchThumbOff, other.switchThumbOff, t)!,
       switchTrackOn: Color.lerp(switchTrackOn, other.switchTrackOn, t)!,
@@ -420,6 +446,13 @@ class EHAppTheme {
       useMaterial3: true,
       brightness: Brightness.light,
       colorScheme: scheme,
+
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          foregroundColor: EHThemeTokens.light.buttonText,
+        ),
+      ),
+
       scaffoldBackgroundColor: EHColors.lightBgApp,
       dividerColor: EHColors.lightBorderSubtle,
       textTheme: ThemeData.light().textTheme.apply(
@@ -438,15 +471,16 @@ class EHAppTheme {
       cardTheme: CardThemeData(
         elevation: 0,
         color: EHColors.lightSurfaceCard,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: EHColors.lightSurfaceCard,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: EHColors.lightBorderControl),
@@ -457,7 +491,10 @@ class EHAppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: EHColors.lightBluePrimary, width: 1.5),
+          borderSide: const BorderSide(
+            color: EHColors.lightBluePrimary,
+            width: 1.5,
+          ),
         ),
       ),
       switchTheme: SwitchThemeData(
@@ -506,6 +543,13 @@ class EHAppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: scheme,
+
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          foregroundColor: EHThemeTokens.dark.buttonText,
+        ),
+      ),
+
       scaffoldBackgroundColor: EHColors.darkBgApp,
       dividerColor: EHColors.darkBorderControl,
       textTheme: ThemeData.dark().textTheme.apply(
@@ -533,7 +577,10 @@ class EHAppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: EHColors.darkSurfaceCard,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         hintStyle: const TextStyle(color: EHColors.darkTextTertiary),
         labelStyle: const TextStyle(color: EHColors.darkTextSecondary),
         border: OutlineInputBorder(
@@ -546,7 +593,10 @@ class EHAppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: EHColors.darkBluePrimary, width: 1.5),
+          borderSide: const BorderSide(
+            color: EHColors.darkBluePrimary,
+            width: 1.5,
+          ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),

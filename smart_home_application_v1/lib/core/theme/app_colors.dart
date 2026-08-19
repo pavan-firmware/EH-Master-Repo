@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Centralized semantic color tokens for EH Home.
-/// 
+///
 /// Contains exact palette definitions for both Dark Theme and Light Theme.
 class EHColors {
   const EHColors._();
@@ -25,6 +25,7 @@ class EHColors {
 
   static const Color darkBluePrimary = Color(0xFF3D82D6);
   static const Color darkBlueDarker = Color(0xFF2F6DB5);
+  static const Color darkButtonText = Color(0xFFFFFFFF);
   static const Color darkBlueSelectedBg = Color(0xFF17365B);
   static const Color darkBlueSelectedText = Color(0xFF78A9E5);
 
@@ -90,6 +91,7 @@ class EHColors {
 
   static const Color lightBluePrimary = Color(0xFF155CC8);
   static const Color lightBlueDarker = Color(0xFF104599);
+  static const Color lightButtonText = Color(0xFFFFFFFF);
   static const Color lightBlueSelectedBg = Color(0xFFE7EEFF);
   static const Color lightBlueSelectedText = Color(0xFF163E80);
 
