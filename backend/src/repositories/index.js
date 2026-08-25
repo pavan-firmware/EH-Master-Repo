@@ -102,6 +102,26 @@ class HomeRepository {
     return this.db.find('home_memberships', m => m.user_id === userId);
   }
 
+  async getMembershipsForHome(homeId) {
+    return this.db.find('home_memberships', m => m.home_id === homeId);
+  }
+
+  async updateMembershipRole(homeId, userId, role) {
+    const existing = await this.db.find('home_memberships', m => m.home_id === homeId && m.user_id === userId);
+    if (existing.length === 0) {
+      throw new Error(`Membership for user ${userId} in home ${homeId} not found`);
+    }
+    return this.db.update('home_memberships', existing[0].id, { role });
+  }
+
+  async removeMembership(homeId, userId) {
+    const existing = await this.db.find('home_memberships', m => m.home_id === homeId && m.user_id === userId);
+    if (existing.length === 0) {
+      throw new Error(`Membership for user ${userId} in home ${homeId} not found`);
+    }
+    return this.db.delete('home_memberships', existing[0].id);
+  }
+
   async getHome(homeId) {
     return this.db.findById('homes', homeId);
   }
@@ -118,12 +138,36 @@ class RoomRepository {
     return this.db.insert('floors', id, { home_id: homeId, name, level });
   }
 
+  async getFloor(floorId) {
+    return this.db.findById('floors', floorId);
+  }
+
+  async getFloorsByHome(homeId) {
+    const floors = await this.db.find('floors', f => f.home_id === homeId);
+    return floors.sort((a, b) => a.level - b.level);
+  }
+
+  async renameFloor(floorId, name) {
+    const floor = await this.db.findById('floors', floorId);
+    if (!floor) throw new Error(`Floor ${floorId} does not exist`);
+    return this.db.update('floors', floorId, { name });
+  }
+
+  async deleteFloor(floorId) {
+    const floor = await this.db.findById('floors', floorId);
+    if (!floor) throw new Error(`Floor ${floorId} does not exist`);
+    return this.db.delete('floors', floorId);
+  }
+
   async createRoom({ id, homeId, floorId = null, name, iconKey = 'default', sortOrder = 0 }) {
     const home = await this.db.findById('homes', homeId);
     if (!home) throw new Error(`Home ${homeId} does not exist`);
     if (floorId) {
       const floor = await this.db.findById('floors', floorId);
       if (!floor) throw new Error(`Floor ${floorId} does not exist`);
+      if (floor.home_id !== homeId) {
+        throw new Error(`Floor ${floorId} belongs to home ${floor.home_id}, not home ${homeId}`);
+      }
     }
     return this.db.insert('rooms', id, {
       home_id: homeId,
@@ -134,8 +178,37 @@ class RoomRepository {
     });
   }
 
+  async getRoom(roomId) {
+    return this.db.findById('rooms', roomId);
+  }
+
   async getRoomsByHome(homeId) {
     return this.db.find('rooms', r => r.home_id === homeId);
+  }
+
+  async renameRoom(roomId, name) {
+    const room = await this.db.findById('rooms', roomId);
+    if (!room) throw new Error(`Room ${roomId} does not exist`);
+    return this.db.update('rooms', roomId, { name });
+  }
+
+  async moveRoom(roomId, floorId) {
+    const room = await this.db.findById('rooms', roomId);
+    if (!room) throw new Error(`Room ${roomId} does not exist`);
+    if (floorId) {
+      const floor = await this.db.findById('floors', floorId);
+      if (!floor) throw new Error(`Floor ${floorId} does not exist`);
+      if (floor.home_id !== room.home_id) {
+        throw new Error(`Floor ${floorId} belongs to home ${floor.home_id}, but room belongs to home ${room.home_id}`);
+      }
+    }
+    return this.db.update('rooms', roomId, { floor_id: floorId });
+  }
+
+  async deleteRoom(roomId) {
+    const room = await this.db.findById('rooms', roomId);
+    if (!room) throw new Error(`Room ${roomId} does not exist`);
+    return this.db.delete('rooms', roomId);
   }
 }
 
@@ -257,10 +330,19 @@ class DeviceRepository {
     const home = await this.db.findById('homes', homeId);
     if (!home) throw new Error(`Home ${homeId} does not exist`);
 
+    if (roomId) {
+      const room = await this.db.findById('rooms', roomId);
+      if (!room) throw new Error(`Room ${roomId} does not exist`);
+      if (room.home_id !== homeId) {
+        throw new Error(`Room ${roomId} belongs to home ${room.home_id}, not home ${homeId}`);
+      }
+    }
+
     const existingAuth = await this.db.findById('device_authorizations', deviceId);
     if (existingAuth) throw new Error(`Device ${deviceId} is already claimed by home ${existingAuth.home_id}`);
 
     return this.db.insert('device_authorizations', deviceId, {
+      device_id: deviceId,
       home_id: homeId,
       room_id: roomId,
       custom_name: customName,
@@ -268,6 +350,30 @@ class DeviceRepository {
       claimed_by_user_id: claimedByUserId,
       claimed_at: new Date().toISOString()
     });
+  }
+
+  async updateDeviceAuthorization(deviceId, { homeId, roomId, customName, channelLabels, channelConfigs }) {
+    const existing = await this.db.findById('device_authorizations', deviceId);
+    if (!existing) throw new Error(`Device authorization for ${deviceId} not found`);
+
+    const updates = {};
+    if (homeId !== undefined) updates.home_id = homeId;
+    if (roomId !== undefined) updates.room_id = roomId;
+    if (customName !== undefined) updates.custom_name = customName;
+    if (channelLabels !== undefined) updates.channel_labels = channelLabels;
+    if (channelConfigs !== undefined) updates.channel_configs = channelConfigs;
+
+    return this.db.update('device_authorizations', deviceId, updates);
+  }
+
+  async removeDeviceAuthorization(deviceId) {
+    const existing = await this.db.findById('device_authorizations', deviceId);
+    if (!existing) throw new Error(`Device authorization for ${deviceId} not found`);
+    return this.db.delete('device_authorizations', deviceId);
+  }
+
+  async getAuthorizationsByHome(homeId) {
+    return this.db.find('device_authorizations', a => a.home_id === homeId);
   }
 
   async getDevice(deviceId) {
