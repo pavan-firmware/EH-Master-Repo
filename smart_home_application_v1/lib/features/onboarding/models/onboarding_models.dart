@@ -1,8 +1,13 @@
 enum OnboardingStepState {
   discovery,
+  scanning,
+  bleConnecting,
   verifyingIdentity,
   secureCommissioning,
+  provingIdentity,
   wifiProvisioning,
+  sendingWifi,
+  awaitingMtlsConfirm,
   deviceRegistration,
   deviceClaim,
   roomAssignment,
@@ -18,6 +23,7 @@ class OnboardingDeviceIdentity {
     required this.hardwareRevision,
     required this.firmwareFamily,
     required this.displayName,
+    this.commissioningSecret,
   });
 
   final String deviceId;
@@ -26,6 +32,7 @@ class OnboardingDeviceIdentity {
   final String hardwareRevision;
   final String firmwareFamily;
   final String displayName;
+  final String? commissioningSecret;
 }
 
 class OnboardingProgress {
