@@ -180,10 +180,28 @@ async function runPhase5Tests() {
   const auditString = JSON.stringify(wifiAudit.payload);
   assert('SECURITY AUDIT: Wi-Fi password is NOT logged in audit payload', !auditString.includes('SuperSecretPassword123!'));
 
-  // 5. Complete Registration & State Transition
-  console.log('\n5. Registration Completion:');
-  const regResult = await provisioningService.completeRegistration({ sessionId: sess2.sessionId });
-  assert('Registration completed successfully', regResult.status === 'COMPLETED');
+  // 5. Direct Device mTLS Registration Confirmation
+  console.log('\n5. Direct Device mTLS Registration Confirmation & Proxy Boundary:');
+  let untrustedRejected = false;
+  try {
+    await provisioningService.confirmDeviceProvisioning({
+      deviceId: validUuidDeviceId,
+      sessionId: sess2.sessionId,
+      clientCertFingerprint: 'a1b2c3d4e5f6',
+      isProxyTrusted: false // Untrusted proxy header!
+    });
+  } catch (err) {
+    untrustedRejected = err.message.includes('trusted NGINX proxy');
+  }
+  assert('mTLS registration confirmation rejects untrusted proxy header', untrustedRejected);
+
+  const mtlsConfirmResult = await provisioningService.confirmDeviceProvisioning({
+    deviceId: validUuidDeviceId,
+    sessionId: sess2.sessionId,
+    clientCertFingerprint: 'a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890',
+    isProxyTrusted: true
+  });
+  assert('mTLS device registration confirmation succeeds for trusted proxy', mtlsConfirmResult.status === 'COMPLETED');
 
   // 6. Device Claiming & Idempotency
   console.log('\n6. Device Claiming & Idempotency:');
@@ -229,8 +247,12 @@ async function runPhase5Tests() {
   const resWifi = await apiRouter.handle('POST', `/api/v1/provisioning/sessions/${resSession.body.data.sessionId}/wifi`, { ssid: 'MyHomeWiFi', password: 'SecretPassword' });
   assert('POST /api/v1/provisioning/sessions/:id/wifi returns 200 without password in response', resWifi.status === 200 && resWifi.body.data.password === undefined);
 
-  const resComp = await apiRouter.handle('POST', `/api/v1/provisioning/sessions/${resSession.body.data.sessionId}/complete`, {});
-  assert('POST /api/v1/provisioning/sessions/:id/complete returns 200', resComp.status === 200 && resComp.body.data.status === 'COMPLETED');
+  const resMtls = await apiRouter.handle('POST', '/api/v1/devices/confirm-provisioning', {
+    deviceId: validUuidDeviceId,
+    sessionId: resSession.body.data.sessionId,
+    clientCertFingerprint: 'fp12345'
+  }, { 'x-internal-proxy-auth': 'trusted_gateway_token' }, '172.20.0.5');
+  assert('POST /api/v1/devices/confirm-provisioning via trusted proxy returns 200', resMtls.status === 200 && resMtls.body.data.status === 'COMPLETED');
 
   const resClaim = await apiRouter.handle('POST', `/api/v1/devices/${validUuidDeviceId}/claim`, { homeId: 'home_main', roomId: 'rm_living', sessionId: resSession.body.data.sessionId });
   assert('POST /api/v1/devices/:id/claim returns 200 with home assignment', resClaim.status === 200 && resClaim.body.data.home_id === 'home_main');

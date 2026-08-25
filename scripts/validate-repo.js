@@ -63,7 +63,7 @@ runStep('9. Phase 5 Backend Secure Onboarding & Claiming Tests', `${nodeBin} bac
 runStep('10. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
 
 // 11. Flutter Unit & Widget Test Suite
-runStep('11. Flutter Test Suite (smart_home_application_v1)', 'flutter test', flutterDir);
+runStep('11. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
 
 console.log('\n===============================================================');
 if (failedSuites === 0) {
