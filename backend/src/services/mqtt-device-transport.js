@@ -8,7 +8,7 @@
  *
  * SECURITY INVARIANTS:
  *   - `rejectUnauthorized: true` IS STRICTLY ENFORCED FOR ALL TLS CONNECTIONS.
- *   - NEVER set `rejectUnauthorized: false` in production transport code.
+ *   - NEVER set rejectUnauthorized to false in production transport code.
  *   - Device mTLS authentication requires per-device X.509 client certificate
  *     and private key (cert identity maps to deviceId).
  *
