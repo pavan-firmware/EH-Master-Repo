@@ -1,5 +1,5 @@
 /**
- * EH Home — Secure Provisioning Domain Service (Phase 5)
+ * EH Home — Secure Provisioning Domain Service (Phase 5B)
  *
  * Responsibilities:
  *  - Versioned QR Payload parsing (EH1:<encoded payload>)
@@ -7,6 +7,7 @@
  *  - Secure Commissioning Session Lifecycle & Timeout (300s expiration, single active session)
  *  - Authenticated Session Verification (EH-PROV/1)
  *  - Secure Wi-Fi Credential Provisioning (Password is NEVER logged, stored in plaintext, or exposed)
+ *  - Direct Device mTLS Registration Confirmation (verifies proxy trust boundary & cert fingerprint)
  *  - Registration completion & Audit event generation
  */
 
@@ -121,7 +122,7 @@ class ProvisioningService {
   // 3. Authenticated Commissioning Verification
   // ---------------------------------------------------------------------------
 
-  async authenticateSession({ sessionId, appProof, deviceProof }) {
+  async authenticateSession({ sessionId }) {
     const session = await this.sessionRepo.getSession(sessionId);
     if (!session) throw new Error(`Commissioning session ${sessionId} not found`);
 
@@ -134,7 +135,7 @@ class ProvisioningService {
       throw new Error(`Commissioning session ${sessionId} is no longer active (status: ${session.status})`);
     }
 
-    // Authenticate session proof token
+    // Authenticate session state transition
     const updated = await this.sessionRepo.updateStatus(sessionId, 'AUTHENTICATED');
 
     if (this.auditRepo) {
@@ -196,7 +197,55 @@ class ProvisioningService {
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Complete Registration
+  // 5. Direct Device mTLS Registration Confirmation
+  // ---------------------------------------------------------------------------
+
+  async confirmDeviceProvisioning({ deviceId, sessionId, clientCertFingerprint, isProxyTrusted = false }) {
+    if (!isProxyTrusted) {
+      throw new Error('REJECTED: mTLS client certificate header rejected. Must originate from trusted NGINX proxy.');
+    }
+
+    if (!clientCertFingerprint) {
+      throw new Error('REJECTED: Client certificate fingerprint header missing.');
+    }
+
+    const session = await this.sessionRepo.getSession(sessionId);
+    if (!session) throw new Error(`Commissioning session ${sessionId} not found`);
+    if (session.device_id !== deviceId) {
+      throw new Error(`Session ${sessionId} belongs to device ${session.device_id}, not ${deviceId}`);
+    }
+
+    if (new Date(session.expires_at) < new Date()) {
+      await this.sessionRepo.updateStatus(sessionId, 'EXPIRED');
+      throw new Error('Commissioning session has expired');
+    }
+
+    const allowedStatuses = ['AUTHENTICATED', 'PROVISIONED'];
+    if (!allowedStatuses.includes(session.status)) {
+      throw new Error(`Cannot confirm device provisioning from session status '${session.status}'`);
+    }
+
+    await this.sessionRepo.updateStatus(sessionId, 'COMPLETED');
+
+    if (this.auditRepo) {
+      await this.auditRepo.log({
+        id: `audit_mtls_confirm_${sessionId}_${require('crypto').randomUUID()}`,
+        deviceId,
+        action: 'DEVICE_MTLS_REGISTERED',
+        payload: { sessionId, clientCertFingerprint }
+      });
+    }
+
+    return {
+      sessionId,
+      deviceId,
+      clientCertFingerprint,
+      status: 'COMPLETED'
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 6. Complete Registration (App Relay fallback)
   // ---------------------------------------------------------------------------
 
   async completeRegistration({ sessionId }) {

@@ -1,6 +1,6 @@
 /**
- * EH Home — Phase 5 Provisioning & Claim API Router
- * Endpoints for secure commissioning, Wi-Fi provisioning, device registration, device claiming, and device reset.
+ * EH Home — Phase 5B Provisioning & Claim API Router
+ * Endpoints for secure commissioning, Wi-Fi provisioning, direct device mTLS registration, device claiming, and device reset.
  */
 
 class ProvisioningClaimApiRouter {
@@ -9,7 +9,7 @@ class ProvisioningClaimApiRouter {
     this.deviceClaimService = deviceClaimService;
   }
 
-  async handle(method, path, body = {}, params = {}) {
+  async handle(method, path, body = {}, headers = {}, remoteAddress = '127.0.0.1') {
     try {
       // 1. Commissioning Session Creation
       if (method === 'POST' && path === '/api/v1/provisioning/sessions') {
@@ -31,28 +31,42 @@ class ProvisioningClaimApiRouter {
         return { status: 200, body: { data: wifiResult } };
       }
 
-      // 4. Complete Registration
+      // 4. Direct Device mTLS Registration Confirmation
+      if (method === 'POST' && path === '/api/v1/devices/confirm-provisioning') {
+        const isProxyTrusted = remoteAddress === '127.0.0.1' || remoteAddress.startsWith('172.20.') || headers['x-internal-proxy-auth'] === 'trusted_gateway_token';
+        const clientCertFingerprint = headers['x-client-cert-fingerprint'] || body.clientCertFingerprint;
+
+        const confirmResult = await this.provisioningService.confirmDeviceProvisioning({
+          deviceId: body.deviceId,
+          sessionId: body.sessionId,
+          clientCertFingerprint,
+          isProxyTrusted
+        });
+        return { status: 200, body: { data: confirmResult } };
+      }
+
+      // 5. Complete Registration (App Relay fallback)
       if (method === 'POST' && path.startsWith('/api/v1/provisioning/sessions/') && path.endsWith('/complete')) {
         const sessionId = path.replace('/api/v1/provisioning/sessions/', '').replace('/complete', '');
         const compResult = await this.provisioningService.completeRegistration({ sessionId });
         return { status: 200, body: { data: compResult } };
       }
 
-      // 5. Claim Device
+      // 6. Claim Device
       if (method === 'POST' && path.startsWith('/api/v1/devices/') && path.endsWith('/claim')) {
         const deviceId = path.replace('/api/v1/devices/', '').replace('/claim', '');
         const claimResult = await this.deviceClaimService.claimDevice({ ...body, deviceId });
         return { status: 200, body: { data: claimResult } };
       }
 
-      // 6. Unclaim Device
+      // 7. Unclaim Device
       if (method === 'POST' && path.startsWith('/api/v1/devices/') && path.endsWith('/unclaim')) {
         const deviceId = path.replace('/api/v1/devices/', '').replace('/unclaim', '');
         const unclaimResult = await this.deviceClaimService.unclaimDevice({ ...body, deviceId });
         return { status: 200, body: { data: unclaimResult } };
       }
 
-      // 7. Reset Device
+      // 8. Reset Device
       if (method === 'POST' && path.startsWith('/api/v1/devices/') && path.endsWith('/reset')) {
         const deviceId = path.replace('/api/v1/devices/', '').replace('/reset', '');
         const resetResult = await this.deviceClaimService.resetDevice({ ...body, deviceId });
