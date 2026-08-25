@@ -2,6 +2,8 @@
  * EH Home — Phase 5 Secure Onboarding, Provisioning, and Claiming Test Suite
  */
 
+const fs = require('fs');
+const path = require('path');
 const { DatabaseClient } = require('../src/shared/db-client');
 const {
   UserRepository,
@@ -81,6 +83,17 @@ async function runPhase5Tests() {
     deviceClaimService: claimService
   });
 
+  // 0. Shared Golden Vectors Loading & Validation
+  console.log('0. Shared Golden Vectors Contract Test:');
+  const goldenVectorPath = path.resolve(__dirname, '../../docs/contracts/eh-prov1-golden-vectors.json');
+  assert('Golden vectors JSON contract file exists', fs.existsSync(goldenVectorPath));
+  const goldenJson = JSON.parse(fs.readFileSync(goldenVectorPath, 'utf8'));
+  assert('Golden vectors payload version is EH-PROV/1', goldenJson.protocolVersion === 'EH-PROV/1');
+  assert('Golden vectors contain appProof, deviceProof, and wifiPayload headers',
+         goldenJson.vectors.appProof !== undefined &&
+         goldenJson.vectors.deviceProof !== undefined &&
+         goldenJson.vectors.wifiPayload !== undefined);
+
   // Seed User, Home, Floor, Room, Product
   await userRepo.createUser({ id: 'usr_owner_1', email: 'owner@ehhome.com', passwordHash: 'hash_1' });
   const home1 = await homeService.createHome({ id: 'home_main', name: 'Primary Residence', ownerId: 'usr_owner_1' });
@@ -114,7 +127,7 @@ async function runPhase5Tests() {
   });
 
   // 1. Identity & QR Payload Validation
-  console.log('1. Identity & QR Payload Validation:');
+  console.log('\n1. Identity & QR Payload Validation:');
   assert('Canonical UUID validation passes for valid UUID', UUID_REGEX.test(validUuidDeviceId));
   assert('Canonical UUID validation rejects raw non-UUID legacy hex', !UUID_REGEX.test('dev_legacy_hex_9999'));
 

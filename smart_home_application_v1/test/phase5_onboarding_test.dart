@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smart_home_application_v1/features/onboarding/ble/ble_commissioning_channel.dart';
 import 'package:smart_home_application_v1/features/onboarding/crypto/eh_prov1_crypto.dart';
 import 'package:smart_home_application_v1/features/onboarding/models/onboarding_models.dart';
 import 'package:smart_home_application_v1/features/onboarding/services/onboarding_service.dart';
@@ -77,6 +78,17 @@ void main() {
         () => EhProv1Crypto.decryptAes256Gcm(key: key, nonce: nonce, aad: aad, ciphertextAndTag: tampered),
         throwsA(anything),
       );
+    });
+
+    test('BLE payload fragmentation & reassembly chunks messages into 20-byte ATT frames', () {
+      final longPayload = Uint8List.fromList(List.generate(50, (i) => i));
+      final frames = BleCommissioningChannel.fragmentPayload(longPayload, chunkSize: 16);
+
+      expect(frames.length, 4); // 50 / 16 = 3.125 -> 4 frames
+      expect(frames[0].length, 18); // 2 header bytes + 16 payload bytes
+
+      final reassembled = BleCommissioningChannel.reassembleFrames(frames);
+      expect(reassembled, longPayload);
     });
 
     test('DefaultOnboardingService handles end-to-end EH-PROV/1 commissioning flow', () async {
