@@ -15,6 +15,7 @@
 static const char *TAG = "eh_prov1";
 static eh_prov1_state_t s_state = EH_PROV1_STATE_FACTORY_NEW;
 static eh_prov1_session_t s_session;
+static eh_prov1_framing_t s_framing;
 
 static int constant_time_memcmp(const void *a, const void *b, size_t size)
 {
@@ -62,6 +63,76 @@ size_t eh_prov1_encode_transcript(const char *msg_type,
     return offset;
 }
 
+size_t eh_prov1_fragment_payload(const uint8_t *payload, size_t payload_len,
+                                 uint8_t frame_index, uint8_t *out_frame, size_t max_frame_len)
+{
+    const size_t max_chunk_len = 16; // 2 byte header (frame_index, total_frames) + 16 payload bytes = 18 bytes <= 20 bytes
+    size_t total_frames = (payload_len + max_chunk_len - 1) / max_chunk_len;
+    if (total_frames == 0) total_frames = 1;
+
+    if (frame_index >= total_frames) return 0;
+
+    size_t start_offset = frame_index * max_chunk_len;
+    size_t chunk_len = payload_len - start_offset;
+    if (chunk_len > max_chunk_len) chunk_len = max_chunk_len;
+
+    if (max_frame_len < 2 + chunk_len) return 0;
+
+    out_frame[0] = frame_index;
+    out_frame[1] = (uint8_t)total_frames;
+    memcpy(out_frame + 2, payload + start_offset, chunk_len);
+
+    return 2 + chunk_len;
+}
+
+esp_err_t eh_prov1_process_frame(const uint8_t *frame, size_t frame_len,
+                                 uint8_t *out_msg, size_t *out_msg_len, bool *out_is_complete)
+{
+    if (frame_len < 2) return ESP_ERR_INVALID_ARG;
+    uint8_t frame_index = frame[0];
+    uint8_t total_frames = frame[1];
+    size_t chunk_len = frame_len - 2;
+
+    if (frame_index == 0) {
+        // Reset reassembly buffer for new message
+        s_framing.current_len = 0;
+        s_framing.next_expected_frame = 0;
+        s_framing.total_frames = total_frames;
+        s_framing.in_progress = true;
+    } else {
+        if (!s_framing.in_progress || frame_index != s_framing.next_expected_frame || total_frames != s_framing.total_frames) {
+            ESP_LOGE(TAG, "Out of order BLE frame received: index %d, expected %d", frame_index, s_framing.next_expected_frame);
+            s_framing.in_progress = false;
+            return ESP_ERR_INVALID_SEQUENCE;
+        }
+    }
+
+    if (s_framing.current_len + chunk_len > sizeof(s_framing.reassembly_buf)) {
+        s_framing.in_progress = false;
+        return ESP_ERR_NO_MEM;
+    }
+
+    memcpy(s_framing.reassembly_buf + s_framing.current_len, frame + 2, chunk_len);
+    s_framing.current_len += chunk_len;
+    s_framing.next_expected_frame++;
+
+    if (s_framing.next_expected_frame == total_frames) {
+        // Reassembly complete
+        if (*out_msg_len < s_framing.current_len) {
+            s_framing.in_progress = false;
+            return ESP_ERR_NO_MEM;
+        }
+        memcpy(out_msg, s_framing.reassembly_buf, s_framing.current_len);
+        *out_msg_len = s_framing.current_len;
+        *out_is_complete = true;
+        s_framing.in_progress = false;
+    } else {
+        *out_is_complete = false;
+    }
+
+    return ESP_OK;
+}
+
 static esp_err_t compute_hmac_sha256(const uint8_t *key, size_t key_len,
                                      const uint8_t *data, size_t data_len,
                                      uint8_t out_mac[32])
@@ -98,6 +169,7 @@ static esp_err_t derive_hkdf_session_key(const uint8_t ikm[32],
 esp_err_t eh_prov1_init(void)
 {
     memset(&s_session, 0, sizeof(s_session));
+    memset(&s_framing, 0, sizeof(s_framing));
     s_state = EH_PROV1_STATE_FACTORY_NEW;
     ESP_LOGI(TAG, "EH-PROV/1 state machine initialized");
     return ESP_OK;

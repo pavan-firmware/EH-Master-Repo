@@ -39,6 +39,14 @@ typedef struct {
     bool is_authenticated;
 } eh_prov1_session_t;
 
+typedef struct {
+    uint8_t reassembly_buf[512];
+    size_t current_len;
+    uint8_t next_expected_frame;
+    uint8_t total_frames;
+    bool in_progress;
+} eh_prov1_framing_t;
+
 esp_err_t eh_prov1_init(void);
 eh_prov1_state_t eh_prov1_get_state(void);
 void eh_prov1_set_state(eh_prov1_state_t state);
@@ -54,6 +62,18 @@ size_t eh_prov1_encode_transcript(const char *msg_type,
                                    uint32_t sequence_number,
                                    uint8_t *out_buf,
                                    size_t max_len);
+
+/**
+ * Fragment payload into 20-byte BLE frame chunks.
+ */
+size_t eh_prov1_fragment_payload(const uint8_t *payload, size_t payload_len,
+                                 uint8_t frame_index, uint8_t *out_frame, size_t max_frame_len);
+
+/**
+ * Process incoming fragmented BLE frame.
+ */
+esp_err_t eh_prov1_process_frame(const uint8_t *frame, size_t frame_len,
+                                 uint8_t *out_msg, size_t *out_msg_len, bool *out_is_complete);
 
 /**
  * Handles incoming raw BLE provisioning frame and populates response buffer.
