@@ -1,0 +1,27 @@
+{
+  "protocolVersion": "EH-PROV/1",
+  "sessionId": "c0a80101-0000-4000-8000-000000000001",
+  "deviceId": "c0a80101-0000-4000-8000-000000000001",
+  "appChallengeHex": "0101010101010101010101010101010101010101010101010101010101010101",
+  "deviceChallengeHex": "0202020202020202020202020202020202020202020202020202020202020202",
+  "commissioningSecretUtf8": "secret_32_byte_hex_string_for_device_qr_12345678901234567890",
+  "wifiPlaintextJson": "{\"s\":\"MyHomeWiFi\",\"p\":\"SecretPassword123!\"}",
+  "aesGcmNonceHex": "0b0b0b0b0b0b0b0b0b0b0b0b",
+  "vectors": {
+    "appProof": {
+      "messageType": "APP_PROOF",
+      "sequenceNumber": 2,
+      "transcriptHeaderHex": "0945482d50524f562f31094150505f50524f4f46"
+    },
+    "deviceProof": {
+      "messageType": "DEVICE_PROOF",
+      "sequenceNumber": 3,
+      "transcriptHeaderHex": "0945482d50524f562f310c4445564943455f50524f4f46"
+    },
+    "wifiPayload": {
+      "messageType": "WIFI",
+      "sequenceNumber": 4,
+      "transcriptHeaderHex": "0945482d50524f562f310457494649"
+    }
+  }
+}

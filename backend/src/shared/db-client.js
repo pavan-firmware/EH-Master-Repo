@@ -14,7 +14,7 @@ class DatabaseClient {
       'product_families', 'products', 'product_variants', 'capabilities',
       'product_capabilities', 'product_images', 'devices', 'device_credentials',
       'network_identity', 'device_authorizations', 'device_state', 'channel_state',
-      'device_commands', 'device_events', 'audit_logs', 'outbox'
+      'device_commands', 'device_events', 'audit_logs', 'outbox', 'provisioning_sessions'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

@@ -536,6 +536,44 @@ class OutboxRepository {
   }
 }
 
+class ProvisioningSessionRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createSession({ id, deviceId, appChallenge, deviceChallenge, expiresAt, status = 'CREATED' }) {
+    // Single active commissioning session rule per device
+    const active = await this.db.find('provisioning_sessions', s => s.device_id === deviceId && s.status !== 'COMPLETED' && s.status !== 'EXPIRED' && s.status !== 'ABORTED');
+    for (const s of active) {
+      await this.db.update('provisioning_sessions', s.id, { status: 'EXPIRED', ended_at: new Date().toISOString() });
+    }
+
+    return this.db.insert('provisioning_sessions', id, {
+      device_id: deviceId,
+      app_challenge: appChallenge,
+      device_challenge: deviceChallenge,
+      expires_at: expiresAt,
+      status,
+      created_at: new Date().toISOString()
+    });
+  }
+
+  async getSession(id) {
+    return this.db.findById('provisioning_sessions', id);
+  }
+
+  async getActiveSessionForDevice(deviceId) {
+    const sessions = await this.db.find('provisioning_sessions', s => s.device_id === deviceId && s.status !== 'COMPLETED' && s.status !== 'EXPIRED' && s.status !== 'ABORTED');
+    return sessions.length > 0 ? sessions[0] : null;
+  }
+
+  async updateStatus(id, status, extra = {}) {
+    const existing = await this.db.findById('provisioning_sessions', id);
+    if (!existing) throw new Error(`Provisioning session ${id} not found`);
+    return this.db.update('provisioning_sessions', id, { status, ...extra, updated_at: new Date().toISOString() });
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -547,5 +585,6 @@ module.exports = {
   CommandRepository,
   EventRepository,
   AuditRepository,
-  OutboxRepository
+  OutboxRepository,
+  ProvisioningSessionRepository
 };
