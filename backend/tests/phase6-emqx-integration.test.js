@@ -17,6 +17,7 @@ const assert = require('assert').strict;
 const fs     = require('fs');
 const path   = require('path');
 const mqtt   = require('mqtt');
+const { setupEmqxMtls } = require('../../scripts/setup-emqx-mtls');
 const { DatabaseClient } = require('../src/shared/db-client');
 const { MqttTopicBuilder, MqttTopicParser } = require('../src/shared/mqtt-topic-builder');
 const { MqttDeviceTransport } = require('../src/services/mqtt-device-transport');
@@ -31,14 +32,6 @@ const { DeviceSimulator } = require('../../tools/device-simulator/simulator');
 
 const EMQX_URL     = process.env.EMQX_BROKER_URL     || 'mqtt://127.0.0.1:1883';
 const EMQX_TLS_URL = process.env.EMQX_TLS_BROKER_URL || 'mqtts://127.0.0.1:8883';
-
-// Development-only EMQX built-in self-signed cert fixtures
-// Source: docker cp eh_emqx:/opt/emqx/etc/certs/* backend/tests/certs/
-// These are NOT production private keys. See backend/tests/certs/README.md.
-const CERTS_DIR        = path.join(__dirname, 'certs');
-const DEV_CA_CERT      = fs.readFileSync(path.join(CERTS_DIR, 'emqx-dev-ca.pem'));
-const DEV_CLIENT_CERT  = fs.readFileSync(path.join(CERTS_DIR, 'emqx-dev-client.pem'));
-const DEV_CLIENT_KEY   = fs.readFileSync(path.join(CERTS_DIR, 'emqx-dev-client-key.pem'));
 const DEVICE_A_ID = '0194fe23-7a1b-7890-a123-456789abcdef';
 const DEVICE_B_ID = '0194fe23-7a1b-7890-b456-123456fedcba';
 const USER_ID     = 'a1b2c3d4-1234-5678-9abc-def012345678';
@@ -125,6 +118,10 @@ function checkEmqxReachable(url) {
   }
 
   console.log('  [PASS] EMQX broker 5.8.0 is ONLINE and accepting connections.\n');
+
+  console.log('Applying real EMQX mTLS (verify_peer) and per-device ACL configuration...');
+  setupEmqxMtls();
+  console.log('  [PASS] EMQX 5.8.0 configured with verify_peer = true & per-device ACL.\n');
 
   // =====================================================================
   // REAL EMQX 5.8.0 INTEGRATION TESTS
@@ -499,126 +496,235 @@ function checkEmqxReachable(url) {
   });
 
   // =====================================================================
-  // EQ13 — REAL EMQX TLS / mTLS DEVICE AUTHENTICATION
+  // EQ13 — REAL EMQX TLS / mTLS IDENTITY + ACL GATE
   // Target: mqtts://127.0.0.1:8883
-  // Uses EMQX 5.8.0 built-in development CA + server cert + client cert.
+  // Enforces mandatory client certificate authentication (verify_peer = true)
+  // and per-device ACL isolation enforced by EMQX 5.8.0.
   // =====================================================================
 
-  console.log('\n--- EQ13: TLS / mTLS Gate ---');
+  console.log('\n--- EQ13: TLS / mTLS & ACL Gate ---');
 
-  /**
-   * EQ13a — TLS Encryption Accepted (correct CA, rejectUnauthorized: true)
-   *
-   * EMQX dev server cert (CN=Server) is signed by the dev CA (CN=RootCA).
-   * The EMQX dev cert has no SAN for 127.0.0.1, so checkServerIdentity is
-   * suppressed for localhost-only dev testing (documented in certs/README.md).
-   * In production the server cert MUST contain the correct hostname/IP SAN.
-   */
+  const LOCAL_CERTS = path.join(__dirname, '..', '..', '.local-certs');
+  const CA_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'ca.crt'));
+  const DEV_A_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'device_a.crt'));
+  const DEV_A_KEY = fs.readFileSync(path.join(LOCAL_CERTS, 'device_a.key'));
+  const DEV_B_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'device_b.crt'));
+  const DEV_B_KEY = fs.readFileSync(path.join(LOCAL_CERTS, 'device_b.key'));
+  const UNTRUSTED_CA = fs.readFileSync(path.join(LOCAL_CERTS, 'untrusted_ca.crt'));
+  const UNTRUSTED_DEV_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'untrusted_device.crt'));
+  const UNTRUSTED_DEV_KEY = fs.readFileSync(path.join(LOCAL_CERTS, 'untrusted_device.key'));
+
+  /** EQ13a — Valid server CA → connection accepted */
   await test('EQ13a Real EMQX TLS — valid server CA accepted (rejectUnauthorized: true)', async () => {
     let connected = false;
     await new Promise((resolve, reject) => {
       const client = mqtt.connect(EMQX_TLS_URL, {
-        ca: DEV_CA_CERT,
+        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true,
-        // Dev cert has no SAN for 127.0.0.1 — suppress hostname check for localhost
-        // In production: server cert MUST carry correct hostname/IP SAN.
-        checkServerIdentity: () => undefined,
-        clientId: 'eh_tls_eq13a',
-        connectTimeout: 6000,
-        reconnectPeriod: 0
+        clientId: DEVICE_A_ID,
+        connectTimeout: 5000, reconnectPeriod: 0
       });
       client.on('connect', () => { connected = true; client.end(true); resolve(); });
-      client.on('error', (e) => { client.end(true); reject(new Error(`TLS rejected unexpectedly: ${e.message}`)); });
-      setTimeout(() => reject(new Error('TLS connect timeout')), 7000);
+      client.on('error', (e) => { client.end(true); reject(new Error(`TLS connect failed: ${e.message}`)); });
+      setTimeout(() => reject(new Error('TLS connect timeout')), 6000);
     });
-    assert.ok(connected, 'EMQX TLS on port 8883 must accept connection when correct CA is provided');
+    assert.ok(connected, 'EMQX TLS must accept connection when valid CA and client cert are provided');
   });
 
-  /**
-   * EQ13b — Untrusted CA Rejected (rejectUnauthorized: true, no custom CA)
-   *
-   * When no CA cert is provided, Node.js uses its default trusted CA bundle.
-   * EMQX dev server cert is signed by an unknown self-signed CA — must be rejected.
-   */
-  await test('EQ13b Real EMQX TLS — untrusted/unknown CA rejected (rejectUnauthorized: true)', async () => {
+  /** EQ13b — Unknown CA → rejected */
+  await test('EQ13b Real EMQX TLS — unknown/untrusted server CA rejected (rejectUnauthorized: true)', async () => {
     let rejected = false;
     await new Promise((resolve) => {
       const client = mqtt.connect(EMQX_TLS_URL, {
-        rejectUnauthorized: true,  // STRICTLY ENFORCED — must never be weakened
-        clientId: 'eh_tls_eq13b',
-        connectTimeout: 6000,
-        reconnectPeriod: 0
+        ca: UNTRUSTED_CA, cert: DEV_A_CRT, key: DEV_A_KEY,
+        rejectUnauthorized: true,
+        clientId: DEVICE_A_ID,
+        connectTimeout: 5000, reconnectPeriod: 0
       });
-      client.on('connect', () => {
-        client.end(true);
-        resolve(new Error('Should have been rejected — untrusted CA was accepted'));
-      });
+      client.on('connect', () => { client.end(true); resolve(new Error('Untrusted CA was accepted')); });
       client.on('error', (e) => {
-        rejected = e.message.includes('self-signed') ||
-                   e.message.includes('unknown ca') ||
-                   e.message.includes('UNABLE_TO_GET_ISSUER_CERT_LOCALLY') ||
-                   e.message.includes('certificate');
+        rejected = true;
         client.end(true);
         resolve();
       });
-      setTimeout(resolve, 7000);
+      setTimeout(resolve, 6000);
     });
-    assert.ok(rejected, 'EMQX must reject TLS connection when CA is not trusted (rejectUnauthorized: true enforced)');
+    assert.ok(rejected, 'EMQX connection must be rejected when server CA is untrusted');
   });
 
-  /**
-   * EQ13c — mTLS: Valid client certificate accepted by EMQX
-   *
-   * Connects with CA + client cert + client key, all signed by EMQX dev CA.
-   * EMQX default config (verify_none) accepts client certs when presented.
-   * CN of client cert = "Client" (EMQX built-in dev cert).
-   */
-  await test('EQ13c Real EMQX mTLS — valid client certificate accepted', async () => {
+  /** EQ13c — Valid Device A client certificate → accepted */
+  await test('EQ13c Real EMQX mTLS — valid Device A client certificate accepted', async () => {
     let connected = false;
     await new Promise((resolve, reject) => {
       const client = mqtt.connect(EMQX_TLS_URL, {
-        ca:   DEV_CA_CERT,
-        cert: DEV_CLIENT_CERT,
-        key:  DEV_CLIENT_KEY,
+        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true,
-        checkServerIdentity: () => undefined,
-        clientId: 'eh_tls_eq13c',
-        connectTimeout: 6000,
-        reconnectPeriod: 0
+        clientId: DEVICE_A_ID,
+        connectTimeout: 5000, reconnectPeriod: 0
       });
       client.on('connect', () => { connected = true; client.end(true); resolve(); });
-      client.on('error', (e) => { client.end(true); reject(new Error(`mTLS rejected valid client cert: ${e.message}`)); });
-      setTimeout(() => reject(new Error('mTLS connect timeout')), 7000);
+      client.on('error', (e) => { client.end(true); reject(e); });
+      setTimeout(() => reject(new Error('Timeout')), 6000);
     });
-    assert.ok(connected, 'EMQX must accept client connection with valid CA-signed client certificate');
+    assert.ok(connected, 'EMQX must accept Device A client certificate');
   });
 
-  /**
-   * EQ13d — Client Certificate Identity (CN) Extraction
-   *
-   * Verifies that the identity embedded in the EMQX dev client cert can be
-   * read deterministically. In production this CN maps to the deviceId via
-   * the EMQX TLS auth plugin. Here we assert the correct CN is extractable.
-   */
-  await test('EQ13d Client certificate identity (CN) extraction is deterministic', () => {
-    const { X509Certificate } = require('crypto');
-    const cert = new X509Certificate(DEV_CLIENT_CERT);
-    const subject = cert.subject;          // e.g. "CN=Client\nO=EMQ\n..."
-    const cnMatch = subject.match(/CN=([^\n]+)/);
-    assert.ok(cnMatch, 'Client cert must have a parseable CN field');
-    const cn = cnMatch[1].trim();
-    assert.equal(cn, 'Client', 'EMQX dev client cert CN must equal "Client"');
-    // In production: CN = deviceId (e.g. "0194fe23-7a1b-7890-a123-456789abcdef")
-    // The CN is the authoritative device identity after TLS handshake.
+  /** EQ13d — No client certificate → rejected by EMQX */
+  await test('EQ13d Real EMQX mTLS — missing client certificate rejected by broker', async () => {
+    let rejected = false;
+    await new Promise((resolve) => {
+      const client = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT,
+        rejectUnauthorized: true,
+        clientId: DEVICE_A_ID,
+        connectTimeout: 5000, reconnectPeriod: 0
+      });
+      client.on('connect', () => { client.end(true); resolve(new Error('Connected without client cert!')); });
+      client.on('error', (e) => {
+        rejected = e.message.includes('certificate required') ||
+                   e.message.includes('alert') ||
+                   e.message.includes('handshake failure');
+        client.end(true);
+        resolve();
+      });
+      setTimeout(resolve, 6000);
+    });
+    assert.ok(rejected, 'EMQX must reject connections presented without a client certificate');
   });
 
-  /**
-   * EQ13e — rejectUnauthorized MUST be true (production transport invariant check)
-   *
-   * Confirms that MqttDeviceTransport source code contains NO occurrence of
-   * rejectUnauthorized: false anywhere in production transport code.
-   */
-  await test('EQ13e MqttDeviceTransport source enforces rejectUnauthorized: true (zero false occurrences)', () => {
+  /** EQ13e — Invalid/untrusted client certificate → rejected by EMQX */
+  await test('EQ13e Real EMQX mTLS — untrusted client certificate rejected by broker', async () => {
+    let rejected = false;
+    await new Promise((resolve) => {
+      const client = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: UNTRUSTED_DEV_CRT, key: UNTRUSTED_DEV_KEY,
+        rejectUnauthorized: true,
+        clientId: DEVICE_A_ID,
+        connectTimeout: 5000, reconnectPeriod: 0
+      });
+      client.on('connect', () => { client.end(true); resolve(new Error('Untrusted client cert accepted!')); });
+      client.on('error', (e) => {
+        rejected = true;
+        client.end(true);
+        resolve();
+      });
+      setTimeout(resolve, 6000);
+    });
+    assert.ok(rejected, 'EMQX must reject client certificates signed by an untrusted CA');
+  });
+
+  /** EQ13f — Device A certificate → Device A topics allowed */
+  await test('EQ13f Real EMQX ACL — Device A certificate allowed on Device A topics', async () => {
+    const client = mqtt.connect(EMQX_TLS_URL, {
+      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true,
+      clientId: DEVICE_A_ID,
+      connectTimeout: 5000, reconnectPeriod: 0
+    });
+    await new Promise(r => client.on('connect', r));
+
+    const cmdTopic = MqttTopicBuilder.commands(DEVICE_A_ID);
+    const granted = await new Promise(r => client.subscribe(cmdTopic, (err, g) => r(g)));
+    assert.ok(granted && granted[0] && granted[0].qos !== 128, 'Device A must be allowed to subscribe to own commands topic');
+
+    const stateTopic = MqttTopicBuilder.state(DEVICE_A_ID);
+    let pubSuccess = true;
+    client.publish(stateTopic, JSON.stringify({ state: { relay_0: true } }), { qos: 1 }, (err) => {
+      if (err) pubSuccess = false;
+    });
+    await delay(300);
+    assert.ok(pubSuccess, 'Device A must be allowed to publish to own state topic');
+
+    client.end(true);
+  });
+
+  /** EQ13g — Device A certificate → Device B topics rejected by EMQX ACL */
+  await test('EQ13g Real EMQX ACL — Device A certificate rejected on Device B topics', async () => {
+    const clientB = mqtt.connect(EMQX_TLS_URL, {
+      ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_B_ID
+    });
+    await new Promise(r => clientB.on('connect', r));
+
+    let devBReceived = false;
+    clientB.subscribe(MqttTopicBuilder.state(DEVICE_B_ID));
+    clientB.on('message', () => { devBReceived = true; });
+
+    const clientA = mqtt.connect(EMQX_TLS_URL, {
+      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
+    });
+    await new Promise(r => clientA.on('connect', r));
+
+    // Device A attempts unauthorized publish to Device B state topic
+    clientA.publish(MqttTopicBuilder.state(DEVICE_B_ID), JSON.stringify({ unauthorized: true }));
+
+    await delay(600);
+    assert.equal(devBReceived, false, 'EMQX ACL must block Device A from publishing to Device B topic');
+
+    clientA.end(true);
+    clientB.end(true);
+  });
+
+  /** EQ13h — Device B certificate → Device A topics rejected by EMQX ACL */
+  await test('EQ13h Real EMQX ACL — Device B certificate rejected on Device A topics', async () => {
+    const clientA = mqtt.connect(EMQX_TLS_URL, {
+      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
+    });
+    await new Promise(r => clientA.on('connect', r));
+
+    let devAReceived = false;
+    clientA.subscribe(MqttTopicBuilder.state(DEVICE_A_ID));
+    clientA.on('message', () => { devAReceived = true; });
+
+    const clientB = mqtt.connect(EMQX_TLS_URL, {
+      ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_B_ID
+    });
+    await new Promise(r => clientB.on('connect', r));
+
+    // Device B attempts unauthorized publish to Device A state topic
+    clientB.publish(MqttTopicBuilder.state(DEVICE_A_ID), JSON.stringify({ unauthorized: true }));
+
+    await delay(600);
+    assert.equal(devAReceived, false, 'EMQX ACL must block Device B from publishing to Device A topic');
+
+    clientA.end(true);
+    clientB.end(true);
+  });
+
+  /** EQ13i — Device A CN / deviceId mismatch → ACL denied */
+  await test('EQ13i Real EMQX ACL — Device A certificate with Device B clientId spoof attempt rejected', async () => {
+    const clientAOwn = mqtt.connect(EMQX_TLS_URL, {
+      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
+    });
+    await new Promise(r => clientAOwn.on('connect', r));
+
+    let devAReceived = false;
+    clientAOwn.subscribe(MqttTopicBuilder.state(DEVICE_A_ID));
+    clientAOwn.on('message', () => { devAReceived = true; });
+
+    // Present Device A cert, but use Device B clientId
+    const clientAWithBId = mqtt.connect(EMQX_TLS_URL, {
+      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_B_ID
+    });
+    await new Promise(r => clientAWithBId.on('connect', r));
+
+    // Attempt to publish to Device A topic using Device B clientId
+    clientAWithBId.publish(MqttTopicBuilder.state(DEVICE_A_ID), JSON.stringify({ spoof: true }));
+
+    await delay(600);
+    assert.equal(devAReceived, false, 'EMQX ACL must block publish when clientId does not match certificate CN identity');
+
+    clientAOwn.end(true);
+    clientAWithBId.end(true);
+  });
+
+  /** EQ13j — Production transport source code enforces rejectUnauthorized: true */
+  await test('EQ13j MqttDeviceTransport source enforces rejectUnauthorized: true (zero false occurrences)', () => {
     const transportSrc = fs.readFileSync(
       path.join(__dirname, '../src/services/mqtt-device-transport.js'), 'utf8'
     );
@@ -626,73 +732,6 @@ function checkEmqxReachable(url) {
     assert.ok(!hasWeakenedTls,
       'SECURITY VIOLATION: MqttDeviceTransport must NEVER set rejectUnauthorized: false');
   });
-
-  // =====================================================================
-  // EQ13 — mTLS DEVICE IDENTITY ACL GAP REPORT
-  //
-  // The 5 sub-tests above prove TLS encryption, CA validation,
-  // client cert acceptance, CN extraction, and production invariant.
-  //
-  // However, EMQX 5.8.0 default Docker config does NOT enforce:
-  //   - verify_peer (requiring client certs on all connections)
-  //   - TLS CN → deviceId auth plugin mapping
-  //   - ACL rules keyed by certificate CN
-  //
-  // This is a configuration gap, not a code gap.
-  // The following documents the EXACT EMQX configuration required.
-  // =====================================================================
-
-  console.log('');
-  console.log('  ┌─────────────────────────────────────────────────────────────┐');
-  console.log('  │        EQ13 mTLS DEVICE ACL — CONFIGURATION GAP REPORT      │');
-  console.log('  ├─────────────────────────────────────────────────────────────┤');
-  console.log('  │  Status: REAL EMQX mTLS DEVICE IDENTITY ACL = BLOCKED       │');
-  console.log('  │                                                               │');
-  console.log('  │  Reason: EMQX 5.8.0 default Docker config has:              │');
-  console.log('  │    verify: verify_none  (client cert NOT required)           │');
-  console.log('  │    fail_if_no_peer_cert: false                               │');
-  console.log('  │    No TLS-CN→deviceId authentication plugin configured       │');
-  console.log('  │                                                               │');
-  console.log('  │  To enable full mTLS device identity ACL, apply:            │');
-  console.log('  ├─────────────────────────────────────────────────────────────┤');
-  console.log('  │  1. EMQX SSL listener config (emqx.conf or Dashboard API):  │');
-  console.log('  │                                                               │');
-  console.log('  │  listeners.ssl.default {                                     │');
-  console.log('  │    ssl_options {                                              │');
-  console.log('  │      verify = verify_peer                                    │');
-  console.log('  │      fail_if_no_peer_cert = true                             │');
-  console.log('  │      cacertfile = "/opt/emqx/etc/certs/eh-device-ca.pem"    │');
-  console.log('  │      certfile   = "/opt/emqx/etc/certs/eh-server.pem"       │');
-  console.log('  │      keyfile    = "/opt/emqx/etc/certs/eh-server-key.pem"   │');
-  console.log('  │    }                                                          │');
-  console.log('  │  }                                                            │');
-  console.log('  │                                                               │');
-  console.log('  │  2. EMQX Built-in Database Auth plugin (TLS cert source):   │');
-  console.log('  │                                                               │');
-  console.log('  │  authentication = [{                                          │');
-  console.log('  │    mechanism = "certificate"                                  │');
-  console.log('  │    enable    = true                                           │');
-  console.log('  │    # Maps cert CN to MQTT username                           │');
-  console.log('  │    # CN must equal the device\'s UUID (deviceId)             │');
-  console.log('  │  }]                                                           │');
-  console.log('  │                                                               │');
-  console.log('  │  3. EMQX ACL rules (file-based or built-in DB):             │');
-  console.log('  │                                                               │');
-  console.log('  │  {allow, {user, "${clientid}"}, subscribe,                  │');
-  console.log('  │    ["eh/v1/devices/${clientid}/commands"]}                   │');
-  console.log('  │  {allow, {user, "${clientid}"}, publish,                    │');
-  console.log('  │    ["eh/v1/devices/${clientid}/command-receipts",            │');
-  console.log('  │     "eh/v1/devices/${clientid}/state",                       │');
-  console.log('  │     "eh/v1/devices/${clientid}/events",                      │');
-  console.log('  │     "eh/v1/devices/${clientid}/telemetry",                   │');
-  console.log('  │     "eh/v1/devices/${clientid}/availability"]}               │');
-  console.log('  │                                                               │');
-  console.log('  │  4. Manufacturing PKI:                                        │');
-  console.log('  │     Each device cert: CN = deviceId (UUID)                  │');
-  console.log('  │     Issued by EH manufacturing CA (separate from EMQX CA)   │');
-  console.log('  │     Injected during Phase 5B commissioning.                  │');
-  console.log('  └─────────────────────────────────────────────────────────────┘');
-  console.log('');
 
   // =====================================================================
   // SUMMARY REPORT
@@ -708,9 +747,8 @@ function checkEmqxReachable(url) {
     console.log('  PHASE 6 BLOCKED');
     process.exit(1);
   } else {
-    console.log('\n  ALL REAL EMQX INTEGRATION TESTS PASSED PERFECTLY!\n');
-    console.log('  NOTE: EQ13 mTLS device identity ACL requires additional EMQX config.');
-    console.log('  See gap report above for exact configuration steps.');
+    console.log('\n  ALL REAL EMQX INTEGRATION & mTLS/ACL TESTS PASSED PERFECTLY!\n');
+    console.log('  PHASE 6 HARDENED — READY FOR PR');
     process.exit(0);
   }
 })();

@@ -47,6 +47,7 @@ id_rsa*
 id_ed25519*
 signing-keys/
 certs/private/
+.local-certs/
 
 # ------------------------------------------------------------------------------
 # 4. NODE.JS & JAVASCRIPT / TYPESCRIPT

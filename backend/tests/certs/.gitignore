@@ -1,5 +1,0 @@
-# Override global .gitignore rules to track these development-only EMQX test fixtures.
-# These are NOT production private keys — they are EMQX Docker image shipped dev certs.
-# See README.md in this directory for full explanation.
-!*.pem
-!*.key
