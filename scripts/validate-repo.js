@@ -59,17 +59,20 @@ runStep('8. Phase 4 Backend Domain Model & Service Tests', `${nodeBin} backend/t
 // 9. Phase 5 Backend Secure Onboarding & Claiming Tests
 runStep('9. Phase 5 Backend Secure Onboarding & Claiming Tests', `${nodeBin} backend/tests/phase5-onboarding.test.js`);
 
-// 10. Phase 6 MQTT Device Transport Integration Tests (Mock)
-runStep('10. Phase 6 MQTT Device Transport Mock Tests', `${nodeBin} backend/tests/phase6-mqtt.test.js`);
+// 10. Phase 6 MQTT Transport Unit/Mock Tests
+runStep('10. Phase 6 MQTT Transport Unit/Mock Tests', `${nodeBin} backend/tests/phase6-mqtt.test.js`);
 
-// 11. Phase 6 Real Socket MQTT Broker Integration Tests
-runStep('11. Phase 6 Real Socket MQTT Broker Integration Tests', `${nodeBin} backend/tests/phase6-real-broker.test.js`);
+// 11. Phase 6 Low-Level MQTT Protocol Harness Tests
+runStep('11. Phase 6 Low-Level MQTT Protocol Harness Tests', `${nodeBin} backend/tests/phase6-protocol-harness.test.js`);
 
-// 12. Flutter Code Analysis
-runStep('12. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
+// 12. Phase 6 Real EMQX 5.8.0 Integration Tests
+runStep('12. Phase 6 Real EMQX 5.8.0 Integration Tests', `${nodeBin} backend/tests/phase6-emqx-integration.test.js`);
 
-// 13. Flutter Unit & Widget Test Suite
-runStep('13. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
+// 13. Flutter Code Analysis
+runStep('13. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
+
+// 14. Flutter Unit & Widget Test Suite
+runStep('14. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
 
 console.log('\n===============================================================');
 if (failedSuites === 0) {

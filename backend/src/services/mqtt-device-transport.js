@@ -1,54 +1,55 @@
 'use strict';
 
 /**
- * EH Home — MQTT Device Transport Adapter (Phase 6)
+ * EH Home — Production Backend MQTT Device Transport (Phase 6)
  *
- * Implements IDeviceTransport interface for MQTT broker communication.
- * Supports real MQTT client or an injected mock client for offline testing.
+ * Implements IDeviceTransport interface using the official `mqtt.js` library.
+ * Connects to EMQX broker (default: mqtt://localhost:1883 or mqtts://localhost:8883).
+ *
+ * SECURITY INVARIANTS:
+ *   - `rejectUnauthorized: true` IS STRICTLY ENFORCED FOR ALL TLS CONNECTIONS.
+ *   - NEVER set `rejectUnauthorized: false` in production transport code.
+ *   - Device mTLS authentication requires per-device X.509 client certificate
+ *     and private key (cert identity maps to deviceId).
  *
  * Architecture:
  *   DeviceCommandService
  *     │
  *     ▼
- *   MqttDeviceTransport  (this module)
+ *   MqttDeviceTransport (this module)
  *     │
  *     ▼
- *   MQTT Client (real mqtt.js or mock)
+ *   mqtt.js (Official Client Library)
  *     │
  *     ▼
- *   EMQX Broker (mTLS port 8883)
+ *   EMQX Broker (mTLS Port 8883 / TCP 1883)
  *     │
  *     ▼
- *   ESP32 Device
+ *   ESP32 Device / Simulator
  *
- * getState() is NOT handled here — state is read from DeviceStateRepository.
- * MQTT transport handles: sendCommand(), subscribeToDevice(), subscribeAvailability().
+ * getState() is intentionally NOT handled over MQTT request/response:
+ * State reads are authoritative from backend DeviceStateRepository.
+ * MQTT transport manages: sendCommand(), subscribeEvents(), probeAvailability().
  *
- * QoS / Retain Policy (frozen from mqtt-protocol.md):
+ * QoS & Retain Policy (frozen in mqtt-protocol.md):
  *   commands:          QoS 1, retain false
  *   command-receipts:  QoS 1, retain false
  *   state:             QoS 1, retain false
  *   events:            QoS 1, retain false
  *   telemetry:         QoS 0, retain false
  *   availability:      QoS 1, retain true
- *
- * Security:
- *   - mTLS: per-device certificate (CN = deviceId) for production
- *   - Backend authenticates with a separate service principal
- *   - Development mode allows non-mTLS via environment flag (MQTT_DEV_MODE=true)
- *
- * IMPORTANT: This module never directly touches GPIO or hardware HAL.
  */
 
+const mqtt = require('mqtt');
 const { MqttTopicBuilder, MqttTopicParser } = require('../shared/mqtt-topic-builder');
 
 // ---------------------------------------------------------------------------
-// In-Process Mock MQTT Client (used when real broker is not available)
+// In-Process Mock MQTT Client (used ONLY when injected in isolated unit tests)
 // ---------------------------------------------------------------------------
 
 class MockMqttClient {
   constructor() {
-    this._subscriptions = new Map(); // topic -> [handlers]
+    this._subscriptions = new Map();
     this._published = [];
     this.connected = true;
   }
@@ -67,16 +68,13 @@ class MockMqttClient {
 
   on(event, handler) {
     if (event === 'connect') {
-      // Emit connect immediately for mock
       setImmediate(() => handler());
     }
-    // Other events (message, error, close) are triggered by test harness
     if (!this._eventHandlers) this._eventHandlers = {};
     if (!this._eventHandlers[event]) this._eventHandlers[event] = [];
     this._eventHandlers[event].push(handler);
   }
 
-  /** Test helper: simulate incoming MQTT message from device */
   simulateMessage(topic, payloadObj) {
     const payloadBuf = Buffer.from(JSON.stringify(payloadObj));
     const handlers = this._eventHandlers?.message || [];
@@ -84,36 +82,64 @@ class MockMqttClient {
   }
 
   end() { this.connected = false; }
-
   getPublished() { return [...this._published]; }
   clearPublished() { this._published = []; }
 }
 
 // ---------------------------------------------------------------------------
-// MqttDeviceTransport — IDeviceTransport Adapter
+// MqttDeviceTransport — Production Adapter using mqtt.js
 // ---------------------------------------------------------------------------
 
 class MqttDeviceTransport {
   /**
    * @param {Object} opts
-   * @param {Object}   opts.mqttClient     - real or mock MQTT client instance
-   * @param {Function} [opts.onReceipt]    - callback(CommandReceipt) for command receipts
-   * @param {Function} [opts.onState]      - callback(DeviceState) for state publications
-   * @param {Function} [opts.onEvent]      - callback(DeviceEvent) for device events
+   * @param {string}   [opts.brokerUrl='mqtt://127.0.0.1:1883'] - EMQX URL
+   * @param {string}   [opts.ca]           - PEM CA certificate for TLS verification
+   * @param {string}   [opts.cert]         - PEM client certificate for mTLS
+   * @param {string}   [opts.key]          - PEM client private key for mTLS
+   * @param {string}   [opts.clientId]     - MQTT client ID (default: backend_service)
+   * @param {Object}   [opts.mqttClient]   - Optional injected client (e.g. MockMqttClient for unit tests)
+   * @param {Function} [opts.onReceipt]    - callback(CommandReceipt)
+   * @param {Function} [opts.onState]      - callback(DeviceState)
+   * @param {Function} [opts.onEvent]      - callback(DeviceEvent)
    * @param {Function} [opts.onTelemetry]  - callback(Telemetry|EnergyTelemetry)
    * @param {Function} [opts.onAvailability] - callback(deviceId, 'ONLINE'|'OFFLINE')
    */
   constructor(opts = {}) {
-    this._client = opts.mqttClient || new MockMqttClient();
-    this._onReceipt     = opts.onReceipt     || null;
-    this._onState       = opts.onState       || null;
-    this._onEvent       = opts.onEvent       || null;
-    this._onTelemetry   = opts.onTelemetry   || null;
+    this._onReceipt      = opts.onReceipt      || null;
+    this._onState        = opts.onState        || null;
+    this._onEvent        = opts.onEvent        || null;
+    this._onTelemetry    = opts.onTelemetry    || null;
     this._onAvailability = opts.onAvailability || null;
 
-    this._subscribedDevices = new Set();
     this._ready = false;
 
+    if (opts.mqttClient) {
+      // Injected client (unit test mock)
+      this._client = opts.mqttClient;
+      this._bindClientEvents();
+    } else {
+      // Official mqtt.js production client connection
+      const brokerUrl = opts.brokerUrl || process.env.MQTT_BROKER_URL || 'mqtt://127.0.0.1:1883';
+      const connectOpts = {
+        clientId: opts.clientId || `backend_service_${Math.floor(Math.random() * 10000)}`,
+        clean: true,
+        connectTimeout: 10000,
+        reconnectPeriod: 2000,
+        // SECURITY REQUIREMENT: rejectUnauthorized IS ALWAYS TRUE FOR PRODUCTION TLS
+        rejectUnauthorized: true,
+      };
+
+      if (opts.ca)   connectOpts.ca   = opts.ca;
+      if (opts.cert) connectOpts.cert = opts.cert;
+      if (opts.key)  connectOpts.key  = opts.key;
+
+      this._client = mqtt.connect(brokerUrl, connectOpts);
+      this._bindClientEvents();
+    }
+  }
+
+  _bindClientEvents() {
     this._client.on('connect', () => {
       this._ready = true;
       this._setupBackendSubscriptions();
@@ -134,13 +160,13 @@ class MqttDeviceTransport {
   }
 
   // ---------------------------------------------------------------------------
-  // IDeviceTransport Interface
+  // IDeviceTransport Interface Implementation
   // ---------------------------------------------------------------------------
 
   /**
-   * Publish a command to a device over MQTT.
+   * Publish a command envelope over MQTT.
    * QoS 1, retain false.
-   * NOTE: Must only be called AFTER the DB outbox transaction commits.
+   * NOTE: Must only be called AFTER the DB transaction commits.
    *
    * @param {Object} cmd - canonical Command envelope (packages/contracts Command schema)
    * @returns {Promise<void>}
@@ -158,28 +184,22 @@ class MqttDeviceTransport {
   }
 
   /**
-   * Publish availability probe — used during reconnect to reaffirm ONLINE state
-   * from the backend perspective when needed.
-   * (Device publishes its own availability; this is for backend-driven diagnostics.)
+   * Probe device availability state.
+   * (Availability is derived from the retained availability topic or heartbeat threshold).
    *
    * @param {string} deviceId
-   * @returns {Promise<{connectionState: string, lastSeenAt: string|null}>}
    */
   async probeAvailability(deviceId) {
-    // Availability state is derived from the retained availability topic.
-    // This method returns the last known availability (from broker retained message).
-    // Backend derives STALE from heartbeat threshold — not from this method.
     return { deviceId, probe: 'availability-check-via-retained-topic' };
   }
 
   // ---------------------------------------------------------------------------
-  // Subscription Setup
+  // Backend Subscriptions Setup
   // ---------------------------------------------------------------------------
 
   /**
-   * Subscribe to all backend-facing inbound topics (wildcarded by deviceId).
+   * Subscribes to all backend-facing inbound topics using '+' wildcard.
    * Backend subscribes to: command-receipts, state, events, telemetry, availability
-   * for ALL devices using '+' wildcard.
    */
   async _setupBackendSubscriptions() {
     const inboundCategories = [
@@ -196,7 +216,7 @@ class MqttDeviceTransport {
         const policy = MqttTopicBuilder.qosPolicy(category);
         this._client.subscribe(topic, { qos: policy.qos }, (err) => {
           if (err) {
-            console.error(`[MqttDeviceTransport] Failed to subscribe to ${topic}:`, err);
+            console.error(`[MqttDeviceTransport] Failed to subscribe to ${topic}:`, err.message);
           } else {
             console.log(`[MqttDeviceTransport] Subscribed: ${topic} (QoS ${policy.qos})`);
           }
@@ -215,15 +235,8 @@ class MqttDeviceTransport {
   _handleIncomingMessage(topic, buf) {
     let parsed;
     try {
-      parsed = { deviceId: null, category: null };
-      // Parse topic — this validates UUID, rejects wildcards, etc.
-      const { deviceId, category } = MqttTopicParser.parse(
-        // Backend receives from wildcard subscription eh/v1/devices/+/category
-        // The actual message topic has the real deviceId
-        topic
-      );
-      parsed.deviceId = deviceId;
-      parsed.category = category;
+      const { deviceId, category } = MqttTopicParser.parse(topic);
+      parsed = { deviceId, category };
     } catch (err) {
       console.warn(`[MqttDeviceTransport] Dropped message on invalid topic '${topic}': ${err.message}`);
       return;
@@ -233,8 +246,13 @@ class MqttDeviceTransport {
     try {
       payload = JSON.parse(buf.toString('utf8'));
     } catch (err) {
-      console.warn(`[MqttDeviceTransport] Dropped malformed JSON on topic '${topic}'`);
-      return;
+      // Availability payload may be raw string: "ONLINE" or "OFFLINE"
+      if (parsed.category === 'availability') {
+        payload = buf.toString('utf8').replace(/^"|"$/g, '');
+      } else {
+        console.warn(`[MqttDeviceTransport] Dropped malformed JSON on topic '${topic}'`);
+        return;
+      }
     }
 
     const { deviceId, category } = parsed;
@@ -253,18 +271,16 @@ class MqttDeviceTransport {
         if (this._onTelemetry) this._onTelemetry(payload);
         break;
       case 'availability':
-        // Payload is a plain string: "ONLINE" or "OFFLINE"
-        const availStr = buf.toString('utf8').replace(/^"|"$/g, '');
+        const availStr = typeof payload === 'string' ? payload : (payload.status || 'OFFLINE');
         if (this._onAvailability) this._onAvailability(deviceId, availStr);
         break;
       default:
-        // Unknown category was already caught by MqttTopicParser.parse
         break;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Internal Publish Helper
+  // Publish Helper
   // ---------------------------------------------------------------------------
 
   _publish(topic, payload, policy) {
@@ -284,9 +300,13 @@ class MqttDeviceTransport {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Accessors for testing
-  // ---------------------------------------------------------------------------
+  /** Graceful disconnect */
+  disconnect() {
+    if (this._client && typeof this._client.end === 'function') {
+      this._client.end();
+      this._ready = false;
+    }
+  }
 
   get isReady() { return this._ready; }
   get mqttClient() { return this._client; }
