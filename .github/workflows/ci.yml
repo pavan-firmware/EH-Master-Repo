@@ -11,72 +11,192 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ============================================================
+  # JOB 1: Node.js — Contracts, Backend, Simulator, Phase 6
+  # ============================================================
   validate-contracts-and-backend:
     name: Contracts, Catalog, Simulator & Backend Tests
     runs-on: ubuntu-latest
+
     steps:
+      # ----------------------------------------------------------
+      # 1. Checkout
+      # ----------------------------------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      # ----------------------------------------------------------
+      # 2. Setup Node.js 20 with npm dependency cache
+      # ----------------------------------------------------------
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
+          cache: npm
           cache-dependency-path: package-lock.json
 
+      # ----------------------------------------------------------
+      # 3. Install Node dependencies deterministically
+      #    MUST run before any `node` command.
+      #    Fixes: "Cannot find module 'mqtt'"
+      # ----------------------------------------------------------
+      - name: Install Node Dependencies
+        run: npm ci
+
+      # ----------------------------------------------------------
+      # 4. Generate ephemeral development TLS/mTLS certificates
+      #    Output: .local-certs/  (git-ignored, never committed)
+      # ----------------------------------------------------------
+      - name: Generate Development TLS/mTLS Certificates
+        run: node scripts/generate-dev-certs.js
+
+      # ----------------------------------------------------------
+      # 5. Start real EMQX 5.8.0 broker
+      # ----------------------------------------------------------
+      - name: Start EMQX 5.8.0 Broker
+        run: |
+          docker run -d \
+            --name eh_emqx \
+            -p 1883:1883 \
+            -p 8883:8883 \
+            -p 18083:18083 \
+            emqx/emqx:5.8.0
+
+      # ----------------------------------------------------------
+      # 6. Wait until EMQX is ready to accept MQTT connections
+      #    Polls port 1883 up to 60 s, then 3 s for full init
+      # ----------------------------------------------------------
+      - name: Wait for EMQX 5.8.0 to Be Ready
+        run: |
+          echo "Waiting for EMQX broker on port 1883..."
+          READY=0
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 1883 2>/dev/null; then
+              echo "EMQX port 1883 open (attempt $i)"
+              READY=1
+              break
+            fi
+            echo "  Attempt $i/30 — not ready, retrying in 2s..."
+            sleep 2
+          done
+          if [ "$READY" -eq 0 ]; then
+            echo "ERROR: EMQX did not become ready within 60s"
+            docker logs eh_emqx
+            exit 1
+          fi
+          echo "Allowing 3s for full EMQX broker initialization..."
+          sleep 3
+          echo "EMQX is ready."
+
+      # ----------------------------------------------------------
+      # 7. Configure EMQX: verify_peer, CN→identity, per-device ACL
+      # ----------------------------------------------------------
+      - name: Configure EMQX mTLS and Per-Device ACL
+        run: node scripts/setup-emqx-mtls.js
+
+      # ----------------------------------------------------------
+      # 8. Canonical contract tests
+      # ----------------------------------------------------------
       - name: Run Canonical Contract Tests
         run: node packages/contracts/tests/contract-test.js
 
+      # ----------------------------------------------------------
+      # 9. Product catalog validation
+      # ----------------------------------------------------------
       - name: Validate Product Catalog Definitions
         run: node product-definitions/tests/validate-products.js
 
+      # ----------------------------------------------------------
+      # 10. Device simulator compliance
+      # ----------------------------------------------------------
       - name: Run Device Simulator Compliance Tests
         run: node tools/device-simulator/test-simulator.js
 
+      # ----------------------------------------------------------
+      # 11. PostgreSQL migrations parity check
+      # ----------------------------------------------------------
       - name: Verify PostgreSQL Migrations Parity & Capability Sync
         run: node backend/migrations/verify-migrations.js
 
+      # ----------------------------------------------------------
+      # 12. Backend database & repository integration
+      # ----------------------------------------------------------
       - name: Run Backend Database & Repository Integration Tests
         run: node backend/tests/integration.test.js
 
+      # ----------------------------------------------------------
+      # 13. Backend hardening suite
+      # ----------------------------------------------------------
       - name: Run Backend Hardening Test Suite
         run: node backend/tests/hardening.test.js
 
+      # ----------------------------------------------------------
+      # 14. Product catalog service & API
+      # ----------------------------------------------------------
       - name: Run Backend Product Catalog Service & API Tests
         run: node backend/tests/product-catalog.test.js
 
+      # ----------------------------------------------------------
+      # 15. Phase 4 domain model & service tests
+      # ----------------------------------------------------------
       - name: Run Phase 4 Backend Domain Model & Service Tests
         run: node backend/tests/phase4-domain.test.js
 
+      # ----------------------------------------------------------
+      # 16. Phase 5 secure onboarding & claiming
+      # ----------------------------------------------------------
       - name: Run Phase 5 Backend Secure Onboarding & Claiming Tests
         run: node backend/tests/phase5-onboarding.test.js
 
+      # ----------------------------------------------------------
+      # 17. Phase 6 mock / unit integration tests (40 tests)
+      # ----------------------------------------------------------
       - name: Run Phase 6 MQTT Transport Unit/Mock Tests
         run: node backend/tests/phase6-mqtt.test.js
 
+      # ----------------------------------------------------------
+      # 18. Phase 6 low-level protocol harness (binary MQTT framing)
+      # ----------------------------------------------------------
       - name: Run Phase 6 Low-Level MQTT Protocol Harness Tests
         run: node backend/tests/phase6-protocol-harness.test.js
 
-      - name: Run Phase 6 Real EMQX 5.8.0 Integration Tests (if EMQX container active)
-        run: node backend/tests/phase6-emqx-integration.test.js || true
+      # ----------------------------------------------------------
+      # 19. Phase 6 REAL EMQX 5.8.0 integration — HARD CI GATE
+      #     No || true. No continue-on-error.
+      #     Broker unavailable / TLS / mTLS / ACL / command /
+      #     receipt / telemetry / LWT / reconnect failure → CI FAILS.
+      # ----------------------------------------------------------
+      - name: Run Phase 6 Real EMQX 5.8.0 Integration Tests
+        run: node backend/tests/phase6-emqx-integration.test.js
 
+      # ----------------------------------------------------------
+      # 20. Dump EMQX logs on any failure for diagnosis
+      # ----------------------------------------------------------
+      - name: Dump EMQX Broker Logs on Failure
+        if: failure()
+        run: docker logs eh_emqx
+
+  # ============================================================
+  # JOB 2: Flutter — fully independent, no Node deps
+  # ============================================================
   validate-flutter-app:
     name: Flutter Analyze & Test (smart_home_application_v1)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: smart_home_application_v1
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java (for Android toolchain if needed)
+      - name: Setup Java (Android toolchain)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter
+      - name: Setup Flutter 3.44.9
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.9'
