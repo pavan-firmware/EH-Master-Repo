@@ -66,11 +66,7 @@ class _NearbySetupPageState extends State<NearbySetupPage> {
                   color: tokens.iconBgBlue,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  current.$3,
-                  size: 40,
-                  color: tokens.bluePrimary,
-                ),
+                child: Icon(current.$3, size: 40, color: tokens.bluePrimary),
               ),
               const SizedBox(height: 28),
               Text(
@@ -105,7 +101,6 @@ class _NearbySetupPageState extends State<NearbySetupPage> {
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: tokens.blueDarker,
-                    foregroundColor: tokens.textPrimary,
                   ),
                   child: Text(
                     last
@@ -121,7 +116,9 @@ class _NearbySetupPageState extends State<NearbySetupPage> {
                 Center(
                   child: TextButton(
                     onPressed: () {},
-                    style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
+                    style: TextButton.styleFrom(
+                      foregroundColor: tokens.bluePrimary,
+                    ),
                     child: const Text('Need help?'),
                   ),
                 ),

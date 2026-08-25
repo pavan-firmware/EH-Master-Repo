@@ -686,7 +686,7 @@ class _RoundAction extends StatelessWidget {
             color: tokens.blueDarker,
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, color: Colors.white, size: 25),
+          child: Icon(icon, color: tokens.buttonText, size: 25),
         ),
       ),
     );
@@ -773,7 +773,6 @@ class _AddRoomBanner extends StatelessWidget {
                 onPressed: onTap,
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.bluePrimary,
-                  foregroundColor: Colors.white,
                 ),
                 icon: const Icon(Icons.add_rounded, size: 18),
                 label: const Text('Add room'),

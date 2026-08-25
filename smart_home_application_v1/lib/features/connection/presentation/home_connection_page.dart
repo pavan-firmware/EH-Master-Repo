@@ -43,7 +43,9 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
 
   void _load() {
     setState(() {
-      _overview = widget.repository.getOverview(liveState: widget.connectionState);
+      _overview = widget.repository.getOverview(
+        liveState: widget.connectionState,
+      );
     });
   }
 
@@ -63,20 +65,27 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
       actions: [
         settingsHelpAction(
           context,
-          message: 'Connect EH Home to your devices through secure nearby setup and home Wi-Fi.',
+          message:
+              'Connect EH Home to your devices through secure nearby setup and home Wi-Fi.',
         ),
       ],
       child: FutureBuilder<HomeConnectionOverview>(
         future: _overview,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            return Center(child: CircularProgressIndicator(color: tokens.bluePrimary));
+            return Center(
+              child: CircularProgressIndicator(color: tokens.bluePrimary),
+            );
           }
           final overview = snapshot.data!;
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
             children: [
-              _ConnectionStatusCard(overview: overview, checking: _checking, onRefresh: _refresh),
+              _ConnectionStatusCard(
+                overview: overview,
+                checking: _checking,
+                onRefresh: _refresh,
+              ),
               if (overview.isFullyConnected) ...[
                 const SizedBox(height: 24),
                 const SettingsSectionTitle('CONNECTION SETUP'),
@@ -107,12 +116,18 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                         icon: Icons.swap_horiz_rounded,
                         title: 'Change Wi-Fi network',
                         subtitle: 'Switch your home network',
-                        iconColor: tokens.isDark ? tokens.bluePrimary : SettingsColors.purple,
-                        iconBackground: tokens.isDark ? tokens.iconBgBlue : SettingsColors.palePurple,
+                        iconColor: tokens.isDark
+                            ? tokens.bluePrimary
+                            : SettingsColors.purple,
+                        iconBackground: tokens.isDark
+                            ? tokens.iconBgBlue
+                            : SettingsColors.palePurple,
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const DeviceProvisioningPage(deviceName: 'SH-8EF248'),
+                            builder: (_) => const DeviceProvisioningPage(
+                              deviceName: 'SH-8EF248',
+                            ),
                           ),
                         ),
                       ),
@@ -129,7 +144,6 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                   child: FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: tokens.blueDarker,
-                      foregroundColor: tokens.textPrimary,
                     ),
                     onPressed: widget.onStart,
                     child: const Text('Connect your home'),
@@ -139,11 +153,13 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
               const SizedBox(height: 16),
               SettingsInfoBanner(
                 title: 'Having trouble?',
-                subtitle: 'Get help with connection issues and troubleshooting.',
+                subtitle:
+                    'Get help with connection issues and troubleshooting.',
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const HelpSupportPage(initialTopic: 'connection'),
+                    builder: (_) =>
+                        const HelpSupportPage(initialTopic: 'connection'),
                   ),
                 ),
               ),
@@ -206,7 +222,9 @@ class _ConnectionStatusCard extends StatelessWidget {
       statusChip: SettingsStatusChip(
         label: overview.statusLabel,
         color: connected ? tokens.success : tokens.warning,
-        background: connected ? tokens.successContainer : tokens.warningContainer,
+        background: connected
+            ? tokens.successContainer
+            : tokens.warningContainer,
         leading: Container(
           width: 8,
           height: 8,
@@ -224,7 +242,8 @@ class _ConnectionStatusCard extends StatelessWidget {
                       icon: _layerIcon(layer.kind),
                       label: layer.label,
                       value: layer.statusLabel,
-                      iconColor: layer.status == ConnectionLayerStatus.connected ||
+                      iconColor:
+                          layer.status == ConnectionLayerStatus.connected ||
                               layer.status == ConnectionLayerStatus.ready
                           ? tokens.success
                           : tokens.textSecondary,
@@ -237,10 +256,10 @@ class _ConnectionStatusCard extends StatelessWidget {
   }
 
   IconData _layerIcon(ConnectionLayerKind kind) => switch (kind) {
-        ConnectionLayerKind.bluetooth => Icons.bluetooth_rounded,
-        ConnectionLayerKind.homeWifi => Icons.wifi_rounded,
-        ConnectionLayerKind.havenService => Icons.cloud_rounded,
-      };
+    ConnectionLayerKind.bluetooth => Icons.bluetooth_rounded,
+    ConnectionLayerKind.homeWifi => Icons.wifi_rounded,
+    ConnectionLayerKind.havenService => Icons.cloud_rounded,
+  };
 }
 
 class _ConnectedDeviceCard extends StatelessWidget {
@@ -283,22 +302,40 @@ class _ConnectedDeviceCard extends StatelessWidget {
                       color: tokens.iconBgWater,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.water_drop_outlined, color: tokens.iconFgWater),
+                    child: Icon(
+                      Icons.water_drop_outlined,
+                      color: tokens.iconFgWater,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(device.name, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: tokens.textPrimary)),
-                        Text(device.id, style: TextStyle(color: tokens.textSecondary, fontSize: 13)),
+                        Text(
+                          device.name,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          device.id,
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                   SettingsStatusChip(
                     label: device.online ? 'Online' : 'Offline',
                     color: device.online ? tokens.success : tokens.warning,
-                    background: device.online ? tokens.successContainer : tokens.warningContainer,
+                    background: device.online
+                        ? tokens.successContainer
+                        : tokens.warningContainer,
                     leading: Container(
                       width: 7,
                       height: 7,
@@ -317,9 +354,21 @@ class _ConnectedDeviceCard extends StatelessWidget {
               ),
               SettingsMetricRow(
                 metrics: [
-                  SettingsMetricItem(icon: Icons.memory_rounded, label: 'Model', value: device.model),
-                  SettingsMetricItem(icon: Icons.system_update_alt_rounded, label: 'Firmware', value: device.firmware),
-                  SettingsMetricItem(icon: Icons.wifi_rounded, label: 'Connected via', value: 'Wi-Fi'),
+                  SettingsMetricItem(
+                    icon: Icons.memory_rounded,
+                    label: 'Model',
+                    value: device.model,
+                  ),
+                  SettingsMetricItem(
+                    icon: Icons.system_update_alt_rounded,
+                    label: 'Firmware',
+                    value: device.firmware,
+                  ),
+                  SettingsMetricItem(
+                    icon: Icons.wifi_rounded,
+                    label: 'Connected via',
+                    value: 'Wi-Fi',
+                  ),
                   SettingsMetricItem(
                     icon: Icons.signal_cellular_alt_rounded,
                     label: 'Signal',

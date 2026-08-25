@@ -23,7 +23,10 @@ class DeviceProvisioningPage extends StatelessWidget {
         ),
         title: Text(
           'Set up device',
-          style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary),
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: tokens.textPrimary,
+          ),
         ),
       ),
       body: ListView(
@@ -31,7 +34,11 @@ class DeviceProvisioningPage extends StatelessWidget {
         children: [
           Text(
             'Almost there',
-            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: tokens.textPrimary),
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -71,7 +78,11 @@ class DeviceProvisioningPage extends StatelessWidget {
             decoration: BoxDecoration(
               color: tokens.warningContainer,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: tokens.isDark ? const Color(0xFF5A3E20) : const Color(0xFFFFD8BB)),
+              border: Border.all(
+                color: tokens.isDark
+                    ? const Color(0xFF5A3E20)
+                    : const Color(0xFFFFD8BB),
+              ),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -81,7 +92,12 @@ class DeviceProvisioningPage extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'For your safety, BLE proximity alone never gives control or Wi-Fi access. This screen will unlock only after the firmware supports authenticated commissioning.',
-                    style: TextStyle(color: tokens.isDark ? tokens.textSecondary : const Color(0xFF7A421F), height: 1.35),
+                    style: TextStyle(
+                      color: tokens.isDark
+                          ? tokens.textSecondary
+                          : const Color(0xFF7A421F),
+                      height: 1.35,
+                    ),
                   ),
                 ),
               ],
@@ -93,10 +109,7 @@ class DeviceProvisioningPage extends StatelessWidget {
             child: FilledButton(
               onPressed: () =>
                   Navigator.popUntil(context, (route) => route.isFirst),
-              style: FilledButton.styleFrom(
-                backgroundColor: tokens.blueDarker,
-                foregroundColor: tokens.textPrimary,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: tokens.blueDarker),
               child: const Text('Back to home'),
             ),
           ),
@@ -124,17 +137,22 @@ class _ProvisioningStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final tileColor = current
-        ? tokens.blueSelectedBg
-        : tokens.surfaceCard;
+    final tileColor = current ? tokens.blueSelectedBg : tokens.surfaceCard;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: tokens.isDark ? BorderSide(color: current ? tokens.bluePrimary : tokens.borderSubtle) : BorderSide.none,
+          side: tokens.isDark
+              ? BorderSide(
+                  color: current ? tokens.bluePrimary : tokens.borderSubtle,
+                )
+              : BorderSide.none,
         ),
         tileColor: tileColor,
         leading: CircleAvatar(
@@ -146,12 +164,19 @@ class _ProvisioningStep extends StatelessWidget {
         ),
         title: Row(
           children: [
-            Icon(icon, size: 19, color: current ? tokens.bluePrimary : tokens.textSecondary),
+            Icon(
+              icon,
+              size: 19,
+              color: current ? tokens.bluePrimary : tokens.textSecondary,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 title,
-                style: TextStyle(fontWeight: FontWeight.w800, color: tokens.textPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
               ),
             ),
           ],

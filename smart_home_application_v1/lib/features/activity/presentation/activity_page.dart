@@ -94,7 +94,9 @@ class _ActivityPageState extends State<ActivityPage> {
   void _toggleSearch() {
     setState(() => _searchVisible = !_searchVisible);
     if (_searchVisible) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _searchFocus.requestFocus());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _searchFocus.requestFocus(),
+      );
     } else {
       _search.clear();
       _unfocus();
@@ -104,7 +106,9 @@ class _ActivityPageState extends State<ActivityPage> {
 
   void _unfocus() {
     _searchFocus.unfocus(disposition: UnfocusDisposition.scope);
-    FocusManager.instance.primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+    FocusManager.instance.primaryFocus?.unfocus(
+      disposition: UnfocusDisposition.scope,
+    );
   }
 
   Future<void> _chooseFilter(ActivityFilter filter) async {
@@ -127,14 +131,31 @@ class _ActivityPageState extends State<ActivityPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Filter activity', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: tokens.textPrimary)),
+              Text(
+                'Filter activity',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
+              ),
               const SizedBox(height: 8),
               ...ActivityFilter.values.map(
                 (filter) => ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(_filterIcon(filter), color: filter == _filter ? tokens.bluePrimary : tokens.textSecondary),
-                  title: Text(activityFilterLabel(filter), style: TextStyle(color: tokens.textPrimary)),
-                  trailing: filter == _filter ? Icon(Icons.check_rounded, color: tokens.success) : null,
+                  leading: Icon(
+                    _filterIcon(filter),
+                    color: filter == _filter
+                        ? tokens.bluePrimary
+                        : tokens.textSecondary,
+                  ),
+                  title: Text(
+                    activityFilterLabel(filter),
+                    style: TextStyle(color: tokens.textPrimary),
+                  ),
+                  trailing: filter == _filter
+                      ? Icon(Icons.check_rounded, color: tokens.success)
+                      : null,
                   onTap: () => _chooseFilter(filter),
                 ),
               ),
@@ -184,7 +205,10 @@ class _ActivityPageState extends State<ActivityPage> {
               controller: _scroll,
               padding: const EdgeInsets.fromLTRB(20, 22, 20, 106),
               children: [
-                _ActivityHeader(onSearch: _toggleSearch, onFilter: _openFilterMenu),
+                _ActivityHeader(
+                  onSearch: _toggleSearch,
+                  onFilter: _openFilterMenu,
+                ),
                 if (_searchVisible) ...[
                   const SizedBox(height: 16),
                   TextField(
@@ -196,8 +220,20 @@ class _ActivityPageState extends State<ActivityPage> {
                     decoration: InputDecoration(
                       hintText: 'Search activity',
                       hintStyle: TextStyle(color: tokens.textTertiary),
-                      prefixIcon: Icon(Icons.search_rounded, color: tokens.textSecondary),
-                      suffixIcon: IconButton(onPressed: () { _search.clear(); _load(); }, icon: Icon(Icons.close_rounded, color: tokens.textSecondary)),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        color: tokens.textSecondary,
+                      ),
+                      suffixIcon: IconButton(
+                        onPressed: () {
+                          _search.clear();
+                          _load();
+                        },
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: tokens.textSecondary,
+                        ),
+                      ),
                       filled: true,
                       fillColor: tokens.surfaceCard,
                       contentPadding: const EdgeInsets.symmetric(vertical: 17),
@@ -211,15 +247,28 @@ class _ActivityPageState extends State<ActivityPage> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: tokens.bluePrimary, width: 1.5),
+                        borderSide: BorderSide(
+                          color: tokens.bluePrimary,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
                 ],
                 const SizedBox(height: 17),
-                _ActivityFilterRow(selected: _filter, onSelected: (value) { setState(() => _filter = value); _load(); }),
+                _ActivityFilterRow(
+                  selected: _filter,
+                  onSelected: (value) {
+                    setState(() => _filter = value);
+                    _load();
+                  },
+                ),
                 const SizedBox(height: 16),
-                _ActivitySummary(eventCount: events.length, sort: _sort, onSort: _setSort),
+                _ActivitySummary(
+                  eventCount: events.length,
+                  sort: _sort,
+                  onSort: _setSort,
+                ),
                 const SizedBox(height: 20),
                 if (_loading)
                   const _ActivityLoading()
@@ -228,14 +277,34 @@ class _ActivityPageState extends State<ActivityPage> {
                 else if (events.isEmpty)
                   const _ActivityEmpty()
                 else ...[
-                  ...groups.entries.map((entry) => _ActivityGroup(label: entry.key, events: entry.value, onOpen: _openEvent)),
+                  ...groups.entries.map(
+                    (entry) => _ActivityGroup(
+                      label: entry.key,
+                      events: entry.value,
+                      onOpen: _openEvent,
+                    ),
+                  ),
                   if (_page?.nextCursor != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 18),
                       child: OutlinedButton.icon(
-                        onPressed: _loadingMore ? null : () => _load(append: true),
-                        style: OutlinedButton.styleFrom(foregroundColor: tokens.bluePrimary, side: BorderSide(color: tokens.borderControl)),
-                        icon: _loadingMore ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: tokens.bluePrimary)) : const Icon(Icons.expand_more_rounded),
+                        onPressed: _loadingMore
+                            ? null
+                            : () => _load(append: true),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: tokens.bluePrimary,
+                          side: BorderSide(color: tokens.borderControl),
+                        ),
+                        icon: _loadingMore
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: tokens.bluePrimary,
+                                ),
+                              )
+                            : const Icon(Icons.expand_more_rounded),
                         label: const Text('Load more'),
                       ),
                     ),
@@ -271,22 +340,52 @@ class _ActivityHeader extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Activity', style: TextStyle(color: tokens.textPrimary, fontSize: 29, fontWeight: FontWeight.w800, height: 1)),
-          const SizedBox(height: 7),
-          Text('A simple history of what your home has done.', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: tokens.textSecondary, fontSize: 13)),
-        ])),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Activity',
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 29,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                'A simple history of what your home has done.',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(width: 8),
-        _ActivityRoundAction(icon: Icons.search_rounded, tooltip: 'Search activity', onTap: onSearch),
+        _ActivityRoundAction(
+          icon: Icons.search_rounded,
+          tooltip: 'Search activity',
+          onTap: onSearch,
+        ),
         const SizedBox(width: 8),
-        _ActivityRoundAction(icon: Icons.tune_rounded, tooltip: 'Filter activity', onTap: onFilter),
+        _ActivityRoundAction(
+          icon: Icons.tune_rounded,
+          tooltip: 'Filter activity',
+          onTap: onFilter,
+        ),
       ],
     );
   }
 }
 
 class _ActivityRoundAction extends StatelessWidget {
-  const _ActivityRoundAction({required this.icon, required this.tooltip, required this.onTap});
+  const _ActivityRoundAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
@@ -322,23 +421,30 @@ class _ActivityFilterRow extends StatelessWidget {
   Widget build(BuildContext context) => SingleChildScrollView(
     scrollDirection: Axis.horizontal,
     child: Row(
-      children: ActivityFilter.values.map(
-        (filter) => Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: _ActivityPill(
-            label: activityFilterLabel(filter),
-            selected: selected == filter,
-            icon: _filterIcon(filter),
-            onTap: () => onSelected(filter),
-          ),
-        ),
-      ).toList(),
+      children: ActivityFilter.values
+          .map(
+            (filter) => Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _ActivityPill(
+                label: activityFilterLabel(filter),
+                selected: selected == filter,
+                icon: _filterIcon(filter),
+                onTap: () => onSelected(filter),
+              ),
+            ),
+          )
+          .toList(),
     ),
   );
 }
 
 class _ActivityPill extends StatelessWidget {
-  const _ActivityPill({required this.label, required this.selected, required this.icon, required this.onTap});
+  const _ActivityPill({
+    required this.label,
+    required this.selected,
+    required this.icon,
+    required this.onTap,
+  });
   final String label;
   final bool selected;
   final IconData icon;
@@ -350,7 +456,9 @@ class _ActivityPill extends StatelessWidget {
       color: selected ? tokens.blueSelectedBg : tokens.surfaceCard,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: selected ? tokens.bluePrimary : tokens.borderControl),
+        side: BorderSide(
+          color: selected ? tokens.bluePrimary : tokens.borderControl,
+        ),
       ),
       child: InkWell(
         onTap: onTap,
@@ -360,12 +468,24 @@ class _ActivityPill extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: selected ? (tokens.isDark ? tokens.blueSelectedText : tokens.bluePrimary) : tokens.textSecondary),
+              Icon(
+                icon,
+                size: 18,
+                color: selected
+                    ? (tokens.isDark
+                          ? tokens.blueSelectedText
+                          : tokens.bluePrimary)
+                    : tokens.textSecondary,
+              ),
               const SizedBox(width: 7),
               Text(
                 label,
                 style: TextStyle(
-                  color: selected ? (tokens.isDark ? tokens.blueSelectedText : tokens.bluePrimary) : tokens.textPrimary,
+                  color: selected
+                      ? (tokens.isDark
+                            ? tokens.blueSelectedText
+                            : tokens.bluePrimary)
+                      : tokens.textPrimary,
                   fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
@@ -379,7 +499,11 @@ class _ActivityPill extends StatelessWidget {
 }
 
 class _ActivitySummary extends StatelessWidget {
-  const _ActivitySummary({required this.eventCount, required this.sort, required this.onSort});
+  const _ActivitySummary({
+    required this.eventCount,
+    required this.sort,
+    required this.onSort,
+  });
   final int eventCount;
   final ActivitySort sort;
   final ValueChanged<ActivitySort> onSort;
@@ -394,20 +518,55 @@ class _ActivitySummary extends StatelessWidget {
           children: [
             Icon(Icons.history_rounded, color: tokens.bluePrimary),
             const SizedBox(width: 10),
-            Expanded(child: Text('$eventCount events', style: TextStyle(color: tokens.textSecondary, fontSize: 15, fontWeight: FontWeight.w700))),
+            Expanded(
+              child: Text(
+                '$eventCount events',
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
             PopupMenuButton<ActivitySort>(
               onSelected: onSort,
               color: tokens.surfaceCard,
               itemBuilder: (_) => [
-                PopupMenuItem(value: ActivitySort.recent, child: Text('Recent', style: TextStyle(color: tokens.textPrimary))),
-                PopupMenuItem(value: ActivitySort.oldest, child: Text('Oldest', style: TextStyle(color: tokens.textPrimary))),
+                PopupMenuItem(
+                  value: ActivitySort.recent,
+                  child: Text(
+                    'Recent',
+                    style: TextStyle(color: tokens.textPrimary),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: ActivitySort.oldest,
+                  child: Text(
+                    'Oldest',
+                    style: TextStyle(color: tokens.textPrimary),
+                  ),
+                ),
               ],
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
-                    Text(sort == ActivitySort.recent ? 'Recent' : 'Oldest', style: TextStyle(color: tokens.bluePrimary, fontWeight: FontWeight.w700, fontSize: 13)),
-                    Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: tokens.bluePrimary),
+                    Text(
+                      sort == ActivitySort.recent ? 'Recent' : 'Oldest',
+                      style: TextStyle(
+                        color: tokens.bluePrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 18,
+                      color: tokens.bluePrimary,
+                    ),
                   ],
                 ),
               ),
@@ -420,7 +579,11 @@ class _ActivitySummary extends StatelessWidget {
 }
 
 class _ActivityGroup extends StatelessWidget {
-  const _ActivityGroup({required this.label, required this.events, required this.onOpen});
+  const _ActivityGroup({
+    required this.label,
+    required this.events,
+    required this.onOpen,
+  });
   final String label;
   final List<ActivityEvent> events;
   final ValueChanged<ActivityEvent> onOpen;
@@ -432,12 +595,27 @@ class _ActivityGroup extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text(label, style: TextStyle(color: tokens.textPrimary, fontSize: 21, fontWeight: FontWeight.w800))),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
             _CountBadge(count: events.length),
           ],
         ),
         const SizedBox(height: 10),
-        ...events.asMap().entries.map((entry) => _ActivityEventTile(event: entry.value, isLast: entry.key == events.length - 1, onTap: () => onOpen(entry.value))),
+        ...events.asMap().entries.map(
+          (entry) => _ActivityEventTile(
+            event: entry.value,
+            isLast: entry.key == events.length - 1,
+            onTap: () => onOpen(entry.value),
+          ),
+        ),
         const SizedBox(height: 22),
       ],
     );
@@ -458,14 +636,25 @@ class _CountBadge extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        child: Text('$count ${count == 1 ? 'event' : 'events'}', style: TextStyle(color: tokens.textPrimary, fontSize: 12, fontWeight: FontWeight.w700)),
+        child: Text(
+          '$count ${count == 1 ? 'event' : 'events'}',
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     );
   }
 }
 
 class _ActivityEventTile extends StatelessWidget {
-  const _ActivityEventTile({required this.event, required this.isLast, required this.onTap});
+  const _ActivityEventTile({
+    required this.event,
+    required this.isLast,
+    required this.onTap,
+  });
   final ActivityEvent event;
   final bool isLast;
   final VoidCallback onTap;
@@ -474,7 +663,9 @@ class _ActivityEventTile extends StatelessWidget {
     final tokens = context.ehColors;
     final visual = _eventVisual(event, tokens);
     final room = _roomLabel(event.roomId);
-    final source = event.source == ActivitySource.routine ? (event.routineId == 'plant-care' ? 'Plant care' : 'Routine') : event.sourceLabel;
+    final source = event.source == ActivitySource.routine
+        ? (event.routineId == 'plant-care' ? 'Plant care' : 'Routine')
+        : event.sourceLabel;
     return Semantics(
       button: event.isNavigable,
       label: '${event.title}, ${event.description}, ${visual.label}',
@@ -486,7 +677,15 @@ class _ActivityEventTile extends StatelessWidget {
               width: 52,
               child: Padding(
                 padding: const EdgeInsets.only(top: 16),
-                child: Text(activityTimeLabel(event.timestamp), textAlign: TextAlign.right, style: TextStyle(color: tokens.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+                child: Text(
+                  activityTimeLabel(event.timestamp),
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -497,10 +696,21 @@ class _ActivityEventTile extends StatelessWidget {
                   Container(
                     width: 44,
                     height: 44,
-                    decoration: BoxDecoration(color: visual.background, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: visual.background,
+                      shape: BoxShape.circle,
+                    ),
                     child: Icon(visual.icon, color: visual.color, size: 23),
                   ),
-                  if (!isLast) Expanded(child: Container(width: 2, color: tokens.isDark ? tokens.borderSubtle : const Color(0xFFE5EAF1))),
+                  if (!isLast)
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        color: tokens.isDark
+                            ? tokens.borderSubtle
+                            : const Color(0xFFE5EAF1),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -517,8 +727,18 @@ class _ActivityEventTile extends StatelessWidget {
                     child: Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(14),
-                        border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
-                        boxShadow: tokens.isDark ? null : const [BoxShadow(color: Color(0x0C1D2B4B), blurRadius: 10, offset: Offset(0, 4))],
+                        border: tokens.isDark
+                            ? Border.all(color: tokens.borderSubtle)
+                            : null,
+                        boxShadow: tokens.isDark
+                            ? null
+                            : const [
+                                BoxShadow(
+                                  color: Color(0x0C1D2B4B),
+                                  blurRadius: 10,
+                                  offset: Offset(0, 4),
+                                ),
+                              ],
                       ),
                       padding: const EdgeInsets.fromLTRB(13, 12, 10, 12),
                       child: Row(
@@ -530,25 +750,72 @@ class _ActivityEventTile extends StatelessWidget {
                               children: [
                                 Row(
                                   children: [
-                                    Expanded(child: Text(event.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w800, fontSize: 16))),
+                                    Expanded(
+                                      child: Text(
+                                        event.title,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: tokens.textPrimary,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
                                     const SizedBox(width: 5),
-                                    _SeverityBadge(label: visual.label, color: visual.color, background: visual.background),
+                                    _SeverityBadge(
+                                      label: visual.label,
+                                      color: visual.color,
+                                      background: visual.background,
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 5),
-                                Text(event.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: tokens.textSecondary, fontSize: 13, height: 1.25)),
+                                Text(
+                                  event.description,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: tokens.textSecondary,
+                                    fontSize: 13,
+                                    height: 1.25,
+                                  ),
+                                ),
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    Icon(event.source == ActivitySource.routine ? Icons.auto_awesome_rounded : Icons.location_on_outlined, size: 16, color: tokens.textSecondary),
+                                    Icon(
+                                      event.source == ActivitySource.routine
+                                          ? Icons.auto_awesome_rounded
+                                          : Icons.location_on_outlined,
+                                      size: 16,
+                                      color: tokens.textSecondary,
+                                    ),
                                     const SizedBox(width: 5),
-                                    Expanded(child: Text('$room  ·  $source', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: tokens.textSecondary, fontSize: 12))),
+                                    Expanded(
+                                      child: Text(
+                                        '$room  ·  $source',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: tokens.textSecondary,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ],
                             ),
                           ),
-                          if (event.isNavigable) Padding(padding: const EdgeInsets.only(left: 6, top: 27), child: Icon(Icons.chevron_right_rounded, color: tokens.chevron)),
+                          if (event.isNavigable)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6, top: 27),
+                              child: Icon(
+                                Icons.chevron_right_rounded,
+                                color: tokens.chevron,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -564,7 +831,11 @@ class _ActivityEventTile extends StatelessWidget {
 }
 
 class _SeverityBadge extends StatelessWidget {
-  const _SeverityBadge({required this.label, required this.color, this.background});
+  const _SeverityBadge({
+    required this.label,
+    required this.color,
+    this.background,
+  });
   final String label;
   final Color color;
   final Color? background;
@@ -573,8 +844,18 @@ class _SeverityBadge extends StatelessWidget {
     final effectiveBg = background ?? color.withValues(alpha: .12);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(color: effectiveBg, borderRadius: BorderRadius.circular(14)),
-      child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800)),
+      decoration: BoxDecoration(
+        color: effectiveBg,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }
@@ -589,12 +870,24 @@ class _ActivitySyncBanner extends StatelessWidget {
       color: tokens.isDark ? tokens.surfaceElevated : const Color(0xFFE7F0FC),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: tokens.isDark ? tokens.borderSubtle : const Color(0xFFC9DCF5)),
+        side: BorderSide(
+          color: tokens.isDark ? tokens.borderSubtle : const Color(0xFFC9DCF5),
+        ),
       ),
       child: ListTile(
         leading: Icon(Icons.shield_outlined, color: tokens.bluePrimary),
-        title: Text(page.isCached ? 'Showing saved activity' : 'Showing latest activity', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: tokens.textPrimary)),
-        subtitle: Text('Updated ${activityTimeLabel(page.lastSyncedAt)}', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+        title: Text(
+          page.isCached ? 'Showing saved activity' : 'Showing latest activity',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            color: tokens.textPrimary,
+          ),
+        ),
+        subtitle: Text(
+          'Updated ${activityTimeLabel(page.lastSyncedAt)}',
+          style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+        ),
       ),
     );
   }
@@ -614,7 +907,9 @@ class _ActivityLoading extends StatelessWidget {
           decoration: BoxDecoration(
             color: tokens.surfaceCard,
             borderRadius: BorderRadius.circular(14),
-            border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+            border: tokens.isDark
+                ? Border.all(color: tokens.borderSubtle)
+                : null,
           ),
         ),
       ),
@@ -635,9 +930,20 @@ class _ActivityEmpty extends StatelessWidget {
           children: [
             Icon(Icons.history_rounded, size: 42, color: tokens.bluePrimary),
             const SizedBox(height: 10),
-            Text('No activity yet', style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w800, fontSize: 17)),
+            Text(
+              'No activity yet',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w800,
+                fontSize: 17,
+              ),
+            ),
             const SizedBox(height: 5),
-            Text('Once your devices and routines start working, you will see their activity here.', textAlign: TextAlign.center, style: TextStyle(color: tokens.textSecondary)),
+            Text(
+              'Once your devices and routines start working, you will see their activity here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: tokens.textSecondary),
+            ),
           ],
         ),
       ),
@@ -660,11 +966,21 @@ class _ActivityError extends StatelessWidget {
           children: [
             Icon(Icons.cloud_off_rounded, size: 38, color: tokens.warning),
             const SizedBox(height: 10),
-            Text(message, textAlign: TextAlign.center, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700)),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 14),
             FilledButton(
               onPressed: onRetry,
-              style: FilledButton.styleFrom(backgroundColor: tokens.blueDarker, foregroundColor: tokens.textPrimary),
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.blueDarker,
+                foregroundColor: tokens.textPrimary,
+              ),
               child: const Text('Try again'),
             ),
           ],
@@ -689,7 +1005,8 @@ class ActivityEventDetailPage extends StatefulWidget {
   final RoutineRepository routineRepository;
 
   @override
-  State<ActivityEventDetailPage> createState() => _ActivityEventDetailPageState();
+  State<ActivityEventDetailPage> createState() =>
+      _ActivityEventDetailPageState();
 }
 
 class _ActivityEventDetailPageState extends State<ActivityEventDetailPage> {
@@ -728,15 +1045,25 @@ class _ActivityEventDetailPageState extends State<ActivityEventDetailPage> {
     if (_loading) {
       return Scaffold(
         backgroundColor: tokens.bgApp,
-        body: Center(child: CircularProgressIndicator(color: tokens.bluePrimary)),
+        body: Center(
+          child: CircularProgressIndicator(color: tokens.bluePrimary),
+        ),
       );
     }
     final event = _event;
     if (event == null) {
       return Scaffold(
         backgroundColor: tokens.bgApp,
-        appBar: AppBar(backgroundColor: tokens.bgApp, title: Text('Activity', style: TextStyle(color: tokens.textPrimary))),
-        body: Center(child: Text('This activity is no longer available.', style: TextStyle(color: tokens.textSecondary))),
+        appBar: AppBar(
+          backgroundColor: tokens.bgApp,
+          title: Text('Activity', style: TextStyle(color: tokens.textPrimary)),
+        ),
+        body: Center(
+          child: Text(
+            'This activity is no longer available.',
+            style: TextStyle(color: tokens.textSecondary),
+          ),
+        ),
       );
     }
 
@@ -765,8 +1092,20 @@ class _ActivityEventDetailPageState extends State<ActivityEventDetailPage> {
             tooltip: 'More options',
             color: tokens.surfaceCard,
             itemBuilder: (_) => [
-              PopupMenuItem(value: 'event', child: Text('Event information', style: TextStyle(color: tokens.textPrimary))),
-              PopupMenuItem(value: 'technical', child: Text('Technical details', style: TextStyle(color: tokens.textPrimary))),
+              PopupMenuItem(
+                value: 'event',
+                child: Text(
+                  'Event information',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'technical',
+                child: Text(
+                  'Technical details',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+              ),
             ],
           ),
         ],
@@ -795,11 +1134,7 @@ class _ActivityEventDetailPageState extends State<ActivityEventDetailPage> {
           if (event.deviceId != null && _device == null)
             const _DetailCard(
               title: 'Device',
-              children: [
-                Text(
-                  'This device is no longer available.',
-                ),
-              ],
+              children: [Text('This device is no longer available.')],
             ),
           if (_routine != null)
             _RoutineSourceCard(
@@ -906,7 +1241,11 @@ class _EventHero extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _SeverityBadge(label: badge, color: visual.color, background: visual.background),
+                  _SeverityBadge(
+                    label: badge,
+                    color: visual.color,
+                    background: visual.background,
+                  ),
                   const SizedBox(height: 10),
                   Text(
                     event.description,
@@ -919,10 +1258,7 @@ class _EventHero extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  _HeroMeta(
-                    icon: Icons.schedule_rounded,
-                    text: date,
-                  ),
+                  _HeroMeta(icon: Icons.schedule_rounded, text: date),
                   const SizedBox(height: 5),
                   _HeroMeta(
                     icon: Icons.location_on_outlined,
@@ -955,10 +1291,7 @@ class _HeroMeta extends StatelessWidget {
             text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: tokens.textSecondary,
-              fontSize: 13,
-            ),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
           ),
         ),
       ],
@@ -1070,7 +1403,11 @@ class _DetailCard extends StatelessWidget {
 }
 
 class _DeviceSourceCard extends StatelessWidget {
-  const _DeviceSourceCard({required this.device, required this.event, required this.onTap});
+  const _DeviceSourceCard({
+    required this.device,
+    required this.event,
+    required this.onTap,
+  });
   final ActivityDeviceSnapshot device;
   final ActivityEvent event;
   final VoidCallback onTap;
@@ -1101,7 +1438,9 @@ class _DeviceSourceCard extends StatelessWidget {
                 ),
                 TextButton(
                   onPressed: onTap,
-                  style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
+                  style: TextButton.styleFrom(
+                    foregroundColor: tokens.bluePrimary,
+                  ),
                   child: const Text('View device'),
                 ),
                 Icon(Icons.chevron_right_rounded, color: tokens.bluePrimary),
@@ -1137,7 +1476,10 @@ class _DeviceSourceCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(device.room, style: TextStyle(color: tokens.textSecondary)),
+                      Text(
+                        device.room,
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
                       const SizedBox(height: 6),
                       Text(
                         connected ? 'Online' : 'Offline',
@@ -1158,13 +1500,19 @@ class _DeviceSourceCard extends StatelessWidget {
                 final compact = constraints.maxWidth < 360;
                 final update = _Metric(
                   label: 'Last update',
-                  value: device.lastSeen == null ? 'Unavailable' : activityTimeLabel(device.lastSeen!),
-                  detail: device.lastSeen == null ? 'Unavailable' : 'Event time ${activityTimeLabel(event.timestamp)}',
+                  value: device.lastSeen == null
+                      ? 'Unavailable'
+                      : activityTimeLabel(device.lastSeen!),
+                  detail: device.lastSeen == null
+                      ? 'Unavailable'
+                      : 'Event time ${activityTimeLabel(event.timestamp)}',
                 );
                 final reading = _Metric(
                   label: 'Last reading',
                   value: device.lastReading,
-                  detail: device.lastReading == 'Unavailable' ? 'Unavailable' : 'Current value',
+                  detail: device.lastReading == 'Unavailable'
+                      ? 'Unavailable'
+                      : 'Current value',
                 );
                 final battery = _Metric(
                   label: 'Battery',
@@ -1208,7 +1556,11 @@ class _DeviceSourceCard extends StatelessWidget {
 }
 
 class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value, required this.detail});
+  const _Metric({
+    required this.label,
+    required this.value,
+    required this.detail,
+  });
   final String label;
   final String value;
   final String detail;
@@ -1219,11 +1571,28 @@ class _Metric extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(color: tokens.textSecondary, fontSize: 12)),
+        Text(
+          label,
+          style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+        ),
         const SizedBox(height: 6),
-        Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: tokens.textPrimary, fontSize: 14, fontWeight: FontWeight.w700)),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(height: 4),
-        Text(detail, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: tokens.textSecondary, fontSize: 11)),
+        Text(
+          detail,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: tokens.textSecondary, fontSize: 11),
+        ),
       ],
     );
   }
@@ -1234,7 +1603,12 @@ class _MetricDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    return Container(width: 1, height: 64, margin: const EdgeInsets.symmetric(horizontal: 8), color: tokens.borderSubtle);
+    return Container(
+      width: 1,
+      height: 64,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      color: tokens.borderSubtle,
+    );
   }
 }
 
@@ -1256,20 +1630,46 @@ class _RoutineSourceCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Expanded(child: Text('Routine', style: TextStyle(color: tokens.textPrimary, fontSize: 17, fontWeight: FontWeight.w800))),
+                Expanded(
+                  child: Text(
+                    'Routine',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
                 TextButton(
                   onPressed: onTap,
-                  style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
+                  style: TextButton.styleFrom(
+                    foregroundColor: tokens.bluePrimary,
+                  ),
                   child: const Text('View routine'),
                 ),
                 Icon(Icons.chevron_right_rounded, color: tokens.bluePrimary),
               ],
             ),
-            Text(routine.name, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+            Text(
+              routine.name,
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
             const SizedBox(height: 5),
-            Text(routine.trigger.title, style: TextStyle(color: tokens.textSecondary)),
+            Text(
+              routine.trigger.title,
+              style: TextStyle(color: tokens.textSecondary),
+            ),
             const SizedBox(height: 5),
-            Text(routine.actions.map((action) => '${action.title} · ${action.detail}').join(', '), style: TextStyle(color: tokens.textSecondary)),
+            Text(
+              routine.actions
+                  .map((action) => '${action.title} · ${action.detail}')
+                  .join(', '),
+              style: TextStyle(color: tokens.textSecondary),
+            ),
           ],
         ),
       ),
@@ -1292,11 +1692,30 @@ class _EventAboutCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('About this event', style: TextStyle(color: tokens.textPrimary, fontSize: 17, fontWeight: FontWeight.w800)),
+            Text(
+              'About this event',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
             const SizedBox(height: 8),
-            _AboutRow(icon: Icons.sell_outlined, label: 'Source', value: event.sourceLabel),
-            _AboutRow(icon: Icons.info_outline_rounded, label: 'Event type', value: _eventTypeLabel(event.type)),
-            _AboutRow(icon: Icons.calendar_today_outlined, label: 'Recorded on', value: _eventDateTimeLabel(event.timestamp)),
+            _AboutRow(
+              icon: Icons.sell_outlined,
+              label: 'Source',
+              value: event.sourceLabel,
+            ),
+            _AboutRow(
+              icon: Icons.info_outline_rounded,
+              label: 'Event type',
+              value: _eventTypeLabel(event.type),
+            ),
+            _AboutRow(
+              icon: Icons.calendar_today_outlined,
+              label: 'Recorded on',
+              value: _eventDateTimeLabel(event.timestamp),
+            ),
           ],
         ),
       ),
@@ -1305,7 +1724,11 @@ class _EventAboutCard extends StatelessWidget {
 }
 
 class _AboutRow extends StatelessWidget {
-  const _AboutRow({required this.icon, required this.label, required this.value});
+  const _AboutRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
   final IconData icon;
   final String label;
   final String value;
@@ -1319,8 +1742,23 @@ class _AboutRow extends StatelessWidget {
         children: [
           Icon(icon, size: 21, color: tokens.textSecondary),
           const SizedBox(width: 12),
-          Expanded(child: Text(label, style: TextStyle(color: tokens.textSecondary, fontSize: 14))),
-          Flexible(child: Text(value, textAlign: TextAlign.right, style: TextStyle(color: tokens.textPrimary, fontSize: 14, fontWeight: FontWeight.w600))),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: tokens.textSecondary, fontSize: 14),
+            ),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1342,7 +1780,14 @@ class _WhatCanDoCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('What you can do', style: TextStyle(color: tokens.textPrimary, fontSize: 17, fontWeight: FontWeight.w800)),
+            Text(
+              'What you can do',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
             const SizedBox(height: 12),
             Material(
               color: tokens.warningContainer,
@@ -1354,15 +1799,34 @@ class _WhatCanDoCard extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
-                      CircleAvatar(backgroundColor: tokens.surfaceCard, child: Icon(Icons.assignment_outlined, color: tokens.warning)),
+                      CircleAvatar(
+                        backgroundColor: tokens.surfaceCard,
+                        child: Icon(
+                          Icons.assignment_outlined,
+                          color: tokens.warning,
+                        ),
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Check your air sensor', style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w800)),
+                            Text(
+                              'Check your air sensor',
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Text('Make sure the sensor is powered on and securely connected.', style: TextStyle(color: tokens.textSecondary, fontSize: 12, height: 1.25)),
+                            Text(
+                              'Make sure the sensor is powered on and securely connected.',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 12,
+                                height: 1.25,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1380,7 +1844,11 @@ class _WhatCanDoCard extends StatelessWidget {
 }
 
 class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.label, required this.icon, required this.onTap});
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
   final String label;
   final IconData icon;
   final VoidCallback onTap;
@@ -1395,7 +1863,7 @@ class _ActionButton extends StatelessWidget {
         height: 52,
         child: FilledButton.icon(
           onPressed: onTap,
-          style: FilledButton.styleFrom(backgroundColor: tokens.blueDarker, foregroundColor: tokens.textPrimary),
+          style: FilledButton.styleFrom(backgroundColor: tokens.blueDarker),
           icon: Icon(icon),
           label: Text(label),
         ),
@@ -1416,7 +1884,10 @@ class DeviceDetailPage extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: tokens.bgApp,
         title: Text(device.name, style: TextStyle(color: tokens.textPrimary)),
-        leading: IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction)),
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -1428,20 +1899,37 @@ class DeviceDetailPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(device.room, style: TextStyle(color: tokens.textSecondary)),
+                  Text(
+                    device.room,
+                    style: TextStyle(color: tokens.textSecondary),
+                  ),
                   const SizedBox(height: 10),
                   Text(
                     device.connectionLabel,
                     style: TextStyle(
-                      color: device.connection == ActivityDeviceConnection.online ? tokens.success : tokens.warning,
+                      color:
+                          device.connection == ActivityDeviceConnection.online
+                          ? tokens.success
+                          : tokens.warning,
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Text('Last reading: ${device.lastReading}', style: TextStyle(color: tokens.textPrimary)),
-                  if (device.lastSeen != null) Text('Last update: ${activityTimeLabel(device.lastSeen!)}', style: TextStyle(color: tokens.textSecondary)),
-                  if (device.battery != null) Text('Battery: ${device.battery}', style: TextStyle(color: tokens.textSecondary)),
+                  Text(
+                    'Last reading: ${device.lastReading}',
+                    style: TextStyle(color: tokens.textPrimary),
+                  ),
+                  if (device.lastSeen != null)
+                    Text(
+                      'Last update: ${activityTimeLabel(device.lastSeen!)}',
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
+                  if (device.battery != null)
+                    Text(
+                      'Battery: ${device.battery}',
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
                 ],
               ),
             ),
@@ -1450,9 +1938,18 @@ class DeviceDetailPage extends StatelessWidget {
           Card(
             color: tokens.surfaceCard,
             child: ListTile(
-              leading: Icon(Icons.info_outline_rounded, color: tokens.bluePrimary),
-              title: Text('Controls stay protected', style: TextStyle(color: tokens.textPrimary)),
-              subtitle: Text('Commands require secure device acknowledgement.', style: TextStyle(color: tokens.textSecondary)),
+              leading: Icon(
+                Icons.info_outline_rounded,
+                color: tokens.bluePrimary,
+              ),
+              title: Text(
+                'Controls stay protected',
+                style: TextStyle(color: tokens.textPrimary),
+              ),
+              subtitle: Text(
+                'Commands require secure device acknowledgement.',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
             ),
           ),
         ],
@@ -1464,51 +1961,109 @@ class DeviceDetailPage extends StatelessWidget {
 String _eventDateTimeLabel(DateTime value) {
   final now = DateTime.now();
   final day = activityDateLabel(value, now);
-  final month = <String>['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][value.month - 1];
-  final date = day == 'Today' ? 'Today' : '$day, $month ${value.day}, ${value.year}';
+  final month = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][value.month - 1];
+  final date = day == 'Today'
+      ? 'Today'
+      : '$day, $month ${value.day}, ${value.year}';
   return '$date · ${activityTimeLabel(value)}';
 }
 
 String _eventTypeLabel(ActivityEventType type) => switch (type) {
-      ActivityEventType.deviceStateChanged => 'Device state',
-      ActivityEventType.deviceWarning => 'Sensor alert',
-      ActivityEventType.routineCompleted => 'Routine',
-      ActivityEventType.routineFailed => 'Routine failed',
-      ActivityEventType.userAction => 'User action',
-      ActivityEventType.systemUpdate => 'System update',
-      ActivityEventType.connectionChanged => 'Connection',
-      ActivityEventType.safetyAlert => 'Safety alert',
-    };
+  ActivityEventType.deviceStateChanged => 'Device state',
+  ActivityEventType.deviceWarning => 'Sensor alert',
+  ActivityEventType.routineCompleted => 'Routine',
+  ActivityEventType.routineFailed => 'Routine failed',
+  ActivityEventType.userAction => 'User action',
+  ActivityEventType.systemUpdate => 'System update',
+  ActivityEventType.connectionChanged => 'Connection',
+  ActivityEventType.safetyAlert => 'Safety alert',
+};
 
 IconData _filterIcon(ActivityFilter filter) => switch (filter) {
-      ActivityFilter.all => Icons.grid_view_rounded,
-      ActivityFilter.alerts => Icons.warning_amber_rounded,
-      ActivityFilter.devices => Icons.devices_other_rounded,
-      ActivityFilter.routines => Icons.auto_awesome_rounded,
-      ActivityFilter.system => Icons.settings_suggest_outlined,
-    };
+  ActivityFilter.all => Icons.grid_view_rounded,
+  ActivityFilter.alerts => Icons.warning_amber_rounded,
+  ActivityFilter.devices => Icons.devices_other_rounded,
+  ActivityFilter.routines => Icons.auto_awesome_rounded,
+  ActivityFilter.system => Icons.settings_suggest_outlined,
+};
 
 String _roomLabel(String? roomId) => switch (roomId) {
-      'kitchen' => 'Kitchen',
-      'plant' => 'Plant Corner',
-      'living' => 'Living Room',
-      'tank' => 'Water Tank',
-      _ => 'Home',
-    };
+  'kitchen' => 'Kitchen',
+  'plant' => 'Plant Corner',
+  'living' => 'Living Room',
+  'tank' => 'Water Tank',
+  _ => 'Home',
+};
 
-({IconData icon, Color color, Color background, String label}) _eventVisual(ActivityEvent event, EHThemeTokens tokens) {
+({IconData icon, Color color, Color background, String label}) _eventVisual(
+  ActivityEvent event,
+  EHThemeTokens tokens,
+) {
   if (tokens.isDark) {
     return switch (event.severity) {
-      ActivitySeverity.success => (icon: Icons.check_circle_rounded, color: tokens.success, background: tokens.successContainer, label: 'Success'),
-      ActivitySeverity.warning => (icon: Icons.warning_amber_rounded, color: tokens.warning, background: tokens.warningContainer, label: 'Warning'),
-      ActivitySeverity.critical => (icon: Icons.error_rounded, color: tokens.errorText, background: tokens.errorContainer, label: 'Critical'),
-      ActivitySeverity.info => (icon: Icons.info_outline_rounded, color: tokens.bluePrimary, background: tokens.blueSelectedBg, label: 'Info'),
+      ActivitySeverity.success => (
+        icon: Icons.check_circle_rounded,
+        color: tokens.success,
+        background: tokens.successContainer,
+        label: 'Success',
+      ),
+      ActivitySeverity.warning => (
+        icon: Icons.warning_amber_rounded,
+        color: tokens.warning,
+        background: tokens.warningContainer,
+        label: 'Warning',
+      ),
+      ActivitySeverity.critical => (
+        icon: Icons.error_rounded,
+        color: tokens.errorText,
+        background: tokens.errorContainer,
+        label: 'Critical',
+      ),
+      ActivitySeverity.info => (
+        icon: Icons.info_outline_rounded,
+        color: tokens.bluePrimary,
+        background: tokens.blueSelectedBg,
+        label: 'Info',
+      ),
     };
   }
   return switch (event.severity) {
-    ActivitySeverity.success => (icon: Icons.check_circle_rounded, color: const Color(0xFF16A95A), background: const Color(0xFFE5F5EC), label: 'Success'),
-    ActivitySeverity.warning => (icon: Icons.warning_amber_rounded, color: const Color(0xFFF26D12), background: const Color(0xFFFFEEE6), label: 'Warning'),
-    ActivitySeverity.critical => (icon: Icons.error_rounded, color: const Color(0xFFC63D32), background: const Color(0xFFFFE4E4), label: 'Critical'),
-    ActivitySeverity.info => (icon: Icons.info_outline_rounded, color: const Color(0xFF14539D), background: const Color(0xFFE8F0FF), label: 'Info'),
+    ActivitySeverity.success => (
+      icon: Icons.check_circle_rounded,
+      color: const Color(0xFF16A95A),
+      background: const Color(0xFFE5F5EC),
+      label: 'Success',
+    ),
+    ActivitySeverity.warning => (
+      icon: Icons.warning_amber_rounded,
+      color: const Color(0xFFF26D12),
+      background: const Color(0xFFFFEEE6),
+      label: 'Warning',
+    ),
+    ActivitySeverity.critical => (
+      icon: Icons.error_rounded,
+      color: const Color(0xFFC63D32),
+      background: const Color(0xFFFFE4E4),
+      label: 'Critical',
+    ),
+    ActivitySeverity.info => (
+      icon: Icons.info_outline_rounded,
+      color: const Color(0xFF14539D),
+      background: const Color(0xFFE8F0FF),
+      label: 'Info',
+    ),
   };
 }

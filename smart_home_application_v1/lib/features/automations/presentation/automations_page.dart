@@ -18,6 +18,7 @@ class AutomationsPage extends StatefulWidget {
 }
 
 enum _RoutineFilter { all, enabled, disabled }
+
 enum _RoutineSort { recent, nameAscending, nameDescending, lastRun }
 
 class _AutomationsPageState extends State<AutomationsPage> {
@@ -48,7 +49,8 @@ class _AutomationsPageState extends State<AutomationsPage> {
   List<Routine> _visible(List<Routine> source) {
     final query = _search.text.trim().toLowerCase();
     final list = source.where((routine) {
-      final matchesSearch = query.isEmpty ||
+      final matchesSearch =
+          query.isEmpty ||
           routine.name.toLowerCase().contains(query) ||
           routine.summary.toLowerCase().contains(query);
       final matchesFilter = switch (_filter) {
@@ -58,13 +60,17 @@ class _AutomationsPageState extends State<AutomationsPage> {
       };
       return matchesSearch && matchesFilter;
     }).toList();
-    list.sort((a, b) => switch (_sort) {
-      _RoutineSort.recent => b.updatedAt.compareTo(a.updatedAt),
-      _RoutineSort.nameAscending => a.name.compareTo(b.name),
-      _RoutineSort.nameDescending => b.name.compareTo(a.name),
-      _RoutineSort.lastRun => (b.lastExecution?.completedAt ?? DateTime(0))
-          .compareTo(a.lastExecution?.completedAt ?? DateTime(0)),
-    });
+    list.sort(
+      (a, b) => switch (_sort) {
+        _RoutineSort.recent => b.updatedAt.compareTo(a.updatedAt),
+        _RoutineSort.nameAscending => a.name.compareTo(b.name),
+        _RoutineSort.nameDescending => b.name.compareTo(a.name),
+        _RoutineSort.lastRun =>
+          (b.lastExecution?.completedAt ?? DateTime(0)).compareTo(
+            a.lastExecution?.completedAt ?? DateTime(0),
+          ),
+      },
+    );
     return list;
   }
 
@@ -72,7 +78,8 @@ class _AutomationsPageState extends State<AutomationsPage> {
     FocusManager.instance.primaryFocus?.unfocus();
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => RoutineDetailPage(routine: routine, repository: widget.repository),
+        builder: (_) =>
+            RoutineDetailPage(routine: routine, repository: widget.repository),
       ),
     );
   }
@@ -102,16 +109,28 @@ class _AutomationsPageState extends State<AutomationsPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Secure setup required', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: tokens.textPrimary)),
+              Text(
+                'Secure setup required',
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
+              ),
               const SizedBox(height: 8),
-              Text('Connect your home to enable and manage routines.', style: TextStyle(color: tokens.textSecondary)),
+              Text(
+                'Connect your home to enable and manage routines.',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
               const SizedBox(height: 18),
               FilledButton.icon(
                 onPressed: () {
                   Navigator.pop(sheetContext);
                   widget.onConnectHome?.call();
                 },
-                style: FilledButton.styleFrom(backgroundColor: tokens.blueDarker, foregroundColor: tokens.textPrimary),
+                style: FilledButton.styleFrom(
+                  backgroundColor: tokens.blueDarker,
+                ),
                 icon: const Icon(Icons.bluetooth_rounded),
                 label: const Text('Connect home'),
               ),
@@ -124,14 +143,22 @@ class _AutomationsPageState extends State<AutomationsPage> {
 
   void _showMessage(String message) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message), behavior: SnackBarBehavior.floating));
+    ..showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final source = _routines;
     final visible = source == null ? const <Routine>[] : _visible(source);
-    final deviceCount = source?.expand((routine) => routine.involvedDevices).map((d) => d.id).toSet().length ?? 0;
+    final deviceCount =
+        source
+            ?.expand((routine) => routine.involvedDevices)
+            .map((d) => d.id)
+            .toSet()
+            .length ??
+        0;
     return SafeArea(
       bottom: false,
       child: Scaffold(
@@ -188,11 +215,15 @@ class _AutomationsPageState extends State<AutomationsPage> {
                   focusNode: _searchFocus,
                   style: TextStyle(color: tokens.textPrimary),
                   onChanged: (_) => setState(() {}),
-                  onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+                  onTapOutside: (_) =>
+                      FocusManager.instance.primaryFocus?.unfocus(),
                   decoration: InputDecoration(
                     hintText: 'Search routines',
                     hintStyle: TextStyle(color: tokens.textTertiary),
-                    prefixIcon: Icon(Icons.search_rounded, color: tokens.textSecondary),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: tokens.textSecondary,
+                    ),
                     filled: true,
                     fillColor: tokens.surfaceCard,
                     contentPadding: const EdgeInsets.symmetric(vertical: 17),
@@ -206,7 +237,10 @@ class _AutomationsPageState extends State<AutomationsPage> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: tokens.bluePrimary, width: 1.5),
+                      borderSide: BorderSide(
+                        color: tokens.bluePrimary,
+                        width: 1.5,
+                      ),
                     ),
                   ),
                 ),
@@ -215,26 +249,96 @@ class _AutomationsPageState extends State<AutomationsPage> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      _FilterPill(label: 'All (${source?.length ?? 0})', selected: _filter == _RoutineFilter.all, onTap: () => setState(() => _filter = _RoutineFilter.all)),
-                      _FilterPill(label: 'Enabled (${source?.where((r) => r.enabled).length ?? 0})', selected: _filter == _RoutineFilter.enabled, color: tokens.success, onTap: () => setState(() => _filter = _RoutineFilter.enabled)),
-                      _FilterPill(label: 'Disabled (${source?.where((r) => !r.enabled).length ?? 0})', selected: _filter == _RoutineFilter.disabled, onTap: () => setState(() => _filter = _RoutineFilter.disabled)),
+                      _FilterPill(
+                        label: 'All (${source?.length ?? 0})',
+                        selected: _filter == _RoutineFilter.all,
+                        onTap: () =>
+                            setState(() => _filter = _RoutineFilter.all),
+                      ),
+                      _FilterPill(
+                        label:
+                            'Enabled (${source?.where((r) => r.enabled).length ?? 0})',
+                        selected: _filter == _RoutineFilter.enabled,
+                        color: tokens.success,
+                        onTap: () =>
+                            setState(() => _filter = _RoutineFilter.enabled),
+                      ),
+                      _FilterPill(
+                        label:
+                            'Disabled (${source?.where((r) => !r.enabled).length ?? 0})',
+                        selected: _filter == _RoutineFilter.disabled,
+                        onTap: () =>
+                            setState(() => _filter = _RoutineFilter.disabled),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 18),
                 Row(
                   children: [
-                    Expanded(child: Text('${source?.length ?? 0} routines • $deviceCount devices', style: TextStyle(color: tokens.textSecondary, fontSize: 15, fontWeight: FontWeight.w700))),
+                    Expanded(
+                      child: Text(
+                        '${source?.length ?? 0} routines • $deviceCount devices',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                     PopupMenuButton<_RoutineSort>(
                       onSelected: (value) => setState(() => _sort = value),
                       color: tokens.surfaceCard,
                       itemBuilder: (_) => [
-                        PopupMenuItem(value: _RoutineSort.recent, child: Text('Recent', style: TextStyle(color: tokens.textPrimary))),
-                        PopupMenuItem(value: _RoutineSort.nameAscending, child: Text('Name: A-Z', style: TextStyle(color: tokens.textPrimary))),
-                        PopupMenuItem(value: _RoutineSort.nameDescending, child: Text('Name: Z-A', style: TextStyle(color: tokens.textPrimary))),
-                        PopupMenuItem(value: _RoutineSort.lastRun, child: Text('Last run', style: TextStyle(color: tokens.textPrimary))),
+                        PopupMenuItem(
+                          value: _RoutineSort.recent,
+                          child: Text(
+                            'Recent',
+                            style: TextStyle(color: tokens.textPrimary),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _RoutineSort.nameAscending,
+                          child: Text(
+                            'Name: A-Z',
+                            style: TextStyle(color: tokens.textPrimary),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _RoutineSort.nameDescending,
+                          child: Text(
+                            'Name: Z-A',
+                            style: TextStyle(color: tokens.textPrimary),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _RoutineSort.lastRun,
+                          child: Text(
+                            'Last run',
+                            style: TextStyle(color: tokens.textPrimary),
+                          ),
+                        ),
                       ],
-                      child: Padding(padding: const EdgeInsets.all(8), child: Row(children: [Text(_sortLabel, style: TextStyle(color: tokens.bluePrimary, fontWeight: FontWeight.w700, fontSize: 12)), Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: tokens.bluePrimary)])),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Row(
+                          children: [
+                            Text(
+                              _sortLabel,
+                              style: TextStyle(
+                                color: tokens.bluePrimary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              size: 18,
+                              color: tokens.bluePrimary,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -244,7 +348,16 @@ class _AutomationsPageState extends State<AutomationsPage> {
                 else if (visible.isEmpty)
                   const _EmptyRoutines()
                 else
-                  ...visible.map((routine) => Padding(padding: const EdgeInsets.only(bottom: 12), child: RoutineCard(routine: routine, onTap: () => _openDetail(routine), onToggle: () => _toggle(routine)))),
+                  ...visible.map(
+                    (routine) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: RoutineCard(
+                        routine: routine,
+                        onTap: () => _openDetail(routine),
+                        onToggle: () => _toggle(routine),
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 6),
                 _CreateRoutineBanner(onTap: _openBuilder),
               ],
@@ -262,11 +375,20 @@ class _AutomationsPageState extends State<AutomationsPage> {
     _RoutineSort.lastRun => 'Sort: Last run',
   };
 
-  void _openBuilder() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RoutineBuilderPage(repository: widget.repository)));
+  void _openBuilder() => Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => RoutineBuilderPage(repository: widget.repository),
+    ),
+  );
 }
 
 class RoutineCard extends StatelessWidget {
-  const RoutineCard({super.key, required this.routine, required this.onTap, required this.onToggle});
+  const RoutineCard({
+    super.key,
+    required this.routine,
+    required this.onTap,
+    required this.onToggle,
+  });
   final Routine routine;
   final VoidCallback onTap;
   final VoidCallback onToggle;
@@ -274,8 +396,14 @@ class RoutineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final unavailable = routine.availability == RoutineAvailability.unavailable || routine.availability == RoutineAvailability.partiallyAvailable;
-    final statusColor = unavailable ? tokens.warning : routine.enabled ? tokens.success : tokens.textTertiary;
+    final unavailable =
+        routine.availability == RoutineAvailability.unavailable ||
+        routine.availability == RoutineAvailability.partiallyAvailable;
+    final statusColor = unavailable
+        ? tokens.warning
+        : routine.enabled
+        ? tokens.success
+        : tokens.textTertiary;
     return Semantics(
       button: true,
       label: '${routine.name}, ${routine.summary}',
@@ -287,10 +415,18 @@ class RoutineCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: tokens.surfaceCard,
             borderRadius: BorderRadius.circular(15),
-            border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+            border: tokens.isDark
+                ? Border.all(color: tokens.borderSubtle)
+                : null,
             boxShadow: tokens.isDark
                 ? null
-                : const [BoxShadow(color: Color(0x100B2448), blurRadius: 16, offset: Offset(0, 6))],
+                : const [
+                    BoxShadow(
+                      color: Color(0x100B2448),
+                      blurRadius: 16,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -298,30 +434,83 @@ class RoutineCard extends StatelessWidget {
               _RoutineIcon(icon: routine.icon, color: statusColor),
               const SizedBox(width: 13),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(routine.name, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w800, fontSize: 18)),
-                  const SizedBox(height: 4),
-                  Text(routine.summary, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: tokens.textSecondary, fontSize: 14, height: 1.25)),
-                  const SizedBox(height: 8),
-                  Wrap(spacing: 7, runSpacing: 3, children: [
-                    Icon(unavailable ? Icons.warning_amber_rounded : routine.enabled ? Icons.check_circle_rounded : Icons.radio_button_unchecked, color: statusColor, size: 16),
-                    Text(unavailable ? routine.availabilityLabel : routine.statusLabel, style: TextStyle(color: statusColor, fontWeight: FontWeight.w700, fontSize: 12)),
-                    if (routine.lastExecution != null) Text('• Last run ${_dateLabel(routine.lastExecution!.completedAt)}', style: TextStyle(color: tokens.textSecondary, fontSize: 12)),
-                  ]),
-                ]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      routine.name,
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      routine.summary,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 14,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 3,
+                      children: [
+                        Icon(
+                          unavailable
+                              ? Icons.warning_amber_rounded
+                              : routine.enabled
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked,
+                          color: statusColor,
+                          size: 16,
+                        ),
+                        Text(
+                          unavailable
+                              ? routine.availabilityLabel
+                              : routine.statusLabel,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (routine.lastExecution != null)
+                          Text(
+                            '• Last run ${_dateLabel(routine.lastExecution!.completedAt)}',
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(width: 5),
-              Column(children: [
-                GestureDetector(
-                  onTap: onToggle,
-                  child: Switch(
-                    value: routine.enabled,
-                    onChanged: null,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              Column(
+                children: [
+                  GestureDetector(
+                    onTap: onToggle,
+                    child: Switch(
+                      value: routine.enabled,
+                      onChanged: null,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
-                ),
-                Icon(Icons.chevron_right_rounded, color: tokens.chevron, size: 27),
-              ]),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: tokens.chevron,
+                    size: 27,
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -331,7 +520,11 @@ class RoutineCard extends StatelessWidget {
 }
 
 class RoutineDetailPage extends StatefulWidget {
-  const RoutineDetailPage({super.key, required this.routine, required this.repository});
+  const RoutineDetailPage({
+    super.key,
+    required this.routine,
+    required this.repository,
+  });
   final Routine routine;
   final RoutineRepository repository;
   @override
@@ -349,7 +542,9 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   }
 
   Future<void> _loadHistory() async {
-    final value = await widget.repository.getRecentExecutions(widget.routine.id);
+    final value = await widget.repository.getRecentExecutions(
+      widget.routine.id,
+    );
     if (mounted) setState(() => _history = value);
   }
 
@@ -362,36 +557,116 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       backgroundColor: tokens.bgApp,
       appBar: AppBar(
         backgroundColor: tokens.bgApp,
-        leading: IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction)),
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(routine.name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: tokens.textPrimary)),
-          Text(routine.enabled ? '● Active' : '○ Disabled', style: TextStyle(color: routine.enabled ? tokens.success : tokens.textTertiary, fontSize: 12, fontWeight: FontWeight.w700)),
-        ]),
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              routine.name,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: tokens.textPrimary,
+              ),
+            ),
+            Text(
+              routine.enabled ? '● Active' : '○ Disabled',
+              style: TextStyle(
+                color: routine.enabled ? tokens.success : tokens.textTertiary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(onPressed: () => setState(() => _favorite = !_favorite), icon: Icon(_favorite ? Icons.star_rounded : Icons.star_border_rounded, color: _favorite ? tokens.gold : tokens.headerAction)),
+          IconButton(
+            onPressed: () => setState(() => _favorite = !_favorite),
+            icon: Icon(
+              _favorite ? Icons.star_rounded : Icons.star_border_rounded,
+              color: _favorite ? tokens.gold : tokens.headerAction,
+            ),
+          ),
           PopupMenuButton<String>(
             color: tokens.surfaceCard,
-            itemBuilder: (_) => [PopupMenuItem(value: 'info', child: Text('Preview mode', style: TextStyle(color: tokens.textPrimary)))],
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'info',
+                child: Text(
+                  'Preview mode',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+              ),
+            ],
           ),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
-          Text(routine.summary, style: TextStyle(color: tokens.textSecondary, fontSize: 16, height: 1.35)),
+          Text(
+            routine.summary,
+            style: TextStyle(
+              color: tokens.textSecondary,
+              fontSize: 16,
+              height: 1.35,
+            ),
+          ),
           const SizedBox(height: 14),
-          _DetailSection(label: 'WHEN', icon: Icons.schedule_rounded, color: tokens.success, title: routine.trigger.title, lines: [routine.trigger.detail, routine.schedule.label]),
-          if (routine.conditions.isNotEmpty) _DetailSection(label: 'IF', icon: Icons.filter_alt_outlined, color: tokens.bluePrimary, title: 'All conditions must be met', lines: routine.conditions.map((condition) => '${condition.title} · ${condition.detail}').toList()),
-          _DetailSection(label: 'THEN', icon: Icons.bolt_rounded, color: tokens.iconFgPurple, title: 'Run these actions', lines: routine.actions.map((action) => '${action.title} · ${action.detail}').toList()),
+          _DetailSection(
+            label: 'WHEN',
+            icon: Icons.schedule_rounded,
+            color: tokens.success,
+            title: routine.trigger.title,
+            lines: [routine.trigger.detail, routine.schedule.label],
+          ),
+          if (routine.conditions.isNotEmpty)
+            _DetailSection(
+              label: 'IF',
+              icon: Icons.filter_alt_outlined,
+              color: tokens.bluePrimary,
+              title: 'All conditions must be met',
+              lines: routine.conditions
+                  .map(
+                    (condition) => '${condition.title} · ${condition.detail}',
+                  )
+                  .toList(),
+            ),
+          _DetailSection(
+            label: 'THEN',
+            icon: Icons.bolt_rounded,
+            color: tokens.iconFgPurple,
+            title: 'Run these actions',
+            lines: routine.actions
+                .map((action) => '${action.title} · ${action.detail}')
+                .toList(),
+          ),
           _DevicesSection(devices: routine.involvedDevices),
           _ActivitySection(history: _history),
           if (unavailable) _UnavailableNotice(routine: routine),
           const SizedBox(height: 14),
-          Row(children: [
-            Expanded(child: OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.edit_outlined), label: const Text('Edit routine'))),
-            const SizedBox(width: 10),
-            Expanded(child: OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.delete_outline_rounded), label: const Text('Delete'))),
-          ]),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Edit routine'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  label: const Text('Delete'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -424,8 +699,18 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
 
   void _chooseTrigger(RoutineTrigger trigger) {
     _draft.trigger = trigger;
-    _draft.schedule = const RoutineSchedule(label: 'Every day · All day', timezone: 'Home timezone');
-    _draft.actions = [const RoutineAction(kind: RoutineActionKind.mistMaker, title: 'Mist maker', detail: 'Run for 30 seconds', deviceId: 'mist')];
+    _draft.schedule = const RoutineSchedule(
+      label: 'Every day · All day',
+      timezone: 'Home timezone',
+    );
+    _draft.actions = [
+      const RoutineAction(
+        kind: RoutineActionKind.mistMaker,
+        title: 'Mist maker',
+        detail: 'Run for 30 seconds',
+        deviceId: 'mist',
+      ),
+    ];
     setState(() {});
   }
 
@@ -438,75 +723,208 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
       backgroundColor: tokens.bgApp,
       appBar: AppBar(
         backgroundColor: tokens.bgApp,
-        title: Text(_step == 4 ? 'Review routine' : 'Create routine', style: TextStyle(color: tokens.textPrimary)),
-        leading: IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction)),
-      ),
-      body: ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 32), children: [
-        LinearProgressIndicator(
-          value: (_step + 1) / 5,
-          borderRadius: BorderRadius.circular(20),
-          backgroundColor: tokens.isDark ? tokens.borderControl : null,
-          valueColor: AlwaysStoppedAnimation(tokens.bluePrimary),
+        title: Text(
+          _step == 4 ? 'Review routine' : 'Create routine',
+          style: TextStyle(color: tokens.textPrimary),
         ),
-        const SizedBox(height: 22),
-        if (_step == 0) ...[
-          Text('What should we call this routine?', style: TextStyle(color: tokens.textPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          TextField(controller: _name, decoration: const InputDecoration(labelText: 'Routine name')),
-          const SizedBox(height: 16),
-          _TemplateChoice(title: 'Plant care', subtitle: 'Start misting when soil becomes dry', icon: Icons.local_florist_outlined, onTap: () => _name.text = 'Plant care'),
-        ] else if (_step == 1) ...[
-          Text('When should this routine start?', style: TextStyle(color: tokens.textPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          _ChoiceCard(title: 'When a level changes', subtitle: 'Soil moisture or water level', icon: Icons.water_drop_outlined, onTap: () => _chooseTrigger(const RoutineTrigger(kind: RoutineTriggerKind.soilMoisture, title: 'Soil moisture drops below 35%', detail: 'Mon – Sun · All day', threshold: 35))),
-          _ChoiceCard(title: 'When the room becomes dark', subtitle: 'After sunset', icon: Icons.nightlight_outlined, onTap: () => _chooseTrigger(const RoutineTrigger(kind: RoutineTriggerKind.darkness, title: 'Room becomes dark', detail: 'After sunset'))),
-        ] else if (_step == 2) ...[
-          Text('Would you like to add a condition?', style: TextStyle(color: tokens.textPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          _ChoiceCard(title: 'All day', subtitle: 'Run whenever the trigger crosses its threshold', icon: Icons.schedule_rounded, onTap: () => setState(() {})),
-        ] else if (_step == 3) ...[
-          Text('What should EH Home do?', style: TextStyle(color: tokens.textPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          _ChoiceCard(title: 'Control a device', subtitle: 'Run the plant mist maker for 30 seconds', icon: Icons.bolt_rounded, onTap: () => setState(() {})),
-          _ChoiceCard(title: 'Send a notification', subtitle: 'Send a reminder to your phone', icon: Icons.notifications_none_rounded, onTap: () => setState(() {})),
-        ] else ...[
-          Text('Review routine', style: TextStyle(color: tokens.textPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          Card(
-            color: tokens.surfaceCard,
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(_draft.name.isEmpty ? 'Plant care' : _draft.name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: tokens.textPrimary)),
-                  const SizedBox(height: 14),
-                  Text('WHEN', style: TextStyle(color: tokens.success, fontWeight: FontWeight.w800)),
-                  Text(_draft.trigger?.title ?? 'Choose a trigger', style: TextStyle(color: tokens.textPrimary)),
-                  const SizedBox(height: 12),
-                  Text('THEN', style: TextStyle(color: tokens.iconFgPurple, fontWeight: FontWeight.w800)),
-                  Text(_draft.actions.isEmpty ? 'Choose an action' : _draft.actions.first.detail, style: TextStyle(color: tokens.textPrimary)),
-                ],
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        children: [
+          LinearProgressIndicator(
+            value: (_step + 1) / 5,
+            borderRadius: BorderRadius.circular(20),
+            backgroundColor: tokens.isDark ? tokens.borderControl : null,
+            valueColor: AlwaysStoppedAnimation(tokens.bluePrimary),
+          ),
+          const SizedBox(height: 22),
+          if (_step == 0) ...[
+            Text(
+              'What should we call this routine?',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
               ),
             ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Routine name'),
+            ),
+            const SizedBox(height: 16),
+            _TemplateChoice(
+              title: 'Plant care',
+              subtitle: 'Start misting when soil becomes dry',
+              icon: Icons.local_florist_outlined,
+              onTap: () => _name.text = 'Plant care',
+            ),
+          ] else if (_step == 1) ...[
+            Text(
+              'When should this routine start?',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _ChoiceCard(
+              title: 'When a level changes',
+              subtitle: 'Soil moisture or water level',
+              icon: Icons.water_drop_outlined,
+              onTap: () => _chooseTrigger(
+                const RoutineTrigger(
+                  kind: RoutineTriggerKind.soilMoisture,
+                  title: 'Soil moisture drops below 35%',
+                  detail: 'Mon – Sun · All day',
+                  threshold: 35,
+                ),
+              ),
+            ),
+            _ChoiceCard(
+              title: 'When the room becomes dark',
+              subtitle: 'After sunset',
+              icon: Icons.nightlight_outlined,
+              onTap: () => _chooseTrigger(
+                const RoutineTrigger(
+                  kind: RoutineTriggerKind.darkness,
+                  title: 'Room becomes dark',
+                  detail: 'After sunset',
+                ),
+              ),
+            ),
+          ] else if (_step == 2) ...[
+            Text(
+              'Would you like to add a condition?',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _ChoiceCard(
+              title: 'All day',
+              subtitle: 'Run whenever the trigger crosses its threshold',
+              icon: Icons.schedule_rounded,
+              onTap: () => setState(() {}),
+            ),
+          ] else if (_step == 3) ...[
+            Text(
+              'What should EH Home do?',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _ChoiceCard(
+              title: 'Control a device',
+              subtitle: 'Run the plant mist maker for 30 seconds',
+              icon: Icons.bolt_rounded,
+              onTap: () => setState(() {}),
+            ),
+            _ChoiceCard(
+              title: 'Send a notification',
+              subtitle: 'Send a reminder to your phone',
+              icon: Icons.notifications_none_rounded,
+              onTap: () => setState(() {}),
+            ),
+          ] else ...[
+            Text(
+              'Review routine',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              color: tokens.surfaceCard,
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _draft.name.isEmpty ? 'Plant care' : _draft.name,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'WHEN',
+                      style: TextStyle(
+                        color: tokens.success,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      _draft.trigger?.title ?? 'Choose a trigger',
+                      style: TextStyle(color: tokens.textPrimary),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'THEN',
+                      style: TextStyle(
+                        color: tokens.iconFgPurple,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      _draft.actions.isEmpty
+                          ? 'Choose an action'
+                          : _draft.actions.first.detail,
+                      style: TextStyle(color: tokens.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (validation.errors.isNotEmpty)
+              ...validation.errors.map(
+                (error) =>
+                    Text(error, style: TextStyle(color: tokens.errorText)),
+              ),
+            const SizedBox(height: 14),
+            Text(
+              'Preview only. Connect your home to save this routine.',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
+          ],
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: _step == 4 ? () => Navigator.pop(context) : _next,
+            style: FilledButton.styleFrom(
+              backgroundColor: tokens.blueDarker,
+              foregroundColor: tokens.textPrimary,
+            ),
+            child: Text(_step == 4 ? 'Done' : 'Continue'),
           ),
-          if (validation.errors.isNotEmpty) ...validation.errors.map((error) => Text(error, style: TextStyle(color: tokens.errorText))),
-          const SizedBox(height: 14),
-          Text('Preview only. Connect your home to save this routine.', style: TextStyle(color: tokens.textSecondary)),
         ],
-        const SizedBox(height: 24),
-        FilledButton(
-          onPressed: _step == 4 ? () => Navigator.pop(context) : _next,
-          style: FilledButton.styleFrom(backgroundColor: tokens.blueDarker, foregroundColor: tokens.textPrimary),
-          child: Text(_step == 4 ? 'Done' : 'Continue'),
-        ),
-      ]),
+      ),
     );
   }
 }
 
 class _DetailSection extends StatelessWidget {
-  const _DetailSection({required this.label, required this.icon, required this.color, required this.title, required this.lines});
+  const _DetailSection({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.lines,
+  });
   final String label, title;
   final IconData icon;
   final Color color;
@@ -536,13 +954,32 @@ class _DetailSection extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12)),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
                   const SizedBox(height: 7),
-                  Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: tokens.textPrimary)),
-                  ...lines.map((line) => Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(line, style: TextStyle(color: tokens.textSecondary)),
-                  )),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      color: tokens.textPrimary,
+                    ),
+                  ),
+                  ...lines.map(
+                    (line) => Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        line,
+                        style: TextStyle(color: tokens.textSecondary),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -567,17 +1004,44 @@ class _DevicesSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('DEVICES INVOLVED', style: TextStyle(color: tokens.textSecondary, fontWeight: FontWeight.w800, fontSize: 12)),
-            ...devices.map((device) => ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(
-                backgroundColor: tokens.iconBgBlue,
-                child: Icon(Icons.devices_other_rounded, color: tokens.bluePrimary),
+            Text(
+              'DEVICES INVOLVED',
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
               ),
-              title: Text(device.name, style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary)),
-              subtitle: Text(device.room, style: TextStyle(color: tokens.textSecondary)),
-              trailing: Text(device.online ? '● Online' : '● Offline', style: TextStyle(color: device.online ? tokens.success : tokens.warning, fontWeight: FontWeight.w700)),
-            )),
+            ),
+            ...devices.map(
+              (device) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: tokens.iconBgBlue,
+                  child: Icon(
+                    Icons.devices_other_rounded,
+                    color: tokens.bluePrimary,
+                  ),
+                ),
+                title: Text(
+                  device.name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: tokens.buttonText,
+                  ),
+                ),
+                subtitle: Text(
+                  device.room,
+                  style: TextStyle(color: tokens.textSecondary),
+                ),
+                trailing: Text(
+                  device.online ? '● Online' : '● Offline',
+                  style: TextStyle(
+                    color: device.online ? tokens.success : tokens.warning,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -599,19 +1063,47 @@ class _ActivitySection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('RECENT ACTIVITY', style: TextStyle(color: tokens.textSecondary, fontWeight: FontWeight.w800, fontSize: 12)),
+            Text(
+              'RECENT ACTIVITY',
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
             const SizedBox(height: 8),
             if (history == null)
               LinearProgressIndicator(color: tokens.bluePrimary)
             else if (history!.isEmpty)
-              Text('No executions recorded yet.', style: TextStyle(color: tokens.textSecondary))
+              Text(
+                'No executions recorded yet.',
+                style: TextStyle(color: tokens.textSecondary),
+              )
             else
-              ...history!.map((entry) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(entry.result == RoutineExecutionResult.succeeded ? Icons.check_circle : Icons.warning_amber_rounded, color: entry.result == RoutineExecutionResult.succeeded ? tokens.success : tokens.warning),
-                title: Text(entry.message, style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary)),
-                subtitle: Text(entry.failureReason ?? _dateLabel(entry.completedAt), style: TextStyle(color: tokens.textSecondary)),
-              )),
+              ...history!.map(
+                (entry) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    entry.result == RoutineExecutionResult.succeeded
+                        ? Icons.check_circle
+                        : Icons.warning_amber_rounded,
+                    color: entry.result == RoutineExecutionResult.succeeded
+                        ? tokens.success
+                        : tokens.warning,
+                  ),
+                  title: Text(
+                    entry.message,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: tokens.textPrimary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    entry.failureReason ?? _dateLabel(entry.completedAt),
+                    style: TextStyle(color: tokens.textSecondary),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -636,7 +1128,10 @@ class _UnavailableNotice extends StatelessWidget {
             Expanded(
               child: Text(
                 '${routine.availabilityLabel}. This routine may not run until the device reconnects.',
-                style: TextStyle(color: tokens.warning, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: tokens.warning,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -647,7 +1142,12 @@ class _UnavailableNotice extends StatelessWidget {
 }
 
 class _ChoiceCard extends StatelessWidget {
-  const _ChoiceCard({required this.title, required this.subtitle, required this.icon, required this.onTap});
+  const _ChoiceCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
   final String title, subtitle;
   final IconData icon;
   final VoidCallback onTap;
@@ -660,8 +1160,17 @@ class _ChoiceCard extends StatelessWidget {
       child: ListTile(
         minVerticalPadding: 14,
         onTap: onTap,
-        leading: CircleAvatar(backgroundColor: tokens.iconBgBlue, child: Icon(icon, color: tokens.bluePrimary)),
-        title: Text(title, style: TextStyle(fontWeight: FontWeight.w800, color: tokens.textPrimary)),
+        leading: CircleAvatar(
+          backgroundColor: tokens.iconBgBlue,
+          child: Icon(icon, color: tokens.bluePrimary),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: tokens.textPrimary,
+          ),
+        ),
         subtitle: Text(subtitle, style: TextStyle(color: tokens.textSecondary)),
         trailing: Icon(Icons.chevron_right_rounded, color: tokens.chevron),
       ),
@@ -670,16 +1179,27 @@ class _ChoiceCard extends StatelessWidget {
 }
 
 class _TemplateChoice extends StatelessWidget {
-  const _TemplateChoice({required this.title, required this.subtitle, required this.icon, required this.onTap});
+  const _TemplateChoice({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
   final String title, subtitle;
   final IconData icon;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => _ChoiceCard(title: title, subtitle: subtitle, icon: icon, onTap: onTap);
+  Widget build(BuildContext context) =>
+      _ChoiceCard(title: title, subtitle: subtitle, icon: icon, onTap: onTap);
 }
 
 class _FilterPill extends StatelessWidget {
-  const _FilterPill({required this.label, required this.selected, required this.onTap, this.color});
+  const _FilterPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.color,
+  });
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -710,13 +1230,21 @@ class _FilterPill extends StatelessWidget {
                 Icon(
                   selected ? Icons.check_circle_rounded : Icons.circle_outlined,
                   size: 17,
-                  color: selected ? (tokens.isDark ? tokens.blueSelectedText : effectiveColor) : tokens.textSecondary,
+                  color: selected
+                      ? (tokens.isDark
+                            ? tokens.blueSelectedText
+                            : effectiveColor)
+                      : tokens.textSecondary,
                 ),
                 const SizedBox(width: 7),
                 Text(
                   label,
                   style: TextStyle(
-                    color: selected ? (tokens.isDark ? tokens.blueSelectedText : tokens.bluePrimary) : tokens.textPrimary,
+                    color: selected
+                        ? (tokens.isDark
+                              ? tokens.blueSelectedText
+                              : tokens.bluePrimary)
+                        : tokens.textPrimary,
                     fontWeight: FontWeight.w700,
                     fontSize: 13,
                   ),
@@ -744,7 +1272,9 @@ class _RoutineIcon extends StatelessWidget {
           width: 68,
           height: 68,
           decoration: BoxDecoration(
-            color: tokens.isDark ? tokens.iconBgPurple : color.withValues(alpha: .12),
+            color: tokens.isDark
+                ? tokens.iconBgPurple
+                : color.withValues(alpha: .12),
             borderRadius: BorderRadius.circular(17),
           ),
           child: Icon(
@@ -753,7 +1283,9 @@ class _RoutineIcon extends StatelessWidget {
               'night' => Icons.nightlight_outlined,
               _ => Icons.water_drop_outlined,
             },
-            color: tokens.isDark ? tokens.iconFgPurple : const Color(0xFF10264B),
+            color: tokens.isDark
+                ? tokens.iconFgPurple
+                : const Color(0xFF10264B),
             size: 34,
           ),
         ),
@@ -806,7 +1338,7 @@ class _HeaderRoundAction extends StatelessWidget {
             child: Icon(
               icon,
               size: 23,
-              color: filled ? tokens.textPrimary : tokens.bluePrimary,
+              color: filled ? tokens.buttonText : tokens.bluePrimary,
             ),
           ),
         ),
@@ -826,9 +1358,21 @@ class _CreateRoutineBanner extends StatelessWidget {
       child: ListTile(
         onTap: onTap,
         leading: Icon(Icons.auto_awesome_rounded, color: tokens.bluePrimary),
-        title: Text('Create your own routine', style: TextStyle(fontWeight: FontWeight.w800, color: tokens.textPrimary)),
-        subtitle: Text('Make your home work smarter.', style: TextStyle(color: tokens.textSecondary)),
-        trailing: Icon(Icons.add_circle_outline_rounded, color: tokens.bluePrimary),
+        title: Text(
+          'Create your own routine',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: tokens.textPrimary,
+          ),
+        ),
+        subtitle: Text(
+          'Make your home work smarter.',
+          style: TextStyle(color: tokens.textSecondary),
+        ),
+        trailing: Icon(
+          Icons.add_circle_outline_rounded,
+          color: tokens.bluePrimary,
+        ),
       ),
     );
   }
@@ -837,7 +1381,10 @@ class _CreateRoutineBanner extends StatelessWidget {
 class _LoadingRoutines extends StatelessWidget {
   const _LoadingRoutines();
   @override
-  Widget build(BuildContext context) => const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.all(32),
+    child: Center(child: CircularProgressIndicator()),
+  );
 }
 
 class _EmptyRoutines extends StatelessWidget {
@@ -847,13 +1394,23 @@ class _EmptyRoutines extends StatelessWidget {
     final tokens = context.ehColors;
     return Padding(
       padding: const EdgeInsets.all(28),
-      child: Column(children: [
-        Icon(Icons.auto_awesome_outlined, size: 42, color: tokens.bluePrimary),
-        const SizedBox(height: 10),
-        Text('No routines match your search.', style: TextStyle(color: tokens.textSecondary)),
-      ]),
+      child: Column(
+        children: [
+          Icon(
+            Icons.auto_awesome_outlined,
+            size: 42,
+            color: tokens.bluePrimary,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'No routines match your search.',
+            style: TextStyle(color: tokens.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 }
 
-String _dateLabel(DateTime time) => 'Today, ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+String _dateLabel(DateTime time) =>
+    'Today, ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';

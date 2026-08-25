@@ -23,7 +23,9 @@ class SettingsColors {
 
 Color _adaptBadgeBg(Color bg, EHThemeTokens tokens) {
   if (!tokens.isDark) return bg;
-  if (bg == SettingsColors.paleBlue || bg == const Color(0xFFEAF1FF) || bg == const Color(0xFFE8EFFF)) {
+  if (bg == SettingsColors.paleBlue ||
+      bg == const Color(0xFFEAF1FF) ||
+      bg == const Color(0xFFE8EFFF)) {
     return tokens.iconBgBlue;
   }
   if (bg == SettingsColors.paleGreen || bg == const Color(0xFFE9F7EE)) {
@@ -32,7 +34,10 @@ Color _adaptBadgeBg(Color bg, EHThemeTokens tokens) {
   if (bg == SettingsColors.paleOrange || bg == const Color(0xFFFFF4E5)) {
     return tokens.iconBgOrange;
   }
-  if (bg == SettingsColors.palePurple || bg == SettingsColors.paleLavender || bg == const Color(0xFFF3ECFF) || bg == const Color(0xFFEDE7F6)) {
+  if (bg == SettingsColors.palePurple ||
+      bg == SettingsColors.paleLavender ||
+      bg == const Color(0xFFF3ECFF) ||
+      bg == const Color(0xFFEDE7F6)) {
     return tokens.iconBgPurple;
   }
   if (bg == Colors.white || bg == const Color(0xFFFFFFFF)) {
@@ -43,16 +48,25 @@ Color _adaptBadgeBg(Color bg, EHThemeTokens tokens) {
 
 Color _adaptBadgeFg(Color fg, EHThemeTokens tokens) {
   if (!tokens.isDark) return fg;
-  if (fg == SettingsColors.blue || fg == const Color(0xFF155CC8) || fg == const Color(0xFF1956A8) || fg == const Color(0xFF1D58A7)) {
+  if (fg == SettingsColors.blue ||
+      fg == const Color(0xFF155CC8) ||
+      fg == const Color(0xFF1956A8) ||
+      fg == const Color(0xFF1D58A7)) {
     return tokens.bluePrimary;
   }
-  if (fg == SettingsColors.green || fg == const Color(0xFF09944A) || fg == const Color(0xFF16A95A)) {
+  if (fg == SettingsColors.green ||
+      fg == const Color(0xFF09944A) ||
+      fg == const Color(0xFF16A95A)) {
     return tokens.success;
   }
-  if (fg == SettingsColors.orange || fg == const Color(0xFFE87A15) || fg == const Color(0xFFF26D12)) {
+  if (fg == SettingsColors.orange ||
+      fg == const Color(0xFFE87A15) ||
+      fg == const Color(0xFFF26D12)) {
     return tokens.warning;
   }
-  if (fg == SettingsColors.red || fg == const Color(0xFFD92D20) || fg == const Color(0xFFC63D32)) {
+  if (fg == SettingsColors.red ||
+      fg == const Color(0xFFD92D20) ||
+      fg == const Color(0xFFC63D32)) {
     return tokens.errorText;
   }
   if (fg == SettingsColors.purple || fg == const Color(0xFF7A3DD5)) {
@@ -102,19 +116,26 @@ class SettingsStatusChip extends StatelessWidget {
     Color resolvedFg = color;
 
     if (tokens.isDark) {
-      if (color == SettingsColors.green || color == const Color(0xFF09944A) || color == const Color(0xFF16A95A)) {
+      if (color == SettingsColors.green ||
+          color == const Color(0xFF09944A) ||
+          color == const Color(0xFF16A95A)) {
         resolvedFg = tokens.success;
         resolvedBg = tokens.successContainer;
-      } else if (color == SettingsColors.orange || color == const Color(0xFFE87A15) || color == const Color(0xFFF26D12)) {
+      } else if (color == SettingsColors.orange ||
+          color == const Color(0xFFE87A15) ||
+          color == const Color(0xFFF26D12)) {
         resolvedFg = tokens.warning;
         resolvedBg = tokens.warningContainer;
-      } else if (color == SettingsColors.blue || color == const Color(0xFF155CC8)) {
+      } else if (color == SettingsColors.blue ||
+          color == const Color(0xFF155CC8)) {
         resolvedFg = tokens.blueSelectedText;
         resolvedBg = tokens.blueSelectedBg;
-      } else if (color == SettingsColors.purple || color == const Color(0xFF7A3DD5)) {
+      } else if (color == SettingsColors.purple ||
+          color == const Color(0xFF7A3DD5)) {
         resolvedFg = tokens.iconFgPurple;
         resolvedBg = tokens.iconBgPurple;
-      } else if (color == SettingsColors.muted || color == const Color(0xFF65738C)) {
+      } else if (color == SettingsColors.muted ||
+          color == const Color(0xFF65738C)) {
         resolvedFg = tokens.textSecondary;
         resolvedBg = tokens.surfaceElevated;
       }
@@ -136,7 +157,11 @@ class SettingsStatusChip extends StatelessWidget {
             maxLines: 1,
             softWrap: false,
             textAlign: TextAlign.center,
-            style: TextStyle(color: resolvedFg, fontSize: 12, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: resolvedFg,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -150,21 +175,22 @@ Widget settingsHeroIcon({
   required Color background,
   double diameter = 44,
   double iconSize = 22,
-}) =>
-    Builder(
-      builder: (context) {
-        final tokens = context.ehColors;
-        final resolvedBg = tokens.isDark ? _adaptBadgeBg(background, tokens) : background;
-        final resolvedFg = tokens.isDark ? _adaptBadgeFg(color, tokens) : color;
-        return Container(
-          width: diameter,
-          height: diameter,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(color: resolvedBg, shape: BoxShape.circle),
-          child: Icon(icon, color: resolvedFg, size: iconSize),
-        );
-      },
+}) => Builder(
+  builder: (context) {
+    final tokens = context.ehColors;
+    final resolvedBg = tokens.isDark
+        ? _adaptBadgeBg(background, tokens)
+        : background;
+    final resolvedFg = tokens.isDark ? _adaptBadgeFg(color, tokens) : color;
+    return Container(
+      width: diameter,
+      height: diameter,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: resolvedBg, shape: BoxShape.circle),
+      child: Icon(icon, color: resolvedFg, size: iconSize),
     );
+  },
+);
 
 class SettingsHeroActionFooter extends StatelessWidget {
   const SettingsHeroActionFooter({
@@ -209,14 +235,16 @@ class SettingsHeroActionFooter extends StatelessWidget {
             onPressed: checking ? null : onAction,
             style: FilledButton.styleFrom(
               backgroundColor: tokens.blueDarker,
-              foregroundColor: tokens.textPrimary,
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
             ),
             icon: checking
                 ? SizedBox(
                     width: 14,
                     height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: tokens.textPrimary),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: tokens.buttonText,
+                    ),
                   )
                 : Icon(actionIcon, size: 18),
             label: Text(actionLabel),
@@ -228,7 +256,11 @@ class SettingsHeroActionFooter extends StatelessWidget {
 }
 
 class SettingsSectionLink extends StatelessWidget {
-  const SettingsSectionLink({super.key, required this.label, required this.onTap});
+  const SettingsSectionLink({
+    super.key,
+    required this.label,
+    required this.onTap,
+  });
 
   final String label;
   final VoidCallback onTap;
@@ -296,7 +328,10 @@ class SettingsHeroCard extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         subtitle,
-                        style: TextStyle(color: tokens.textSecondary, height: 1.35),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          height: 1.35,
+                        ),
                       ),
                       if (statusChip != null) ...[
                         const SizedBox(height: 12),
@@ -377,7 +412,10 @@ class SettingsMetricItem extends StatelessWidget {
             color: tokens.textPrimary,
           ),
         ),
-        Text(label, style: TextStyle(color: tokens.textSecondary, fontSize: 12)),
+        Text(
+          label,
+          style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+        ),
       ],
     );
     if (onTap == null) return content;
@@ -433,13 +471,14 @@ class _SettingsStepRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final highlight = step.status == SettingsStepVisual.completed ||
+    final highlight =
+        step.status == SettingsStepVisual.completed ||
         step.status == SettingsStepVisual.active;
     return Container(
       color: step.status == SettingsStepVisual.completed
           ? (tokens.isDark
-              ? tokens.successContainer.withValues(alpha: 0.35)
-              : SettingsColors.paleGreen.withValues(alpha: .35))
+                ? tokens.successContainer.withValues(alpha: 0.35)
+                : SettingsColors.paleGreen.withValues(alpha: .35))
           : null,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
       child: Row(
@@ -458,7 +497,10 @@ class _SettingsStepRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text(step.subtitle, style: TextStyle(color: tokens.textSecondary, fontSize: 13)),
+                Text(
+                  step.subtitle,
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -485,7 +527,9 @@ class _StepBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: completed
             ? tokens.success
-            : (tokens.isDark ? tokens.successContainer : SettingsColors.paleGreen),
+            : (tokens.isDark
+                  ? tokens.successContainer
+                  : SettingsColors.paleGreen),
         shape: BoxShape.circle,
       ),
       child: completed
@@ -540,11 +584,21 @@ class SettingsSupportBanner extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: TextStyle(fontWeight: FontWeight.w800, color: tokens.textPrimary)),
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: tokens.textPrimary,
+                        ),
+                      ),
                       const SizedBox(height: 3),
                       Text(
                         subtitle,
-                        style: TextStyle(color: tokens.textSecondary, fontSize: 13, height: 1.35),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
                       ),
                     ],
                   ),
@@ -556,8 +610,10 @@ class SettingsSupportBanner extends StatelessWidget {
               onPressed: onAction,
               style: FilledButton.styleFrom(
                 backgroundColor: tokens.blueDarker,
-                foregroundColor: tokens.textPrimary,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
               ),
               child: Text(actionLabel),
             ),
@@ -593,7 +649,9 @@ class SettingsDestructiveActionBanner extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: tokens.isDark ? const Color(0xFF5A2924) : const Color(0xFFF5B8B8),
+              color: tokens.isDark
+                  ? const Color(0xFF5A2924)
+                  : const Color(0xFFF5B8B8),
             ),
           ),
           padding: const EdgeInsets.all(16),
@@ -621,7 +679,9 @@ class SettingsDestructiveActionBanner extends StatelessWidget {
                     Text(
                       title,
                       style: TextStyle(
-                        color: tokens.isDark ? tokens.errorText : SettingsColors.red,
+                        color: tokens.isDark
+                            ? tokens.errorText
+                            : SettingsColors.red,
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
                       ),
@@ -630,7 +690,9 @@ class SettingsDestructiveActionBanner extends StatelessWidget {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: tokens.isDark ? tokens.textSecondary : SettingsColors.ink,
+                        color: tokens.isDark
+                            ? tokens.textSecondary
+                            : SettingsColors.ink,
                         fontSize: 13,
                         height: 1.35,
                       ),
@@ -697,9 +759,21 @@ class SettingsInfoBanner extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: TextStyle(fontWeight: FontWeight.w800, color: tokens.textPrimary)),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
                     const SizedBox(height: 3),
-                    Text(subtitle, style: TextStyle(color: tokens.textSecondary, fontSize: 13)),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -734,7 +808,9 @@ class SettingsDestructiveBanner extends StatelessWidget {
         color: tokens.isDark ? tokens.errorContainer : const Color(0xFFFFEEEE),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: tokens.isDark ? const Color(0xFF5A2924) : const Color(0xFFFFD5D5),
+          color: tokens.isDark
+              ? const Color(0xFF5A2924)
+              : const Color(0xFFFFD5D5),
         ),
       ),
       child: Row(
@@ -753,7 +829,9 @@ class SettingsDestructiveBanner extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    color: tokens.isDark ? tokens.errorText : SettingsColors.red,
+                    color: tokens.isDark
+                        ? tokens.errorText
+                        : SettingsColors.red,
                     fontWeight: FontWeight.w800,
                     fontSize: 16,
                   ),
@@ -762,7 +840,9 @@ class SettingsDestructiveBanner extends StatelessWidget {
                 Text(
                   body,
                   style: TextStyle(
-                    color: tokens.isDark ? tokens.textSecondary : SettingsColors.ink,
+                    color: tokens.isDark
+                        ? tokens.textSecondary
+                        : SettingsColors.ink,
                     height: 1.35,
                   ),
                 ),
@@ -798,10 +878,14 @@ class SettingsCheckList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    positive ? Icons.check_circle_rounded : Icons.remove_circle_rounded,
+                    positive
+                        ? Icons.check_circle_rounded
+                        : Icons.remove_circle_rounded,
                     color: positive
                         ? tokens.success
-                        : (tokens.isDark ? tokens.iconFgPurple : SettingsColors.purple),
+                        : (tokens.isDark
+                              ? tokens.iconFgPurple
+                              : SettingsColors.purple),
                     size: 22,
                   ),
                   const SizedBox(width: 12),
@@ -938,14 +1022,17 @@ class SettingsSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final effectiveBg = (color == Colors.white) ? tokens.surfaceCard : color;
-    final effectiveBorder = borderColor ?? (tokens.isDark ? tokens.borderSubtle : null);
+    final effectiveBorder =
+        borderColor ?? (tokens.isDark ? tokens.borderSubtle : null);
 
     return Container(
       padding: padding,
       decoration: BoxDecoration(
         color: effectiveBg,
         borderRadius: BorderRadius.circular(18),
-        border: effectiveBorder == null ? null : Border.all(color: effectiveBorder),
+        border: effectiveBorder == null
+            ? null
+            : Border.all(color: effectiveBorder),
         boxShadow: tokens.isDark
             ? null
             : const [
@@ -978,7 +1065,9 @@ class SettingsIconBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final effectiveBg = tokens.isDark ? _adaptBadgeBg(background, tokens) : background;
+    final effectiveBg = tokens.isDark
+        ? _adaptBadgeBg(background, tokens)
+        : background;
     final effectiveFg = tokens.isDark ? _adaptBadgeFg(color, tokens) : color;
 
     return Container(
@@ -1023,11 +1112,15 @@ class SettingsListItem extends StatelessWidget {
     final tokens = context.ehColors;
     final effectiveIconColor = destructive
         ? (tokens.isDark ? tokens.errorText : SettingsColors.red)
-        : (tokens.isDark && iconColor == SettingsColors.blue ? tokens.bluePrimary : iconColor);
+        : (tokens.isDark && iconColor == SettingsColors.blue
+              ? tokens.bluePrimary
+              : iconColor);
 
     final effectiveIconBg = destructive
         ? (tokens.isDark ? tokens.errorContainer : const Color(0xFFFFEEEE))
-        : (tokens.isDark ? _adaptBadgeBg(iconBackground, tokens) : iconBackground);
+        : (tokens.isDark
+              ? _adaptBadgeBg(iconBackground, tokens)
+              : iconBackground);
 
     final effectiveTitleColor = destructive
         ? (tokens.isDark ? tokens.errorText : SettingsColors.red)
@@ -1047,7 +1140,10 @@ class SettingsListItem extends StatelessWidget {
             child: Semantics(
               button: onTap != null,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
                 child: Row(
                   children: [
                     SettingsIconBadge(
