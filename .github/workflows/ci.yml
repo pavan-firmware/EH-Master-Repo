@@ -51,8 +51,11 @@ jobs:
       - name: Run Phase 5 Backend Secure Onboarding & Claiming Tests
         run: node backend/tests/phase5-onboarding.test.js
 
-      - name: Run Phase 6 MQTT Device Transport Integration Tests
+      - name: Run Phase 6 MQTT Device Transport Integration Tests (Mock)
         run: node backend/tests/phase6-mqtt.test.js
+
+      - name: Run Phase 6 Real Socket MQTT Broker Integration Tests
+        run: node backend/tests/phase6-real-broker.test.js
 
   validate-flutter-app:
     name: Flutter Analyze & Test (smart_home_application_v1)

@@ -181,7 +181,7 @@ class MqttDeviceTransport {
    * Backend subscribes to: command-receipts, state, events, telemetry, availability
    * for ALL devices using '+' wildcard.
    */
-  _setupBackendSubscriptions() {
+  async _setupBackendSubscriptions() {
     const inboundCategories = [
       'command-receipts',
       'state',
@@ -190,17 +190,22 @@ class MqttDeviceTransport {
       'availability',
     ];
 
-    for (const category of inboundCategories) {
-      const topic = MqttTopicBuilder.backendSubscribe(category);
-      const policy = MqttTopicBuilder.qosPolicy(category);
-      this._client.subscribe(topic, { qos: policy.qos }, (err) => {
-        if (err) {
-          console.error(`[MqttDeviceTransport] Failed to subscribe to ${topic}:`, err);
-        } else {
-          console.log(`[MqttDeviceTransport] Subscribed: ${topic} (QoS ${policy.qos})`);
-        }
+    const subPromises = inboundCategories.map(category => {
+      return new Promise((resolve) => {
+        const topic = MqttTopicBuilder.backendSubscribe(category);
+        const policy = MqttTopicBuilder.qosPolicy(category);
+        this._client.subscribe(topic, { qos: policy.qos }, (err) => {
+          if (err) {
+            console.error(`[MqttDeviceTransport] Failed to subscribe to ${topic}:`, err);
+          } else {
+            console.log(`[MqttDeviceTransport] Subscribed: ${topic} (QoS ${policy.qos})`);
+          }
+          resolve();
+        });
       });
-    }
+    });
+
+    await Promise.all(subPromises);
   }
 
   // ---------------------------------------------------------------------------
