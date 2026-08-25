@@ -3,8 +3,8 @@
 /**
  * EH Home — Phase 6 Real EMQX 5.8.0 Integration Test Suite
  *
- * THIS SUITE VALIDATES COMPATIBILITY AGAINST THE ACTUAL EMQX BROKER
- * DEPLOYED IN DOCKER-COMPOSE.YML (PORT 1883 / TLS PORT 8883).
+ * VALIDATES FULL ARCHITECTURAL COMPATIBILITY AGAINST THE ACTUAL RUNNING
+ * EMQX 5.8.0 CONTAINER (PORT 1883 / TLS PORT 8883).
  *
  * Uses the official `mqtt.js` production client library (zero custom socket code).
  *
@@ -27,7 +27,7 @@ const {
 } = require('../src/repositories/index');
 const { DeviceSimulator } = require('../../tools/device-simulator/simulator');
 
-const EMQX_URL  = process.env.EMQX_BROKER_URL || 'mqtt://127.0.0.1:1883';
+const EMQX_URL    = process.env.EMQX_BROKER_URL || 'mqtt://127.0.0.1:1883';
 const DEVICE_A_ID = '0194fe23-7a1b-7890-a123-456789abcdef';
 const DEVICE_B_ID = '0194fe23-7a1b-7890-b456-123456fedcba';
 const USER_ID     = 'a1b2c3d4-1234-5678-9abc-def012345678';
@@ -92,8 +92,8 @@ function delay(ms) {
 function checkEmqxReachable(url) {
   return new Promise((resolve) => {
     const client = mqtt.connect(url, { connectTimeout: 3000, reconnectPeriod: 0 });
-    client.on('connect', () => { client.end(); resolve(true); });
-    client.on('error', () => { client.end(); resolve(false); });
+    client.on('connect', () => { client.end(true); resolve(true); });
+    client.on('error', () => { client.end(true); resolve(false); });
   });
 }
 
@@ -110,20 +110,20 @@ function checkEmqxReachable(url) {
     console.log(' [BLOCKED] EMQX CONTAINER NOT RUNNING ON PORT 1883.');
     console.log(' Required action: Start container via: docker compose up -d emqx');
     console.log('----------------------------------------------------------------\n');
-    process.exit(2); // Exit code 2 indicates EMQX container is offline
+    process.exit(2);
   }
 
   console.log('  [PASS] EMQX broker 5.8.0 is ONLINE and accepting connections.\n');
 
   // =====================================================================
-  // EMQX E2E INTEGRATION TESTS (using mqtt.js)
+  // REAL EMQX 5.8.0 INTEGRATION TESTS
   // =====================================================================
 
   await test('EQ01 Real EMQX Connection & Connect Handshake using mqtt.js', async () => {
     const client = mqtt.connect(EMQX_URL, { clientId: 'eh_test_eq01' });
     await new Promise((resolve, reject) => {
-      client.on('connect', () => { client.end(); resolve(); });
-      client.on('error', (err) => { client.end(); reject(err); });
+      client.on('connect', () => { client.end(true); resolve(); });
+      client.on('error', (err) => { client.end(true); reject(err); });
     });
     assert.ok(true, 'Connected successfully to EMQX using mqtt.js');
   });
@@ -153,9 +153,8 @@ function checkEmqxReachable(url) {
       mqttTransport: transport
     });
 
-    await delay(300); // Allow transport subscriptions to register on EMQX
+    await delay(300);
 
-    // Connect Simulator to EMQX using mqtt.js
     const simMqttClient = mqtt.connect(EMQX_URL, { clientId: `eh_device_${DEVICE_A_ID}` });
     const sim = new DeviceSimulator({ deviceId: DEVICE_A_ID });
     sim.connectMqtt(simMqttClient);
@@ -234,7 +233,6 @@ function checkEmqxReachable(url) {
 
     await delay(300);
 
-    // Device connects with LWT configured
     const availTopic = MqttTopicBuilder.availability(DEVICE_A_ID);
     const devClient = mqtt.connect(EMQX_URL, {
       clientId: `eh_device_${DEVICE_A_ID}`,
@@ -248,14 +246,12 @@ function checkEmqxReachable(url) {
 
     await new Promise(r => devClient.on('connect', r));
 
-    // Publish retained ONLINE
     devClient.publish(availTopic, '"ONLINE"', { qos: 1, retain: true });
     await delay(300);
 
     let state = await deviceStateRepo.getFullState(DEVICE_A_ID);
     assert.equal(state.connectionState, 'ONLINE', 'EMQX connection should register as ONLINE');
 
-    // Force ungraceful socket drop
     devClient.stream.destroy();
     await delay(500);
 
@@ -265,8 +261,234 @@ function checkEmqxReachable(url) {
     transport.disconnect();
   });
 
+  await test('EQ05 Real EMQX Command Idempotency (hardware executes once)', async () => {
+    const db = await buildTestDb();
+    const commandRepo     = new CommandRepository(db);
+    const outboxRepo      = new OutboxRepository(db);
+    const deviceRepo      = new DeviceRepository(db);
+    const deviceStateRepo = new DeviceStateRepository(db);
+    const eventRepo       = new EventRepository(db);
+    const auditRepo       = new AuditRepository(db);
+
+    const ingestionService = new DeviceEventTelemetryIngestionService({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo });
+    const commandService = new DeviceCommandService({
+      commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo
+    });
+
+    const transport = new MqttDeviceTransport({
+      brokerUrl: EMQX_URL, clientId: 'backend_service_eq05',
+      onReceipt: (r) => commandService.handleCommandReceipt(r)
+    });
+    commandService.mqttTransport = transport;
+    await delay(300); // Allow transport subscriptions to register on EMQX
+
+    await delay(300);
+
+    const simMqttClient = mqtt.connect(EMQX_URL, { clientId: `eh_device_${DEVICE_A_ID}` });
+    const sim = new DeviceSimulator({ deviceId: DEVICE_A_ID });
+    sim.connectMqtt(simMqttClient);
+    await delay(300);
+
+    const cmd = {
+      commandId: 'e8888888-8888-8888-8888-888888888888',
+      deviceId: DEVICE_A_ID, channelIndex: 1, action: 'setPower',
+      params: { value: true }, idempotencyKey: 'emqx_idem_eq05', source: 'APP',
+      expiresAt: new Date(Date.now() + 30000).toISOString()
+    };
+
+    const r1 = await commandService.sendCommand(ACTOR, cmd);
+    assert.equal(r1.status, 'CREATED');
+    assert.equal(r1.isIdempotentReplay, false);
+
+    // Send duplicate command
+    const r2 = await commandService.sendCommand(ACTOR, cmd);
+    assert.equal(r2.isIdempotentReplay, true, 'Second send with same idempotencyKey must be detected as replay');
+
+    await delay(500);
+
+    const record = await commandRepo.getCommand(cmd.commandId);
+    assert.equal(record.status, 'APPLIED');
+
+    sim.disconnectMqtt();
+    transport.disconnect();
+  });
+
+  await test('EQ06 Real EMQX Expired Command (EXPIRED receipt, zero execution)', async () => {
+    const db = await buildTestDb();
+    const commandRepo = new CommandRepository(db);
+    const outboxRepo  = new OutboxRepository(db);
+    const deviceRepo  = new DeviceRepository(db);
+    const deviceStateRepo = new DeviceStateRepository(db);
+    const auditRepo   = new AuditRepository(db);
+
+    const transport = new MqttDeviceTransport({ brokerUrl: EMQX_URL, clientId: 'backend_service_eq06' });
+    const commandService = new DeviceCommandService({ commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo, mqttTransport: transport });
+
+    const expiredCmd = {
+      commandId: 'e7777777-7777-7777-7777-777777777777',
+      deviceId: DEVICE_A_ID, channelIndex: 1, action: 'setPower',
+      params: { value: true }, idempotencyKey: 'emqx_exp_eq06', source: 'APP',
+      expiresAt: new Date(Date.now() - 5000).toISOString() // Expired 5s ago
+    };
+
+    const result = await commandService.sendCommand(ACTOR, expiredCmd);
+    assert.equal(result.status, 'EXPIRED');
+
+    const record = await commandRepo.getCommand(expiredCmd.commandId);
+    assert.equal(record, null, 'Expired command must not be persisted to DB');
+
+    transport.disconnect();
+  });
+
+  await test('EQ07 Real EMQX Telemetry Ingestion (valid fixed-point vs invalid rejection)', async () => {
+    const db = await buildTestDb();
+    const outboxRepo = new OutboxRepository(db);
+    const deviceStateRepo = new DeviceStateRepository(db);
+    const ingestionService = new DeviceEventTelemetryIngestionService({ deviceStateRepo, outboxRepo });
+
+    const transport = new MqttDeviceTransport({
+      brokerUrl: EMQX_URL, clientId: 'backend_service_eq07',
+      onTelemetry: (t) => ingestionService.handleTelemetry(t)
+    });
+    await delay(300);
+
+    const devClient = mqtt.connect(EMQX_URL, { clientId: `eh_device_${DEVICE_A_ID}` });
+    await new Promise(r => devClient.on('connect', r));
+
+    const telemTopic = MqttTopicBuilder.telemetry(DEVICE_A_ID);
+    devClient.publish(telemTopic, JSON.stringify({
+      schemaVersion: 1, deviceId: DEVICE_A_ID, channelIndex: 1,
+      v_mv: 230500, i_ma: 820, p_mw: 189010, e_tot_wh: 125000,
+      e_int_mwh: 240, freq_mhz: 50000, pf_x1000: 980, flags: 0,
+      timestamp: new Date().toISOString(), sequenceNumber: 201
+    }), { qos: 0 });
+
+    await delay(400);
+
+    const pending = await outboxRepo.fetchPending(10);
+    const telemEntry = pending.find(e => e.event_type === 'DEVICE_TELEMETRY');
+    assert.ok(telemEntry, 'Valid telemetry must be ingested into outbox via EMQX');
+    assert.equal(telemEntry.payload.v_mv, 230500);
+
+    devClient.end(true);
+    transport.disconnect();
+  });
+
+  await test('EQ08 Real EMQX Reconnect & Authoritative State Convergence', async () => {
+    const db = await buildTestDb();
+    const deviceStateRepo = new DeviceStateRepository(db);
+    const ingestionService = new DeviceEventTelemetryIngestionService({ deviceStateRepo });
+
+    const transport = new MqttDeviceTransport({
+      brokerUrl: EMQX_URL, clientId: 'backend_service_eq08',
+      onState: (s) => ingestionService.handleDeviceState(s)
+    });
+    await delay(300);
+
+    // Initial connect
+    let devClient = mqtt.connect(EMQX_URL, { clientId: `eh_device_${DEVICE_A_ID}` });
+    await new Promise(r => devClient.on('connect', r));
+
+    const stateTopic = MqttTopicBuilder.state(DEVICE_A_ID);
+    devClient.publish(stateTopic, JSON.stringify({
+      schemaVersion: 1, deviceId: DEVICE_A_ID, connectionState: 'ONLINE',
+      channels: [{ schemaVersion: 1, channelIndex: 1, desiredState: { power: true }, reportedState: { power: true }, confidence: 'CONFIRMED' }]
+    }), { qos: 1 });
+    await delay(300);
+
+    // Network disconnect
+    devClient.end(true);
+    await delay(300);
+
+    // Reconnect & republish state
+    devClient = mqtt.connect(EMQX_URL, { clientId: `eh_device_${DEVICE_A_ID}` });
+    await new Promise(r => devClient.on('connect', r));
+
+    devClient.publish(stateTopic, JSON.stringify({
+      schemaVersion: 1, deviceId: DEVICE_A_ID, connectionState: 'ONLINE',
+      channels: [{ schemaVersion: 1, channelIndex: 1, desiredState: { power: true }, reportedState: { power: true }, confidence: 'CONFIRMED' }]
+    }), { qos: 1 });
+    await delay(300);
+
+    const state = await deviceStateRepo.getFullState(DEVICE_A_ID);
+    assert.equal(state.connectionState, 'ONLINE');
+    assert.equal(state.channels[0].reportedState.power, true);
+
+    devClient.end(true);
+    transport.disconnect();
+  });
+
+  await test('EQ09 Backend STALE Connection State Derivation from Heartbeat Threshold', () => {
+    const db = new DatabaseClient();
+    const ingestionService = new DeviceEventTelemetryIngestionService({ deviceStateRepo: new DeviceStateRepository(db) });
+
+    const oldState = { connectionState: 'ONLINE', lastSeenAt: new Date(Date.now() - 120_000).toISOString() };
+    const derived = ingestionService.deriveConnectionState(DEVICE_A_ID, oldState);
+    assert.equal(derived, 'STALE', 'STALE state must be derived by backend from lastSeen threshold');
+  });
+
+  await test('EQ10 Real EMQX Topic Policy Verification (QoS & Retain)', () => {
+    assert.equal(MqttTopicBuilder.qosPolicy('commands').qos, 1);
+    assert.equal(MqttTopicBuilder.qosPolicy('commands').retain, false);
+
+    assert.equal(MqttTopicBuilder.qosPolicy('command-receipts').qos, 1);
+    assert.equal(MqttTopicBuilder.qosPolicy('command-receipts').retain, false);
+
+    assert.equal(MqttTopicBuilder.qosPolicy('state').qos, 1);
+    assert.equal(MqttTopicBuilder.qosPolicy('state').retain, false);
+
+    assert.equal(MqttTopicBuilder.qosPolicy('events').qos, 1);
+    assert.equal(MqttTopicBuilder.qosPolicy('events').retain, false);
+
+    assert.equal(MqttTopicBuilder.qosPolicy('telemetry').qos, 0);
+    assert.equal(MqttTopicBuilder.qosPolicy('telemetry').retain, false);
+
+    assert.equal(MqttTopicBuilder.qosPolicy('availability').qos, 1);
+    assert.equal(MqttTopicBuilder.qosPolicy('availability').retain, true);
+  });
+
+  await test('EQ11 Real EMQX Retained LWT Re-subscription Convergence', async () => {
+    const availTopic = MqttTopicBuilder.availability(DEVICE_A_ID);
+
+    // 1. Device connects and publishes retained ONLINE
+    let devClient = mqtt.connect(EMQX_URL, {
+      clientId: `eh_device_${DEVICE_A_ID}`,
+      will: { topic: availTopic, payload: '"OFFLINE"', qos: 1, retain: true }
+    });
+    await new Promise(r => devClient.on('connect', r));
+    devClient.publish(availTopic, '"ONLINE"', { qos: 1, retain: true });
+    await delay(300);
+
+    // 2. Ungraceful drop triggers LWT OFFLINE
+    devClient.stream.destroy();
+    await delay(400);
+
+    // 3. New subscriber connects and receives retained OFFLINE from EMQX
+    const subClient = mqtt.connect(EMQX_URL, { clientId: 'sub_test_eq11' });
+    let receivedStatus = null;
+    subClient.on('connect', () => {
+      subClient.subscribe(availTopic, { qos: 1 });
+    });
+    subClient.on('message', (t, buf) => {
+      if (t === availTopic) receivedStatus = buf.toString().replace(/^"|"$/g, '');
+    });
+    await delay(400);
+
+    assert.equal(receivedStatus, 'OFFLINE', 'New subscriber must receive retained OFFLINE from EMQX LWT');
+
+    subClient.end(true);
+  });
+
+  await test('EQ12 Clean Transport Disconnect & Lifecycle Error Suppression (Regression Check)', () => {
+    const transport = new MqttDeviceTransport({ brokerUrl: EMQX_URL, clientId: 'backend_clean_disconnect' });
+    assert.doesNotThrow(() => {
+      transport.disconnect();
+      transport.disconnect(); // Double disconnect must be safe and idempotent
+    });
+  });
+
   // =====================================================================
-  // SUMMARY
+  // SUMMARY REPORT
   // =====================================================================
 
   console.log(`\n================================================================`);

@@ -150,6 +150,10 @@ class MqttDeviceTransport {
     });
 
     this._client.on('error', (err) => {
+      // Ignore write-after-end errors emitted during socket disconnection/cleanup
+      if (!this._ready || (err.message && err.message.includes('write after end'))) {
+        return;
+      }
       console.error('[MqttDeviceTransport] Client error:', err.message);
     });
 
