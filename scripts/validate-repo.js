@@ -59,11 +59,14 @@ runStep('8. Phase 4 Backend Domain Model & Service Tests', `${nodeBin} backend/t
 // 9. Phase 5 Backend Secure Onboarding & Claiming Tests
 runStep('9. Phase 5 Backend Secure Onboarding & Claiming Tests', `${nodeBin} backend/tests/phase5-onboarding.test.js`);
 
-// 10. Flutter Code Analysis
-runStep('10. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
+// 10. Phase 6 MQTT Device Transport Integration Tests
+runStep('10. Phase 6 MQTT Device Transport Integration Tests', `${nodeBin} backend/tests/phase6-mqtt.test.js`);
 
-// 11. Flutter Unit & Widget Test Suite
-runStep('11. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
+// 11. Flutter Code Analysis
+runStep('11. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
+
+// 12. Flutter Unit & Widget Test Suite
+runStep('12. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
 
 console.log('\n===============================================================');
 if (failedSuites === 0) {

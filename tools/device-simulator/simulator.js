@@ -1,6 +1,11 @@
 const { SchemaValidator } = require('../../packages/contracts/validator');
 const path = require('path');
 
+// Phase 6: Import canonical topic builder for MQTT transport mode
+// MqttTopicBuilder is used for all topic construction — never hard-code topic strings.
+const { MqttTopicBuilder } = require('../../backend/src/shared/mqtt-topic-builder');
+const { MockMqttClient } = require('../../backend/src/services/mqtt-device-transport');
+
 class DeviceSimulator {
   constructor(config = {}) {
     this.identity = {
@@ -139,6 +144,176 @@ class DeviceSimulator {
       sequenceNumber: this.sequenceNumber
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // Phase 6 — MQTT Transport Mode
+  //
+  // Extends the existing simulator with an MQTT transport adapter.
+  // Reuses all existing state, command handling, and physical switch simulation.
+  // DOES NOT create a second simulator engine.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Connect simulator to an MQTT client (real or mock).
+   * Sets up subscriptions and publishes ONLINE availability.
+   *
+   * @param {Object} [mqttClient]  - Optional mqtt.js-compatible client. If not provided,
+   *                                 uses internal MockMqttClient for testing.
+   */
+  connectMqtt(mqttClient) {
+    this._mqttClient = mqttClient || new MockMqttClient();
+    const deviceId = this.identity.deviceId;
+
+    // Subscribe to commands topic
+    const cmdTopic = MqttTopicBuilder.commands(deviceId);
+    this._mqttClient.subscribe(cmdTopic, { qos: 1 }, (err) => {
+      if (err) {
+        console.error('[Simulator] Failed to subscribe to commands:', err.message);
+        return;
+      }
+      console.log(`[Simulator] Subscribed to ${cmdTopic}`);
+
+      // Publish retained ONLINE availability
+      const availTopic = MqttTopicBuilder.availability(deviceId);
+      this._mqttClient.publish(availTopic, '"ONLINE"',
+        { qos: 1, retain: true }, () => {
+          console.log('[Simulator] Published ONLINE availability');
+        });
+
+      // Publish initial state
+      this._publishState();
+    });
+
+    // Register message handler
+    this._mqttClient.on('message', (topic, buf) => {
+      this._processMqttMessage(topic, buf);
+    });
+
+    this.connectionState = 'ONLINE';
+    return this;
+  }
+
+  /**
+   * Gracefully disconnect the simulator MQTT client.
+   * Publishes OFFLINE (retained) before disconnecting.
+   */
+  disconnectMqtt() {
+    if (!this._mqttClient) return;
+    const deviceId = this.identity.deviceId;
+    const availTopic = MqttTopicBuilder.availability(deviceId);
+    this._mqttClient.publish(availTopic, '"OFFLINE"',
+      { qos: 1, retain: true }, () => {
+        this._mqttClient.end();
+        this.connectionState = 'OFFLINE';
+        console.log('[Simulator] Disconnected gracefully — OFFLINE published');
+      });
+  }
+
+  /**
+   * Simulate a physical wall switch toggle over MQTT.
+   * Publishes DeviceEvent(source=PHYSICAL_SWITCH) and updated state.
+   *
+   * @param {number} channelIndex - Channel to toggle (1-based)
+   */
+  physicalToggleMqtt(channelIndex) {
+    const evt = this.handlePhysicalToggle(channelIndex); // Reuse existing logic
+    if (!this._mqttClient) return evt;
+
+    const deviceId = this.identity.deviceId;
+
+    // Publish event
+    const eventTopic = MqttTopicBuilder.events(deviceId);
+    this._mqttClient.publish(eventTopic, JSON.stringify(evt), { qos: 1, retain: false }, () => {});
+
+    // Publish updated state
+    this._publishState();
+
+    return evt;
+  }
+
+  /**
+   * Publish current device state to MQTT state topic.
+   * @private
+   */
+  _publishState() {
+    if (!this._mqttClient) return;
+    const stateTopic = MqttTopicBuilder.state(this.identity.deviceId);
+    const statePayload = this.getState();
+    this._mqttClient.publish(stateTopic, JSON.stringify(statePayload), { qos: 1, retain: false }, () => {});
+  }
+
+  /**
+   * Process an incoming MQTT message from the command topic.
+   * Validates, handles idempotency (by commandId tracking), publishes receipt.
+   * @private
+   */
+  _processMqttMessage(topic, buf) {
+    const deviceId = this.identity.deviceId;
+    const expectedTopic = MqttTopicBuilder.commands(deviceId);
+    if (topic !== expectedTopic) return; // ACL: ignore other device topics
+
+    let cmd;
+    try {
+      cmd = JSON.parse(buf.toString('utf8'));
+    } catch (_) {
+      console.warn('[Simulator] Malformed command payload — dropped');
+      return;
+    }
+
+    // Expiry check
+    if (cmd.expiresAt && new Date(cmd.expiresAt) <= new Date()) {
+      this._publishReceipt({
+        schemaVersion: 1,
+        commandId: cmd.commandId,
+        deviceId,
+        channelIndex: cmd.channelIndex,
+        status: 'EXPIRED',
+        failureReason: 'Command expired before delivery',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Idempotency check (in-memory dedup by commandId for simulator)
+    if (!this._seenCommands) this._seenCommands = new Set();
+    const idemKey = `${deviceId}:${cmd.idempotencyKey || cmd.commandId}`;
+    if (this._seenCommands.has(idemKey)) {
+      // Duplicate: return deterministic APPLIED without re-actuating
+      this._publishReceipt({
+        schemaVersion: 1,
+        commandId: cmd.commandId,
+        deviceId,
+        channelIndex: cmd.channelIndex,
+        status: 'APPLIED',
+        failureReason: null,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Process command using existing handleCommand logic
+    const receipt = this.handleCommand(cmd);
+    this._seenCommands.add(idemKey);
+
+    this._publishReceipt({
+      ...receipt,
+      schemaVersion: 1,
+      deviceId
+    });
+
+    // If applied, publish updated state
+    if (receipt.status === 'APPLIED') {
+      this._publishState();
+    }
+  }
+
+  /** @private */
+  _publishReceipt(receipt) {
+    if (!this._mqttClient) return;
+    const receiptTopic = MqttTopicBuilder.commandReceipts(this.identity.deviceId);
+    this._mqttClient.publish(receiptTopic, JSON.stringify(receipt), { qos: 1, retain: false }, () => {});
+  }
 }
 
 module.exports = { DeviceSimulator };
+

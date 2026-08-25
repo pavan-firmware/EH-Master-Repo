@@ -45,6 +45,15 @@ jobs:
       - name: Run Backend Product Catalog Service & API Tests
         run: node backend/tests/product-catalog.test.js
 
+      - name: Run Phase 4 Backend Domain Model & Service Tests
+        run: node backend/tests/phase4-domain.test.js
+
+      - name: Run Phase 5 Backend Secure Onboarding & Claiming Tests
+        run: node backend/tests/phase5-onboarding.test.js
+
+      - name: Run Phase 6 MQTT Device Transport Integration Tests
+        run: node backend/tests/phase6-mqtt.test.js
+
   validate-flutter-app:
     name: Flutter Analyze & Test (smart_home_application_v1)
     runs-on: ubuntu-latest
@@ -74,5 +83,5 @@ jobs:
       - name: Run Flutter Analyzer
         run: flutter analyze --no-fatal-infos
 
-      - name: Run Flutter Test Suite (Unit, Widget & Capability Engine)
+      - name: Run Flutter Test Suite (Unit, Widget, Capability Engine & Onboarding)
         run: flutter test
