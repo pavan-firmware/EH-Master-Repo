@@ -77,11 +77,23 @@ runStep('14. Phase 7B Realtime SSE & Worker Integration Tests', `${nodeBin} back
 // 15. Flutter Code Analysis
 runStep('15. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
 
-// 16. Flutter Unit & Widget Test Suite
+// 16. Flutter Test Suite
 runStep('16. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
 
+// 17. Phase 8 Firmware Host Tests
+runStep('17. Phase 8 Firmware Host & Protocol Tests', `${nodeBin} firmware/tests/test_firmware_modules.js`);
+
+// 18. Phase 8 Manufacturing PKI Tests
+runStep('18. Phase 8 Manufacturing PKI & Provisioner Tests', 'python tools/manufacturing/test_manufacturing.py');
+
+// 19. Phase 8 Signed OTA Tests
+runStep('19. Phase 8 Signed OTA & Compatibility Tests', `${nodeBin} backend/tests/phase8-ota.test.js`);
+
+// 20. Phase 8 Hardware Harness Self-Test
+runStep('20. Phase 8 Hardware Test Harness Self-Test', 'python tools/hardware-test-harness/test_esp32_lifecycle.py');
+
 console.log('\n===============================================================');
-console.log(`  16 SUITES ATTEMPTED. ${failedSuites === 0 ? '16/16' : (16 - failedSuites) + '/16'} PASSED.`);
+console.log(`  20 SUITES ATTEMPTED. ${failedSuites === 0 ? '20/20' : (20 - failedSuites) + '/20'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

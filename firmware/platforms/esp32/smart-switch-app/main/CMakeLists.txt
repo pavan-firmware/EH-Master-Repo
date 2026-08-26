@@ -1,0 +1,26 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "app_lifecycle.c"
+        "wifi_manager.c"
+        "relay_manager.c"
+        "switch_manager.c"
+        "telemetry_manager.c"
+        "ota_manager.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_timer
+        driver
+        app_update
+        mbedtls
+        eh_prov1
+        mqtt_transport
+        factory_identity_v2
+        ble_commissioning
+        mqtt_client
+)
