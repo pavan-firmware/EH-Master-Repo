@@ -50,8 +50,9 @@ async function test(name, fn) {
     console.log(`  [PASS] ${name}`);
     passed++;
   } catch (err) {
-    console.error(`  [FAIL] ${name}`);
-    console.error(`         ${err.message}`);
+    console.log(`  [FAIL] ${name}`);
+    console.log(`         Error: ${err.message}`);
+    if (err.stack) console.log(`         Stack: ${err.stack.split('\n').slice(0, 5).join('\n         ')}`);
     failures.push({ name, error: err.message });
     failed++;
   }
