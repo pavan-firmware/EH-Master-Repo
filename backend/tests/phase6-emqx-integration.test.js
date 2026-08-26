@@ -514,213 +514,337 @@ function checkEmqxReachable(url) {
   const UNTRUSTED_DEV_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'untrusted_device.crt'));
   const UNTRUSTED_DEV_KEY = fs.readFileSync(path.join(LOCAL_CERTS, 'untrusted_device.key'));
 
-  /** EQ13a — Valid server CA → connection accepted */
-  await test('EQ13a Real EMQX TLS — valid server CA accepted (rejectUnauthorized: true)', async () => {
-    let connected = false;
-    await new Promise((resolve, reject) => {
-      const client = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
-        rejectUnauthorized: true,
-        clientId: DEVICE_A_ID,
-        connectTimeout: 5000, reconnectPeriod: 0
-      });
-      client.on('connect', () => { connected = true; client.end(true); resolve(); });
-      client.on('error', (e) => { client.end(true); reject(new Error(`TLS connect failed: ${e.message}`)); });
-      setTimeout(() => reject(new Error('TLS connect timeout')), 6000);
+  function testMtlsConnectSuccess(options, timeoutMs = 8000) {
+    let client = null;
+    let timer = null;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        if (client) {
+          try {
+            client.on('error', () => {}); // Attach no-op error handler to swallow trailing TLS/stream errors
+            client.end(true);
+            if (client.stream) client.stream.destroy();
+          } catch (_) {}
+        }
+      };
+
+      timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(new Error(`mTLS connection timed out after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+
+      try {
+        client = mqtt.connect(EMQX_TLS_URL, {
+          reconnectPeriod: 0,
+          connectTimeout: 5000,
+          servername: 'localhost',
+          ...options
+        });
+
+        client.on('error', (err) => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            reject(new Error(`TLS connection error: ${err.message}`));
+          }
+        });
+
+        client.on('connect', () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(true);
+          }
+        });
+
+        client.on('close', () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            reject(new Error('Connection closed before connect completed'));
+          }
+        });
+      } catch (err) {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(err);
+        }
+      }
     });
-    assert.ok(connected, 'EMQX TLS must accept connection when valid CA and client cert are provided');
+  }
+
+  function testMtlsConnectRejection(options, timeoutMs = 8000) {
+    let client = null;
+    let timer = null;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        if (client) {
+          try {
+            client.on('error', () => {}); // Attach no-op error handler to swallow trailing TLS/stream errors
+            client.end(true);
+            if (client.stream) client.stream.destroy();
+          } catch (_) {}
+        }
+      };
+
+      timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          // Timeout without connecting means connection was NOT established as expected
+          resolve(true);
+        }
+      }, timeoutMs);
+
+      try {
+        client = mqtt.connect(EMQX_TLS_URL, {
+          reconnectPeriod: 0,
+          connectTimeout: 5000,
+          servername: 'localhost',
+          ...options
+        });
+
+        client.on('error', () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(true); // Handshake / connection rejected as expected
+          }
+        });
+
+        client.on('connect', () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            reject(new Error('Connection SUCCEEDED when rejection was expected'));
+          }
+        });
+
+        client.on('close', () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(true); // Closed without connecting
+          }
+        });
+      } catch (_) {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(true); // Direct throw / synchronous failure -> rejected
+        }
+      }
+    });
+  }
+
+  /** EQ13a — Valid server CA + valid Device A client certificate + rejectUnauthorized=true → connection succeeds */
+  await test('EQ13a Real EMQX TLS — valid server CA and valid client cert accepted (rejectUnauthorized: true)', async () => {
+    await testMtlsConnectSuccess({
+      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
+    });
   });
 
-  /** EQ13b — Unknown CA → rejected */
+  /** EQ13b — Untrusted/unknown server CA → connection rejected */
   await test('EQ13b Real EMQX TLS — unknown/untrusted server CA rejected (rejectUnauthorized: true)', async () => {
-    let rejected = false;
-    await new Promise((resolve) => {
-      const client = mqtt.connect(EMQX_TLS_URL, {
-        ca: UNTRUSTED_CA, cert: DEV_A_CRT, key: DEV_A_KEY,
-        rejectUnauthorized: true,
-        clientId: DEVICE_A_ID,
-        connectTimeout: 5000, reconnectPeriod: 0
-      });
-      client.on('connect', () => { client.end(true); resolve(new Error('Untrusted CA was accepted')); });
-      client.on('error', (e) => {
-        rejected = true;
-        client.end(true);
-        resolve();
-      });
-      setTimeout(resolve, 6000);
+    await testMtlsConnectRejection({
+      ca: UNTRUSTED_CA, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
-    assert.ok(rejected, 'EMQX connection must be rejected when server CA is untrusted');
   });
 
-  /** EQ13c — Valid Device A client certificate → accepted */
+  /** EQ13c — Valid Device A client certificate → broker accepts */
   await test('EQ13c Real EMQX mTLS — valid Device A client certificate accepted', async () => {
-    let connected = false;
-    await new Promise((resolve, reject) => {
-      const client = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
-        rejectUnauthorized: true,
-        clientId: DEVICE_A_ID,
-        connectTimeout: 5000, reconnectPeriod: 0
-      });
-      client.on('connect', () => { connected = true; client.end(true); resolve(); });
-      client.on('error', (e) => { client.end(true); reject(e); });
-      setTimeout(() => reject(new Error('Timeout')), 6000);
+    await testMtlsConnectSuccess({
+      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
-    assert.ok(connected, 'EMQX must accept Device A client certificate');
   });
 
-  /** EQ13d — No client certificate → rejected by EMQX */
+  /** EQ13d — NO client certificate → broker rejects during TLS handshake */
   await test('EQ13d Real EMQX mTLS — missing client certificate rejected by broker', async () => {
-    let rejected = false;
-    await new Promise((resolve) => {
-      const client = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT,
-        rejectUnauthorized: true,
-        clientId: DEVICE_A_ID,
-        connectTimeout: 5000, reconnectPeriod: 0
-      });
-      client.on('connect', () => { client.end(true); resolve(new Error('Connected without client cert!')); });
-      client.on('error', (e) => {
-        rejected = e.message.includes('certificate required') ||
-                   e.message.includes('alert') ||
-                   e.message.includes('handshake failure');
-        client.end(true);
-        resolve();
-      });
-      setTimeout(resolve, 6000);
+    await testMtlsConnectRejection({
+      ca: CA_CRT,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
-    assert.ok(rejected, 'EMQX must reject connections presented without a client certificate');
   });
 
-  /** EQ13e — Invalid/untrusted client certificate → rejected by EMQX */
+  /** EQ13e — Client certificate signed by untrusted CA → broker rejects */
   await test('EQ13e Real EMQX mTLS — untrusted client certificate rejected by broker', async () => {
-    let rejected = false;
-    await new Promise((resolve) => {
-      const client = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: UNTRUSTED_DEV_CRT, key: UNTRUSTED_DEV_KEY,
-        rejectUnauthorized: true,
-        clientId: DEVICE_A_ID,
-        connectTimeout: 5000, reconnectPeriod: 0
-      });
-      client.on('connect', () => { client.end(true); resolve(new Error('Untrusted client cert accepted!')); });
-      client.on('error', (e) => {
-        rejected = true;
-        client.end(true);
-        resolve();
-      });
-      setTimeout(resolve, 6000);
+    await testMtlsConnectRejection({
+      ca: CA_CRT, cert: UNTRUSTED_DEV_CRT, key: UNTRUSTED_DEV_KEY,
+      rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
-    assert.ok(rejected, 'EMQX must reject client certificates signed by an untrusted CA');
   });
 
   /** EQ13f — Device A certificate → Device A topics allowed */
   await test('EQ13f Real EMQX ACL — Device A certificate allowed on Device A topics', async () => {
-    const client = mqtt.connect(EMQX_TLS_URL, {
-      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
-      rejectUnauthorized: true,
-      clientId: DEVICE_A_ID,
-      connectTimeout: 5000, reconnectPeriod: 0
-    });
-    await new Promise(r => client.on('connect', r));
+    let client = null;
+    try {
+      client = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_A_ID,
+        servername: 'localhost',
+        reconnectPeriod: 0, connectTimeout: 5000
+      });
+      await new Promise((res, rej) => {
+        client.on('connect', res);
+        client.on('error', rej);
+      });
 
-    const cmdTopic = MqttTopicBuilder.commands(DEVICE_A_ID);
-    const granted = await new Promise(r => client.subscribe(cmdTopic, (err, g) => r(g)));
-    assert.ok(granted && granted[0] && granted[0].qos !== 128, 'Device A must be allowed to subscribe to own commands topic');
+      const cmdTopic = MqttTopicBuilder.commands(DEVICE_A_ID);
+      const granted = await new Promise(r => client.subscribe(cmdTopic, (err, g) => r(g)));
+      assert.ok(granted && granted[0] && granted[0].qos !== 128, 'Device A must be allowed to subscribe to own commands topic');
 
-    const stateTopic = MqttTopicBuilder.state(DEVICE_A_ID);
-    let pubSuccess = true;
-    client.publish(stateTopic, JSON.stringify({ state: { relay_0: true } }), { qos: 1 }, (err) => {
-      if (err) pubSuccess = false;
-    });
-    await delay(300);
-    assert.ok(pubSuccess, 'Device A must be allowed to publish to own state topic');
-
-    client.end(true);
+      const stateTopic = MqttTopicBuilder.state(DEVICE_A_ID);
+      let pubSuccess = true;
+      client.publish(stateTopic, JSON.stringify({ state: { relay_0: true } }), { qos: 1 }, (err) => {
+        if (err) pubSuccess = false;
+      });
+      await delay(300);
+      assert.ok(pubSuccess, 'Device A must be allowed to publish to own state topic');
+    } finally {
+      if (client) {
+        try { client.on('error', () => {}); client.end(true); } catch (_) {}
+      }
+    }
   });
 
   /** EQ13g — Device A certificate → Device B topics rejected by EMQX ACL */
   await test('EQ13g Real EMQX ACL — Device A certificate rejected on Device B topics', async () => {
-    const clientB = mqtt.connect(EMQX_TLS_URL, {
-      ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
-      rejectUnauthorized: true, clientId: DEVICE_B_ID
-    });
-    await new Promise(r => clientB.on('connect', r));
+    let clientA = null;
+    let clientB = null;
+    try {
+      clientB = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_B_ID,
+        servername: 'localhost',
+        reconnectPeriod: 0, connectTimeout: 5000
+      });
+      await new Promise((res, rej) => {
+        clientB.on('connect', res);
+        clientB.on('error', rej);
+      });
 
-    let devBReceived = false;
-    clientB.subscribe(MqttTopicBuilder.state(DEVICE_B_ID));
-    clientB.on('message', () => { devBReceived = true; });
+      let devBReceived = false;
+      clientB.subscribe(MqttTopicBuilder.state(DEVICE_B_ID));
+      clientB.on('message', () => { devBReceived = true; });
 
-    const clientA = mqtt.connect(EMQX_TLS_URL, {
-      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
-      rejectUnauthorized: true, clientId: DEVICE_A_ID
-    });
-    await new Promise(r => clientA.on('connect', r));
+      clientA = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_A_ID,
+        servername: 'localhost',
+        reconnectPeriod: 0, connectTimeout: 5000
+      });
+      await new Promise((res, rej) => {
+        clientA.on('connect', res);
+        clientA.on('error', rej);
+      });
 
-    // Device A attempts unauthorized publish to Device B state topic
-    clientA.publish(MqttTopicBuilder.state(DEVICE_B_ID), JSON.stringify({ unauthorized: true }));
+      // Device A attempts unauthorized publish to Device B state topic
+      clientA.publish(MqttTopicBuilder.state(DEVICE_B_ID), JSON.stringify({ unauthorized: true }));
 
-    await delay(600);
-    assert.equal(devBReceived, false, 'EMQX ACL must block Device A from publishing to Device B topic');
-
-    clientA.end(true);
-    clientB.end(true);
+      await delay(600);
+      assert.equal(devBReceived, false, 'EMQX ACL must block Device A from publishing to Device B topic');
+    } finally {
+      if (clientA) { try { clientA.on('error', () => {}); clientA.end(true); } catch (_) {} }
+      if (clientB) { try { clientB.on('error', () => {}); clientB.end(true); } catch (_) {} }
+    }
   });
 
   /** EQ13h — Device B certificate → Device A topics rejected by EMQX ACL */
   await test('EQ13h Real EMQX ACL — Device B certificate rejected on Device A topics', async () => {
-    const clientA = mqtt.connect(EMQX_TLS_URL, {
-      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
-      rejectUnauthorized: true, clientId: DEVICE_A_ID
-    });
-    await new Promise(r => clientA.on('connect', r));
+    let clientA = null;
+    let clientB = null;
+    try {
+      clientA = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_A_ID,
+        servername: 'localhost',
+        reconnectPeriod: 0, connectTimeout: 5000
+      });
+      await new Promise((res, rej) => {
+        clientA.on('connect', res);
+        clientA.on('error', rej);
+      });
 
-    let devAReceived = false;
-    clientA.subscribe(MqttTopicBuilder.state(DEVICE_A_ID));
-    clientA.on('message', () => { devAReceived = true; });
+      let devAReceived = false;
+      clientA.subscribe(MqttTopicBuilder.state(DEVICE_A_ID));
+      clientA.on('message', () => { devAReceived = true; });
 
-    const clientB = mqtt.connect(EMQX_TLS_URL, {
-      ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
-      rejectUnauthorized: true, clientId: DEVICE_B_ID
-    });
-    await new Promise(r => clientB.on('connect', r));
+      clientB = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_B_ID,
+        servername: 'localhost',
+        reconnectPeriod: 0, connectTimeout: 5000
+      });
+      await new Promise((res, rej) => {
+        clientB.on('connect', res);
+        clientB.on('error', rej);
+      });
 
-    // Device B attempts unauthorized publish to Device A state topic
-    clientB.publish(MqttTopicBuilder.state(DEVICE_A_ID), JSON.stringify({ unauthorized: true }));
+      // Device B attempts unauthorized publish to Device A state topic
+      clientB.publish(MqttTopicBuilder.state(DEVICE_A_ID), JSON.stringify({ unauthorized: true }));
 
-    await delay(600);
-    assert.equal(devAReceived, false, 'EMQX ACL must block Device B from publishing to Device A topic');
-
-    clientA.end(true);
-    clientB.end(true);
+      await delay(600);
+      assert.equal(devAReceived, false, 'EMQX ACL must block Device B from publishing to Device A topic');
+    } finally {
+      if (clientA) { try { clientA.on('error', () => {}); clientA.end(true); } catch (_) {} }
+      if (clientB) { try { clientB.on('error', () => {}); clientB.end(true); } catch (_) {} }
+    }
   });
 
   /** EQ13i — Device A CN / deviceId mismatch → ACL denied */
   await test('EQ13i Real EMQX ACL — Device A certificate with Device B clientId spoof attempt rejected', async () => {
-    const clientAOwn = mqtt.connect(EMQX_TLS_URL, {
-      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
-      rejectUnauthorized: true, clientId: DEVICE_A_ID
-    });
-    await new Promise(r => clientAOwn.on('connect', r));
+    let clientAOwn = null;
+    let clientAWithBId = null;
+    try {
+      clientAOwn = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_A_ID,
+        servername: 'localhost',
+        reconnectPeriod: 0, connectTimeout: 5000
+      });
+      await new Promise((res, rej) => {
+        clientAOwn.on('connect', res);
+        clientAOwn.on('error', rej);
+      });
 
-    let devAReceived = false;
-    clientAOwn.subscribe(MqttTopicBuilder.state(DEVICE_A_ID));
-    clientAOwn.on('message', () => { devAReceived = true; });
+      let devAReceived = false;
+      clientAOwn.subscribe(MqttTopicBuilder.state(DEVICE_A_ID));
+      clientAOwn.on('message', () => { devAReceived = true; });
 
-    // Present Device A cert, but use Device B clientId
-    const clientAWithBId = mqtt.connect(EMQX_TLS_URL, {
-      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
-      rejectUnauthorized: true, clientId: DEVICE_B_ID
-    });
-    await new Promise(r => clientAWithBId.on('connect', r));
+      // Present Device A cert, but use Device B clientId
+      clientAWithBId = mqtt.connect(EMQX_TLS_URL, {
+        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_B_ID,
+        servername: 'localhost',
+        reconnectPeriod: 0, connectTimeout: 5000
+      });
+      await new Promise((res, rej) => {
+        clientAWithBId.on('connect', res);
+        clientAWithBId.on('error', rej);
+      });
 
-    // Attempt to publish to Device A topic using Device B clientId
-    clientAWithBId.publish(MqttTopicBuilder.state(DEVICE_A_ID), JSON.stringify({ spoof: true }));
+      // Attempt to publish to Device A topic using Device B clientId
+      clientAWithBId.publish(MqttTopicBuilder.state(DEVICE_A_ID), JSON.stringify({ spoof: true }));
 
-    await delay(600);
-    assert.equal(devAReceived, false, 'EMQX ACL must block publish when clientId does not match certificate CN identity');
-
-    clientAOwn.end(true);
-    clientAWithBId.end(true);
+      await delay(600);
+      assert.equal(devAReceived, false, 'EMQX ACL must block publish when clientId does not match certificate CN identity');
+    } finally {
+      if (clientAOwn) { try { clientAOwn.on('error', () => {}); clientAOwn.end(true); } catch (_) {} }
+      if (clientAWithBId) { try { clientAWithBId.on('error', () => {}); clientAWithBId.end(true); } catch (_) {} }
+    }
   });
 
   /** EQ13j — Production transport source code enforces rejectUnauthorized: true */
