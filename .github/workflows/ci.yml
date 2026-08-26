@@ -219,6 +219,9 @@ jobs:
           echo "[D] Negative case — untrusted client cert:"
           echo Q | openssl s_client -connect 127.0.0.1:8883 -servername localhost -CAfile .local-certs/ca.crt -cert .local-certs/untrusted_device.crt -key .local-certs/untrusted_device.key -verify_return_error -brief 2>&1 || echo "Rejected as expected (untrusted client cert)"
 
+          echo "--- 6. Raw Node tls.connect & Standalone mqtt.js Probe ---"
+          node scripts/ci-tls-probe.js
+
           echo "=========================================================="
 
       # ----------------------------------------------------------
