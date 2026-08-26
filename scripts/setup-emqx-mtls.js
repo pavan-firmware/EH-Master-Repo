@@ -18,8 +18,19 @@ function setupEmqxMtls() {
   const certs = generateCerts();
 
   console.log('[SetupEMQX] Copying development certificates to EMQX container...');
+
+  // Build a full-chain cert (server cert + CA cert) so EMQX sends the complete
+  // TLS certificate chain to clients. Node.js v24 requires the issuer cert in
+  // the chain sent during the TLS handshake when using a custom CA via ca: option.
+  const serverFullChain = path.join(path.dirname(certs.serverCrt), 'server_fullchain.pem');
+  fs.writeFileSync(
+    serverFullChain,
+    fs.readFileSync(certs.serverCrt, 'utf8') + fs.readFileSync(certs.caCrt, 'utf8'),
+    'utf8'
+  );
+
   execSync(`docker cp "${certs.caCrt}" eh_emqx:/opt/emqx/etc/certs/cacert.pem`, { stdio: 'inherit' });
-  execSync(`docker cp "${certs.serverCrt}" eh_emqx:/opt/emqx/etc/certs/cert.pem`, { stdio: 'inherit' });
+  execSync(`docker cp "${serverFullChain}" eh_emqx:/opt/emqx/etc/certs/cert.pem`, { stdio: 'inherit' });
   execSync(`docker cp "${certs.serverKey}" eh_emqx:/opt/emqx/etc/certs/key.pem`, { stdio: 'inherit' });
 
   console.log('[SetupEMQX] Writing ACL rules to EMQX container...');

@@ -544,6 +544,7 @@ function checkEmqxReachable(url) {
           reconnectPeriod: 0,
           connectTimeout: 5000,
           servername: 'localhost',
+          agent: false,
           ...options
         });
 
@@ -611,6 +612,7 @@ function checkEmqxReachable(url) {
           reconnectPeriod: 0,
           connectTimeout: 5000,
           servername: 'localhost',
+          agent: false,
           ...options
         });
 
@@ -650,7 +652,7 @@ function checkEmqxReachable(url) {
   /** EQ13a — Valid server CA + valid Device A client certificate + rejectUnauthorized=true → connection succeeds */
   await test('EQ13a Real EMQX TLS — valid server CA and valid client cert accepted (rejectUnauthorized: true)', async () => {
     await testMtlsConnectSuccess({
-      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
       rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
   });
@@ -658,7 +660,7 @@ function checkEmqxReachable(url) {
   /** EQ13b — Untrusted/unknown server CA → connection rejected */
   await test('EQ13b Real EMQX TLS — unknown/untrusted server CA rejected (rejectUnauthorized: true)', async () => {
     await testMtlsConnectRejection({
-      ca: UNTRUSTED_CA, cert: DEV_A_CRT, key: DEV_A_KEY,
+      ca: [UNTRUSTED_CA], cert: DEV_A_CRT, key: DEV_A_KEY,
       rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
   });
@@ -666,7 +668,7 @@ function checkEmqxReachable(url) {
   /** EQ13c — Valid Device A client certificate → broker accepts */
   await test('EQ13c Real EMQX mTLS — valid Device A client certificate accepted', async () => {
     await testMtlsConnectSuccess({
-      ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+      ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
       rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
   });
@@ -674,7 +676,7 @@ function checkEmqxReachable(url) {
   /** EQ13d — NO client certificate → broker rejects during TLS handshake */
   await test('EQ13d Real EMQX mTLS — missing client certificate rejected by broker', async () => {
     await testMtlsConnectRejection({
-      ca: CA_CRT,
+      ca: [CA_CRT],
       rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
   });
@@ -682,7 +684,7 @@ function checkEmqxReachable(url) {
   /** EQ13e — Client certificate signed by untrusted CA → broker rejects */
   await test('EQ13e Real EMQX mTLS — untrusted client certificate rejected by broker', async () => {
     await testMtlsConnectRejection({
-      ca: CA_CRT, cert: UNTRUSTED_DEV_CRT, key: UNTRUSTED_DEV_KEY,
+      ca: [CA_CRT], cert: UNTRUSTED_DEV_CRT, key: UNTRUSTED_DEV_KEY,
       rejectUnauthorized: true, clientId: DEVICE_A_ID
     });
   });
@@ -692,9 +694,9 @@ function checkEmqxReachable(url) {
     let client = null;
     try {
       client = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true, clientId: DEVICE_A_ID,
-        servername: 'localhost',
+        servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
@@ -726,9 +728,9 @@ function checkEmqxReachable(url) {
     let clientB = null;
     try {
       clientB = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
+        ca: [CA_CRT], cert: DEV_B_CRT, key: DEV_B_KEY,
         rejectUnauthorized: true, clientId: DEVICE_B_ID,
-        servername: 'localhost',
+        servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
@@ -741,9 +743,9 @@ function checkEmqxReachable(url) {
       clientB.on('message', () => { devBReceived = true; });
 
       clientA = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true, clientId: DEVICE_A_ID,
-        servername: 'localhost',
+        servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
@@ -768,9 +770,9 @@ function checkEmqxReachable(url) {
     let clientB = null;
     try {
       clientA = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true, clientId: DEVICE_A_ID,
-        servername: 'localhost',
+        servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
@@ -783,9 +785,9 @@ function checkEmqxReachable(url) {
       clientA.on('message', () => { devAReceived = true; });
 
       clientB = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_B_CRT, key: DEV_B_KEY,
+        ca: [CA_CRT], cert: DEV_B_CRT, key: DEV_B_KEY,
         rejectUnauthorized: true, clientId: DEVICE_B_ID,
-        servername: 'localhost',
+        servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
@@ -810,9 +812,9 @@ function checkEmqxReachable(url) {
     let clientAWithBId = null;
     try {
       clientAOwn = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true, clientId: DEVICE_A_ID,
-        servername: 'localhost',
+        servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
@@ -826,9 +828,9 @@ function checkEmqxReachable(url) {
 
       // Present Device A cert, but use Device B clientId
       clientAWithBId = mqtt.connect(EMQX_TLS_URL, {
-        ca: CA_CRT, cert: DEV_A_CRT, key: DEV_A_KEY,
+        ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true, clientId: DEVICE_B_ID,
-        servername: 'localhost',
+        servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
