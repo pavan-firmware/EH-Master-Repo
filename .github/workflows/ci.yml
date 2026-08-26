@@ -266,14 +266,22 @@ jobs:
       #     receipt / telemetry / LWT / reconnect failure → CI FAILS.
       # ----------------------------------------------------------
       - name: Run Phase 6 Real EMQX 5.8.0 Integration Tests
-        run: node backend/tests/phase6-emqx-integration.test.js 2>&1
+        run: node backend/tests/phase6-emqx-integration.test.js 2>&1 | tee test-results.log
 
       # ----------------------------------------------------------
       # 20. Dump EMQX logs on any failure for diagnosis
       # ----------------------------------------------------------
       - name: Dump EMQX Broker Logs on Failure
         if: failure()
-        run: docker logs eh_emqx
+        run: |
+          echo "=========================================================="
+          echo "            INTEGRATION TEST FAILURE REPORT               "
+          echo "=========================================================="
+          cat test-results.log 2>/dev/null || echo "(no test log file)"
+          echo "=========================================================="
+          echo "                   EMQX BROKER LOGS                       "
+          echo "=========================================================="
+          docker logs eh_emqx
 
   # ============================================================
   # JOB 2: Flutter — fully independent, no Node deps
