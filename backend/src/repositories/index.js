@@ -574,6 +574,36 @@ class ProvisioningSessionRepository {
   }
 }
 
+class RefreshTokenRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createToken({ id, userId, tokenHash, expiresAt }) {
+    return this.db.insert('refresh_tokens', id, {
+      user_id: userId,
+      token_hash: tokenHash,
+      expires_at: expiresAt
+    });
+  }
+
+  async findByTokenHash(tokenHash) {
+    const tokens = await this.db.find('refresh_tokens', t => t.token_hash === tokenHash);
+    return tokens.length > 0 ? tokens[0] : null;
+  }
+
+  async deleteToken(id) {
+    return this.db.delete('refresh_tokens', id);
+  }
+
+  async deleteTokensForUser(userId) {
+    const userTokens = await this.db.find('refresh_tokens', t => t.user_id === userId);
+    for (const t of userTokens) {
+      await this.db.delete('refresh_tokens', t.id);
+    }
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -586,5 +616,6 @@ module.exports = {
   EventRepository,
   AuditRepository,
   OutboxRepository,
-  ProvisioningSessionRepository
+  ProvisioningSessionRepository,
+  RefreshTokenRepository
 };

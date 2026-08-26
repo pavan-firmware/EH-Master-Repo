@@ -72,29 +72,18 @@ function buildPhase6Services(db, mqttClient = null) {
 }
 
 /**
- * Mock authentication middleware factory.
- * Injects authenticated actor context from test request header or environment.
- *
- * PRODUCTION REQUIREMENT:
- *   Replace with real JWT/session token verification.
- *   Never trust actorContext from request body.
+ * Production authentication middleware fallback for tests that do not use app.js.
+ * Reads req.user set by requireAuthentication() or fails with 401.
  */
 function mockAuthMiddleware(req, res, next) {
-  // In testing, actor context is provided via X-Actor-Context header (JSON encoded)
-  const actorHeader = req.headers['x-actor-context'];
-  if (actorHeader) {
-    try {
-      req.actorContext = JSON.parse(actorHeader);
-    } catch (_) {
-      return res.status(401).json({ error: 'Invalid X-Actor-Context header' });
-    }
-  } else {
-    return res.status(401).json({
-      error: 'Unauthorized: authentication required',
-      hint: 'Provide X-Actor-Context header with {userId, homeId, role} for test environments'
-    });
+  if (req.user) {
+    req.actorContext = { userId: req.user.id, email: req.user.email };
+    return next ? next() : true;
   }
-  next();
+  return res.status(401).json({
+    error: 'Unauthorized: authentication required',
+    message: 'Provide valid Authorization: Bearer <accessToken> header'
+  });
 }
 
 /**

@@ -325,6 +325,23 @@ export interface OTAManifest {
   createdAt: string;
 }
 
+export interface UserProfile {
+  schemaVersion: 1;
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: string;
+}
+
+export interface AuthTokenResponse {
+  schemaVersion: 1;
+  tokenType: 'Bearer';
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: UserProfile;
+}
+
 export interface ApiEnvelope<T = any> {
   success: boolean;
   data?: T;
