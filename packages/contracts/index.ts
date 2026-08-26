@@ -342,6 +342,24 @@ export interface AuthTokenResponse {
   user: UserProfile;
 }
 
+export type SSEEventType =
+  | 'connection.ready'
+  | 'device.state'
+  | 'device.event'
+  | 'device.availability'
+  | 'command.receipt'
+  | 'telemetry.update';
+
+export interface SSEEventEnvelope<T = any> {
+  schemaVersion: 1;
+  eventId: string;
+  type: SSEEventType;
+  occurredAt: string;
+  homeId: string;
+  deviceId?: string | null;
+  payload: T;
+}
+
 export interface ApiEnvelope<T = any> {
   success: boolean;
   data?: T;

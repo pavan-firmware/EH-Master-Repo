@@ -260,7 +260,19 @@ jobs:
           echo "=========================================================="
 
       # ----------------------------------------------------------
-      # 19. Phase 6 REAL EMQX 5.8.0 integration — HARD CI GATE
+      # 19a. Phase 7A Authentication & Authorization Tests
+      # ----------------------------------------------------------
+      - name: Run Phase 7A Backend Auth & Authorization Tests
+        run: node backend/tests/phase7a-auth.test.js
+
+      # ----------------------------------------------------------
+      # 19b. Phase 7B Realtime SSE & Worker Integration Tests
+      # ----------------------------------------------------------
+      - name: Run Phase 7B Realtime SSE & Worker Integration Tests
+        run: node backend/tests/phase7b-realtime.test.js
+
+      # ----------------------------------------------------------
+      # 20. Phase 6 REAL EMQX 5.8.0 integration — HARD CI GATE
       #     No || true. No continue-on-error.
       #     Broker unavailable / TLS / mTLS / ACL / command /
       #     receipt / telemetry / LWT / reconnect failure → CI FAILS.

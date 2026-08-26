@@ -1,6 +1,6 @@
 /**
  * EH Home — Monorepo Pre-Push Full Validation Script
- * Cross-platform script to run all 8 automated test suites across Node.js & Flutter.
+ * Cross-platform script to run all 16 automated test suites across Node.js & Flutter.
  *
  * Usage:
  *   node scripts/validate-repo.js
@@ -68,13 +68,20 @@ runStep('11. Phase 6 Low-Level MQTT Protocol Harness Tests', `${nodeBin} backend
 // 12. Phase 6 Real EMQX 5.8.0 Integration Tests
 runStep('12. Phase 6 Real EMQX 5.8.0 Integration Tests', `${nodeBin} backend/tests/phase6-emqx-integration.test.js`);
 
-// 13. Flutter Code Analysis
-runStep('13. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
+// 13. Phase 7A Authentication & Authorization Tests
+runStep('13. Phase 7A Backend Auth & Authorization Tests', `${nodeBin} backend/tests/phase7a-auth.test.js`);
 
-// 14. Flutter Unit & Widget Test Suite
-runStep('14. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
+// 14. Phase 7B Realtime SSE & Worker Tests
+runStep('14. Phase 7B Realtime SSE & Worker Integration Tests', `${nodeBin} backend/tests/phase7b-realtime.test.js`);
+
+// 15. Flutter Code Analysis
+runStep('15. Flutter Analyzer (smart_home_application_v1)', 'flutter analyze', flutterDir);
+
+// 16. Flutter Unit & Widget Test Suite
+runStep('16. Flutter Test Suite (smart_home_application_v1)', 'flutter test --no-pub', flutterDir);
 
 console.log('\n===============================================================');
+console.log(`  16 SUITES ATTEMPTED. ${failedSuites === 0 ? '16/16' : (16 - failedSuites) + '/16'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');
