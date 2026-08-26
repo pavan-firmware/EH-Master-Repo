@@ -30,8 +30,14 @@ function setupEmqxMtls() {
   );
 
   execSync(`docker cp "${certs.caCrt}" eh_emqx:/opt/emqx/etc/certs/cacert.pem`, { stdio: 'inherit' });
-  execSync(`docker cp "${serverFullChain}" eh_emqx:/opt/emqx/etc/certs/cert.pem`, { stdio: 'inherit' });
+  execSync(`docker cp "${certs.serverCrt}" eh_emqx:/opt/emqx/etc/certs/cert.pem`, { stdio: 'inherit' });
   execSync(`docker cp "${certs.serverKey}" eh_emqx:/opt/emqx/etc/certs/key.pem`, { stdio: 'inherit' });
+
+  // Ensure EMQX user inside container has read access to cert files on Linux CI hosts
+  try {
+    execSync(`docker exec eh_emqx chmod 644 /opt/emqx/etc/certs/cacert.pem /opt/emqx/etc/certs/cert.pem /opt/emqx/etc/certs/key.pem`, { stdio: 'ignore' });
+    execSync(`docker exec eh_emqx chown -R emqx:emqx /opt/emqx/etc/certs`, { stdio: 'ignore' });
+  } catch (_) {}
 
   console.log('[SetupEMQX] Writing ACL rules to EMQX container...');
   const aclContent = `%%-------------- EH Home Production Device ACL -------------------------------------------

@@ -161,6 +161,67 @@ jobs:
         run: node backend/tests/phase6-protocol-harness.test.js
 
       # ----------------------------------------------------------
+      # 18b. Phase 6 Real EMQX TLS & mTLS Diagnostic Gate
+      # ----------------------------------------------------------
+      - name: Phase 6 Real EMQX TLS & mTLS Diagnostic Gate
+        run: |
+          echo "=========================================================="
+          echo "       PHASE 6 CI EMQX TLS & mTLS DIAGNOSTIC GATE        "
+          echo "=========================================================="
+
+          echo "--- 1. Environment ---"
+          echo "Node version: $(node --version)"
+          echo "OpenSSL version: $(openssl version)"
+          echo "EMQX container status:"
+          docker ps -f name=eh_emqx
+          echo "EMQX listeners:"
+          docker exec eh_emqx emqx ctl listeners
+          echo "EMQX SSL listener effective configuration:"
+          docker exec eh_emqx emqx eval "emqx_config:get([listeners, ssl, default])."
+
+          echo "--- 2. Host Certificates Verification ---"
+          echo "CA Subject & Fingerprint:"
+          openssl x509 -in .local-certs/ca.crt -noout -subject -issuer -fingerprint -sha256
+          echo "Server Cert Subject, Issuer, SAN, EKU & Fingerprint:"
+          openssl x509 -in .local-certs/server.crt -noout -subject -issuer -fingerprint -sha256 -ext subjectAltName -ext extendedKeyUsage
+          echo "Device A Cert Subject, Issuer, EKU & Fingerprint:"
+          openssl x509 -in .local-certs/device_a.crt -noout -subject -issuer -fingerprint -sha256 -ext extendedKeyUsage
+          echo "OpenSSL Verify Server Cert against CA:"
+          openssl verify -CAfile .local-certs/ca.crt .local-certs/server.crt
+          echo "OpenSSL Verify Device A Cert against CA:"
+          openssl verify -CAfile .local-certs/ca.crt .local-certs/device_a.crt
+
+          echo "--- 3. Container Certificates Verification ---"
+          echo "Container cert files & permissions:"
+          docker exec eh_emqx ls -la /opt/emqx/etc/certs/
+          echo "Local CA fingerprint:"
+          openssl x509 -in .local-certs/ca.crt -noout -fingerprint -sha256
+          echo "Container cacert.pem fingerprint:"
+          docker exec eh_emqx openssl x509 -in /opt/emqx/etc/certs/cacert.pem -noout -fingerprint -sha256
+          echo "Local server_fullchain.pem fingerprint:"
+          openssl x509 -in .local-certs/server_fullchain.pem -noout -fingerprint -sha256
+          echo "Container cert.pem fingerprint:"
+          docker exec eh_emqx openssl x509 -in /opt/emqx/etc/certs/cert.pem -noout -fingerprint -sha256
+
+          echo "--- 4. Served Certificate Chain on Port 8883 ---"
+          echo Q | openssl s_client -connect 127.0.0.1:8883 -servername localhost -showcerts || true
+
+          echo "--- 5. OpenSSL s_client mTLS Tests Outside mqtt.js ---"
+          echo "[A] Valid Device A mTLS connect test:"
+          echo Q | openssl s_client -connect 127.0.0.1:8883 -servername localhost -CAfile .local-certs/ca.crt -cert .local-certs/device_a.crt -key .local-certs/device_a.key -verify_return_error -brief || echo "OpenSSL valid mTLS failed!"
+
+          echo "[B] Negative case — missing client cert:"
+          echo Q | openssl s_client -connect 127.0.0.1:8883 -servername localhost -CAfile .local-certs/ca.crt -verify_return_error -brief 2>&1 || echo "Rejected as expected (missing client cert)"
+
+          echo "[C] Negative case — untrusted CA:"
+          echo Q | openssl s_client -connect 127.0.0.1:8883 -servername localhost -CAfile .local-certs/untrusted_ca.crt -cert .local-certs/device_a.crt -key .local-certs/device_a.key -verify_return_error -brief 2>&1 || echo "Rejected as expected (untrusted CA)"
+
+          echo "[D] Negative case — untrusted client cert:"
+          echo Q | openssl s_client -connect 127.0.0.1:8883 -servername localhost -CAfile .local-certs/ca.crt -cert .local-certs/untrusted_device.crt -key .local-certs/untrusted_device.key -verify_return_error -brief 2>&1 || echo "Rejected as expected (untrusted client cert)"
+
+          echo "=========================================================="
+
+      # ----------------------------------------------------------
       # 19. Phase 6 REAL EMQX 5.8.0 integration — HARD CI GATE
       #     No || true. No continue-on-error.
       #     Broker unavailable / TLS / mTLS / ACL / command /
