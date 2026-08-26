@@ -225,6 +225,40 @@ jobs:
           echo "=========================================================="
 
       # ----------------------------------------------------------
+      # 18c. EMQX ACL State Diagnostic (pre-integration-test gate)
+      #      Print active authorization sources and loaded ACL rules.
+      #      Runs with || true so it never blocks the test step.
+      # ----------------------------------------------------------
+      - name: Verify EMQX ACL State Before Integration Tests
+        run: |
+          echo "=========================================================="
+          echo "     EMQX 5.8.0 ACL STATE PRE-INTEGRATION DIAGNOSTIC     "
+          echo "=========================================================="
+
+          echo "--- Authorization no_match setting ---"
+          docker exec eh_emqx emqx eval "emqx_config:get([authorization, no_match])." || true
+
+          echo "--- Authorization cache setting ---"
+          docker exec eh_emqx emqx eval "emqx_config:get([authorization, cache])." || true
+
+          echo "--- Active authorization sources (via REST API) ---"
+          docker exec eh_emqx wget -q -O- \
+            --header="Authorization: Basic YWRtaW46cHVibGlj" \
+            http://localhost:18083/api/v5/authorization/sources || true
+
+          echo "--- Effective ACL file in /opt/emqx/etc/acl.conf ---"
+          docker exec eh_emqx cat /opt/emqx/etc/acl.conf || true
+
+          echo "--- Effective ACL file in /opt/emqx/data/authz/acl.conf ---"
+          docker exec eh_emqx cat /opt/emqx/data/authz/acl.conf 2>/dev/null || echo "(not present)"
+
+          echo "--- EMQX listener peer_cert_as_clientid setting ---"
+          docker exec eh_emqx emqx eval \
+            "emqx_config:get([listeners, ssl, default, peer_cert_as_clientid])." || true
+
+          echo "=========================================================="
+
+      # ----------------------------------------------------------
       # 19. Phase 6 REAL EMQX 5.8.0 integration — HARD CI GATE
       #     No || true. No continue-on-error.
       #     Broker unavailable / TLS / mTLS / ACL / command /

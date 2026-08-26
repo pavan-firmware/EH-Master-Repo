@@ -813,27 +813,31 @@ function checkEmqxReachable(url) {
     }
   });
 
-  /** EQ13i — Device A CN / deviceId mismatch → ACL denied */
-  await test('EQ13i Real EMQX ACL — Device A certificate with Device B clientId spoof attempt rejected', async () => {
-    let clientAOwn = null;
+  /** EQ13i — Device A cert + Device B clientId spoof → ACL enforces cert CN identity */
+  await test('EQ13i Real EMQX ACL — Device A certificate with Device B clientId spoof rejected on Device B topics', async () => {
+    let clientBOwn = null;
     let clientAWithBId = null;
     try {
-      clientAOwn = mqtt.connect(EMQX_TLS_URL, {
-        ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
-        rejectUnauthorized: true, clientId: DEVICE_A_ID,
+      // Device B connects legitimately and listens on its own state topic
+      clientBOwn = mqtt.connect(EMQX_TLS_URL, {
+        ca: [CA_CRT], cert: DEV_B_CRT, key: DEV_B_KEY,
+        rejectUnauthorized: true, clientId: DEVICE_B_ID,
         servername: 'localhost', agent: false,
         reconnectPeriod: 0, connectTimeout: 5000
       });
       await new Promise((res, rej) => {
-        clientAOwn.on('connect', res);
-        clientAOwn.on('error', rej);
+        clientBOwn.on('connect', res);
+        clientBOwn.on('error', rej);
       });
 
-      let devAReceived = false;
-      clientAOwn.subscribe(MqttTopicBuilder.state(DEVICE_A_ID));
-      clientAOwn.on('message', () => { devAReceived = true; });
+      let devBReceived = false;
+      clientBOwn.subscribe(MqttTopicBuilder.state(DEVICE_B_ID));
+      clientBOwn.on('message', () => { devBReceived = true; });
 
-      // Present Device A cert, but use Device B clientId
+      // Present Device A cert, but use Device B clientId in CONNECT.
+      // With peer_cert_as_clientid = cn, EMQX overrides the CONNECT clientId with
+      // the certificate CN → effective clientId = Device A UUID (NOT Device B UUID).
+      // The spoofed client is therefore treated as Device A by EMQX ACL.
       clientAWithBId = mqtt.connect(EMQX_TLS_URL, {
         ca: [CA_CRT], cert: DEV_A_CRT, key: DEV_A_KEY,
         rejectUnauthorized: true, clientId: DEVICE_B_ID,
@@ -845,13 +849,14 @@ function checkEmqxReachable(url) {
         clientAWithBId.on('error', rej);
       });
 
-      // Attempt to publish to Device A topic using Device B clientId
-      clientAWithBId.publish(MqttTopicBuilder.state(DEVICE_A_ID), JSON.stringify({ spoof: true }));
+      // Attempt to publish to Device B topic using Device A cert (effective clientId = Device A UUID)
+      // EMQX ACL: Device A UUID is not permitted to publish to Device B topics → DENIED
+      clientAWithBId.publish(MqttTopicBuilder.state(DEVICE_B_ID), JSON.stringify({ spoof: true }));
 
       await delay(600);
-      assert.equal(devAReceived, false, 'EMQX ACL must block publish when clientId does not match certificate CN identity');
+      assert.equal(devBReceived, false, 'EMQX ACL must block Device A cert from publishing to Device B topic (cert CN identity enforced, spoof rejected)');
     } finally {
-      if (clientAOwn) { try { clientAOwn.on('error', () => {}); clientAOwn.end(true); } catch (_) {} }
+      if (clientBOwn) { try { clientBOwn.on('error', () => {}); clientBOwn.end(true); } catch (_) {} }
       if (clientAWithBId) { try { clientAWithBId.on('error', () => {}); clientAWithBId.end(true); } catch (_) {} }
     }
   });
