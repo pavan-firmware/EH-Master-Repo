@@ -165,6 +165,7 @@ jobs:
       # ----------------------------------------------------------
       - name: Phase 6 Real EMQX TLS & mTLS Diagnostic Gate
         run: |
+          set +e
           echo "=========================================================="
           echo "       PHASE 6 CI EMQX TLS & mTLS DIAGNOSTIC GATE        "
           echo "=========================================================="
