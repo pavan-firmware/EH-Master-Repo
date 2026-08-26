@@ -35,12 +35,14 @@ const { DeviceClaimService } = require('./services/device-claim.service');
 const { ProductCatalogService } = require('./services/product-catalog.service');
 const { DeviceCommandService } = require('./services/device-command.service');
 const { DeviceEventTelemetryIngestionService } = require('./services/device-event-telemetry-ingestion.service');
+const { OtaService } = require('./services/ota.service');
 
 const { AuthApiRouter } = require('./api/auth.router');
 const { HomeDeviceApiRouter } = require('./api/home-device.router');
 const { ProvisioningClaimApiRouter } = require('./api/provisioning-claim.router');
 const { ApiRouter: ProductCatalogApiRouter } = require('./api/product-catalog.router');
 const { buildRouteHandlers: buildCommandRouteHandlers } = require('./api/device-command.router');
+const { OtaApiRouter } = require('./api/ota.router');
 
 const { requireAuthentication } = require('./shared/auth-middleware');
 const { HomeAuthorizationService } = require('./shared/home-authorization');
@@ -55,7 +57,8 @@ const PUBLIC_ROUTES = [
   'POST /api/v1/auth/login',
   'POST /api/v1/auth/refresh',
   'GET /api/v1/products',
-  'GET /api/v1/capabilities'
+  'GET /api/v1/capabilities',
+  'GET /api/v1/ota/check'
 ];
 
 function isPublicRoute(method, pathname) {
@@ -64,7 +67,8 @@ function isPublicRoute(method, pathname) {
 
   if (method === 'GET' && (
     pathname.startsWith('/api/v1/product-variants/') ||
-    pathname.startsWith('/api/v1/capabilities/')
+    pathname.startsWith('/api/v1/capabilities/') ||
+    pathname.startsWith('/api/v1/ota/manifests/')
   )) {
     return true;
   }
@@ -148,6 +152,7 @@ function createApp(options = {}) {
   const provisioningService = new ProvisioningService({ provisioningRepo, deviceRepo, auditRepo });
   const deviceClaimService = new DeviceClaimService({ deviceRepo, homeRepo, provisioningRepo, auditRepo });
   const catalogService = new ProductCatalogService();
+  const otaService = new OtaService();
 
   const mqttTransport = options.mqttTransport || null;
   const ingestionService = new DeviceEventTelemetryIngestionService({
@@ -166,6 +171,7 @@ function createApp(options = {}) {
   const homeDeviceRouter = new HomeDeviceApiRouter({ homeService, floorService, roomService, deviceService });
   const provisioningRouter = new ProvisioningClaimApiRouter({ provisioningService, deviceClaimService });
   const catalogRouter = new ProductCatalogApiRouter();
+  const otaRouter = new OtaApiRouter({ otaService });
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -297,6 +303,12 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.status, result.body);
     }
 
+    // 8.5. Route to OTA Router
+    if (pathname.startsWith('/api/v1/ota')) {
+      const result = await otaRouter.handle(method, pathname, body, query);
+      return sendJsonResponse(res, result.status, result.body);
+    }
+
     // 9. Route to Home & Device Domain Router
     if (pathname.startsWith('/api/v1/homes') || pathname.startsWith('/api/v1/devices')) {
       // In authenticated GET /api/v1/homes, filter by user membership
@@ -328,7 +340,8 @@ function createApp(options = {}) {
       deviceClaimService,
       catalogService,
       commandService,
-      ingestionService
+      ingestionService,
+      otaService
     },
     repositories: {
       userRepo, homeRepo, roomRepo, productRepo, capRepo, deviceRepo,
