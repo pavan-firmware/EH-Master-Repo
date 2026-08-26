@@ -1,29 +1,40 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/models/device_models.dart';
 import '../core/models/home_dashboard_models.dart';
-import '../core/repositories/fake_home_repository.dart';
 import '../core/repositories/home_repository.dart';
+import '../core/repositories/fake_home_repository.dart';
 import '../core/repositories/connection_repository.dart';
 import '../core/repositories/ble_connection_repository.dart';
 import '../core/config/device_connection_config.dart';
+import '../core/services/realtime_event_service.dart';
 
-/// Temporary local implementation of the app/device contract.
+/// HomeController manages all home/device/connection state.
 ///
-/// Replace the simulated delay in each command with BLE GATT, local-hub, or
-/// cloud calls. The UI only treats a command as complete after this controller
-/// receives its acknowledgement.
+/// In production (Phase 7C), pass [repository] = CloudHomeRepository
+/// and [realtimeEventService] = RealtimeEventService. The FakeHomeRepository
+/// is retained as the default so all pre-existing tests continue to pass.
 class HomeController extends ChangeNotifier {
   HomeController({
     HomeRepository? repository,
     ConnectionRepository? connectionRepository,
-  }) : _repository = repository ?? FakeHomeRepository(),
-       _connectionRepository =
-           connectionRepository ?? BleConnectionRepository();
+    RealtimeEventService? realtimeEventService,
+    this._cloudEnabled = false,
+  })  : _repository = repository ?? FakeHomeRepository(),
+        _connectionRepository =
+            connectionRepository ?? BleConnectionRepository() {
+    if (realtimeEventService != null) {
+      _subscribeToRealtime(realtimeEventService);
+    }
+  }
 
   final HomeRepository _repository;
   final ConnectionRepository _connectionRepository;
-  static const bool _secureActuatorCommandsAvailable = false;
+
+  /// True when a real authenticated backend is powering this controller.
+  final bool _cloudEnabled;
+
   bool _awayMode = false;
   bool _livingRoomLightOn = true;
   bool _misting = false;
@@ -35,6 +46,9 @@ class HomeController extends ChangeNotifier {
   FirmwareRelease? _availableRelease;
   HomeConnectionState _connectionState = HomeConnectionState.notConfigured;
   String? _connectionMessage;
+  DeviceConnection _cloudDeviceConnection = DeviceConnection.offline;
+  
+  StreamSubscription<SSEEventEnvelope>? _sseSubscription;
 
   bool get awayMode => _awayMode;
   bool get livingRoomLightOn => _livingRoomLightOn;
@@ -46,7 +60,10 @@ class HomeController extends ChangeNotifier {
   HomeConnectionState get connectionState => _connectionState;
   String? get connectionMessage => _connectionMessage;
   ActuatorConfidence get lightConfidence => _lightConfidence;
-  bool get hardwareControlsAvailable => _secureActuatorCommandsAvailable;
+
+  /// Commands are only available when cloud is enabled (authenticated + connected).
+  bool get hardwareControlsAvailable => _cloudEnabled;
+  DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
 
   /// The completed-home preview exists only until the user starts connecting a
   /// real device. Once BLE succeeds, the dashboard correctly moves to Wi-Fi
@@ -99,6 +116,60 @@ class HomeController extends ChangeNotifier {
     }
   }
 
+  void _subscribeToRealtime(RealtimeEventService service) {
+    _sseSubscription = service.events.listen(_handleSseEvent);
+  }
+
+  void _handleSseEvent(SSEEventEnvelope envelope) {
+    switch (envelope.type) {
+      case 'device.availability':
+        final status = envelope.payload['status'] as String?;
+        if (status == 'ONLINE') {
+          _cloudDeviceConnection = DeviceConnection.online;
+        } else if (status == 'STALE') {
+          _cloudDeviceConnection = DeviceConnection.stale;
+        } else {
+          _cloudDeviceConnection = DeviceConnection.offline;
+        }
+        notifyListeners();
+        break;
+
+      case 'device.state':
+        // Authoritative state convergence for toggle channels
+        final state = envelope.payload;
+        if (state.containsKey('channels') && state['channels'] is Map) {
+          final channels = state['channels'] as Map;
+          // ch1 → living room light
+          if (channels.containsKey('ch1')) {
+            final ch1 = channels['ch1'] as Map?;
+            final relay = ch1?['relay'] as bool?;
+            if (relay != null) {
+              _livingRoomLightOn = relay;
+              _lightConfidence = ActuatorConfidence.confirmed;
+              _lightCommandPending = false;
+            }
+          }
+        }
+        notifyListeners();
+        break;
+
+      case 'command.receipt':
+        final cmdStatus = envelope.payload['status'] as String?;
+        if (cmdStatus == 'APPLIED' || cmdStatus == 'DELIVERED') {
+          _lightConfidence = ActuatorConfidence.confirmed;
+          _lightCommandPending = false;
+        } else if (cmdStatus == 'FAILED' || cmdStatus == 'TIMEOUT' || cmdStatus == 'OVERRIDDEN') {
+          _lightConfidence = ActuatorConfidence.failed;
+          _lightCommandPending = false;
+        }
+        notifyListeners();
+        break;
+
+      default:
+        break;
+    }
+  }
+
   Future<ConnectionResult> startConnectionSetup() async {
     _showDesignPreview = false;
     _connectionState = HomeConnectionState.connecting;
@@ -129,7 +200,7 @@ class HomeController extends ChangeNotifier {
 
   Future<void> setLivingRoomLight(bool value) async {
     if (_lightCommandPending || _livingRoomLightOn == value) return;
-    if (!_secureActuatorCommandsAvailable) {
+    if (!_cloudEnabled) {
       _lightConfidence = ActuatorConfidence.unavailable;
       notifyListeners();
       return;
@@ -139,28 +210,24 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final receipt = await _repository.sendCommand(
+      await _repository.sendCommand(
         deviceId: 'living-room-light',
         action: 'set_power',
         parameters: {'enabled': value},
         idempotencyKey: 'light-${DateTime.now().microsecondsSinceEpoch}',
       );
-      if (receipt.state == CommandState.succeeded) {
-        _livingRoomLightOn = value;
-        _lightConfidence = ActuatorConfidence.confirmed;
-      } else {
-        _lightConfidence = ActuatorConfidence.failed;
-      }
+      // Do NOT assume state changed. Wait for command.receipt + device.state via SSE.
+      // _lightCommandPending stays true until SSE receipt clears it.
     } catch (_) {
       _lightConfidence = ActuatorConfidence.failed;
+      _lightCommandPending = false;
+      notifyListeners();
     }
-    _lightCommandPending = false;
-    notifyListeners();
   }
 
   Future<void> setMisting(bool value) async {
     if (_mistingCommandPending || _misting == value) return;
-    if (!_secureActuatorCommandsAvailable) {
+    if (!_cloudEnabled) {
       notifyListeners();
       return;
     }
@@ -183,5 +250,11 @@ class HomeController extends ChangeNotifier {
   void acknowledgeAlert() {
     _alertAcknowledged = true;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _sseSubscription?.cancel();
+    super.dispose();
   }
 }

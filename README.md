@@ -51,8 +51,8 @@ SMART_HOME_V1/
 | **Phase 5B** | **Secure BLE Commissioning & Provisioning** (EH-PROV/1 crypto: HMAC-SHA256, HKDF-SHA256, AES-256-GCM, canonical transcript, mTLS confirmation boundary, firmware BLE GATT layer, Flutter BLE channel) | ✅ Complete & Merged |
 | **Phase 6** | **Secure MQTT Device Transport & Cloud Device Control** (MqttDeviceTransport, canonical topic builder/parser, command lifecycle, physical switch authority, LWT availability, telemetry ingestion, real EMQX 5.8.0 mTLS + per-device ACL) | ✅ Complete & Merged |
 | **Phase 7A** | **Backend Production API + Auth + Authorization** (RS256 JWT access tokens, PBKDF2 password hashing, single-use refresh token rotation, rate limiting, multi-tenant home membership isolation, route protection) | ✅ Complete & Merged |
-| **Phase 7B** | **Realtime SSE + Background Workers** (SSE event stream, backend event bus, stale detector, command timeout worker, outbox retry worker, worker lifecycle runner) | 🔄 **Active — Feature Branch** |
-| **Phase 7C** | **Flutter Cloud Integration + Real Device Control** | ⏳ Scheduled |
+| **Phase 7B** | **Realtime SSE + Background Workers** (SSE event stream, backend event bus, stale detector, command timeout worker, outbox retry worker, worker lifecycle runner) | ✅ Complete & Merged |
+| **Phase 7C** | **Flutter Cloud Integration + Real Device Control** (ApiClient, AuthRepository, FlutterSecureStorage, SseClient, RealtimeEventService, HomeController cloud convergence) | 🔄 **Active — Feature Branch** |
 
 > **Hardware Validation:** Physical ESP32 hardware not connected in this environment. `HARDWARE VALIDATION: PENDING` — `MANUFACTURING PKI VALIDATION: PENDING`.
 
