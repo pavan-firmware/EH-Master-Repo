@@ -121,10 +121,7 @@ function setupEmqxMtls() {
   execSync(`docker exec eh_emqx emqx eval "emqx_config:put([authorization, no_match], deny)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx_config:put([authorization, cache, enable], false)."`, { stdio: 'inherit' });
 
-  console.log('[SetupEMQX] Reloading EMQX authorization rules & cleaning cache...');
-  try {
-    execSync(`docker exec eh_emqx emqx eval "emqx_authz:reload()."`, { stdio: 'inherit' });
-  } catch (_) {}
+  console.log('[SetupEMQX] Cleaning EMQX authorization cache...');
   try {
     execSync(`docker exec eh_emqx emqx ctl authz cache-clean all`, { stdio: 'inherit' });
   } catch (_) {}
