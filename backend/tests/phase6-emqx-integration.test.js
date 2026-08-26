@@ -722,6 +722,13 @@ function checkEmqxReachable(url) {
     }
   });
 
+  // Print effective EMQX authorization config before running ACL enforcement tests
+  try {
+    const authzConfig = execSync('docker exec eh_emqx emqx eval "emqx_config:get([authorization])."', { encoding: 'utf8' }).trim();
+    console.log('\n[ACL Diagnostics] Active EMQX authorization config:');
+    console.log('  ' + authzConfig);
+  } catch (_) {}
+
   /** EQ13g — Device A certificate → Device B topics rejected by EMQX ACL */
   await test('EQ13g Real EMQX ACL — Device A certificate rejected on Device B topics', async () => {
     let clientA = null;

@@ -71,13 +71,13 @@ function setupEmqxMtls() {
   "eh/v1/devices/0194fe23-7a1b-7890-b456-123456fedcba/availability"
 ]}.
 
-{allow, all, subscribe, ["eh/v1/devices/\${clientid}/commands"]}.
+{allow, all, subscribe, ["eh/v1/devices/%c/commands"]}.
 {allow, all, publish, [
-  "eh/v1/devices/\${clientid}/command-receipts",
-  "eh/v1/devices/\${clientid}/state",
-  "eh/v1/devices/\${clientid}/events",
-  "eh/v1/devices/\${clientid}/telemetry",
-  "eh/v1/devices/\${clientid}/availability"
+  "eh/v1/devices/%c/command-receipts",
+  "eh/v1/devices/%c/state",
+  "eh/v1/devices/%c/events",
+  "eh/v1/devices/%c/telemetry",
+  "eh/v1/devices/%c/availability"
 ]}.
 
 {deny, all}.
