@@ -1,0 +1,19 @@
+{
+  "name": "eh-home-monorepo",
+  "version": "1.0.0",
+  "description": "EH Home — Production Smart-Home Platform Monorepo",
+  "main": "backend/src/repositories/index.js",
+  "scripts": {
+    "test": "node scripts/validate-repo.js",
+    "test:mqtt-mock": "node backend/tests/phase6-mqtt.test.js",
+    "test:mqtt-harness": "node backend/tests/phase6-protocol-harness.test.js",
+    "test:emqx": "node backend/tests/phase6-emqx-integration.test.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

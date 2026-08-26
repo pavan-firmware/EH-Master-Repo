@@ -43,10 +43,17 @@ SMART_HOME_V1/
 
 | Phase | Description | Status |
 |---|---|---|
-| **Phase 1** | **Canonical Contracts & Schema Freeze** (19 JSON Schemas, validator engine, 14 canonical capabilities, simulator, initial SQL) | ✅ Verified |
-| **Phase 2** | **PostgreSQL Persistence Foundation** (22 relational tables, 11 repository modules, migration verification, audit & outbox) | ✅ Verified |
-| **Phase 3** | **Product Metadata + Capability Engine** (Catalog service, read-only router, Flutter capability resolver & dynamic UI renderers) | ✅ Verified |
-| **Phase 4** | **Firmware Modernization & Device Connectivity** | ⏳ Scheduled |
+| **Phase 1** | **Canonical Contracts & Schema Freeze** (19 JSON Schemas, validator engine, 14 canonical capabilities, simulator, initial SQL) | ✅ Complete & Hardened |
+| **Phase 2** | **PostgreSQL Persistence Foundation** (22 relational tables, 11 repository modules, migration verification, audit & outbox) | ✅ Complete & Hardened |
+| **Phase 3** | **Product Metadata + Capability Engine** (Catalog service, read-only router, Flutter capability resolver & dynamic UI renderers) | ✅ Complete & Hardened |
+| **Phase 4** | **Home / Floor / Room / Device Domain Model** (DeviceRepository, DeviceStateRepository, CommandRepository, home-device router, domain service) | ✅ Complete & Merged |
+| **Phase 5A** | **Secure Device Onboarding Foundation** (EH1 QR payload parsing, provisioning session lifecycle, claim service, audit) | ✅ Complete & Merged |
+| **Phase 5B** | **Secure BLE Commissioning & Provisioning** (EH-PROV/1 crypto: HMAC-SHA256, HKDF-SHA256, AES-256-GCM, canonical transcript, mTLS confirmation boundary, firmware BLE GATT layer, Flutter BLE channel) | ✅ Complete & Merged |
+| **Phase 6** | **Secure MQTT Device Transport & Cloud Device Control** (MqttDeviceTransport, canonical topic builder/parser, command lifecycle, physical switch authority, LWT availability, telemetry ingestion, firmware C MQTT layer, device simulator MQTT mode) | 🔄 Active — Feature Branch |
+| **Phase 7** | **Cloud Automation Engine** (rules, triggers, scenes) | ⏳ Scheduled |
+
+> **Hardware Validation:** Physical ESP32 hardware not connected in this environment. `HARDWARE VALIDATION: PENDING` — `MANUFACTURING PKI VALIDATION: PENDING`.
+
 
 ---
 
