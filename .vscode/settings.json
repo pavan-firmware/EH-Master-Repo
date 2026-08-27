@@ -1,3 +1,7 @@
 {
-    "idf.currentSetup": "C:\\esp\\v6.0.2\\esp-idf"
+    "idf.currentSetup": "C:\\esp\\v5.4.1\\esp-idf",
+    "idf.espIdfPath": "C:\\esp\\v5.4.1\\esp-idf",
+    "idf.toolsPath": "C:\\Users\\pavan\\.espressif",
+    "idf.pythonBinPath": "C:\\Users\\pavan\\.espressif\\python_env\\idf5.4_py3.14_env\\Scripts\\python.exe",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/firmware/platforms/esp32/smart-switch-app/build/compile_commands.json"
 }

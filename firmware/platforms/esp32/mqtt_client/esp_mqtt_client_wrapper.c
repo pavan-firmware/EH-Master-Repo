@@ -38,6 +38,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "esp_mqtt_client_wrapper.h"
 #include "mqtt_protocol.h"
 
@@ -62,7 +63,6 @@ struct eh_mqtt_client_s {
 
 static void _resubscribe_and_announce(eh_mqtt_client_t *client) {
     /* Subscribe to command topic */
-    char receipt_buf[EH_MQTT_PAYLOAD_MAX_LEN];
     char avail_payload[] = EH_MQTT_AVAIL_ONLINE;
 
 #ifdef ESP_PLATFORM
