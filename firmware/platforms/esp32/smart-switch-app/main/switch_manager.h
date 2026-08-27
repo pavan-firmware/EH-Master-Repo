@@ -11,9 +11,17 @@ extern "C" {
 #define EH_SWITCH_CHANNEL_COUNT 3
 #define EH_SWITCH_DEBOUNCE_MS 50
 
+#if defined(CONFIG_IDF_TARGET_ESP32)
+// ESP32-D0WD Development Board Profile: GPIO 4, 5, 13 (Inputs with internal pull-ups)
+#define GPIO_SWITCH_IN_CH1 4
+#define GPIO_SWITCH_IN_CH2 5
+#define GPIO_SWITCH_IN_CH3 13
+#else
+// ESP32-C6 Production Profile: GPIO 4, 5, 6
 #define GPIO_SWITCH_IN_CH1 4
 #define GPIO_SWITCH_IN_CH2 5
 #define GPIO_SWITCH_IN_CH3 6
+#endif
 
 typedef struct {
     uint8_t channel_index;

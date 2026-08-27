@@ -112,8 +112,13 @@ void telemetry_manager_init(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
     uart_param_config(BL0942_UART_PORT, &uart_config);
-    // Standard UART1 RX GPIO (e.g. GPIO7 on ESP32-C6)
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    // ESP32-D0WD Development Board: UART1 TX=17, RX=16
+    uart_set_pin(BL0942_UART_PORT, 17, 16, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+#else
+    // ESP32-C6 Production: UART1 RX=7
     uart_set_pin(BL0942_UART_PORT, UART_PIN_NO_CHANGE, 7, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+#endif
     uart_driver_install(BL0942_UART_PORT, 256, 0, 0, NULL, 0);
 
     xTaskCreate(telemetry_task, "telemetry_task", 3072, NULL, 5, NULL);

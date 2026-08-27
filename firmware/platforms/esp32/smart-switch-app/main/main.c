@@ -41,7 +41,7 @@
 #include "mqtt_protocol.h"
 
 // Forward declaration of MQTT command handler
-static void on_mqtt_command_received(const eh_mqtt_cmd_t* cmd);
+static void on_mqtt_command_received(const eh_mqtt_command_t* cmd);
 static void on_physical_switch_toggled(uint8_t channel_index);
 static void on_relay_state_changed(uint8_t channel_index, bool new_power, const char* source);
 static void on_wifi_connected(const char* ip_address);
@@ -53,7 +53,7 @@ static void log_memory_diagnostics(void)
 #ifdef ESP_PLATFORM
     size_t free_heap = esp_get_free_heap_size();
     size_t min_free_heap = esp_get_minimum_free_heap_size();
-    ESP_LOGI(TAG, "Heap Diagnostics — Free: %u bytes, Min Free: %u bytes",
+    ESP_LOGI(TAG, "Heap Diagnostics - Free: %u bytes, Min Free: %u bytes",
              (unsigned int)free_heap, (unsigned int)min_free_heap);
 #endif
 }
@@ -71,13 +71,13 @@ static void on_relay_state_changed(uint8_t channel_index, bool new_power, const 
     // In production, triggers MQTT state publication over mTLS
 }
 
-static void on_mqtt_command_received(const eh_mqtt_cmd_t* cmd)
+static void __attribute__((unused)) on_mqtt_command_received(const eh_mqtt_command_t* cmd)
 {
     if (!cmd) return;
     ESP_LOGI(TAG, "Received cloud command: id=%s, ch=%d, action=%s", cmd->command_id, cmd->channel_index, cmd->action);
 
     if (strcmp(cmd->action, "setPower") == 0) {
-        relay_manager_set_power((uint8_t)cmd->channel_index, cmd->params.power_value, "APP");
+        relay_manager_set_power((uint8_t)cmd->channel_index, cmd->params_power, "APP");
     }
 }
 
@@ -103,7 +103,7 @@ static void on_wifi_disconnected(void)
 static void on_telemetry_ready(const bl0942_data_t* data)
 {
     if (!data || !data->valid) return;
-    ESP_LOGI(TAG, "Telemetry — V: %u mV, I: %u mA, P: %d mW, E: %u Wh",
+    ESP_LOGI(TAG, "Telemetry - V: %u mV, I: %u mA, P: %d mW, E: %u Wh",
              (unsigned int)data->voltage_mv,
              (unsigned int)data->current_ma,
              (int)data->power_mw,
@@ -142,7 +142,7 @@ void app_main(void)
 
     // 4. Determine Startup Route (Factory New vs Commissioned)
     const factory_identity_v2_t* id = factory_identity_v2_get();
-    if (id && id->is_dev_mode) {
+    if (id && id->is_development) {
         ESP_LOGI(TAG, "Device Identity: ID=%s, Serial=%s (DEV MODE)", id->device_id, id->serial_number);
     }
 

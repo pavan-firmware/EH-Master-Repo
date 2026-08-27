@@ -10,10 +10,18 @@ extern "C" {
 
 #define EH_RELAY_CHANNEL_COUNT 3
 
-// GPIO assignments according to metadata.json
+// GPIO assignments according to hardware profile
+#if defined(CONFIG_IDF_TARGET_ESP32)
+// ESP32-D0WD Development Board Profile: GPIO 18, 19, 21
+#define GPIO_RELAY_CH1 18
+#define GPIO_RELAY_CH2 19
+#define GPIO_RELAY_CH3 21
+#else
+// ESP32-C6 Production Profile: GPIO 18, 19, 20
 #define GPIO_RELAY_CH1 18
 #define GPIO_RELAY_CH2 19
 #define GPIO_RELAY_CH3 20
+#endif
 
 typedef void (*relay_state_change_cb_t)(uint8_t channel_index, bool new_power, const char* source);
 

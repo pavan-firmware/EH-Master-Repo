@@ -103,7 +103,7 @@ esp_err_t eh_prov1_process_frame(const uint8_t *frame, size_t frame_len,
         if (!s_framing.in_progress || frame_index != s_framing.next_expected_frame || total_frames != s_framing.total_frames) {
             ESP_LOGE(TAG, "Out of order BLE frame received: index %d, expected %d", frame_index, s_framing.next_expected_frame);
             s_framing.in_progress = false;
-            return ESP_ERR_INVALID_SEQUENCE;
+            return ESP_ERR_INVALID_STATE;
         }
     }
 

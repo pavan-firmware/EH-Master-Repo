@@ -115,9 +115,12 @@ build/
 # ------------------------------------------------------------------------------
 **/firmware/**/build/
 **/firmware/**/managed_components/
+**/firmware/**/sdkconfig
 **/firmware/**/sdkconfig.local
 **/firmware/**/sdkconfig.old
+!**/firmware/**/sdkconfig.defaults
 **/firmware/**/dependencies.lock
+compile_commands.json
 *.elf
 *.map
 *.bin
@@ -147,6 +150,7 @@ env/
 # 11. IDE & EDITORS
 # ------------------------------------------------------------------------------
 .idea/
+.clangd
 *.sublime-project
 *.sublime-workspace
 .vscode/*

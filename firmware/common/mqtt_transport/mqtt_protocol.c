@@ -42,7 +42,6 @@ bool eh_mqtt_validate_uuid(const char *uuid) {
     /* Format: 8-4-4-4-12 hex lowercase, total 36 chars including 4 hyphens */
     if (strlen(uuid) != EH_MQTT_UUID_LEN) return false;
 
-    const int hyphen_positions[] = {8, 13, 18, 23};
     for (int i = 0; i < EH_MQTT_UUID_LEN; i++) {
         bool is_hyphen = (i == 8 || i == 13 || i == 18 || i == 23);
         if (is_hyphen) {
@@ -275,7 +274,6 @@ eh_mqtt_err_t eh_mqtt_serialize_receipt(
     if (!command_id || !device_id || !out_buf) return EH_MQTT_ERR_NULL_ARG;
 
     const char *status_str = RECEIPT_STATUS_STRINGS[status];
-    const char *reason_str = failure_reason ? failure_reason : "";
 
     int n = snprintf(out_buf, out_len,
         "{\"schemaVersion\":1,"
