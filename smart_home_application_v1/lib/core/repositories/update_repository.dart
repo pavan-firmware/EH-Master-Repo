@@ -30,30 +30,30 @@ class PreviewUpdateRepository implements UpdateRepository {
 
   @override
   Future<UpdateSummary> getSummary() async => UpdateSummary(
-        overallStatus: UpdateOverallStatus.upToDate,
-        title: 'Everything is up to date',
-        subtitle: 'Your system is running the latest versions.',
-        statusLabel: 'Up to date',
-        lastChecked: _lastChecked,
-        appVersion: '1.0.0',
-        targets: const [
-          UpdateTarget(
-            kind: UpdateTargetKind.app,
-            name: 'EH Home app',
-            currentVersion: 'Version 1.0.0',
-            status: UpdateTargetStatus.upToDate,
-            iconKey: 'phone',
-          ),
-          UpdateTarget(
-            kind: UpdateTargetKind.device,
-            name: 'Smart Mist Maker',
-            currentVersion: 'Version 1.0.0',
-            status: UpdateTargetStatus.upToDate,
-            iconKey: 'chip',
-          ),
-        ],
-        history: _history,
-      );
+    overallStatus: UpdateOverallStatus.upToDate,
+    title: 'Everything is up to date',
+    subtitle: 'Your system is running the latest versions.',
+    statusLabel: 'Up to date',
+    lastChecked: _lastChecked,
+    appVersion: '1.0.0',
+    targets: const [
+      UpdateTarget(
+        kind: UpdateTargetKind.app,
+        name: 'EH Home app',
+        currentVersion: 'Version 1.0.0',
+        status: UpdateTargetStatus.upToDate,
+        iconKey: 'phone',
+      ),
+      UpdateTarget(
+        kind: UpdateTargetKind.device,
+        name: 'Smart Mist Maker',
+        currentVersion: 'Version 1.0.0',
+        status: UpdateTargetStatus.upToDate,
+        iconKey: 'chip',
+      ),
+    ],
+    history: _history,
+  );
 
   @override
   Future<UpdateSummary> checkForUpdates() async {

@@ -5,11 +5,12 @@ import '../widgets/fan_speed_control.dart';
 import '../widgets/brightness_control.dart';
 import '../widgets/cct_control.dart';
 
-typedef CapabilityWidgetBuilder = Widget Function(
-  BuildContext context,
-  ResolvedDeviceChannel channel,
-  void Function(ResolvedDeviceChannel updated) onChannelUpdated,
-);
+typedef CapabilityWidgetBuilder =
+    Widget Function(
+      BuildContext context,
+      ResolvedDeviceChannel channel,
+      void Function(ResolvedDeviceChannel updated) onChannelUpdated,
+    );
 
 /// Controlled Registry for Capability UI Renderers.
 /// The backend provides capability names & configurations; Flutter owns the known renderer implementations.
@@ -18,7 +19,8 @@ class CapabilityRendererRegistry {
     _registerBuiltinRenderers();
   }
 
-  static final CapabilityRendererRegistry instance = CapabilityRendererRegistry._();
+  static final CapabilityRendererRegistry instance =
+      CapabilityRendererRegistry._();
 
   final Map<String, CapabilityWidgetBuilder> _renderers = {};
 
@@ -66,7 +68,9 @@ class CapabilityRendererRegistry {
         max: channel.brightnessMax,
         step: channel.brightnessStep,
         onLevelChanged: (level) {
-          onUpdated(channel.copyWith(brightnessLevel: level, powerState: level > 0));
+          onUpdated(
+            channel.copyWith(brightnessLevel: level, powerState: level > 0),
+          );
         },
       );
     });

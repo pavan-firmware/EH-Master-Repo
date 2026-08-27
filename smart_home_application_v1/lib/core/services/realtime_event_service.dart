@@ -38,15 +38,15 @@ class SSEEventEnvelope {
 class RealtimeEventService extends ChangeNotifier {
   final SseClient _sseClient;
   StreamSubscription? _subscription;
-  
+
   final _eventController = StreamController<SSEEventEnvelope>.broadcast();
 
   RealtimeEventService(this._sseClient) {
     _subscription = _sseClient.events.listen(_onSseEvent);
   }
-  
+
   Stream<SSEEventEnvelope> get events => _eventController.stream;
-  
+
   void _onSseEvent(SseEvent event) {
     if (event.data.isEmpty) return;
     try {
@@ -59,11 +59,11 @@ class RealtimeEventService extends ChangeNotifier {
       debugPrint('Error parsing SSE event: $e');
     }
   }
-  
+
   void connect(String homeId) {
     _sseClient.connect(homeId);
   }
-  
+
   void disconnect() {
     _sseClient.disconnect();
   }

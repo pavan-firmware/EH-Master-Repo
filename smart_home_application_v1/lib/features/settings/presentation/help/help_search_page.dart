@@ -6,7 +6,10 @@ import '../settings_ui.dart';
 import 'help_article_page.dart';
 
 class HelpSearchPage extends StatefulWidget {
-  const HelpSearchPage({super.key, this.repository = const PreviewHelpRepository()});
+  const HelpSearchPage({
+    super.key,
+    this.repository = const PreviewHelpRepository(),
+  });
 
   final HelpRepository repository;
 
@@ -67,7 +70,10 @@ class _HelpSearchPageState extends State<HelpSearchPage> {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
             children: [
               if (_searched && _results.isEmpty)
-                const Text('No results found.', style: TextStyle(color: SettingsColors.muted))
+                const Text(
+                  'No results found.',
+                  style: TextStyle(color: SettingsColors.muted),
+                )
               else
                 SettingsSurface(
                   child: Column(

@@ -16,9 +16,14 @@ class UpdateTargetDetailPage extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
       children: [
         SettingsHeroCard(
-          leading: const SettingsIconBadge(icon: Icons.system_update_alt_rounded, size: 44),
+          leading: const SettingsIconBadge(
+            icon: Icons.system_update_alt_rounded,
+            size: 44,
+          ),
           title: target.statusLabel,
-          subtitle: target.statusDetail ?? 'This component is running the latest available version.',
+          subtitle:
+              target.statusDetail ??
+              'This component is running the latest available version.',
           statusChip: SettingsStatusChip(
             label: target.statusLabel,
             color: SettingsColors.green,
@@ -28,7 +33,8 @@ class UpdateTargetDetailPage extends StatelessWidget {
         const SizedBox(height: 16),
         const SettingsInfoBanner(
           title: 'Preview build',
-          subtitle: 'Device firmware updates become available after your home is securely connected.',
+          subtitle:
+              'Device firmware updates become available after your home is securely connected.',
         ),
       ],
     ),

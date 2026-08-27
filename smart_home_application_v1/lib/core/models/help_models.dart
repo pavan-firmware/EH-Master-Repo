@@ -1,8 +1,4 @@
-enum HelpCategoryKind {
-  quickHelp,
-  gettingStarted,
-  troubleshooting,
-}
+enum HelpCategoryKind { quickHelp, gettingStarted, troubleshooting }
 
 class HelpArticle {
   const HelpArticle({

@@ -66,7 +66,11 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     final update = await widget.updateRepository.getSummary();
     final health = await widget.healthRepository.getSummary();
-    return _SystemSummary(connection: connection, update: update, health: health);
+    return _SystemSummary(
+      connection: connection,
+      update: update,
+      health: health,
+    );
   }
 
   @override
@@ -78,7 +82,8 @@ class _SettingsPageState extends State<SettingsPage> {
         backgroundColor: tokens.bgApp,
         body: FutureBuilder<(HomeSettingsData, _SystemSummary)>(
           future: Future.wait([_home, _systemSummary]).then(
-            (results) => (results[0] as HomeSettingsData, results[1] as _SystemSummary),
+            (results) =>
+                (results[0] as HomeSettingsData, results[1] as _SystemSummary),
           ),
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
@@ -213,7 +218,10 @@ class _SettingsContent extends StatelessWidget {
       0,
       (sum, room) => sum + room.deviceCount,
     );
-    final connection = _RootConnectionStatus.fromOverview(system.connection, tokens);
+    final connection = _RootConnectionStatus.fromOverview(
+      system.connection,
+      tokens,
+    );
     final updateSubtitle = system.update.availableCount == 0
         ? 'Your system is up to date'
         : '${system.update.availableCount} update available';
@@ -228,7 +236,11 @@ class _SettingsContent extends StatelessWidget {
             label: '${system.health.attentionCount} issue',
             color: tokens.warning,
             background: tokens.warningContainer,
-            leading: Icon(Icons.error_outline_rounded, color: tokens.warning, size: 14),
+            leading: Icon(
+              Icons.error_outline_rounded,
+              color: tokens.warning,
+              size: 14,
+            ),
           );
 
     final themeCtrl = ThemeScope.maybeOf(context);
@@ -288,7 +300,8 @@ class _SettingsContent extends StatelessWidget {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => PeoplePage(repository: repository, home: home),
+                    builder: (_) =>
+                        PeoplePage(repository: repository, home: home),
                   ),
                 ),
                 showDivider: true,
@@ -300,7 +313,8 @@ class _SettingsContent extends StatelessWidget {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => HomeDetailsPage(home: home, repository: repository),
+                    builder: (_) =>
+                        HomeDetailsPage(home: home, repository: repository),
                   ),
                 ),
                 showDivider: true,
@@ -349,13 +363,21 @@ class _SettingsContent extends StatelessWidget {
                     ),
                   ),
                 ),
-                iconColor: tokens.isDark ? tokens.bluePrimary : SettingsColors.purple,
-                iconBackground: tokens.isDark ? tokens.iconBgBlue : SettingsColors.palePurple,
+                iconColor: tokens.isDark
+                    ? tokens.bluePrimary
+                    : SettingsColors.purple,
+                iconBackground: tokens.isDark
+                    ? tokens.iconBgBlue
+                    : SettingsColors.palePurple,
                 trailing: SettingsStatusChip(
                   label: connection.shortLabel,
                   color: connection.color,
                   background: connection.background,
-                  leading: Icon(connection.chipIcon, color: connection.color, size: 14),
+                  leading: Icon(
+                    connection.chipIcon,
+                    color: connection.color,
+                    size: 14,
+                  ),
                 ),
                 showDivider: true,
               ),
@@ -369,8 +391,12 @@ class _SettingsContent extends StatelessWidget {
                 ),
                 trailing: SettingsStatusChip(
                   label: 'Version ${system.update.appVersion}',
-                  color: tokens.isDark ? tokens.blueSelectedText : SettingsColors.purple,
-                  background: tokens.isDark ? tokens.blueSelectedBg : SettingsColors.paleLavender,
+                  color: tokens.isDark
+                      ? tokens.blueSelectedText
+                      : SettingsColors.purple,
+                  background: tokens.isDark
+                      ? tokens.blueSelectedBg
+                      : SettingsColors.paleLavender,
                 ),
                 showDivider: true,
               ),
@@ -400,8 +426,12 @@ class _SettingsContent extends StatelessWidget {
                   context,
                   MaterialPageRoute(builder: (_) => const HelpSupportPage()),
                 ),
-                iconColor: tokens.isDark ? tokens.bluePrimary : SettingsColors.purple,
-                iconBackground: tokens.isDark ? tokens.iconBgBlue : SettingsColors.palePurple,
+                iconColor: tokens.isDark
+                    ? tokens.bluePrimary
+                    : SettingsColors.purple,
+                iconBackground: tokens.isDark
+                    ? tokens.iconBgBlue
+                    : SettingsColors.palePurple,
                 showDivider: true,
               ),
               SettingsListItem(
@@ -412,8 +442,12 @@ class _SettingsContent extends StatelessWidget {
                   context,
                   MaterialPageRoute(builder: (_) => const PrivacyPage()),
                 ),
-                iconColor: tokens.isDark ? tokens.bluePrimary : SettingsColors.purple,
-                iconBackground: tokens.isDark ? tokens.iconBgBlue : SettingsColors.palePurple,
+                iconColor: tokens.isDark
+                    ? tokens.bluePrimary
+                    : SettingsColors.purple,
+                iconBackground: tokens.isDark
+                    ? tokens.iconBgBlue
+                    : SettingsColors.palePurple,
               ),
             ],
           ),
@@ -487,7 +521,11 @@ class _AppearanceOptionTile extends StatelessWidget {
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
-                        color: selected ? (tokens.isDark ? tokens.blueSelectedText : tokens.bluePrimary) : tokens.textPrimary,
+                        color: selected
+                            ? (tokens.isDark
+                                  ? tokens.blueSelectedText
+                                  : tokens.bluePrimary)
+                            : tokens.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -502,7 +540,11 @@ class _AppearanceOptionTile extends StatelessWidget {
                 ),
               ),
               if (selected)
-                Icon(Icons.check_circle_rounded, color: tokens.bluePrimary, size: 22),
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: tokens.bluePrimary,
+                  size: 22,
+                ),
             ],
           ),
         ),
@@ -553,16 +595,29 @@ class _HomeProfileCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       'Home owner',
-                      style: TextStyle(color: tokens.textSecondary, fontSize: 15),
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 15,
+                      ),
                     ),
                     const SizedBox(height: 13),
                     Wrap(
                       spacing: 9,
                       runSpacing: 6,
                       children: [
-                        _Meta(icon: connection.icon, text: connection.profileText, color: connection.color),
-                        _Meta(icon: Icons.meeting_room_outlined, text: '$roomCount rooms'),
-                        _Meta(icon: Icons.inventory_2_outlined, text: '$deviceCount devices'),
+                        _Meta(
+                          icon: connection.icon,
+                          text: connection.profileText,
+                          color: connection.color,
+                        ),
+                        _Meta(
+                          icon: Icons.meeting_room_outlined,
+                          text: '$roomCount rooms',
+                        ),
+                        _Meta(
+                          icon: Icons.inventory_2_outlined,
+                          text: '$deviceCount devices',
+                        ),
                       ],
                     ),
                   ],
@@ -599,7 +654,11 @@ class _Meta extends StatelessWidget {
               text,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: resolvedColor, fontSize: 13, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: resolvedColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -628,7 +687,10 @@ class _RootConnectionStatus {
 
   String get profileText => profileLabel ?? shortLabel;
 
-  factory _RootConnectionStatus.fromOverview(dynamic overview, EHThemeTokens tokens) {
+  factory _RootConnectionStatus.fromOverview(
+    dynamic overview,
+    EHThemeTokens tokens,
+  ) {
     if (overview.isFullyConnected) {
       return _RootConnectionStatus(
         shortLabel: 'Connected',
@@ -643,41 +705,45 @@ class _RootConnectionStatus {
     return _RootConnectionStatus.fromState(overview.overall, tokens);
   }
 
-  factory _RootConnectionStatus.fromState(HomeConnectionState? state, EHThemeTokens tokens) => switch (state) {
-        HomeConnectionState.connected => _RootConnectionStatus(
-          shortLabel: 'Connected',
-          detail: 'Bluetooth, Wi-Fi, and hub connection',
-          icon: Icons.bluetooth_connected_rounded,
-          color: tokens.success,
-          background: tokens.successContainer,
-          chipIcon: Icons.check_rounded,
-          profileLabel: 'Home connected',
-        ),
-        HomeConnectionState.connecting => _RootConnectionStatus(
-          shortLabel: 'Connecting',
-          detail: 'Looking for your nearby EH Home device',
-          icon: Icons.bluetooth_searching_rounded,
-          color: tokens.bluePrimary,
-          background: tokens.blueSelectedBg,
-          chipIcon: Icons.sync_rounded,
-        ),
-        HomeConnectionState.offline || HomeConnectionState.failed => _RootConnectionStatus(
-          shortLabel: 'Unavailable',
-          detail: 'Your home device is currently unavailable',
-          icon: Icons.wifi_off_rounded,
-          color: tokens.warning,
-          background: tokens.warningContainer,
-          chipIcon: Icons.error_outline_rounded,
-        ),
-        _ => _RootConnectionStatus(
-          shortLabel: 'Set up required',
-          detail: 'Bluetooth, Wi-Fi, and secure hub connection',
-          icon: Icons.wifi_off_rounded,
-          color: tokens.textSecondary,
-          background: tokens.surfaceElevated,
-          chipIcon: Icons.info_outline_rounded,
-        ),
-      };
+  factory _RootConnectionStatus.fromState(
+    HomeConnectionState? state,
+    EHThemeTokens tokens,
+  ) => switch (state) {
+    HomeConnectionState.connected => _RootConnectionStatus(
+      shortLabel: 'Connected',
+      detail: 'Bluetooth, Wi-Fi, and hub connection',
+      icon: Icons.bluetooth_connected_rounded,
+      color: tokens.success,
+      background: tokens.successContainer,
+      chipIcon: Icons.check_rounded,
+      profileLabel: 'Home connected',
+    ),
+    HomeConnectionState.connecting => _RootConnectionStatus(
+      shortLabel: 'Connecting',
+      detail: 'Looking for your nearby EH Home device',
+      icon: Icons.bluetooth_searching_rounded,
+      color: tokens.bluePrimary,
+      background: tokens.blueSelectedBg,
+      chipIcon: Icons.sync_rounded,
+    ),
+    HomeConnectionState.offline ||
+    HomeConnectionState.failed => _RootConnectionStatus(
+      shortLabel: 'Unavailable',
+      detail: 'Your home device is currently unavailable',
+      icon: Icons.wifi_off_rounded,
+      color: tokens.warning,
+      background: tokens.warningContainer,
+      chipIcon: Icons.error_outline_rounded,
+    ),
+    _ => _RootConnectionStatus(
+      shortLabel: 'Set up required',
+      detail: 'Bluetooth, Wi-Fi, and secure hub connection',
+      icon: Icons.wifi_off_rounded,
+      color: tokens.textSecondary,
+      background: tokens.surfaceElevated,
+      chipIcon: Icons.info_outline_rounded,
+    ),
+  };
 }
 
 class _SettingsLoading extends StatelessWidget {
@@ -714,7 +780,11 @@ class _SettingsError extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               'Couldn’t load your home',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: tokens.textPrimary),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: tokens.textPrimary,
+              ),
             ),
             const SizedBox(height: 8),
             Text(

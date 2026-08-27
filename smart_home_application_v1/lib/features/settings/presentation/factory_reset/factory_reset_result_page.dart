@@ -4,6 +4,7 @@ import '../../../connection/presentation/home_connection_page.dart';
 import '../settings_ui.dart';
 import '../add_room_device_page.dart';
 import '../../../../core/repositories/settings_repository.dart';
+
 class FactoryResetResultPage extends StatelessWidget {
   const FactoryResetResultPage({
     super.key,
@@ -25,7 +26,9 @@ class FactoryResetResultPage extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: success ? SettingsColors.paleGreen : SettingsColors.paleOrange,
+              color: success
+                  ? SettingsColors.paleGreen
+                  : SettingsColors.paleOrange,
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -34,7 +37,9 @@ class FactoryResetResultPage extends StatelessWidget {
               size: 28,
             ),
           ),
-          title: success ? 'Device reset verified' : 'Reset could not be verified',
+          title: success
+              ? 'Device reset verified'
+              : 'Reset could not be verified',
           subtitle: message,
         ),
         const SizedBox(height: 20),
@@ -46,7 +51,9 @@ class FactoryResetResultPage extends StatelessWidget {
               onPressed: () => Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => AddRoomDevicePage(repository: const PreviewSettingsRepository()),
+                  builder: (_) => AddRoomDevicePage(
+                    repository: const PreviewSettingsRepository(),
+                  ),
                 ),
                 (route) => route.isFirst,
               ),

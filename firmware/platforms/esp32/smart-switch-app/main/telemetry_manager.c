@@ -3,6 +3,7 @@
 #include <string.h>
 
 #ifdef ESP_PLATFORM
+#include "sdkconfig.h"
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
@@ -113,11 +114,13 @@ void telemetry_manager_init(void)
     };
     uart_param_config(BL0942_UART_PORT, &uart_config);
 #if defined(CONFIG_IDF_TARGET_ESP32)
-    // ESP32-D0WD Development Board: UART1 TX=17, RX=16
+    // ESP32-D0WD Development Board: UART1 TX=17, RX=16 (Avoids GPIO 7 Flash SD0 collision)
     uart_set_pin(BL0942_UART_PORT, 17, 16, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-#else
+#elif defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C3)
     // ESP32-C6 Production: UART1 RX=7
     uart_set_pin(BL0942_UART_PORT, UART_PIN_NO_CHANGE, 7, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+#else
+#error "Unsupported EH Home MCU target in telemetry_manager.c"
 #endif
     uart_driver_install(BL0942_UART_PORT, 256, 0, 0, NULL, 0);
 

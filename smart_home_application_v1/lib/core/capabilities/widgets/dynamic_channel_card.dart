@@ -56,7 +56,9 @@ class DynamicChannelCard extends StatelessWidget {
                 height: 28,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: tokens.isDark ? tokens.blueSelectedBg : const Color(0xFFEAF1FF),
+                  color: tokens.isDark
+                      ? tokens.blueSelectedBg
+                      : const Color(0xFFEAF1FF),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -87,7 +89,9 @@ class DynamicChannelCard extends StatelessWidget {
                       height: 14,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(tokens.warning),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          tokens.warning,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 6),

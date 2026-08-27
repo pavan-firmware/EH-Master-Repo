@@ -30,10 +30,14 @@ class EhProv1Crypto {
     final deviceBytes = utf8.encode(deviceId);
 
     if (sessionBytes.length != 36) {
-      throw ArgumentError('sessionId must be exactly 36 ASCII bytes (canonical UUID format)');
+      throw ArgumentError(
+        'sessionId must be exactly 36 ASCII bytes (canonical UUID format)',
+      );
     }
     if (deviceBytes.length != 36) {
-      throw ArgumentError('deviceId must be exactly 36 ASCII bytes (canonical UUID format)');
+      throw ArgumentError(
+        'deviceId must be exactly 36 ASCII bytes (canonical UUID format)',
+      );
     }
     if (appChallenge.length != 32) {
       throw ArgumentError('appChallenge must be exactly 32 bytes');
@@ -42,7 +46,8 @@ class EhProv1Crypto {
       throw ArgumentError('deviceChallenge must be exactly 32 bytes');
     }
 
-    final totalLen = 1 + protoBytes.length + 1 + msgTypeBytes.length + 36 + 36 + 32 + 32 + 4;
+    final totalLen =
+        1 + protoBytes.length + 1 + msgTypeBytes.length + 36 + 36 + 32 + 32 + 4;
     final builder = BytesBuilder(copy: false);
 
     builder.addByte(protoBytes.length);
@@ -61,7 +66,9 @@ class EhProv1Crypto {
 
     final out = builder.takeBytes();
     if (out.length != totalLen) {
-      throw StateError('Encoded transcript length mismatch: expected $totalLen, got ${out.length}');
+      throw StateError(
+        'Encoded transcript length mismatch: expected $totalLen, got ${out.length}',
+      );
     }
     return out;
   }
@@ -95,7 +102,9 @@ class EhProv1Crypto {
     if (outputLength <= derived.length) {
       return Uint8List.sublistView(derived, 0, outputLength);
     }
-    throw UnsupportedError('HKDF output length > 32 bytes not required for EH-PROV/1');
+    throw UnsupportedError(
+      'HKDF output length > 32 bytes not required for EH-PROV/1',
+    );
   }
 
   /// AES-256-GCM Encryption

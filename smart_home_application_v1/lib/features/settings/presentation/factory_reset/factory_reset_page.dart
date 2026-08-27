@@ -5,7 +5,8 @@ import '../../../../core/repositories/factory_reset_repository.dart';
 import '../../../activity/presentation/activity_page.dart';
 import '../../../rooms/presentation/room_context_page.dart';
 import '../../../../core/models/room_models.dart';
-import '../settings_ui.dart';import 'factory_reset_confirm_page.dart';
+import '../settings_ui.dart';
+import 'factory_reset_confirm_page.dart';
 import 'routine_impact_page.dart';
 
 class FactoryResetPage extends StatefulWidget {
@@ -46,7 +47,8 @@ class _FactoryResetPageState extends State<FactoryResetPage> {
           children: [
             const SettingsDestructiveBanner(
               title: 'This action cannot be undone',
-              body: 'The device will be removed from your home and all settings will be erased.',
+              body:
+                  'The device will be removed from your home and all settings will be erased.',
             ),
             const SizedBox(height: 20),
             const SettingsSectionTitle('DEVICE TO RESET'),
@@ -70,7 +72,9 @@ class _FactoryResetPageState extends State<FactoryResetPage> {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => RoutineImpactPage(routineNames: impact.routineNames),
+                        builder: (_) => RoutineImpactPage(
+                          routineNames: impact.routineNames,
+                        ),
                       ),
                     ),
                     showDivider: true,
@@ -87,7 +91,9 @@ class _FactoryResetPageState extends State<FactoryResetPage> {
                       );
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => RoomContextPage(room: room)),
+                        MaterialPageRoute(
+                          builder: (_) => RoomContextPage(room: room),
+                        ),
                       );
                     },
                     showDivider: true,
@@ -115,11 +121,14 @@ class _FactoryResetPageState extends State<FactoryResetPage> {
               width: double.infinity,
               height: 52,
               child: FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: SettingsColors.red),
+                style: FilledButton.styleFrom(
+                  backgroundColor: SettingsColors.red,
+                ),
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => FactoryResetConfirmPage(repository: widget.repository),
+                    builder: (_) =>
+                        FactoryResetConfirmPage(repository: widget.repository),
                   ),
                 ),
                 child: const Text('Continue'),
@@ -153,7 +162,11 @@ class _DeviceCard extends StatelessWidget {
                   color: SettingsColors.paleBlue,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.water_drop_outlined, color: SettingsColors.blue, size: 22),
+                child: const Icon(
+                  Icons.water_drop_outlined,
+                  color: SettingsColors.blue,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -163,7 +176,10 @@ class _DeviceCard extends StatelessWidget {
                     Text(
                       impact.deviceName,
                       maxLines: 2,
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -188,7 +204,11 @@ class _DeviceCard extends StatelessWidget {
               label: impact.roomName,
               color: SettingsColors.muted,
               background: const Color(0xFFF0F3F7),
-              leading: const Icon(Icons.place_outlined, size: 14, color: SettingsColors.muted),
+              leading: const Icon(
+                Icons.place_outlined,
+                size: 14,
+                color: SettingsColors.muted,
+              ),
             ),
           ),
         ],
@@ -231,13 +251,31 @@ class _ImpactRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-                      Text(subtitle, style: const TextStyle(color: SettingsColors.muted, fontSize: 13)),
+                      Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: SettingsColors.muted,
+                          fontSize: 13,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                Text(value, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                const Icon(Icons.chevron_right_rounded, color: SettingsColors.muted),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: SettingsColors.muted,
+                ),
               ],
             ),
           ),

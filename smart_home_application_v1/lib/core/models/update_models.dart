@@ -30,12 +30,12 @@ class UpdateTarget {
   final String? iconKey;
 
   String get statusLabel => switch (status) {
-        UpdateTargetStatus.upToDate => 'Up to date',
-        UpdateTargetStatus.updateAvailable => 'Update available',
-        UpdateTargetStatus.unavailable => statusDetail ?? 'Unavailable',
-        UpdateTargetStatus.updating => 'Updating',
-        UpdateTargetStatus.failed => 'Update failed',
-      };
+    UpdateTargetStatus.upToDate => 'Up to date',
+    UpdateTargetStatus.updateAvailable => 'Update available',
+    UpdateTargetStatus.unavailable => statusDetail ?? 'Unavailable',
+    UpdateTargetStatus.updating => 'Updating',
+    UpdateTargetStatus.failed => 'Update failed',
+  };
 }
 
 class UpdateHistoryEntry {
@@ -77,6 +77,7 @@ class UpdateSummary {
   final List<UpdateHistoryEntry> history;
   final String appVersion;
 
-  int get availableCount =>
-      targets.where((t) => t.status == UpdateTargetStatus.updateAvailable).length;
+  int get availableCount => targets
+      .where((t) => t.status == UpdateTargetStatus.updateAvailable)
+      .length;
 }

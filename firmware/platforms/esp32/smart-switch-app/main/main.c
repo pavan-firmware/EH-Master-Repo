@@ -38,6 +38,7 @@
 #include "telemetry_manager.h"
 #include "ota_manager.h"
 #include "factory_identity_v2.h"
+#include "ble_commissioning.h"
 #include "mqtt_protocol.h"
 
 // Forward declaration of MQTT command handler
@@ -151,6 +152,7 @@ void app_main(void)
     if (!has_wifi) {
         ESP_LOGI(TAG, "No Wi-Fi credentials found. Entering BLE_COMMISSIONING mode...");
         app_lifecycle_set_state(APP_STATE_BLE_COMMISSIONING);
+        ble_commissioning_init();
     } else {
         ESP_LOGI(TAG, "Stored credentials found. Connecting to Wi-Fi...");
         app_lifecycle_set_state(APP_STATE_WIFI_CONNECTING);

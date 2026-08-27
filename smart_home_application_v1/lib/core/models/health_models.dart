@@ -1,11 +1,4 @@
-enum DeviceHealthState {
-  healthy,
-  attention,
-  offline,
-  stale,
-  updating,
-  unknown,
-}
+enum DeviceHealthState { healthy, attention, offline, stale, updating, unknown }
 
 enum SignalStrength { strong, good, weak, unknown }
 
@@ -35,20 +28,20 @@ class DeviceHealthEntry {
   final String? reading;
 
   int get sortPriority => switch (state) {
-        DeviceHealthState.attention => 0,
-        DeviceHealthState.offline => 1,
-        DeviceHealthState.stale => 2,
-        DeviceHealthState.updating => 3,
-        DeviceHealthState.unknown => 4,
-        DeviceHealthState.healthy => 5,
-      };
+    DeviceHealthState.attention => 0,
+    DeviceHealthState.offline => 1,
+    DeviceHealthState.stale => 2,
+    DeviceHealthState.updating => 3,
+    DeviceHealthState.unknown => 4,
+    DeviceHealthState.healthy => 5,
+  };
 
   String get signalLabel => switch (signal) {
-        SignalStrength.strong => 'Strong',
-        SignalStrength.good => 'Good',
-        SignalStrength.weak => 'Weak',
-        SignalStrength.unknown => 'Unknown',
-      };
+    SignalStrength.strong => 'Strong',
+    SignalStrength.good => 'Good',
+    SignalStrength.weak => 'Weak',
+    SignalStrength.unknown => 'Unknown',
+  };
 }
 
 class RoomHealthSummary {

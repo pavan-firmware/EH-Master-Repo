@@ -23,13 +23,13 @@ class PrivacyLegalPage extends StatelessWidget {
   );
 
   String _body(String kind) => switch (kind) {
-        'security' =>
-          'EH Home uses secure nearby setup, authenticated device communication, and protected local storage. Full security documentation will be published before production release.',
-        'privacy' =>
-          'This preview build stores home and device data locally. A full privacy policy will be available before cloud services launch.',
-        'terms' =>
-          'Terms of service for EH Home will be published before public release. This preview is for development and testing only.',
-        _ =>
-          'EH Home collects only the data needed to run your home. Diagnostic and analytics sharing remain off unless you enable them when supported.',
-      };
+    'security' =>
+      'EH Home uses secure nearby setup, authenticated device communication, and protected local storage. Full security documentation will be published before production release.',
+    'privacy' =>
+      'This preview build stores home and device data locally. A full privacy policy will be available before cloud services launch.',
+    'terms' =>
+      'Terms of service for EH Home will be published before public release. This preview is for development and testing only.',
+    _ =>
+      'EH Home collects only the data needed to run your home. Diagnostic and analytics sharing remain off unless you enable them when supported.',
+  };
 }

@@ -22,19 +22,59 @@ class MockHomeDomainRepository implements HomeDomainRepository {
   );
 
   static const _floors = [
-    HomeFloor(id: 'fl_ground', homeId: 'home_main', name: 'Ground Floor', level: 0),
-    HomeFloor(id: 'fl_first', homeId: 'home_main', name: 'First Floor', level: 1),
+    HomeFloor(
+      id: 'fl_ground',
+      homeId: 'home_main',
+      name: 'Ground Floor',
+      level: 0,
+    ),
+    HomeFloor(
+      id: 'fl_first',
+      homeId: 'home_main',
+      name: 'First Floor',
+      level: 1,
+    ),
   ];
 
   static const _rooms = [
-    HomeRoom(id: 'rm_living', homeId: 'home_main', floorId: 'fl_ground', name: 'Living Room', iconKey: 'living'),
-    HomeRoom(id: 'rm_kitchen', homeId: 'home_main', floorId: 'fl_ground', name: 'Kitchen', iconKey: 'kitchen'),
-    HomeRoom(id: 'rm_bedroom', homeId: 'home_main', floorId: 'fl_first', name: 'Master Bedroom', iconKey: 'bedroom'),
+    HomeRoom(
+      id: 'rm_living',
+      homeId: 'home_main',
+      floorId: 'fl_ground',
+      name: 'Living Room',
+      iconKey: 'living',
+    ),
+    HomeRoom(
+      id: 'rm_kitchen',
+      homeId: 'home_main',
+      floorId: 'fl_ground',
+      name: 'Kitchen',
+      iconKey: 'kitchen',
+    ),
+    HomeRoom(
+      id: 'rm_bedroom',
+      homeId: 'home_main',
+      floorId: 'fl_first',
+      name: 'Master Bedroom',
+      iconKey: 'bedroom',
+    ),
   ];
 
   static const _members = [
-    HomeMember(membershipId: 'mem_1', homeId: 'home_main', userId: 'user_owner', email: 'owner@ehhome.com', role: HomeMemberRole.owner),
-    HomeMember(membershipId: 'mem_2', homeId: 'home_main', userId: 'user_admin', email: 'admin@ehhome.com', role: HomeMemberRole.admin),
+    HomeMember(
+      membershipId: 'mem_1',
+      homeId: 'home_main',
+      userId: 'user_owner',
+      email: 'owner@ehhome.com',
+      role: HomeMemberRole.owner,
+    ),
+    HomeMember(
+      membershipId: 'mem_2',
+      homeId: 'home_main',
+      userId: 'user_admin',
+      email: 'admin@ehhome.com',
+      role: HomeMemberRole.admin,
+    ),
   ];
 
   static const _devices = [
@@ -50,9 +90,25 @@ class MockHomeDomainRepository implements HomeDomainRepository {
       connectionState: CapabilityConnectionState.online,
       capabilities: ['switch', 'relay', 'energy', 'ota'],
       channels: [
-        ResolvedDeviceChannel(channelIndex: 1, name: 'Chandelier', capabilities: ['switch', 'relay'], powerState: true),
-        ResolvedDeviceChannel(channelIndex: 2, name: 'Ceiling Fan', capabilities: ['switch', 'relay', 'fan_speed'], powerState: false, fanSpeed: 0),
-        ResolvedDeviceChannel(channelIndex: 3, name: 'Accent Lights', capabilities: ['switch', 'relay'], powerState: true),
+        ResolvedDeviceChannel(
+          channelIndex: 1,
+          name: 'Chandelier',
+          capabilities: ['switch', 'relay'],
+          powerState: true,
+        ),
+        ResolvedDeviceChannel(
+          channelIndex: 2,
+          name: 'Ceiling Fan',
+          capabilities: ['switch', 'relay', 'fan_speed'],
+          powerState: false,
+          fanSpeed: 0,
+        ),
+        ResolvedDeviceChannel(
+          channelIndex: 3,
+          name: 'Accent Lights',
+          capabilities: ['switch', 'relay'],
+          powerState: true,
+        ),
       ],
     ),
   ];
@@ -61,7 +117,8 @@ class MockHomeDomainRepository implements HomeDomainRepository {
   Future<List<UserHome>> getHomesForUser(String userId) async => [_home1];
 
   @override
-  Future<UserHome?> getHome(String homeId) async => homeId == _home1.id ? _home1 : null;
+  Future<UserHome?> getHome(String homeId) async =>
+      homeId == _home1.id ? _home1 : null;
 
   @override
   Future<List<HomeFloor>> getFloorsForHome(String homeId) async =>

@@ -58,7 +58,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           color: Colors.red.withAlpha(26),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(error, style: const TextStyle(color: Colors.red)),
+                        child: Text(
+                          error,
+                          style: const TextStyle(color: Colors.red),
+                        ),
                       ),
                     TextFormField(
                       controller: _emailController,
@@ -67,7 +70,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.emailAddress,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'Required' : null,
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 16),
@@ -78,7 +82,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         border: OutlineInputBorder(),
                       ),
                       obscureText: true,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'Required' : null,
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 24),
@@ -86,7 +91,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       onPressed: isLoading ? null : _register,
                       child: isLoading
                           ? const SizedBox(
-                              width: 20, height: 20,
+                              width: 20,
+                              height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Text('Create Account'),

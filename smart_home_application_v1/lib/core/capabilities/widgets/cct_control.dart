@@ -25,7 +25,10 @@ class CCTControl extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final clampedKelvin = kelvin.clamp(minKelvin, maxKelvin);
-    final divisions = ((maxKelvin - minKelvin) / stepKelvin).round().clamp(1, 100);
+    final divisions = ((maxKelvin - minKelvin) / stepKelvin).round().clamp(
+      1,
+      100,
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

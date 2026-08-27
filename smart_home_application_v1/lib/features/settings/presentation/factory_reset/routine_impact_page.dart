@@ -27,8 +27,13 @@ class RoutineImpactPage extends StatelessWidget {
                       background: SettingsColors.palePurple,
                       size: 40,
                     ),
-                    title: Text(routineNames[i], style: const TextStyle(fontWeight: FontWeight.w800)),
-                    subtitle: const Text('Will become unavailable until device is set up again.'),
+                    title: Text(
+                      routineNames[i],
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: const Text(
+                      'Will become unavailable until device is set up again.',
+                    ),
                   ),
                 ),
             ],

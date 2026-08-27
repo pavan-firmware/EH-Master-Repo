@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/config/app_config.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_theme.dart';
 import '../core/api/api_client.dart';
@@ -20,20 +21,20 @@ class SmartHomeApp extends StatefulWidget {
     this.homeController,
     this.themeController,
     this.authController,
-    /// Base URL of the backend server. Defaults to localhost for dev.
-    this.backendBaseUrl = 'http://localhost:3000',
+    this.backendBaseUrl,
   });
 
   final HomeController? homeController;
   final ThemeController? themeController;
   final AuthController? authController;
-  final String backendBaseUrl;
+  final String? backendBaseUrl;
 
   @override
   State<SmartHomeApp> createState() => _SmartHomeAppState();
 }
 
-class _SmartHomeAppState extends State<SmartHomeApp> with WidgetsBindingObserver {
+class _SmartHomeAppState extends State<SmartHomeApp>
+    with WidgetsBindingObserver {
   late final ThemeController _themeController;
   AuthController? _authController;
   late final HomeController _homeController;
@@ -59,15 +60,19 @@ class _SmartHomeAppState extends State<SmartHomeApp> with WidgetsBindingObserver
       _authController!.addListener(_onAuthStateChanged);
     } else {
       // Production path: wire up the full cloud stack
-      _apiClient = ApiClient(baseUrl: widget.backendBaseUrl);
+      _apiClient = ApiClient(
+        baseUrl: widget.backendBaseUrl ?? AppConfig.backendBaseUrl,
+      );
       _authRepository = AuthRepository(_apiClient!);
       _sseClient = SseClient(_apiClient!);
       _realtimeService = RealtimeEventService(_sseClient!);
 
-      _authController = widget.authController ?? AuthController(_authRepository!);
+      _authController =
+          widget.authController ?? AuthController(_authRepository!);
       _authController!.addListener(_onAuthStateChanged);
 
-      _homeController = widget.homeController ??
+      _homeController =
+          widget.homeController ??
           HomeController(
             repository: CloudHomeRepository(_apiClient!),
             realtimeEventService: _realtimeService,
@@ -145,7 +150,8 @@ class _SmartHomeAppState extends State<SmartHomeApp> with WidgetsBindingObserver
                 child: child ?? const SizedBox.shrink(),
               );
             },
-            home: (widget.homeController != null && widget.authController == null)
+            home:
+                (widget.homeController != null && widget.authController == null)
                 ? SplashScreen(homeController: widget.homeController)
                 : ListenableBuilder(
                     listenable: _authController!,

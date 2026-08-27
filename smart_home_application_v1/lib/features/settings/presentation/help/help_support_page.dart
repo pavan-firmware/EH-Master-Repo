@@ -46,17 +46,18 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
 
   void _load() {
     setState(() {
-      _data = Future.wait([
-        widget.repository.getQuickHelp(),
-        widget.repository.getGettingStarted(),
-        widget.repository.getTroubleshooting(),
-      ]).then(
-        (results) => _HelpData(
-          quick: results[0] as List<HelpQuickCard>,
-          gettingStarted: results[1] as List<HelpArticle>,
-          troubleshooting: results[2] as List<HelpArticle>,
-        ),
-      );
+      _data =
+          Future.wait([
+            widget.repository.getQuickHelp(),
+            widget.repository.getGettingStarted(),
+            widget.repository.getTroubleshooting(),
+          ]).then(
+            (results) => _HelpData(
+              quick: results[0] as List<HelpQuickCard>,
+              gettingStarted: results[1] as List<HelpArticle>,
+              troubleshooting: results[2] as List<HelpArticle>,
+            ),
+          );
     });
   }
 
@@ -85,7 +86,8 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
                 ),
               ),
               decoration: InputDecoration(
-                hintText: 'Search for help (e.g. device offline, Wi-Fi, routine)',
+                hintText:
+                    'Search for help (e.g. device offline, Wi-Fi, routine)',
                 prefixIcon: const Icon(Icons.search_rounded),
                 filled: true,
                 fillColor: Colors.white,
@@ -99,7 +101,10 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
             Row(
               children: [
                 const Expanded(
-                  child: Text('Quick help', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                  child: Text(
+                    'Quick help',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
                 ),
                 SettingsSectionLink(
                   label: 'View all',
@@ -116,12 +121,16 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
                 separatorBuilder: (_, _) => const SizedBox(width: 10),
                 itemBuilder: (context, index) => _QuickHelpCard(
                   card: data.quick[index],
-                  onTap: () => _openArticle(context, data.quick[index].articleId),
+                  onTap: () =>
+                      _openArticle(context, data.quick[index].articleId),
                 ),
               ),
             ),
             const SizedBox(height: 24),
-            const Text('Getting started', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Text(
+              'Getting started',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 10),
             SettingsSurface(
               child: Column(
@@ -130,7 +139,8 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
                     _HelpListRow(
                       article: data.gettingStarted[i],
                       showDivider: i < data.gettingStarted.length - 1,
-                      onTap: () => _handleArticleAction(context, data.gettingStarted[i]),
+                      onTap: () =>
+                          _handleArticleAction(context, data.gettingStarted[i]),
                     ),
                 ],
               ),
@@ -138,7 +148,10 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
             const SizedBox(height: 24),
             KeyedSubtree(
               key: _troubleshootingKey,
-              child: const Text('Troubleshooting', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              child: const Text(
+                'Troubleshooting',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
             ),
             const SizedBox(height: 10),
             SettingsSurface(
@@ -148,7 +161,8 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
                     _HelpListRow(
                       article: data.troubleshooting[i],
                       showDivider: i < data.troubleshooting.length - 1,
-                      onTap: () => _openArticle(context, data.troubleshooting[i].id),
+                      onTap: () =>
+                          _openArticle(context, data.troubleshooting[i].id),
                     ),
                 ],
               ),
@@ -184,7 +198,8 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => HelpArticlePage(articleId: id, repository: widget.repository),
+        builder: (_) =>
+            HelpArticlePage(articleId: id, repository: widget.repository),
       ),
     );
   }
@@ -192,25 +207,39 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
   void _handleArticleAction(BuildContext context, HelpArticle article) async {
     switch (article.actionRoute) {
       case 'connect':
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const HomeConnectionPage()));
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const HomeConnectionPage()),
+        );
       case 'add-device':
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => AddRoomDevicePage(repository: const PreviewSettingsRepository()),
+            builder: (_) => AddRoomDevicePage(
+              repository: const PreviewSettingsRepository(),
+            ),
           ),
         );
       case 'health':
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const DeviceHealthPage()));
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const DeviceHealthPage()),
+        );
       case 'update':
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const SystemUpdatePage()));
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SystemUpdatePage()),
+        );
       case 'people':
         final home = await const PreviewSettingsRepository().getHome();
         if (!context.mounted) return;
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => PeoplePage(repository: const PreviewSettingsRepository(), home: home),
+            builder: (_) => PeoplePage(
+              repository: const PreviewSettingsRepository(),
+              home: home,
+            ),
           ),
         );
       default:
@@ -261,7 +290,10 @@ class _QuickHelpCard extends StatelessWidget {
                 card.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
               ),
               const SizedBox(height: 4),
               Expanded(
@@ -269,12 +301,18 @@ class _QuickHelpCard extends StatelessWidget {
                   card.subtitle,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: SettingsColors.muted, fontSize: 12),
+                  style: const TextStyle(
+                    color: SettingsColors.muted,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               const Align(
                 alignment: Alignment.bottomRight,
-                child: Icon(Icons.chevron_right_rounded, color: SettingsColors.muted),
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  color: SettingsColors.muted,
+                ),
               ),
             ],
           ),
@@ -284,12 +322,12 @@ class _QuickHelpCard extends StatelessWidget {
   );
 
   IconData _icon(String key) => switch (key) {
-        'bluetooth' => Icons.bluetooth_rounded,
-        'wifi' => Icons.wifi_rounded,
-        'device' => Icons.devices_rounded,
-        'add' => Icons.add_rounded,
-        _ => Icons.help_outline_rounded,
-      };
+    'bluetooth' => Icons.bluetooth_rounded,
+    'wifi' => Icons.wifi_rounded,
+    'device' => Icons.devices_rounded,
+    'add' => Icons.add_rounded,
+    _ => Icons.help_outline_rounded,
+  };
 }
 
 class _HelpListRow extends StatelessWidget {

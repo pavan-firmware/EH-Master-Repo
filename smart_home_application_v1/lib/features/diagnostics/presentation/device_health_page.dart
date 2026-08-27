@@ -54,7 +54,8 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
     actions: [
       settingsHelpAction(
         context,
-        message: 'Device health shows connection status, recent communication, and issues that may need attention.',
+        message:
+            'Device health shows connection status, recent communication, and issues that may need attention.',
       ),
     ],
     child: FutureBuilder<HomeHealthSummary>(
@@ -70,7 +71,11 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
           children: [
-            _HealthHeroCard(summary: data, checking: _checking, onCheckAgain: _checkAgain),
+            _HealthHeroCard(
+              summary: data,
+              checking: _checking,
+              onCheckAgain: _checkAgain,
+            ),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -85,19 +90,27 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => _AllDevicesPage(devices: data.sortedDevices),
+                      builder: (_) =>
+                          _AllDevicesPage(devices: data.sortedDevices),
                     ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
-            ...data.sortedDevices.take(5).map((d) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _DeviceHealthTile(entry: d),
-                )),
+            ...data.sortedDevices
+                .take(5)
+                .map(
+                  (d) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _DeviceHealthTile(entry: d),
+                  ),
+                ),
             const SizedBox(height: 16),
-            const Text('Room health', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Text(
+              'Room health',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 12),
             SizedBox(
               height: 148,
@@ -114,7 +127,9 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
                     );
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => RoomContextPage(room: typed)),
+                      MaterialPageRoute(
+                        builder: (_) => RoomContextPage(room: typed),
+                      ),
                     );
                   },
                 ),
@@ -163,10 +178,17 @@ class _HealthHeroCard extends StatelessWidget {
       leading: Container(
         width: 8,
         height: 8,
-        decoration: const BoxDecoration(color: SettingsColors.green, shape: BoxShape.circle),
+        decoration: const BoxDecoration(
+          color: SettingsColors.green,
+          shape: BoxShape.circle,
+        ),
       ),
     ),
-    trailing: const Icon(Icons.eco_outlined, color: SettingsColors.green, size: 24),
+    trailing: const Icon(
+      Icons.eco_outlined,
+      color: SettingsColors.green,
+      size: 24,
+    ),
     footer: Column(
       children: [
         SettingsMetricRow(
@@ -178,7 +200,8 @@ class _HealthHeroCard extends StatelessWidget {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => _AllDevicesPage(devices: summary.sortedDevices),
+                  builder: (_) =>
+                      _AllDevicesPage(devices: summary.sortedDevices),
                 ),
               ),
             ),
@@ -252,8 +275,17 @@ class _DeviceHealthTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(entry.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                  Text(entry.roomName, style: const TextStyle(color: SettingsColors.muted, fontSize: 13)),
+                  Text(
+                    entry.name,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  Text(
+                    entry.roomName,
+                    style: const TextStyle(
+                      color: SettingsColors.muted,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     entry.statusLine,
@@ -272,10 +304,19 @@ class _DeviceHealthTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 _SignalBars(strength: entry.signal),
-                Text(entry.signalLabel, style: const TextStyle(fontSize: 11, color: SettingsColors.muted)),
+                Text(
+                  entry.signalLabel,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: SettingsColors.muted,
+                  ),
+                ),
               ],
             ),
-            const Icon(Icons.chevron_right_rounded, color: SettingsColors.muted),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: SettingsColors.muted,
+            ),
           ],
         ),
       ),
@@ -301,26 +342,40 @@ class _RoomHealthCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(_roomIcon(room.iconKey), color: SettingsColors.blue, size: 22),
+              Icon(
+                _roomIcon(room.iconKey),
+                color: SettingsColors.blue,
+                size: 22,
+              ),
               const SizedBox(height: 10),
               Text(
                 room.roomName,
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 '${room.deviceCount} devices',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: SettingsColors.muted, fontSize: 12),
+                style: const TextStyle(
+                  color: SettingsColors.muted,
+                  fontSize: 12,
+                ),
               ),
               const SizedBox(height: 10),
               SettingsStatusChip(
                 label: room.statusLabel,
-                color: room.isHealthy ? SettingsColors.green : SettingsColors.orange,
-                background: room.isHealthy ? SettingsColors.paleGreen : SettingsColors.paleOrange,
+                color: room.isHealthy
+                    ? SettingsColors.green
+                    : SettingsColors.orange,
+                background: room.isHealthy
+                    ? SettingsColors.paleGreen
+                    : SettingsColors.paleOrange,
               ),
             ],
           ),
@@ -340,7 +395,12 @@ class _AllDevicesPage extends StatelessWidget {
     child: ListView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
       children: devices
-          .map((d) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _DeviceHealthTile(entry: d)))
+          .map(
+            (d) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _DeviceHealthTile(entry: d),
+            ),
+          )
           .toList(),
     ),
   );
@@ -377,7 +437,8 @@ class _SignalBars extends StatelessWidget {
   }
 }
 
-ActivityDeviceConnection _mapConnection(DeviceHealthState state) => switch (state) {
+ActivityDeviceConnection _mapConnection(DeviceHealthState state) =>
+    switch (state) {
       DeviceHealthState.offline => ActivityDeviceConnection.offline,
       DeviceHealthState.stale => ActivityDeviceConnection.stale,
       DeviceHealthState.unknown => ActivityDeviceConnection.unavailable,
@@ -385,30 +446,33 @@ ActivityDeviceConnection _mapConnection(DeviceHealthState state) => switch (stat
     };
 
 IconData _deviceIcon(String key) => switch (key) {
-      'light' => Icons.lightbulb_outline_rounded,
-      'temperature' => Icons.thermostat_rounded,
-      'plug' => Icons.power_rounded,
-      'water' => Icons.water_drop_outlined,
-      'plant' => Icons.eco_outlined,
-      'mist' => Icons.water_rounded,
-      'air' => Icons.air_rounded,
-      'level' => Icons.waves_rounded,
-      _ => Icons.sensors_rounded,
-    };
+  'light' => Icons.lightbulb_outline_rounded,
+  'temperature' => Icons.thermostat_rounded,
+  'plug' => Icons.power_rounded,
+  'water' => Icons.water_drop_outlined,
+  'plant' => Icons.eco_outlined,
+  'mist' => Icons.water_rounded,
+  'air' => Icons.air_rounded,
+  'level' => Icons.waves_rounded,
+  _ => Icons.sensors_rounded,
+};
 
 IconData _roomIcon(String key) => switch (key) {
-      'sofa' => Icons.weekend_rounded,
-      'kitchen' => Icons.kitchen_rounded,
-      'plant' => Icons.eco_outlined,
-      'water' => Icons.water_drop_outlined,
-      _ => Icons.meeting_room_outlined,
-    };
+  'sofa' => Icons.weekend_rounded,
+  'kitchen' => Icons.kitchen_rounded,
+  'plant' => Icons.eco_outlined,
+  'water' => Icons.water_drop_outlined,
+  _ => Icons.meeting_room_outlined,
+};
 
 Color _iconColor(DeviceHealthState state) =>
-    state == DeviceHealthState.attention ? SettingsColors.orange : SettingsColors.blue;
+    state == DeviceHealthState.attention
+    ? SettingsColors.orange
+    : SettingsColors.blue;
 
-Color _iconBg(DeviceHealthState state) =>
-    state == DeviceHealthState.attention ? SettingsColors.paleOrange : SettingsColors.paleBlue;
+Color _iconBg(DeviceHealthState state) => state == DeviceHealthState.attention
+    ? SettingsColors.paleOrange
+    : SettingsColors.paleBlue;
 
 class TechnicalDetailsPage extends StatelessWidget {
   const TechnicalDetailsPage({super.key});
@@ -419,7 +483,10 @@ class TechnicalDetailsPage extends StatelessWidget {
     child: ListView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
       children: const [
-        Text('Diagnostic information for support.', style: TextStyle(color: SettingsColors.muted)),
+        Text(
+          'Diagnostic information for support.',
+          style: TextStyle(color: SettingsColors.muted),
+        ),
         SizedBox(height: 16),
         SettingsSurface(
           child: Column(
@@ -447,7 +514,12 @@ class _TechLine extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     child: Row(
       children: [
-        Expanded(child: Text(label, style: const TextStyle(color: SettingsColors.muted))),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(color: SettingsColors.muted),
+          ),
+        ),
         Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
       ],
     ),

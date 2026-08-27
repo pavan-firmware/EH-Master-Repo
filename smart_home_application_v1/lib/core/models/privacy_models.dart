@@ -21,11 +21,11 @@ class PrivacyPermission {
   final PrivacyPermissionStatus status;
 
   String get statusLabel => switch (status) {
-        PrivacyPermissionStatus.allowed => 'Allowed',
-        PrivacyPermissionStatus.denied => 'Denied',
-        PrivacyPermissionStatus.notRequested => 'Not requested',
-        PrivacyPermissionStatus.unavailable => 'Unavailable',
-      };
+    PrivacyPermissionStatus.allowed => 'Allowed',
+    PrivacyPermissionStatus.denied => 'Denied',
+    PrivacyPermissionStatus.notRequested => 'Not requested',
+    PrivacyPermissionStatus.unavailable => 'Unavailable',
+  };
 }
 
 class PrivacyDataCategory {

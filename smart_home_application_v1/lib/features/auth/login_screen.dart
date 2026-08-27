@@ -57,7 +57,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           color: Colors.red.withAlpha(26),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(error, style: const TextStyle(color: Colors.red)),
+                        child: Text(
+                          error,
+                          style: const TextStyle(color: Colors.red),
+                        ),
                       ),
                     TextFormField(
                       controller: _emailController,
@@ -66,7 +69,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.emailAddress,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'Required' : null,
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 16),
@@ -77,7 +81,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: OutlineInputBorder(),
                       ),
                       obscureText: true,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'Required' : null,
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 24),
@@ -85,7 +90,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: isLoading ? null : _login,
                       child: isLoading
                           ? const SizedBox(
-                              width: 20, height: 20,
+                              width: 20,
+                              height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Text('Login'),
@@ -97,7 +103,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => RegisterScreen(controller: widget.controller),
+                                  builder: (_) => RegisterScreen(
+                                    controller: widget.controller,
+                                  ),
                                 ),
                               );
                             },

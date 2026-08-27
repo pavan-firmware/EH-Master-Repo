@@ -57,7 +57,9 @@ class EnergyCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: tokens.isDark ? tokens.iconBgGreen : const Color(0xFFE9F7EE),
+                  color: tokens.isDark
+                      ? tokens.iconBgGreen
+                      : const Color(0xFFE9F7EE),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(

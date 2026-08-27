@@ -65,17 +65,26 @@ class FanSpeedControl extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: isRunning
-                      ? (tokens.isDark ? tokens.blueSelectedBg : const Color(0xFFEAF1FF))
-                      : (tokens.isDark ? tokens.borderControl : const Color(0xFFE0E4EC)),
+                      ? (tokens.isDark
+                            ? tokens.blueSelectedBg
+                            : const Color(0xFFEAF1FF))
+                      : (tokens.isDark
+                            ? tokens.borderControl
+                            : const Color(0xFFE0E4EC)),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   isRunning ? 'Speed $speed' : 'Off',
                   style: TextStyle(
-                    color: isRunning ? tokens.bluePrimary : tokens.textSecondary,
+                    color: isRunning
+                        ? tokens.bluePrimary
+                        : tokens.textSecondary,
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
                   ),
@@ -102,10 +111,14 @@ class FanSpeedControl extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: isSelected
                             ? tokens.bluePrimary
-                            : (tokens.isDark ? tokens.surfaceCard : const Color(0xFFF0F4FA)),
+                            : (tokens.isDark
+                                  ? tokens.surfaceCard
+                                  : const Color(0xFFF0F4FA)),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: isSelected ? tokens.bluePrimary : tokens.borderControl,
+                          color: isSelected
+                              ? tokens.bluePrimary
+                              : tokens.borderControl,
                         ),
                       ),
                       child: Text(
@@ -113,7 +126,9 @@ class FanSpeedControl extends StatelessWidget {
                         style: TextStyle(
                           color: isSelected ? Colors.white : tokens.textPrimary,
                           fontSize: 13,
-                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                          fontWeight: isSelected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
                         ),
                       ),
                     ),

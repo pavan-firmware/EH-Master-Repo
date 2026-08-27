@@ -42,7 +42,12 @@ class _Line extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     child: Row(
       children: [
-        Expanded(child: Text(label, style: const TextStyle(color: SettingsColors.muted))),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(color: SettingsColors.muted),
+          ),
+        ),
         Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
       ],
     ),

@@ -16,20 +16,21 @@ class ApiException implements Exception {
   });
 
   @override
-  String toString() => 'ApiException($statusCode): $message${code != null ? ' [$code]' : ''}';
+  String toString() =>
+      'ApiException($statusCode): $message${code != null ? ' [$code]' : ''}';
 }
 
 /// Minimal API client with JWT injection and token refresh.
 class ApiClient {
   final String baseUrl;
   final http.Client _client = http.Client();
-  
+
   /// Callback to get the current access token
   Future<String?> Function()? getAccessToken;
-  
+
   /// Callback to trigger a token refresh if we get a 401
   Future<bool> Function()? onRefreshToken;
-  
+
   /// Callback if refresh fails (should trigger logout)
   void Function()? onSessionExpired;
 
@@ -42,15 +43,20 @@ class ApiClient {
   Future<dynamic> post(String path, {Map<String, dynamic>? body}) async {
     return _request('POST', path, body: body);
   }
-  
+
   Future<dynamic> delete(String path) async {
     return _request('DELETE', path);
   }
 
-  Future<dynamic> _request(String method, String path, {Map<String, dynamic>? body, bool isRetry = false}) async {
+  Future<dynamic> _request(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    bool isRetry = false,
+  }) async {
     final uri = Uri.parse('$baseUrl$path');
     final token = getAccessToken != null ? await getAccessToken!() : null;
-    
+
     final headers = {
       'Content-Type': 'application/json',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
@@ -59,11 +65,21 @@ class ApiClient {
     http.Response response;
     try {
       if (method == 'POST') {
-        response = await _client.post(uri, headers: headers, body: body != null ? jsonEncode(body) : null).timeout(const Duration(seconds: 10));
+        response = await _client
+            .post(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            )
+            .timeout(const Duration(seconds: 10));
       } else if (method == 'DELETE') {
-        response = await _client.delete(uri, headers: headers).timeout(const Duration(seconds: 10));
+        response = await _client
+            .delete(uri, headers: headers)
+            .timeout(const Duration(seconds: 10));
       } else {
-        response = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+        response = await _client
+            .get(uri, headers: headers)
+            .timeout(const Duration(seconds: 10));
       }
     } on Exception catch (e) {
       throw ApiException(statusCode: 0, message: 'Network error: $e');
@@ -87,7 +103,7 @@ class ApiClient {
       try {
         final json = jsonDecode(response.body);
         if (json is Map<String, dynamic> && json.containsKey('data')) {
-           return json['data'];
+          return json['data'];
         }
         return json;
       } catch (_) {
@@ -97,7 +113,7 @@ class ApiClient {
       String msg = 'API error';
       String? code;
       Map<String, dynamic>? details;
-      
+
       try {
         final json = jsonDecode(response.body);
         if (json is Map<String, dynamic> && json['error'] != null) {
@@ -108,7 +124,12 @@ class ApiClient {
       } catch (_) {
         msg = response.body;
       }
-      throw ApiException(statusCode: response.statusCode, message: msg, code: code, details: details);
+      throw ApiException(
+        statusCode: response.statusCode,
+        message: msg,
+        code: code,
+        details: details,
+      );
     }
   }
 }

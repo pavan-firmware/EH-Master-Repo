@@ -5,7 +5,9 @@ class UnavailableConnectionRepository implements ConnectionRepository {
   const UnavailableConnectionRepository();
 
   @override
-  Future<ConnectionResult> connect({required DeviceConnectionConfig config}) async {
+  Future<ConnectionResult> connect({
+    required DeviceConnectionConfig config,
+  }) async {
     if (!config.isReady) {
       return const ConnectionResult(
         success: false,

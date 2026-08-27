@@ -1,6 +1,12 @@
 enum DeviceConnection { online, stale, offline }
 
-enum HomeConnectionState { notConfigured, connecting, connected, offline, failed }
+enum HomeConnectionState {
+  notConfigured,
+  connecting,
+  connected,
+  offline,
+  failed,
+}
 
 enum CommandState { accepted, executing, succeeded, failed, expired }
 
