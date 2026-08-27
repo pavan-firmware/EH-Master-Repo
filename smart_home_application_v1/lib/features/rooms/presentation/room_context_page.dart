@@ -102,7 +102,9 @@ class RoomContextPage extends StatelessWidget {
                 ),
                 TextButton.icon(
                   onPressed: () {},
-                  style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
+                  style: TextButton.styleFrom(
+                    foregroundColor: tokens.bluePrimary,
+                  ),
                   icon: const Icon(Icons.add_circle_outline_rounded),
                   label: const Text('Add device'),
                 ),
@@ -129,7 +131,9 @@ class RoomContextPage extends StatelessWidget {
                 ),
                 TextButton.icon(
                   onPressed: () {},
-                  style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
+                  style: TextButton.styleFrom(
+                    foregroundColor: tokens.bluePrimary,
+                  ),
                   iconAlignment: IconAlignment.end,
                   icon: const Icon(Icons.chevron_right_rounded),
                   label: const Text('See history'),
@@ -179,7 +183,9 @@ class _RoomHero extends StatelessWidget {
             height: 105,
             child: Container(
               decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -253,8 +259,8 @@ class _RoomHero extends StatelessWidget {
                   Text(
                     current
                         ? room.status == RoomStatus.attention
-                            ? 'Needs attention'
-                            : 'Comfortable'
+                              ? 'Needs attention'
+                              : 'Comfortable'
                         : 'State unavailable',
                     style: TextStyle(
                       color: current && room.status != RoomStatus.attention
@@ -318,7 +324,9 @@ class _QuickDeviceCard extends StatelessWidget {
     final tokens = context.ehColors;
     final enabled = device.confidence == ActuatorConfidence.confirmed && false;
     final devColor = _deviceColor(device.kind, tokens);
-    final devBg = tokens.isDark ? devColor.withValues(alpha: 0.18) : devColor.withValues(alpha: .12);
+    final devBg = tokens.isDark
+        ? devColor.withValues(alpha: 0.18)
+        : devColor.withValues(alpha: .12);
 
     return SizedBox(
       width: 146,
@@ -348,11 +356,7 @@ class _QuickDeviceCard extends StatelessWidget {
                 color: devBg,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Icon(
-                _deviceIcon(device.kind),
-                color: devColor,
-                size: 27,
-              ),
+              child: Icon(_deviceIcon(device.kind), color: devColor, size: 27),
             ),
             const Spacer(),
             Text(
@@ -368,10 +372,7 @@ class _QuickDeviceCard extends StatelessWidget {
             const SizedBox(height: 5),
             Text(
               device.value,
-              style: TextStyle(
-                color: devColor,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: devColor, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 11),
             Center(
@@ -411,7 +412,11 @@ class _UnavailableControl extends StatelessWidget {
           CircleAvatar(
             radius: 15,
             backgroundColor: tokens.surfaceElevated,
-            child: Icon(Icons.pause_rounded, size: 18, color: tokens.textPrimary),
+            child: Icon(
+              Icons.pause_rounded,
+              size: 18,
+              color: tokens.textPrimary,
+            ),
           ),
           const SizedBox(width: 9),
           Icon(Icons.chevron_right_rounded, color: tokens.textSecondary),
@@ -445,7 +450,9 @@ class _DeviceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final devColor = _deviceColor(device.kind, tokens);
-    final devBg = tokens.isDark ? devColor.withValues(alpha: 0.18) : devColor.withValues(alpha: .12);
+    final devBg = tokens.isDark
+        ? devColor.withValues(alpha: 0.18)
+        : devColor.withValues(alpha: .12);
 
     return InkWell(
       onTap: () {},
@@ -466,10 +473,7 @@ class _DeviceRow extends StatelessWidget {
                 color: devBg,
                 borderRadius: BorderRadius.circular(15),
               ),
-              child: Icon(
-                _deviceIcon(device.kind),
-                color: devColor,
-              ),
+              child: Icon(_deviceIcon(device.kind), color: devColor),
             ),
             const SizedBox(width: 13),
             Expanded(
@@ -487,10 +491,7 @@ class _DeviceRow extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     device.type,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 13),
                   ),
                 ],
               ),
@@ -523,7 +524,13 @@ class _InsightsCard extends StatelessWidget {
         final energy = _EnergySummary(insights: insights);
         final metrics = _InsightMetrics(insights: insights);
         final content = constraints.maxWidth < 390
-            ? Column(children: [energy, Divider(height: 28, color: tokens.borderSubtle), metrics])
+            ? Column(
+                children: [
+                  energy,
+                  Divider(height: 28, color: tokens.borderSubtle),
+                  metrics,
+                ],
+              )
             : Row(
                 children: [
                   Expanded(child: energy),
@@ -536,7 +543,9 @@ class _InsightsCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: tokens.surfaceCard,
             borderRadius: BorderRadius.circular(22),
-            border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+            border: tokens.isDark
+                ? Border.all(color: tokens.borderSubtle)
+                : null,
           ),
           child: content,
         );
@@ -558,7 +567,13 @@ class _EnergySummary extends StatelessWidget {
           children: [
             Icon(Icons.bolt_rounded, size: 19, color: tokens.warning),
             const SizedBox(width: 8),
-            Text("Today's energy", style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary)),
+            Text(
+              "Today's energy",
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: tokens.textPrimary,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 11),
@@ -573,10 +588,7 @@ class _EnergySummary extends StatelessWidget {
         const SizedBox(height: 5),
         Text(
           insights.energyChange,
-          style: TextStyle(
-            color: tokens.warning,
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(color: tokens.warning, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 16),
         const _MiniChart(),
@@ -730,8 +742,7 @@ IconData _roomHeroIcon(String key) => switch (key) {
 Color _deviceColor(RoomCapabilityKind kind, EHThemeTokens tokens) {
   if (tokens.isDark) {
     return switch (kind) {
-      RoomCapabilityKind.light ||
-      RoomCapabilityKind.lamp => tokens.gold,
+      RoomCapabilityKind.light || RoomCapabilityKind.lamp => tokens.gold,
       RoomCapabilityKind.fan => tokens.bluePrimary,
       RoomCapabilityKind.curtain => tokens.iconFgPurple,
       RoomCapabilityKind.temperature => tokens.iconFgWater,

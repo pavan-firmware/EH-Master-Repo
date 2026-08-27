@@ -8,8 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 class _MockStorage {
   final Map<String, String> _data = {};
   Future<void> write({required String key, required String? value}) async {
-    if (value != null) { _data[key] = value; } else { _data.remove(key); }
+    if (value != null) {
+      _data[key] = value;
+    } else {
+      _data.remove(key);
+    }
   }
+
   Future<String?> read({required String key}) async => _data[key];
   Future<void> delete({required String key}) async => _data.remove(key);
 }
@@ -41,7 +46,7 @@ class _TestApiClient {
   void Function()? onSessionExpired;
 
   String? _accessToken;
-  
+
   final _Stub _stub = _Stub();
   _Stub get stub => _stub;
 
@@ -74,7 +79,9 @@ class _TestApiClient {
       }
     }
     if ((resp['status'] as int) >= 400) {
-      throw Exception(resp['error']?['message'] ?? 'API error ${resp['status']}');
+      throw Exception(
+        resp['error']?['message'] ?? 'API error ${resp['status']}',
+      );
     }
     return resp['data'];
   }
@@ -84,7 +91,9 @@ class _TestApiClient {
     final resp = _stub.dequeue(key);
     if (resp == null) throw Exception('No stub for $key');
     if ((resp['status'] as int) >= 400) {
-      throw Exception(resp['error']?['message'] ?? 'API error ${resp['status']}');
+      throw Exception(
+        resp['error']?['message'] ?? 'API error ${resp['status']}',
+      );
     }
     return resp['data'];
   }
@@ -106,7 +115,11 @@ class _UserProfile {
   _UserProfile({required this.id, required this.email});
   factory _UserProfile.fromJson(Map<String, dynamic> j) =>
       _UserProfile(id: j['id'], email: j['email']);
-  Map<String, dynamic> toJson() => {'id': id, 'email': email, 'emailVerified': false};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'email': email,
+    'emailVerified': false,
+  };
 }
 
 class _TestAuthRepository {
@@ -126,12 +139,18 @@ class _TestAuthRepository {
   bool get isAuthenticated => _accessToken != null && _user != null;
 
   Future<void> login(String email, String password) async {
-    final data = await _api.post('/api/v1/auth/login', body: {'email': email, 'password': password});
+    final data = await _api.post(
+      '/api/v1/auth/login',
+      body: {'email': email, 'password': password},
+    );
     await _save(data);
   }
 
   Future<void> register(String email, String password) async {
-    await _api.post('/api/v1/auth/register', body: {'email': email, 'password': password});
+    await _api.post(
+      '/api/v1/auth/register',
+      body: {'email': email, 'password': password},
+    );
   }
 
   Future<bool> refresh() async {
@@ -207,7 +226,7 @@ void main() {
       'refreshToken': 'refresh.token.1',
       'expiresIn': 900,
       'user': {'id': 'user-1', 'email': 'test@eh.com', 'emailVerified': true},
-    }
+    },
   };
 
   setUp(() {
@@ -228,7 +247,10 @@ void main() {
   test('2. Auth login invalid credentials', () async {
     api.stub.queue('POST:/api/v1/auth/login', {
       'status': 401,
-      'error': {'code': 'INVALID_CREDENTIALS', 'message': 'Invalid email or password'},
+      'error': {
+        'code': 'INVALID_CREDENTIALS',
+        'message': 'Invalid email or password',
+      },
     });
     expect(() => auth.login('test@eh.com', 'wrong'), throwsException);
     expect(auth.isAuthenticated, isFalse);
@@ -246,7 +268,7 @@ void main() {
         'refreshToken': 'refresh.token.2',
         'expiresIn': 900,
         'user': {'id': 'user-1', 'email': 'test@eh.com', 'emailVerified': true},
-      }
+      },
     });
     final success = await auth.refresh();
     expect(success, isTrue);
@@ -312,12 +334,14 @@ void main() {
         'refreshToken': 'new-refresh',
         'expiresIn': 900,
         'user': {'id': 'u1', 'email': 'e@e.com', 'emailVerified': true},
-      }
+      },
     });
     // Retry GET succeeds
     api.stub.queue('GET:/api/v1/homes', {
       'status': 200,
-      'data': [{'id': 'home-1', 'name': 'My Home'}]
+      'data': [
+        {'id': 'home-1', 'name': 'My Home'},
+      ],
     });
 
     // Simulate 401 handling manually (ApiClient._request with isRetry logic)
@@ -349,7 +373,9 @@ void main() {
   test('10. Cloud home fetch returns list', () async {
     api.stub.queue('GET:/api/v1/homes', {
       'status': 200,
-      'data': [{'id': 'home-1', 'name': 'EH Home'}]
+      'data': [
+        {'id': 'home-1', 'name': 'EH Home'},
+      ],
     });
     final homes = await api.get('/api/v1/homes') as List;
     expect(homes.length, 1);
@@ -367,8 +393,8 @@ void main() {
           'last_seen_at': DateTime.now().toIso8601String(),
           'product_sku': 'EH-3X-001',
           'firmware_version': '1.2.0',
-        }
-      ]
+        },
+      ],
     });
     final devices = await api.get('/api/v1/homes/home-1/devices') as List;
     expect(devices.length, 1);
@@ -379,14 +405,17 @@ void main() {
   test('12. Command dispatch sends POST and returns accepted', () async {
     api.stub.queue('POST:/api/v1/commands/send', {
       'status': 202,
-      'data': {'id': 'cmd-1', 'status': 'CREATED'}
+      'data': {'id': 'cmd-1', 'status': 'CREATED'},
     });
-    final result = await api.post('/api/v1/commands/send', body: {
-      'deviceId': 'dev-1',
-      'action': 'set_power',
-      'parameters': {'enabled': true},
-      'idempotencyKey': 'key-1',
-    });
+    final result = await api.post(
+      '/api/v1/commands/send',
+      body: {
+        'deviceId': 'dev-1',
+        'action': 'set_power',
+        'parameters': {'enabled': true},
+        'idempotencyKey': 'key-1',
+      },
+    );
     expect(result['id'], 'cmd-1');
     expect(result['status'], 'CREATED');
   });
@@ -397,10 +426,7 @@ void main() {
       'status': 403,
       'error': {'code': 'FORBIDDEN', 'message': 'Not a member'},
     });
-    expect(
-      () => api.post('/api/v1/commands/send', body: {}),
-      throwsException,
-    );
+    expect(() => api.post('/api/v1/commands/send', body: {}), throwsException);
   });
 
   // ---- 14. SSE parser — basic event ----
@@ -467,8 +493,10 @@ void main() {
     handleEvent({
       'type': 'device.state',
       'payload': {
-        'channels': {'ch1': {'relay': true}}
-      }
+        'channels': {
+          'ch1': {'relay': true},
+        },
+      },
     });
     expect(lightOn, isTrue);
   });
@@ -478,11 +506,15 @@ void main() {
     // Simulate mapping
     String mapAvailability(String status) {
       switch (status) {
-        case 'ONLINE': return 'online';
-        case 'STALE': return 'stale';
-        default: return 'offline';
+        case 'ONLINE':
+          return 'online';
+        case 'STALE':
+          return 'stale';
+        default:
+          return 'offline';
       }
     }
+
     expect(mapAvailability('ONLINE'), 'online');
     expect(mapAvailability('STALE'), 'stale');
     expect(mapAvailability('OFFLINE'), 'offline');
@@ -494,6 +526,7 @@ void main() {
     void handleReceipt(String status) {
       if (status == 'APPLIED' || status == 'DELIVERED') pending = false;
     }
+
     handleReceipt('APPLIED');
     expect(pending, isFalse);
   });
@@ -509,8 +542,11 @@ void main() {
         lightOn = ch1['relay'] as bool;
       }
     }
+
     handleDeviceState({
-      'channels': {'ch1': {'relay': false}}
+      'channels': {
+        'ch1': {'relay': false},
+      },
     });
     expect(lightOn, isFalse);
   });
@@ -518,7 +554,9 @@ void main() {
   // ---- 23. Logout closes SSE ----
   test('23. Logout triggers SSE disconnect', () async {
     bool sseDisconnected = false;
-    void disconnectSse() { sseDisconnected = true; }
+    void disconnectSse() {
+      sseDisconnected = true;
+    }
 
     // Simulate auth controller logout → triggers disconnect
     api.stub.queue('POST:/api/v1/auth/login', validLoginResponse);
@@ -531,7 +569,9 @@ void main() {
   // ---- 24. App resume reconnects SSE ----
   test('24. App resume reconnects SSE when authenticated', () {
     bool connected = false;
-    void connectSse() { connected = true; }
+    void connectSse() {
+      connected = true;
+    }
 
     // Simulate authenticated state + resume
     auth._accessToken = 'some-token';

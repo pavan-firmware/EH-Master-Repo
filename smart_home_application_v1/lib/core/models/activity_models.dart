@@ -17,23 +17,14 @@ enum ActivitySource { user, routine, device, system, firmware }
 
 enum ActivityEventStatus { recorded, acknowledged, resolved }
 
-enum ActivityNavigationKind {
-  device,
-  routine,
-  systemUpdate,
-  safetyAlert,
-  none,
-}
+enum ActivityNavigationKind { device, routine, systemUpdate, safetyAlert, none }
 
 class ActivityNavigationTarget {
-  const ActivityNavigationTarget({
-    required this.kind,
-    this.id,
-  });
+  const ActivityNavigationTarget({required this.kind, this.id});
 
   const ActivityNavigationTarget.none()
-      : kind = ActivityNavigationKind.none,
-        id = null;
+    : kind = ActivityNavigationKind.none,
+      id = null;
 
   final ActivityNavigationKind kind;
   final String? id;
@@ -154,8 +145,14 @@ abstract interface class ActivityRepository {
   Future<ActivityEventPage> getEvents(ActivityQuery query);
   Future<ActivityEvent?> getEvent(String id);
   Future<ActivityEventPage> getEventsByRoom(String roomId, ActivityQuery query);
-  Future<ActivityEventPage> getEventsByDevice(String deviceId, ActivityQuery query);
-  Future<ActivityEventPage> getEventsByRoutine(String routineId, ActivityQuery query);
+  Future<ActivityEventPage> getEventsByDevice(
+    String deviceId,
+    ActivityQuery query,
+  );
+  Future<ActivityEventPage> getEventsByRoutine(
+    String routineId,
+    ActivityQuery query,
+  );
 }
 
 abstract interface class ActivityDeviceRepository {
@@ -337,16 +334,23 @@ class PreviewActivityRepository implements ActivityRepository {
       final matchesSearch = term.isEmpty || _searchText(event).contains(term);
       final matchesFilter = switch (query.filter) {
         ActivityFilter.all => true,
-        ActivityFilter.alerts => event.severity == ActivitySeverity.warning || event.severity == ActivitySeverity.critical,
+        ActivityFilter.alerts =>
+          event.severity == ActivitySeverity.warning ||
+              event.severity == ActivitySeverity.critical,
         ActivityFilter.devices => event.source == ActivitySource.device,
         ActivityFilter.routines => event.source == ActivitySource.routine,
-        ActivityFilter.system => event.type == ActivityEventType.systemUpdate || event.source == ActivitySource.system || event.source == ActivitySource.firmware,
+        ActivityFilter.system =>
+          event.type == ActivityEventType.systemUpdate ||
+              event.source == ActivitySource.system ||
+              event.source == ActivitySource.firmware,
       };
       return matchesSearch && matchesFilter;
     }).toList();
-    filtered.sort((a, b) => query.sort == ActivitySort.recent
-        ? b.timestamp.compareTo(a.timestamp)
-        : a.timestamp.compareTo(b.timestamp));
+    filtered.sort(
+      (a, b) => query.sort == ActivitySort.recent
+          ? b.timestamp.compareTo(a.timestamp)
+          : a.timestamp.compareTo(b.timestamp),
+    );
     final start = int.tryParse(query.cursor ?? '0') ?? 0;
     final end = (start + query.limit).clamp(0, filtered.length);
     final page = filtered.sublist(start, end);
@@ -366,16 +370,22 @@ class PreviewActivityRepository implements ActivityRepository {
   }
 
   @override
-  Future<ActivityEventPage> getEventsByRoom(String roomId, ActivityQuery query) =>
-      _getBy((event) => event.roomId == roomId, query);
+  Future<ActivityEventPage> getEventsByRoom(
+    String roomId,
+    ActivityQuery query,
+  ) => _getBy((event) => event.roomId == roomId, query);
 
   @override
-  Future<ActivityEventPage> getEventsByDevice(String deviceId, ActivityQuery query) =>
-      _getBy((event) => event.deviceId == deviceId, query);
+  Future<ActivityEventPage> getEventsByDevice(
+    String deviceId,
+    ActivityQuery query,
+  ) => _getBy((event) => event.deviceId == deviceId, query);
 
   @override
-  Future<ActivityEventPage> getEventsByRoutine(String routineId, ActivityQuery query) =>
-      _getBy((event) => event.routineId == routineId, query);
+  Future<ActivityEventPage> getEventsByRoutine(
+    String routineId,
+    ActivityQuery query,
+  ) => _getBy((event) => event.routineId == routineId, query);
 
   Future<ActivityEventPage> _getBy(
     bool Function(ActivityEvent event) predicate,
@@ -402,7 +412,11 @@ class PreviewActivityRepository implements ActivityRepository {
 }
 
 String activityTimeLabel(DateTime value) {
-  final hour = value.hour == 0 ? 12 : value.hour > 12 ? value.hour - 12 : value.hour;
+  final hour = value.hour == 0
+      ? 12
+      : value.hour > 12
+      ? value.hour - 12
+      : value.hour;
   final minute = value.minute.toString().padLeft(2, '0');
   return '$hour:$minute ${value.hour >= 12 ? 'PM' : 'AM'}';
 }
@@ -413,7 +427,15 @@ String activityDateLabel(DateTime value, DateTime now) {
   final difference = today.difference(date).inDays;
   if (difference == 0) return 'Today';
   if (difference == 1) return 'Yesterday';
-  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
   if (difference >= 0 && difference < 7) return weekdays[value.weekday - 1];
   return '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
 }
@@ -427,4 +449,5 @@ String activityFilterLabel(ActivityFilter filter) => switch (filter) {
 };
 
 @visibleForTesting
-List<ActivityEvent> previewActivityEvents() => PreviewActivityRepository._events;
+List<ActivityEvent> previewActivityEvents() =>
+    PreviewActivityRepository._events;

@@ -14,15 +14,21 @@ class UpdatePreferencesPage extends StatelessWidget {
       children: [
         SettingsInfoBanner(
           title: 'Automatic updates unavailable',
-          subtitle: 'Automatic OTA requires secure update verification and will be enabled when supported.',
+          subtitle:
+              'Automatic OTA requires secure update verification and will be enabled when supported.',
         ),
         SizedBox(height: 16),
         SettingsSurface(
           child: Material(
             color: Colors.transparent,
             child: ListTile(
-              title: Text('Automatic updates', style: TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Text('Install updates automatically when your home is idle.'),
+              title: Text(
+                'Automatic updates',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: Text(
+                'Install updates automatically when your home is idle.',
+              ),
               trailing: Switch(value: false, onChanged: null),
             ),
           ),

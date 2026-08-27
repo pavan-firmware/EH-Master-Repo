@@ -19,7 +19,13 @@ class HomeInsightsPage extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
           icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
         ),
-        title: Text('Home insights', style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w800)),
+        title: Text(
+          'Home insights',
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -75,11 +81,19 @@ class _InsightRow extends StatelessWidget {
       child: ListTile(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: tokens.isDark ? BorderSide(color: tokens.borderSubtle) : BorderSide.none,
+          side: tokens.isDark
+              ? BorderSide(color: tokens.borderSubtle)
+              : BorderSide.none,
         ),
         tileColor: tokens.surfaceCard,
         leading: Icon(icon, color: tokens.bluePrimary),
-        title: Text(label, style: TextStyle(fontWeight: FontWeight.w800, color: tokens.textPrimary)),
+        title: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: tokens.textPrimary,
+          ),
+        ),
         subtitle: Text(value, style: TextStyle(color: tokens.textSecondary)),
       ),
     );

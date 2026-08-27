@@ -46,8 +46,12 @@ class HomeDetailsPage extends StatelessWidget {
                   title: 'Location',
                   subtitle: home.location ?? 'Not set',
                   onTap: () => _showUnsupportedEdit(context, 'Location'),
-                  iconColor: tokens.isDark ? tokens.success : SettingsColors.green,
-                  iconBackground: tokens.isDark ? tokens.iconBgGreen : SettingsColors.paleGreen,
+                  iconColor: tokens.isDark
+                      ? tokens.success
+                      : SettingsColors.green,
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgGreen
+                      : SettingsColors.paleGreen,
                   showDivider: true,
                 ),
                 SettingsListItem(
@@ -55,8 +59,12 @@ class HomeDetailsPage extends StatelessWidget {
                   title: 'Time zone',
                   subtitle: '${home.timezone} (GMT+05:30)',
                   onTap: () => _showUnsupportedEdit(context, 'Time zone'),
-                  iconColor: tokens.isDark ? tokens.iconFgPurple : const Color(0xFF7A3DD5),
-                  iconBackground: tokens.isDark ? tokens.iconBgPurple : const Color(0xFFF3ECFF),
+                  iconColor: tokens.isDark
+                      ? tokens.iconFgPurple
+                      : const Color(0xFF7A3DD5),
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgPurple
+                      : const Color(0xFFF3ECFF),
                 ),
               ],
             ),
@@ -72,8 +80,12 @@ class HomeDetailsPage extends StatelessWidget {
                   subtitle: home.preferences.temperatureUnit,
                   onTap: () =>
                       _showUnsupportedEdit(context, 'Temperature unit'),
-                  iconColor: tokens.isDark ? tokens.warning : SettingsColors.orange,
-                  iconBackground: tokens.isDark ? tokens.iconBgOrange : SettingsColors.paleOrange,
+                  iconColor: tokens.isDark
+                      ? tokens.warning
+                      : SettingsColors.orange,
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgOrange
+                      : SettingsColors.paleOrange,
                   showDivider: true,
                 ),
                 SettingsListItem(
@@ -91,8 +103,12 @@ class HomeDetailsPage extends StatelessWidget {
                   title: 'Time format',
                   subtitle: home.preferences.timeFormat,
                   onTap: () => _showUnsupportedEdit(context, 'Time format'),
-                  iconColor: tokens.isDark ? tokens.iconFgPurple : const Color(0xFF7A3DD5),
-                  iconBackground: tokens.isDark ? tokens.iconBgPurple : const Color(0xFFF3ECFF),
+                  iconColor: tokens.isDark
+                      ? tokens.iconFgPurple
+                      : const Color(0xFF7A3DD5),
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgPurple
+                      : const Color(0xFFF3ECFF),
                 ),
               ],
             ),
@@ -111,8 +127,12 @@ class HomeDetailsPage extends StatelessWidget {
                     message:
                         'Connect your home to view live connection status.',
                   ),
-                  iconColor: tokens.isDark ? tokens.success : SettingsColors.green,
-                  iconBackground: tokens.isDark ? tokens.iconBgGreen : SettingsColors.paleGreen,
+                  iconColor: tokens.isDark
+                      ? tokens.success
+                      : SettingsColors.green,
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgGreen
+                      : SettingsColors.paleGreen,
                   trailing: Text(
                     'Set up',
                     style: TextStyle(
@@ -142,8 +162,12 @@ class HomeDetailsPage extends StatelessWidget {
                   title: 'Devices',
                   subtitle: 'Registered preview devices',
                   onTap: () => showSettingsUnavailable(context),
-                  iconColor: tokens.isDark ? tokens.success : SettingsColors.green,
-                  iconBackground: tokens.isDark ? tokens.iconBgGreen : SettingsColors.paleGreen,
+                  iconColor: tokens.isDark
+                      ? tokens.success
+                      : SettingsColors.green,
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgGreen
+                      : SettingsColors.paleGreen,
                   trailing: Text(
                     '$deviceCount',
                     style: TextStyle(
@@ -159,8 +183,12 @@ class HomeDetailsPage extends StatelessWidget {
                   title: 'People',
                   subtitle: 'People with access',
                   onTap: () => showSettingsUnavailable(context),
-                  iconColor: tokens.isDark ? tokens.iconFgPurple : const Color(0xFF7A3DD5),
-                  iconBackground: tokens.isDark ? tokens.iconBgPurple : const Color(0xFFF3ECFF),
+                  iconColor: tokens.isDark
+                      ? tokens.iconFgPurple
+                      : const Color(0xFF7A3DD5),
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgPurple
+                      : const Color(0xFFF3ECFF),
                   trailing: Text(
                     '3',
                     style: TextStyle(
@@ -186,11 +214,7 @@ class HomeDetailsPage extends StatelessWidget {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.copy_rounded,
-                    color: tokens.bluePrimary,
-                    size: 18,
-                  ),
+                  Icon(Icons.copy_rounded, color: tokens.bluePrimary, size: 18),
                   const SizedBox(width: 5),
                   Text(
                     'Copy',

@@ -31,7 +31,9 @@ class SwitchControl extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: isOn
-                ? (tokens.isDark ? tokens.blueSelectedBg : const Color(0xFFEAF1FF))
+                ? (tokens.isDark
+                      ? tokens.blueSelectedBg
+                      : const Color(0xFFEAF1FF))
                 : (tokens.isDark ? tokens.surfaceElevated : tokens.bgSecondary),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
@@ -47,7 +49,9 @@ class SwitchControl extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isOn
                       ? activeColor
-                      : (tokens.isDark ? tokens.borderControl : const Color(0xFFE0E4EC)),
+                      : (tokens.isDark
+                            ? tokens.borderControl
+                            : const Color(0xFFE0E4EC)),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -89,7 +93,9 @@ class SwitchControl extends StatelessWidget {
               Switch.adaptive(
                 value: isOn,
                 onChanged: isPending ? null : onChanged,
-                activeTrackColor: tokens.isDark ? tokens.blueDarker : const Color(0xFF90B8F0),
+                activeTrackColor: tokens.isDark
+                    ? tokens.blueDarker
+                    : const Color(0xFF90B8F0),
               ),
             ],
           ),

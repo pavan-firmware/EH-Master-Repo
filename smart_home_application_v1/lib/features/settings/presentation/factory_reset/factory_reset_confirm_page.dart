@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/repositories/factory_reset_repository.dart';import '../settings_ui.dart';import 'factory_reset_result_page.dart';
+import '../../../../core/repositories/factory_reset_repository.dart';
+import '../settings_ui.dart';
+import 'factory_reset_result_page.dart';
 
 class FactoryResetConfirmPage extends StatefulWidget {
   const FactoryResetConfirmPage({super.key, required this.repository});
@@ -8,7 +10,8 @@ class FactoryResetConfirmPage extends StatefulWidget {
   final FactoryResetRepository repository;
 
   @override
-  State<FactoryResetConfirmPage> createState() => _FactoryResetConfirmPageState();
+  State<FactoryResetConfirmPage> createState() =>
+      _FactoryResetConfirmPageState();
 }
 
 class _FactoryResetConfirmPageState extends State<FactoryResetConfirmPage> {
@@ -27,7 +30,9 @@ class _FactoryResetConfirmPageState extends State<FactoryResetConfirmPage> {
       return;
     }
     setState(() => _busy = true);
-    final result = await widget.repository.executeReset(confirmation: _controller.text.trim());
+    final result = await widget.repository.executeReset(
+      confirmation: _controller.text.trim(),
+    );
     if (!mounted) return;
     if (!result.success) {
       setState(() => _busy = false);
@@ -40,7 +45,10 @@ class _FactoryResetConfirmPageState extends State<FactoryResetConfirmPage> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => FactoryResetResultPage(success: verified.success, message: verified.message),
+        builder: (_) => FactoryResetResultPage(
+          success: verified.success,
+          message: verified.message,
+        ),
       ),
     );
   }
@@ -54,7 +62,8 @@ class _FactoryResetConfirmPageState extends State<FactoryResetConfirmPage> {
       children: [
         const SettingsDestructiveBanner(
           title: 'Confirm factory reset',
-          body: 'Type RESET to confirm you understand this action cannot be undone.',
+          body:
+              'Type RESET to confirm you understand this action cannot be undone.',
         ),
         const SizedBox(height: 20),
         TextField(
@@ -79,10 +88,16 @@ class _FactoryResetConfirmPageState extends State<FactoryResetConfirmPage> {
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: SettingsColors.red),
+                style: FilledButton.styleFrom(
+                  backgroundColor: SettingsColors.red,
+                ),
                 onPressed: _busy ? null : _reset,
                 child: _busy
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Text('Factory reset'),
               ),
             ),

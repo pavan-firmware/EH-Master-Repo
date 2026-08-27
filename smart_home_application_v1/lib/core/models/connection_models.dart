@@ -26,12 +26,12 @@ class ConnectionLayer {
   final ConnectionLayerStatus status;
 
   String get statusLabel => switch (status) {
-        ConnectionLayerStatus.ready => 'Ready',
-        ConnectionLayerStatus.connected => 'Connected',
-        ConnectionLayerStatus.notConfigured => 'Not configured',
-        ConnectionLayerStatus.unavailable => 'Unavailable',
-        ConnectionLayerStatus.failed => 'Failed',
-      };
+    ConnectionLayerStatus.ready => 'Ready',
+    ConnectionLayerStatus.connected => 'Connected',
+    ConnectionLayerStatus.notConfigured => 'Not configured',
+    ConnectionLayerStatus.unavailable => 'Unavailable',
+    ConnectionLayerStatus.failed => 'Failed',
+  };
 }
 
 class SetupStep {

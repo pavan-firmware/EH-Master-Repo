@@ -3,31 +3,32 @@ import 'home_repository.dart';
 
 class FakeHomeRepository implements HomeRepository {
   FakeHomeRepository()
-      : _release = FirmwareRelease(
-          version: '1.1.0',
-          title: 'A smoother, safer home',
-          summary: 'Improved connection recovery, safety checks, and update reliability.',
-          tags: const ['Reliability', 'Security', 'Improved care'],
-          publishedAt: DateTime(2026, 8, 12),
-        );
+    : _release = FirmwareRelease(
+        version: '1.1.0',
+        title: 'A smoother, safer home',
+        summary:
+            'Improved connection recovery, safety checks, and update reliability.',
+        tags: const ['Reliability', 'Security', 'Improved care'],
+        publishedAt: DateTime(2026, 8, 12),
+      );
 
   final FirmwareRelease _release;
 
   @override
   Future<List<DeviceSnapshot>> getDevices() async => [
-        DeviceSnapshot(
-          id: 'home-main',
-          name: 'Home device',
-          roomName: 'Home',
-          hardwareRevision: 'prototype',
-          connection: DeviceConnection.online,
-          capabilities: const [
-            DeviceCapability(id: 'status', label: 'Home status'),
-            DeviceCapability(id: 'system_update', label: 'System updates'),
-          ],
-          reportedAt: DateTime.now(),
-        ),
-      ];
+    DeviceSnapshot(
+      id: 'home-main',
+      name: 'Home device',
+      roomName: 'Home',
+      hardwareRevision: 'prototype',
+      connection: DeviceConnection.online,
+      capabilities: const [
+        DeviceCapability(id: 'status', label: 'Home status'),
+        DeviceCapability(id: 'system_update', label: 'System updates'),
+      ],
+      reportedAt: DateTime.now(),
+    ),
+  ];
 
   @override
   Future<CommandReceipt> sendCommand({
@@ -48,6 +49,10 @@ class FakeHomeRepository implements HomeRepository {
 
   @override
   Stream<FirmwareJob> watchFirmwareJob() async* {
-    yield FirmwareJob(state: FirmwareJobState.idle, progress: 0, release: _release);
+    yield FirmwareJob(
+      state: FirmwareJobState.idle,
+      progress: 0,
+      release: _release,
+    );
   }
 }

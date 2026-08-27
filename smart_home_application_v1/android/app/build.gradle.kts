@@ -6,10 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.smart_home_application_v1"
-    // flutter_reactive_ble's Android dependencies require API 34 or newer.
-    // API 35 is installed in the development SDK and keeps this app compatible
-    // with current AndroidX releases.
-    compileSdk = 35
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

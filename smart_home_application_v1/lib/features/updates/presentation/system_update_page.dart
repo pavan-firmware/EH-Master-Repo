@@ -8,7 +8,10 @@ import 'update_preferences_page.dart';
 import 'update_target_detail_page.dart';
 
 class SystemUpdatePage extends StatefulWidget {
-  const SystemUpdatePage({super.key, this.repository = const PreviewUpdateRepository()});
+  const SystemUpdatePage({
+    super.key,
+    this.repository = const PreviewUpdateRepository(),
+  });
 
   final UpdateRepository repository;
 
@@ -50,7 +53,8 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> {
     actions: [
       settingsHelpAction(
         context,
-        message: 'Updates improve performance, add features, and keep your home secure.',
+        message:
+            'Updates improve performance, add features, and keep your home secure.',
       ),
     ],
     child: FutureBuilder<UpdateSummary>(
@@ -63,9 +67,16 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
           children: [
-            _UpdateStatusCard(summary: data, checking: _checking, onCheck: _checkUpdates),
+            _UpdateStatusCard(
+              summary: data,
+              checking: _checking,
+              onCheck: _checkUpdates,
+            ),
             const SizedBox(height: 24),
-            const Text('Update targets', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Text(
+              'Update targets',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 10),
             SettingsSurface(
               child: Column(
@@ -77,7 +88,8 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> {
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => UpdateTargetDetailPage(target: data.targets[i]),
+                          builder: (_) =>
+                              UpdateTargetDetailPage(target: data.targets[i]),
                         ),
                       ),
                     ),
@@ -88,7 +100,10 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> {
             Row(
               children: [
                 const Expanded(
-                  child: Text('Update history', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                  child: Text(
+                    'Update history',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
                 ),
                 SettingsSectionLink(
                   label: 'View all',
@@ -114,7 +129,10 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text('Update preferences', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Text(
+              'Update preferences',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 10),
             SettingsSurface(
               child: SettingsListItem(
@@ -125,14 +143,17 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> {
                 iconBackground: SettingsColors.palePurple,
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const UpdatePreferencesPage()),
+                  MaterialPageRoute(
+                    builder: (_) => const UpdatePreferencesPage(),
+                  ),
                 ),
               ),
             ),
             const SizedBox(height: 16),
             SettingsInfoBanner(
               title: 'Stay secure',
-              subtitle: 'Updates improve performance, add new features and keep your home secure.',
+              subtitle:
+                  'Updates improve performance, add new features and keep your home secure.',
               icon: Icons.info_outline_rounded,
             ),
           ],
@@ -169,7 +190,10 @@ class _UpdateStatusCard extends StatelessWidget {
       leading: Container(
         width: 8,
         height: 8,
-        decoration: const BoxDecoration(color: SettingsColors.green, shape: BoxShape.circle),
+        decoration: const BoxDecoration(
+          color: SettingsColors.green,
+          shape: BoxShape.circle,
+        ),
       ),
     ),
     footer: SettingsHeroActionFooter(
@@ -209,18 +233,38 @@ class _UpdateTargetRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(target.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                      Text(target.currentVersion, style: const TextStyle(color: SettingsColors.muted, fontSize: 13)),
+                      Text(
+                        target.name,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        target.currentVersion,
+                        style: const TextStyle(
+                          color: SettingsColors.muted,
+                          fontSize: 13,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const Icon(Icons.check_circle_rounded, color: SettingsColors.green, size: 18),
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: SettingsColors.green,
+                  size: 18,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   target.statusLabel,
-                  style: const TextStyle(color: SettingsColors.green, fontWeight: FontWeight.w700, fontSize: 12),
+                  style: const TextStyle(
+                    color: SettingsColors.green,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: SettingsColors.muted),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: SettingsColors.muted,
+                ),
               ],
             ),
           ),
@@ -235,10 +279,10 @@ class _UpdateTargetRow extends StatelessWidget {
   );
 
   IconData _icon(UpdateTargetKind kind) => switch (kind) {
-        UpdateTargetKind.app => Icons.smartphone_rounded,
-        UpdateTargetKind.hub => Icons.router_rounded,
-        UpdateTargetKind.device => Icons.memory_rounded,
-      };
+    UpdateTargetKind.app => Icons.smartphone_rounded,
+    UpdateTargetKind.hub => Icons.router_rounded,
+    UpdateTargetKind.device => Icons.memory_rounded,
+  };
 }
 
 class _HistoryRow extends StatelessWidget {
@@ -249,8 +293,18 @@ class _HistoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final month = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ][entry.installedAt.month - 1];
     return Column(
       children: [
@@ -270,16 +324,31 @@ class _HistoryRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(entry.title, style: const TextStyle(fontWeight: FontWeight.w800)),
-                    Text('${entry.deviceName} · ${entry.result}', style: const TextStyle(color: SettingsColors.muted, fontSize: 13)),
+                    Text(
+                      entry.title,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      '${entry.deviceName} · ${entry.result}',
+                      style: const TextStyle(
+                        color: SettingsColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
                     Text(
                       '$month ${entry.installedAt.day}, ${entry.installedAt.year} · ${_time(entry.installedAt)}',
-                      style: const TextStyle(color: SettingsColors.muted, fontSize: 12),
+                      style: const TextStyle(
+                        color: SettingsColors.muted,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: SettingsColors.muted),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: SettingsColors.muted,
+              ),
             ],
           ),
         ),

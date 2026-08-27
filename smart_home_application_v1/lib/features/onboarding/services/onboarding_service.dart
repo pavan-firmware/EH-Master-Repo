@@ -7,7 +7,9 @@ import '../models/onboarding_models.dart';
 
 abstract class OnboardingService {
   Future<OnboardingProgress> verifyQrCode(String qrPayload);
-  Future<OnboardingProgress> startSecureCommissioning(OnboardingDeviceIdentity identity);
+  Future<OnboardingProgress> startSecureCommissioning(
+    OnboardingDeviceIdentity identity,
+  );
   Future<OnboardingProgress> proveIdentity({
     required String sessionId,
     required OnboardingDeviceIdentity identity,
@@ -35,7 +37,9 @@ class DefaultOnboardingService implements OnboardingService {
 
   Uint8List _generateRandomBytes(int length) {
     final rnd = Random.secure();
-    return Uint8List.fromList(List<int>.generate(length, (_) => rnd.nextInt(256)));
+    return Uint8List.fromList(
+      List<int>.generate(length, (_) => rnd.nextInt(256)),
+    );
   }
 
   @override
@@ -43,7 +47,8 @@ class DefaultOnboardingService implements OnboardingService {
     if (!qrPayload.startsWith('EH1:')) {
       return const OnboardingProgress(
         stepState: OnboardingStepState.failed,
-        errorMessage: "Invalid QR payload version prefix. Expected 'EH1:<payload>'",
+        errorMessage:
+            "Invalid QR payload version prefix. Expected 'EH1:<payload>'",
       );
     }
 
@@ -58,13 +63,19 @@ class DefaultOnboardingService implements OnboardingService {
       }
 
       final identity = OnboardingDeviceIdentity(
-        deviceId: parsed['deviceId'] as String? ?? 'c0a80101-0000-4000-8000-000000000001',
+        deviceId:
+            parsed['deviceId'] as String? ??
+            'c0a80101-0000-4000-8000-000000000001',
         serialNumber: parsed['serialNumber'] as String? ?? 'SN-EH-3X-2026',
-        productVariantId: parsed['productVariantId'] as String? ?? 'eh-smart-switch-3x',
+        productVariantId:
+            parsed['productVariantId'] as String? ?? 'eh-smart-switch-3x',
         hardwareRevision: parsed['hardwareRevision'] as String? ?? 'HW_1_0',
-        firmwareFamily: parsed['firmwareFamily'] as String? ?? 'esp32c6-switch-platform',
+        firmwareFamily:
+            parsed['firmwareFamily'] as String? ?? 'esp32c6-switch-platform',
         displayName: 'EH Smart Switch 3X',
-        commissioningSecret: parsed['commissioningSecret'] as String? ?? 'secret_32_byte_hex_string_for_device_qr_12345678901234567890',
+        commissioningSecret:
+            parsed['commissioningSecret'] as String? ??
+            'secret_32_byte_hex_string_for_device_qr_12345678901234567890',
       );
 
       return OnboardingProgress(
@@ -80,8 +91,11 @@ class DefaultOnboardingService implements OnboardingService {
   }
 
   @override
-  Future<OnboardingProgress> startSecureCommissioning(OnboardingDeviceIdentity identity) async {
-    final sessionId = 'sess_${identity.deviceId.substring(0, 8)}-4000-8000-000000000001';
+  Future<OnboardingProgress> startSecureCommissioning(
+    OnboardingDeviceIdentity identity,
+  ) async {
+    final sessionId =
+        'sess_${identity.deviceId.substring(0, 8)}-4000-8000-000000000001';
     return OnboardingProgress(
       stepState: OnboardingStepState.provingIdentity,
       identity: identity,
@@ -96,7 +110,12 @@ class DefaultOnboardingService implements OnboardingService {
     required Uint8List deviceChallenge,
   }) async {
     final appChallenge = _generateRandomBytes(32);
-    final secretKey = Uint8List.fromList(utf8.encode(identity.commissioningSecret ?? 'secret_32_byte_hex_string_for_device_qr_12345678901234567890'));
+    final secretKey = Uint8List.fromList(
+      utf8.encode(
+        identity.commissioningSecret ??
+            'secret_32_byte_hex_string_for_device_qr_12345678901234567890',
+      ),
+    );
 
     final appTranscript = EhProv1Crypto.encodeCanonicalTranscript(
       messageType: 'APP_PROOF',
@@ -122,10 +141,16 @@ class DefaultOnboardingService implements OnboardingService {
       deviceChallenge: deviceChallenge,
       sequenceNumber: 3,
     );
-    final expectedDeviceProof = EhProv1Crypto.hmacSha256(secretKey, deviceTranscript);
+    final expectedDeviceProof = EhProv1Crypto.hmacSha256(
+      secretKey,
+      deviceTranscript,
+    );
 
     // Verify proof
-    final isValid = EhProv1Crypto.constantTimeCompare(expectedDeviceProof, expectedDeviceProof);
+    final isValid = EhProv1Crypto.constantTimeCompare(
+      expectedDeviceProof,
+      expectedDeviceProof,
+    );
     if (!isValid) {
       return const OnboardingProgress(
         stepState: OnboardingStepState.failed,
@@ -156,9 +181,18 @@ class DefaultOnboardingService implements OnboardingService {
       );
     }
 
-    final secretKey = Uint8List.fromList(utf8.encode(identity.commissioningSecret ?? 'secret_32_byte_hex_string_for_device_qr_12345678901234567890'));
-    final salt = Uint8List(64)..setAll(0, appChallenge)..setAll(32, deviceChallenge);
-    final info = Uint8List.fromList(utf8.encode('EH-PROV/1|WIFI|$sessionId|${identity.deviceId}'));
+    final secretKey = Uint8List.fromList(
+      utf8.encode(
+        identity.commissioningSecret ??
+            'secret_32_byte_hex_string_for_device_qr_12345678901234567890',
+      ),
+    );
+    final salt = Uint8List(64)
+      ..setAll(0, appChallenge)
+      ..setAll(32, deviceChallenge);
+    final info = Uint8List.fromList(
+      utf8.encode('EH-PROV/1|WIFI|$sessionId|${identity.deviceId}'),
+    );
 
     final sessionKey = EhProv1Crypto.hkdfSha256(
       ikm: secretKey,
@@ -176,7 +210,9 @@ class DefaultOnboardingService implements OnboardingService {
       deviceChallenge: deviceChallenge,
       sequenceNumber: 4,
     );
-    final plaintext = Uint8List.fromList(utf8.encode(jsonEncode({'s': ssid, 'p': password})));
+    final plaintext = Uint8List.fromList(
+      utf8.encode(jsonEncode({'s': ssid, 'p': password})),
+    );
 
     final encryptedPayload = EhProv1Crypto.encryptAes256Gcm(
       key: sessionKey,

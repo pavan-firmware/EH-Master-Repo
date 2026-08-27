@@ -243,12 +243,14 @@ class PreviewHelpRepository implements HelpRepository {
   Future<List<HelpQuickCard>> getQuickHelp() async => _quickCards;
 
   @override
-  Future<List<HelpArticle>> getGettingStarted() async =>
-      _articles.where((a) => a.category == HelpCategoryKind.gettingStarted).toList();
+  Future<List<HelpArticle>> getGettingStarted() async => _articles
+      .where((a) => a.category == HelpCategoryKind.gettingStarted)
+      .toList();
 
   @override
-  Future<List<HelpArticle>> getTroubleshooting() async =>
-      _articles.where((a) => a.category == HelpCategoryKind.troubleshooting).toList();
+  Future<List<HelpArticle>> getTroubleshooting() async => _articles
+      .where((a) => a.category == HelpCategoryKind.troubleshooting)
+      .toList();
 
   @override
   Future<List<HelpArticle>> search(String query) async {

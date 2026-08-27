@@ -20,7 +20,10 @@ int carouselActiveDotIndex(
 ) {
   final dots = carouselIndicatorCount(itemCount, viewportFraction);
   if (dots <= 1 || itemCount <= 1) return 0;
-  return ((pageIndex / (itemCount - 1)) * (dots - 1)).round().clamp(0, dots - 1);
+  return ((pageIndex / (itemCount - 1)) * (dots - 1)).round().clamp(
+    0,
+    dots - 1,
+  );
 }
 
 class CarouselDotIndicator extends StatelessWidget {
@@ -43,10 +46,16 @@ class CarouselDotIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final count = carouselIndicatorCount(itemCount, viewportFraction);
     if (count <= 1) return const SizedBox.shrink();
-    final active = carouselActiveDotIndex(pageIndex, itemCount, viewportFraction);
+    final active = carouselActiveDotIndex(
+      pageIndex,
+      itemCount,
+      viewportFraction,
+    );
     final tokens = context.ehColors;
     final resolvedActive = activeColor ?? tokens.bluePrimary;
-    final resolvedInactive = inactiveColor ?? (tokens.isDark ? tokens.borderControl : const Color(0xFFD7DCE5));
+    final resolvedInactive =
+        inactiveColor ??
+        (tokens.isDark ? tokens.borderControl : const Color(0xFFD7DCE5));
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -74,5 +83,6 @@ class ScrollFriendlyPage extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => SelectionContainer.disabled(child: child);
+  Widget build(BuildContext context) =>
+      SelectionContainer.disabled(child: child);
 }

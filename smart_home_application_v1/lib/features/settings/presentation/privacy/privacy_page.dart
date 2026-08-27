@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/models/privacy_models.dart';import '../../../../core/repositories/privacy_repository.dart';import '../settings_ui.dart';
+import '../../../../core/models/privacy_models.dart';
+import '../../../../core/repositories/privacy_repository.dart';
+import '../settings_ui.dart';
 import 'privacy_data_detail_page.dart';
 import 'privacy_legal_page.dart';
 import 'privacy_permission_detail_page.dart';
@@ -81,13 +83,21 @@ class _PrivacyPageState extends State<PrivacyPage> {
               statusChip: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.lock_outline_rounded, color: SettingsColors.green, size: 16),
+                  const Icon(
+                    Icons.lock_outline_rounded,
+                    color: SettingsColors.green,
+                    size: 16,
+                  ),
                   const SizedBox(width: 6),
                   SettingsStatusChip(
                     label: data.statusLabel,
                     color: SettingsColors.green,
                     background: SettingsColors.paleGreen,
-                    leading: const Icon(Icons.check_rounded, color: SettingsColors.green, size: 14),
+                    leading: const Icon(
+                      Icons.check_rounded,
+                      color: SettingsColors.green,
+                      size: 14,
+                    ),
                   ),
                 ],
               ),
@@ -105,7 +115,9 @@ class _PrivacyPageState extends State<PrivacyPage> {
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => PrivacyDataDetailPage(category: data.dataCategories[i]),
+                          builder: (_) => PrivacyDataDetailPage(
+                            category: data.dataCategories[i],
+                          ),
                         ),
                       ),
                       showDivider: i < data.dataCategories.length - 1,
@@ -125,7 +137,9 @@ class _PrivacyPageState extends State<PrivacyPage> {
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => PrivacyPermissionDetailPage(permission: data.permissions[i]),
+                          builder: (_) => PrivacyPermissionDetailPage(
+                            permission: data.permissions[i],
+                          ),
                         ),
                       ),
                     ),
@@ -138,17 +152,29 @@ class _PrivacyPageState extends State<PrivacyPage> {
               child: Column(
                 children: [
                   SwitchListTile(
-                    title: const Text('Diagnostic data sharing', style: TextStyle(fontWeight: FontWeight.w800)),
-                    subtitle: const Text('Help us improve by sharing device diagnostics.'),
+                    title: const Text(
+                      'Diagnostic data sharing',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: const Text(
+                      'Help us improve by sharing device diagnostics.',
+                    ),
                     value: data.diagnosticSharing,
-                    onChanged: data.diagnosticSupported ? _toggleDiagnostic : (_) => _toggleDiagnostic(true),
+                    onChanged: data.diagnosticSupported
+                        ? _toggleDiagnostic
+                        : (_) => _toggleDiagnostic(true),
                   ),
                   const Divider(height: 1, color: SettingsColors.line),
                   SwitchListTile(
-                    title: const Text('Usage analytics', style: TextStyle(fontWeight: FontWeight.w800)),
+                    title: const Text(
+                      'Usage analytics',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     subtitle: const Text('Help us improve the app experience.'),
                     value: data.usageAnalytics,
-                    onChanged: data.analyticsSupported ? _toggleAnalytics : (_) => _toggleAnalytics(true),
+                    onChanged: data.analyticsSupported
+                        ? _toggleAnalytics
+                        : (_) => _toggleAnalytics(true),
                   ),
                 ],
               ),
@@ -166,7 +192,8 @@ class _PrivacyPageState extends State<PrivacyPage> {
                     iconBackground: SettingsColors.palePurple,
                     onTap: () => showSettingsUnavailable(
                       context,
-                      message: 'Data export will be available when account services are connected.',
+                      message:
+                          'Data export will be available when account services are connected.',
                     ),
                     showDivider: true,
                   ),
@@ -178,7 +205,8 @@ class _PrivacyPageState extends State<PrivacyPage> {
                     iconBackground: const Color(0xFFFFEEEE),
                     onTap: () => showSettingsUnavailable(
                       context,
-                      message: 'Activity deletion will be wired to the activity repository when supported.',
+                      message:
+                          'Activity deletion will be wired to the activity repository when supported.',
                     ),
                   ),
                 ],
@@ -196,7 +224,10 @@ class _PrivacyPageState extends State<PrivacyPage> {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const PrivacyLegalPage(title: 'Security', kind: 'security'),
+                        builder: (_) => const PrivacyLegalPage(
+                          title: 'Security',
+                          kind: 'security',
+                        ),
                       ),
                     ),
                     showDivider: true,
@@ -208,7 +239,10 @@ class _PrivacyPageState extends State<PrivacyPage> {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const PrivacyLegalPage(title: 'Privacy policy', kind: 'privacy'),
+                        builder: (_) => const PrivacyLegalPage(
+                          title: 'Privacy policy',
+                          kind: 'privacy',
+                        ),
                       ),
                     ),
                     showDivider: true,
@@ -220,7 +254,10 @@ class _PrivacyPageState extends State<PrivacyPage> {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const PrivacyLegalPage(title: 'Terms of service', kind: 'terms'),
+                        builder: (_) => const PrivacyLegalPage(
+                          title: 'Terms of service',
+                          kind: 'terms',
+                        ),
                       ),
                     ),
                     showDivider: true,
@@ -234,7 +271,10 @@ class _PrivacyPageState extends State<PrivacyPage> {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const PrivacyLegalPage(title: 'Data practices', kind: 'practices'),
+                        builder: (_) => const PrivacyLegalPage(
+                          title: 'Data practices',
+                          kind: 'practices',
+                        ),
                       ),
                     ),
                   ),
@@ -248,11 +288,11 @@ class _PrivacyPageState extends State<PrivacyPage> {
   );
 
   IconData _dataIcon(PrivacyDataCategoryKind kind) => switch (kind) {
-        PrivacyDataCategoryKind.homeDevice => Icons.home_outlined,
-        PrivacyDataCategoryKind.activityHistory => Icons.history_rounded,
-        PrivacyDataCategoryKind.routineData => Icons.hub_outlined,
-        PrivacyDataCategoryKind.accountInfo => Icons.person_outline_rounded,
-      };
+    PrivacyDataCategoryKind.homeDevice => Icons.home_outlined,
+    PrivacyDataCategoryKind.activityHistory => Icons.history_rounded,
+    PrivacyDataCategoryKind.routineData => Icons.hub_outlined,
+    PrivacyDataCategoryKind.accountInfo => Icons.person_outline_rounded,
+  };
 }
 
 class _PermissionRow extends StatelessWidget {
@@ -267,10 +307,10 @@ class _PermissionRow extends StatelessWidget {
   final bool showDivider;
 
   Color get _statusColor => switch (permission.status) {
-        PrivacyPermissionStatus.allowed => SettingsColors.green,
-        PrivacyPermissionStatus.denied => SettingsColors.red,
-        _ => SettingsColors.muted,
-      };
+    PrivacyPermissionStatus.allowed => SettingsColors.green,
+    PrivacyPermissionStatus.denied => SettingsColors.red,
+    _ => SettingsColors.muted,
+  };
 
   @override
   Widget build(BuildContext context) => Column(
@@ -289,16 +329,35 @@ class _PermissionRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(permission.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-                      Text(permission.description, style: const TextStyle(color: SettingsColors.muted, fontSize: 14)),
+                      Text(
+                        permission.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                        ),
+                      ),
+                      Text(
+                        permission.description,
+                        style: const TextStyle(
+                          color: SettingsColors.muted,
+                          fontSize: 14,
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 Text(
                   permission.statusLabel,
-                  style: TextStyle(color: _statusColor, fontWeight: FontWeight.w700, fontSize: 13),
+                  style: TextStyle(
+                    color: _statusColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: SettingsColors.muted),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: SettingsColors.muted,
+                ),
               ],
             ),
           ),
@@ -313,9 +372,9 @@ class _PermissionRow extends StatelessWidget {
   );
 
   IconData _icon(String id) => switch (id) {
-        'bluetooth' => Icons.bluetooth_rounded,
-        'notifications' => Icons.notifications_outlined,
-        'location' => Icons.location_on_outlined,
-        _ => Icons.security_rounded,
-      };
+    'bluetooth' => Icons.bluetooth_rounded,
+    'notifications' => Icons.notifications_outlined,
+    'location' => Icons.location_on_outlined,
+    _ => Icons.security_rounded,
+  };
 }

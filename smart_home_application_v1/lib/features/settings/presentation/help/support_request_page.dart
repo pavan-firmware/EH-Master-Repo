@@ -34,12 +34,16 @@ class _SupportRequestPageState extends State<SupportRequestPage> {
               TextFormField(
                 controller: _description,
                 maxLines: 5,
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Describe the issue' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Describe the issue'
+                    : null,
                 decoration: InputDecoration(
                   labelText: 'How can we help?',
                   filled: true,
                   fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -49,7 +53,8 @@ class _SupportRequestPageState extends State<SupportRequestPage> {
                   Navigator.pop(context);
                   showSettingsUnavailable(
                     context,
-                    message: 'Support requests will be sent when the support backend is connected.',
+                    message:
+                        'Support requests will be sent when the support backend is connected.',
                   );
                 },
                 child: const Text('Send request'),

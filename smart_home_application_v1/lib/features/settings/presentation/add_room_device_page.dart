@@ -433,7 +433,10 @@ class _NearbyDeviceRow extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         device.model,
-                        style: const TextStyle(color: SettingsColors.muted, fontSize: 13),
+                        style: const TextStyle(
+                          color: SettingsColors.muted,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       Align(
@@ -453,7 +456,9 @@ class _NearbyDeviceRow extends StatelessWidget {
                   children: [
                     Icon(
                       Icons.wifi_rounded,
-                      color: strong ? SettingsColors.green : SettingsColors.orange,
+                      color: strong
+                          ? SettingsColors.green
+                          : SettingsColors.orange,
                       size: 18,
                     ),
                     const Icon(
@@ -493,7 +498,10 @@ class _HelpRow extends StatelessWidget {
         child: ListTile(
           minTileHeight: 52,
           leading: Icon(icon, color: SettingsColors.muted),
-          title: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+          title: Text(
+            text,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           trailing: const Icon(
             Icons.chevron_right_rounded,
             color: SettingsColors.muted,

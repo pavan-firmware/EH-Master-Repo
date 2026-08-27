@@ -21,9 +21,9 @@ class HomeController extends ChangeNotifier {
     ConnectionRepository? connectionRepository,
     RealtimeEventService? realtimeEventService,
     this._cloudEnabled = false,
-  })  : _repository = repository ?? FakeHomeRepository(),
-        _connectionRepository =
-            connectionRepository ?? BleConnectionRepository() {
+  }) : _repository = repository ?? FakeHomeRepository(),
+       _connectionRepository =
+           connectionRepository ?? BleConnectionRepository() {
     if (realtimeEventService != null) {
       _subscribeToRealtime(realtimeEventService);
     }
@@ -47,7 +47,7 @@ class HomeController extends ChangeNotifier {
   HomeConnectionState _connectionState = HomeConnectionState.notConfigured;
   String? _connectionMessage;
   DeviceConnection _cloudDeviceConnection = DeviceConnection.offline;
-  
+
   StreamSubscription<SSEEventEnvelope>? _sseSubscription;
 
   bool get awayMode => _awayMode;
@@ -158,7 +158,9 @@ class HomeController extends ChangeNotifier {
         if (cmdStatus == 'APPLIED' || cmdStatus == 'DELIVERED') {
           _lightConfidence = ActuatorConfidence.confirmed;
           _lightCommandPending = false;
-        } else if (cmdStatus == 'FAILED' || cmdStatus == 'TIMEOUT' || cmdStatus == 'OVERRIDDEN') {
+        } else if (cmdStatus == 'FAILED' ||
+            cmdStatus == 'TIMEOUT' ||
+            cmdStatus == 'OVERRIDDEN') {
           _lightConfidence = ActuatorConfidence.failed;
           _lightCommandPending = false;
         }

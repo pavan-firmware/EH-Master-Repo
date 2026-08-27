@@ -14,7 +14,8 @@ class ForgetHomePage extends StatelessWidget {
       children: [
         const SettingsDestructiveBanner(
           title: 'This removes local home access',
-          body: 'Your EH account and other devices are not deleted. You can set up this home again later.',
+          body:
+              'Your EH account and other devices are not deleted. You can set up this home again later.',
         ),
         const SizedBox(height: 20),
         SizedBox(
@@ -26,7 +27,8 @@ class ForgetHomePage extends StatelessWidget {
               Navigator.pop(context);
               showSettingsUnavailable(
                 context,
-                message: 'Forget home requires owner confirmation in a connected build.',
+                message:
+                    'Forget home requires owner confirmation in a connected build.',
               );
             },
             child: const Text('Forget this home'),

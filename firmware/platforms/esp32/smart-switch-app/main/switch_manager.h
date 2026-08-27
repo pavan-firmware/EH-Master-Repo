@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -11,16 +15,24 @@ extern "C" {
 #define EH_SWITCH_CHANNEL_COUNT 3
 #define EH_SWITCH_DEBOUNCE_MS 50
 
+// Target-Specific Hardware Pin Mapping
 #if defined(CONFIG_IDF_TARGET_ESP32)
-// ESP32-D0WD Development Board Profile: GPIO 4, 5, 13 (Inputs with internal pull-ups)
+// ESP32-D0WD Development Board Profile: GPIO 4, 5, 13 (Safe user inputs, avoids SPI flash pins)
 #define GPIO_SWITCH_IN_CH1 4
 #define GPIO_SWITCH_IN_CH2 5
 #define GPIO_SWITCH_IN_CH3 13
-#else
-// ESP32-C6 Production Profile: GPIO 4, 5, 6
+#elif defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C3)
+// ESP32-C6 / ESP32-C3 Production Profile: GPIO 4, 5, 6
 #define GPIO_SWITCH_IN_CH1 4
 #define GPIO_SWITCH_IN_CH2 5
 #define GPIO_SWITCH_IN_CH3 6
+#elif !defined(ESP_PLATFORM)
+// Host simulation fallback
+#define GPIO_SWITCH_IN_CH1 4
+#define GPIO_SWITCH_IN_CH2 5
+#define GPIO_SWITCH_IN_CH3 6
+#else
+#error "Unsupported EH Home MCU target in switch_manager.h"
 #endif
 
 typedef struct {

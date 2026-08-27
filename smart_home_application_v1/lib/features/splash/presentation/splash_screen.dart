@@ -116,33 +116,60 @@ class _SplashScreenState extends State<SplashScreen>
 
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(
-        milliseconds: _SplashTimeline.totalDurationMs,
-      ),
+      duration: const Duration(milliseconds: _SplashTimeline.totalDurationMs),
     );
 
-    _ringFadeInAnim = _curved(_SplashTimeline.ringStart, _SplashTimeline.ringStart + 0.08);
+    _ringFadeInAnim = _curved(
+      _SplashTimeline.ringStart,
+      _SplashTimeline.ringStart + 0.08,
+    );
 
     // Continuous ring loop progress (repeating multiple revolutions during the sequence)
     _ringLoopAnim = CurvedAnimation(
       parent: _ctrl,
-      curve: const Interval(_SplashTimeline.ringStart, _SplashTimeline.ringEnd, curve: Curves.linear),
+      curve: const Interval(
+        _SplashTimeline.ringStart,
+        _SplashTimeline.ringEnd,
+        curve: Curves.linear,
+      ),
     );
 
     _bulbAnim = _curved(_SplashTimeline.bulbStart, _SplashTimeline.bulbEnd);
     _fanAnim = _curved(_SplashTimeline.fanStart, _SplashTimeline.fanEnd);
     _fanRotationAnim = CurvedAnimation(
       parent: _ctrl,
-      curve: const Interval(_SplashTimeline.fanStart, _SplashTimeline.fanEnd, curve: Curves.linear),
+      curve: const Interval(
+        _SplashTimeline.fanStart,
+        _SplashTimeline.fanEnd,
+        curve: Curves.linear,
+      ),
     );
-    _socketAnim = _curved(_SplashTimeline.socketStart, _SplashTimeline.socketEnd);
-    _thermoAnim = _curved(_SplashTimeline.thermoStart, _SplashTimeline.thermoEnd);
+    _socketAnim = _curved(
+      _SplashTimeline.socketStart,
+      _SplashTimeline.socketEnd,
+    );
+    _thermoAnim = _curved(
+      _SplashTimeline.thermoStart,
+      _SplashTimeline.thermoEnd,
+    );
     _lockAnim = _curved(_SplashTimeline.lockStart, _SplashTimeline.lockEnd);
 
-    _homeWifiAnim = _curved(_SplashTimeline.homeWifiStart, _SplashTimeline.homeWifiEnd, Curves.easeOut);
-    _wifiWaveAnim = _curved(_SplashTimeline.wifiWaveStart, _SplashTimeline.wifiWaveEnd, Curves.easeInOut);
+    _homeWifiAnim = _curved(
+      _SplashTimeline.homeWifiStart,
+      _SplashTimeline.homeWifiEnd,
+      Curves.easeOut,
+    );
+    _wifiWaveAnim = _curved(
+      _SplashTimeline.wifiWaveStart,
+      _SplashTimeline.wifiWaveEnd,
+      Curves.easeInOut,
+    );
 
-    _fadeOutAnim = _curved(_SplashTimeline.fadeOutStart, _SplashTimeline.fadeOutEnd, Curves.easeIn);
+    _fadeOutAnim = _curved(
+      _SplashTimeline.fadeOutStart,
+      _SplashTimeline.fadeOutEnd,
+      Curves.easeIn,
+    );
 
     _ctrl.forward().then((_) {
       if (!mounted) return;
@@ -157,7 +184,10 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    precacheImage(const AssetImage('assets/branding/app_startup_without_loading.png'), context);
+    precacheImage(
+      const AssetImage('assets/branding/app_startup_without_loading.png'),
+      context,
+    );
   }
 
   @override
@@ -190,10 +220,7 @@ class _SplashScreenState extends State<SplashScreen>
           animation: _ctrl,
           builder: (context, _) {
             final fadeOut = (1.0 - _fadeOutAnim.value).clamp(0.0, 1.0);
-            return Opacity(
-              opacity: fadeOut,
-              child: _buildBody(context),
-            );
+            return Opacity(opacity: fadeOut, child: _buildBody(context));
           },
         ),
       ),
@@ -288,13 +315,11 @@ class _SplashScreenState extends State<SplashScreen>
 // Right side: Fine Dashed Gold Ticks (Rapid discrete stepping from tick to tick)
 // ---------------------------------------------------------------------------
 class _DualModeRingPainter extends CustomPainter {
-  _DualModeRingPainter({
-    required this.loopProgress,
-    required this.finalHold,
-  });
+  _DualModeRingPainter({required this.loopProgress, required this.finalHold});
 
   final double loopProgress;
-  final double finalHold; // 0..1 when settling into final home Wi-Fi connected state
+  final double
+  finalHold; // 0..1 when settling into final home Wi-Fi connected state
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -356,7 +381,11 @@ class _DualModeRingPainter extends CustomPainter {
       final double innerX = center.dx + (radius - tickLen) * math.cos(angle);
       final double innerY = center.dy + (radius - tickLen) * math.sin(angle);
 
-      canvas.drawLine(Offset(innerX, innerY), Offset(outerX, outerY), tickPaint);
+      canvas.drawLine(
+        Offset(innerX, innerY),
+        Offset(outerX, outerY),
+        tickPaint,
+      );
     }
 
     // -----------------------------------------------------------------------
@@ -380,13 +409,15 @@ class _DualModeRingPainter extends CustomPainter {
     } else {
       // LEFT SIDE (0.50 to 1.00) -> Travels 6 o'clock (pi/2) through 9 to 12 o'clock (3*pi/2)
       // Continuous smooth high speed motion along solid arc:
-      final double subT = (cycleFraction - 0.50) / 0.50; // 0..1 across left half
+      final double subT =
+          (cycleFraction - 0.50) / 0.50; // 0..1 across left half
       dotAngle = math.pi / 2.0 + subT * math.pi;
     }
 
     // If finalHold is active (>0.7), lock dot near the 2 o'clock position (approx matching reference)
     if (finalHold > 0.01) {
-      final double targetAngle = -math.pi / 2.0 + (0.32 * math.pi); // ~2 o'clock
+      final double targetAngle =
+          -math.pi / 2.0 + (0.32 * math.pi); // ~2 o'clock
       dotAngle = dotAngle * (1.0 - finalHold) + targetAngle * finalHold;
     }
 
@@ -549,7 +580,11 @@ class _BulbIconPainter extends CustomPainter {
     final r = size.width * 0.28;
 
     if (glow > 0.1) {
-      canvas.drawCircle(Offset(cx, cy - r * 0.1), r * 0.70, _glowPaint(10, glow));
+      canvas.drawCircle(
+        Offset(cx, cy - r * 0.1),
+        r * 0.70,
+        _glowPaint(10, glow),
+      );
     }
 
     final bulbRect = Rect.fromCenter(
@@ -557,14 +592,42 @@ class _BulbIconPainter extends CustomPainter {
       width: r * 1.6,
       height: r * 1.6,
     );
-    canvas.drawArc(bulbRect, math.pi * 0.15, math.pi * 0.70, false, _linePaint(1.8));
-    canvas.drawArc(bulbRect, math.pi * 0.85, math.pi * 1.30, false, _linePaint(1.8));
+    canvas.drawArc(
+      bulbRect,
+      math.pi * 0.15,
+      math.pi * 0.70,
+      false,
+      _linePaint(1.8),
+    );
+    canvas.drawArc(
+      bulbRect,
+      math.pi * 0.85,
+      math.pi * 1.30,
+      false,
+      _linePaint(1.8),
+    );
 
     final baseY = cy + r * 0.60;
-    canvas.drawLine(Offset(cx - r * 0.36, baseY - r * 0.20), Offset(cx - r * 0.36, baseY), _linePaint(1.8));
-    canvas.drawLine(Offset(cx + r * 0.36, baseY - r * 0.20), Offset(cx + r * 0.36, baseY), _linePaint(1.8));
-    canvas.drawLine(Offset(cx - r * 0.36, baseY), Offset(cx + r * 0.36, baseY), _linePaint(1.8));
-    canvas.drawLine(Offset(cx - r * 0.24, baseY + r * 0.20), Offset(cx + r * 0.24, baseY + r * 0.20), _linePaint(1.8));
+    canvas.drawLine(
+      Offset(cx - r * 0.36, baseY - r * 0.20),
+      Offset(cx - r * 0.36, baseY),
+      _linePaint(1.8),
+    );
+    canvas.drawLine(
+      Offset(cx + r * 0.36, baseY - r * 0.20),
+      Offset(cx + r * 0.36, baseY),
+      _linePaint(1.8),
+    );
+    canvas.drawLine(
+      Offset(cx - r * 0.36, baseY),
+      Offset(cx + r * 0.36, baseY),
+      _linePaint(1.8),
+    );
+    canvas.drawLine(
+      Offset(cx - r * 0.24, baseY + r * 0.20),
+      Offset(cx + r * 0.24, baseY + r * 0.20),
+      _linePaint(1.8),
+    );
 
     final filament = Path()
       ..moveTo(cx - r * 0.15, baseY - r * 0.20)
@@ -675,7 +738,8 @@ class _SocketIconPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_SocketIconPainter oldDelegate) => oldDelegate.glow != glow;
+  bool shouldRepaint(_SocketIconPainter oldDelegate) =>
+      oldDelegate.glow != glow;
 }
 
 // 4. Temperature / Thermometer
@@ -690,7 +754,11 @@ class _ThermoIconPainter extends CustomPainter {
     final r = size.width * 0.28;
 
     if (glow > 0.1) {
-      canvas.drawCircle(Offset(cx, cy + r * 0.50), r * 0.35, _glowPaint(8, glow));
+      canvas.drawCircle(
+        Offset(cx, cy + r * 0.50),
+        r * 0.35,
+        _glowPaint(8, glow),
+      );
     }
 
     final tw = r * 0.32;
@@ -724,7 +792,8 @@ class _ThermoIconPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ThermoIconPainter oldDelegate) => oldDelegate.glow != glow;
+  bool shouldRepaint(_ThermoIconPainter oldDelegate) =>
+      oldDelegate.glow != glow;
 }
 
 // 5. Lock / Security
@@ -760,11 +829,23 @@ class _LockIconPainter extends CustomPainter {
       height: r * 0.70,
     );
     canvas.drawArc(shackleRect, math.pi, math.pi, false, _linePaint(1.8));
-    canvas.drawLine(Offset(cx - r * 0.41, cy - r * 0.26), Offset(cx - r * 0.41, cy - r * 0.02), _linePaint(1.8));
-    canvas.drawLine(Offset(cx + r * 0.41, cy - r * 0.26), Offset(cx + r * 0.41, cy - r * 0.02), _linePaint(1.8));
+    canvas.drawLine(
+      Offset(cx - r * 0.41, cy - r * 0.26),
+      Offset(cx - r * 0.41, cy - r * 0.02),
+      _linePaint(1.8),
+    );
+    canvas.drawLine(
+      Offset(cx + r * 0.41, cy - r * 0.26),
+      Offset(cx + r * 0.41, cy - r * 0.02),
+      _linePaint(1.8),
+    );
 
     canvas.drawCircle(Offset(cx, cy + r * 0.16), r * 0.15, _linePaint(1.8));
-    canvas.drawLine(Offset(cx, cy + r * 0.31), Offset(cx, cy + r * 0.50), _linePaint(1.8));
+    canvas.drawLine(
+      Offset(cx, cy + r * 0.31),
+      Offset(cx, cy + r * 0.50),
+      _linePaint(1.8),
+    );
   }
 
   @override
@@ -773,10 +854,7 @@ class _LockIconPainter extends CustomPainter {
 
 // 6. Home + Wi-Fi (LAST - Final connection state exactly matching reference)
 class _HomeWifiIconPainter extends CustomPainter {
-  const _HomeWifiIconPainter({
-    required this.glow,
-    required this.waveProgress,
-  });
+  const _HomeWifiIconPainter({required this.glow, required this.waveProgress});
 
   final double glow;
   final double waveProgress;
@@ -788,11 +866,7 @@ class _HomeWifiIconPainter extends CustomPainter {
     final r = size.width * 0.38;
 
     if (glow > 0.1) {
-      canvas.drawCircle(
-        Offset(cx, cy),
-        r * 0.55,
-        _glowPaint(12, glow),
-      );
+      canvas.drawCircle(Offset(cx, cy), r * 0.55, _glowPaint(12, glow));
     }
 
     // House walls
@@ -857,11 +931,11 @@ class _HomeWifiIconPainter extends CustomPainter {
 // ---------------------------------------------------------------------------
 class _SplashFadePageRoute<T> extends PageRouteBuilder<T> {
   _SplashFadePageRoute({required WidgetBuilder builder})
-      : super(
-          pageBuilder: (context, anim1, anim2) => builder(context),
-          transitionsBuilder: (context, anim1, anim2, child) =>
-              FadeTransition(opacity: anim1, child: child),
-          transitionDuration: const Duration(milliseconds: 300),
-          reverseTransitionDuration: const Duration(milliseconds: 200),
-        );
+    : super(
+        pageBuilder: (context, anim1, anim2) => builder(context),
+        transitionsBuilder: (context, anim1, anim2, child) =>
+            FadeTransition(opacity: anim1, child: child),
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
+      );
 }

@@ -8,9 +8,13 @@ class SafetyAlertPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final bg = tokens.isDark ? tokens.bgApp : const Color(0xFFFFF7F4);
-    final iconBg = tokens.isDark ? tokens.warningContainer : const Color(0xFFFFE3D9);
+    final iconBg = tokens.isDark
+        ? tokens.warningContainer
+        : const Color(0xFFFFE3D9);
     final warnColor = tokens.isDark ? tokens.warning : const Color(0xFFB9441D);
-    final subColor = tokens.isDark ? tokens.textSecondary : const Color(0xFF684B41);
+    final subColor = tokens.isDark
+        ? tokens.textSecondary
+        : const Color(0xFF684B41);
 
     return Scaffold(
       backgroundColor: bg,
@@ -133,21 +137,22 @@ class _SafetyStep extends StatelessWidget {
             width: 28,
             height: 28,
             alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: numBg,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: numBg, shape: BoxShape.circle),
             child: Text(
               number,
-              style: TextStyle(
-                color: numColor,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: numColor, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(text, style: TextStyle(fontSize: 15, height: 1.35, color: tokens.textPrimary)),
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.35,
+                color: tokens.textPrimary,
+              ),
+            ),
           ),
         ],
       ),

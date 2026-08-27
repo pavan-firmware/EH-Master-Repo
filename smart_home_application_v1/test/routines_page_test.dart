@@ -7,10 +7,26 @@ void main() {
   test('preview repository exposes routines and rejects mutations', () async {
     const repository = PreviewRoutineRepository();
     final routines = await repository.getRoutines();
-    expect(routines.map((routine) => routine.name), containsAll(<String>['Plant care', 'Gentle night light', 'Tank reminder']));
-    expect(await repository.enableRoutine('plant-care'), RepositoryResult.unsupported);
-    expect(await repository.executeRoutine('plant-care'), RepositoryResult.unsupported);
-    expect(routines.firstWhere((routine) => routine.id == 'plant-care').availability, RoutineAvailability.partiallyAvailable);
+    expect(
+      routines.map((routine) => routine.name),
+      containsAll(<String>[
+        'Plant care',
+        'Gentle night light',
+        'Tank reminder',
+      ]),
+    );
+    expect(
+      await repository.enableRoutine('plant-care'),
+      RepositoryResult.unsupported,
+    );
+    expect(
+      await repository.executeRoutine('plant-care'),
+      RepositoryResult.unsupported,
+    );
+    expect(
+      routines.firstWhere((routine) => routine.id == 'plant-care').availability,
+      RoutineAvailability.partiallyAvailable,
+    );
   });
 
   test('validator reports incomplete and valid drafts', () {
@@ -18,13 +34,27 @@ void main() {
     expect(validator.validate(RoutineDraft()).isValid, isFalse);
     final draft = RoutineDraft(
       name: 'Plant care',
-      trigger: const RoutineTrigger(kind: RoutineTriggerKind.soilMoisture, title: 'Soil moisture drops below 35%', detail: 'Every day', threshold: 35),
-      actions: const [RoutineAction(kind: RoutineActionKind.mistMaker, title: 'Mist maker', detail: 'Run for 30 seconds', deviceId: 'mist')],
+      trigger: const RoutineTrigger(
+        kind: RoutineTriggerKind.soilMoisture,
+        title: 'Soil moisture drops below 35%',
+        detail: 'Every day',
+        threshold: 35,
+      ),
+      actions: const [
+        RoutineAction(
+          kind: RoutineActionKind.mistMaker,
+          title: 'Mist maker',
+          detail: 'Run for 30 seconds',
+          deviceId: 'mist',
+        ),
+      ],
     );
     expect(validator.validate(draft).isValid, isTrue);
   });
 
-  testWidgets('routines list opens detail and secure setup guidance', (tester) async {
+  testWidgets('routines list opens detail and secure setup guidance', (
+    tester,
+  ) async {
     await tester.pumpWidget(const MaterialApp(home: AutomationsPage()));
     await tester.pumpAndSettle();
     expect(find.text('Routines'), findsOneWidget);

@@ -83,8 +83,12 @@ class _DynamicDeviceViewState extends State<DynamicDeviceView> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: device.isOnline
-                  ? (tokens.isDark ? tokens.iconBgGreen : const Color(0xFFE9F7EE))
-                  : (tokens.isDark ? tokens.borderControl : const Color(0xFFE0E4EC)),
+                  ? (tokens.isDark
+                        ? tokens.iconBgGreen
+                        : const Color(0xFFE9F7EE))
+                  : (tokens.isDark
+                        ? tokens.borderControl
+                        : const Color(0xFFE0E4EC)),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
@@ -94,7 +98,9 @@ class _DynamicDeviceViewState extends State<DynamicDeviceView> {
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
-                    color: device.isOnline ? tokens.success : tokens.textSecondary,
+                    color: device.isOnline
+                        ? tokens.success
+                        : tokens.textSecondary,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -102,7 +108,9 @@ class _DynamicDeviceViewState extends State<DynamicDeviceView> {
                 Text(
                   device.isOnline ? 'Online' : 'Offline',
                   style: TextStyle(
-                    color: device.isOnline ? tokens.success : tokens.textSecondary,
+                    color: device.isOnline
+                        ? tokens.success
+                        : tokens.textSecondary,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),

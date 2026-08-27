@@ -32,18 +32,27 @@ class HelpArticlePage extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
           children: [
-            const Text('Try these steps', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Text(
+              'Try these steps',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 12),
             SettingsSurface(
               child: Column(
                 children: [
                   for (var i = 0; i < article.steps.length; i++)
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('${i + 1}.', style: const TextStyle(fontWeight: FontWeight.w800)),
+                          Text(
+                            '${i + 1}.',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
                           const SizedBox(width: 8),
                           Expanded(child: Text(article.steps[i])),
                         ],
@@ -53,7 +62,10 @@ class HelpArticlePage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            const Text('Still having trouble?', style: TextStyle(fontWeight: FontWeight.w800)),
+            const Text(
+              'Still having trouble?',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 10),
             Row(
               children: [
@@ -61,7 +73,9 @@ class HelpArticlePage extends StatelessWidget {
                   child: OutlinedButton(
                     onPressed: () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const DeviceHealthPage()),
+                      MaterialPageRoute(
+                        builder: (_) => const DeviceHealthPage(),
+                      ),
                     ),
                     child: const Text('Check device health'),
                   ),
@@ -71,7 +85,9 @@ class HelpArticlePage extends StatelessWidget {
                   child: FilledButton(
                     onPressed: () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const SupportRequestPage()),
+                      MaterialPageRoute(
+                        builder: (_) => const SupportRequestPage(),
+                      ),
                     ),
                     child: const Text('Contact support'),
                   ),

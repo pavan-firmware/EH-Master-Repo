@@ -32,7 +32,8 @@ class PreviewPrivacyRepository implements PrivacyRepository {
       kind: PrivacyDataCategoryKind.activityHistory,
       title: 'Activity history',
       subtitle: 'Events and actions in your home',
-      summary: 'Activity records help you understand what happened in your home.',
+      summary:
+          'Activity records help you understand what happened in your home.',
       details: [
         'Device state changes',
         'Routine executions',
@@ -72,35 +73,35 @@ class PreviewPrivacyRepository implements PrivacyRepository {
 
   @override
   Future<PrivacySummary> getSummary() async => PrivacySummary(
-        title: 'Your privacy is in your control.',
-        subtitle: 'EH Home collects only the data needed to run your home.',
-        statusLabel: 'All good.',
-        dataCategories: _dataCategories,
-        permissions: const [
-          PrivacyPermission(
-            id: 'bluetooth',
-            title: 'Bluetooth',
-            description: 'Used to discover and connect devices.',
-            status: PrivacyPermissionStatus.allowed,
-          ),
-          PrivacyPermission(
-            id: 'notifications',
-            title: 'Notifications',
-            description: 'Used for alerts and important updates.',
-            status: PrivacyPermissionStatus.allowed,
-          ),
-          PrivacyPermission(
-            id: 'location',
-            title: 'Location',
-            description: 'Used for location-based features.',
-            status: PrivacyPermissionStatus.notRequested,
-          ),
-        ],
-        diagnosticSharing: _diagnosticSharing,
-        usageAnalytics: _usageAnalytics,
-        diagnosticSupported: false,
-        analyticsSupported: false,
-      );
+    title: 'Your privacy is in your control.',
+    subtitle: 'EH Home collects only the data needed to run your home.',
+    statusLabel: 'All good.',
+    dataCategories: _dataCategories,
+    permissions: const [
+      PrivacyPermission(
+        id: 'bluetooth',
+        title: 'Bluetooth',
+        description: 'Used to discover and connect devices.',
+        status: PrivacyPermissionStatus.allowed,
+      ),
+      PrivacyPermission(
+        id: 'notifications',
+        title: 'Notifications',
+        description: 'Used for alerts and important updates.',
+        status: PrivacyPermissionStatus.allowed,
+      ),
+      PrivacyPermission(
+        id: 'location',
+        title: 'Location',
+        description: 'Used for location-based features.',
+        status: PrivacyPermissionStatus.notRequested,
+      ),
+    ],
+    diagnosticSharing: _diagnosticSharing,
+    usageAnalytics: _usageAnalytics,
+    diagnosticSupported: false,
+    analyticsSupported: false,
+  );
 
   @override
   Future<bool> setDiagnosticSharing(bool enabled) async {

@@ -149,7 +149,11 @@ class _PeopleContent extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.circle, color: SettingsColors.green, size: 12),
+                    const Icon(
+                      Icons.circle,
+                      color: SettingsColors.green,
+                      size: 12,
+                    ),
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(

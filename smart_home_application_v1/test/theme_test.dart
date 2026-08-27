@@ -85,7 +85,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('App renders in Dark Theme and switches dynamically', (tester) async {
+    testWidgets('App renders in Dark Theme and switches dynamically', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(360, 800));
       final themeController = ThemeController();
       themeController.setThemeMode(ThemeMode.dark);
@@ -111,7 +113,9 @@ void main() {
       themeController.setThemeMode(ThemeMode.light);
       await tester.pumpAndSettle();
 
-      final lightScaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+      final lightScaffold = tester.widget<Scaffold>(
+        find.byType(Scaffold).first,
+      );
       expect(lightScaffold.backgroundColor, const Color(0xFFF6F8FC));
 
       homeController.dispose();

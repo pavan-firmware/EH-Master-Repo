@@ -2,7 +2,13 @@ enum RoutineAvailability { available, partiallyAvailable, unavailable }
 
 enum RoutineExecutionResult { succeeded, failed }
 
-enum RoutineValidationState { valid, incomplete, invalid, conflict, unsupported }
+enum RoutineValidationState {
+  valid,
+  incomplete,
+  invalid,
+  conflict,
+  unsupported,
+}
 
 enum RoutineTriggerKind { soilMoisture, darkness, waterLevel }
 
@@ -189,7 +195,13 @@ class RoutineValidation {
   bool get isValid => state == RoutineValidationState.valid;
 }
 
-enum RepositoryResult { success, unavailable, unauthorized, unsupported, failed }
+enum RepositoryResult {
+  success,
+  unavailable,
+  unauthorized,
+  unsupported,
+  failed,
+}
 
 abstract class RoutineRepository {
   Future<List<Routine>> getRoutines();
@@ -343,25 +355,32 @@ class PreviewRoutineRepository implements RoutineRepository {
   }
 
   @override
-  Future<List<RoutineExecution>> getRecentExecutions(String id) async => _history[id] ?? [];
+  Future<List<RoutineExecution>> getRecentExecutions(String id) async =>
+      _history[id] ?? [];
 
   @override
-  Future<RepositoryResult> createRoutine(RoutineDraft draft) async => RepositoryResult.unsupported;
+  Future<RepositoryResult> createRoutine(RoutineDraft draft) async =>
+      RepositoryResult.unsupported;
 
   @override
-  Future<RepositoryResult> updateRoutine(String id, RoutineDraft draft) async => RepositoryResult.unsupported;
+  Future<RepositoryResult> updateRoutine(String id, RoutineDraft draft) async =>
+      RepositoryResult.unsupported;
 
   @override
-  Future<RepositoryResult> deleteRoutine(String id) async => RepositoryResult.unsupported;
+  Future<RepositoryResult> deleteRoutine(String id) async =>
+      RepositoryResult.unsupported;
 
   @override
-  Future<RepositoryResult> enableRoutine(String id) async => RepositoryResult.unsupported;
+  Future<RepositoryResult> enableRoutine(String id) async =>
+      RepositoryResult.unsupported;
 
   @override
-  Future<RepositoryResult> disableRoutine(String id) async => RepositoryResult.unsupported;
+  Future<RepositoryResult> disableRoutine(String id) async =>
+      RepositoryResult.unsupported;
 
   @override
-  Future<RepositoryResult> executeRoutine(String id) async => RepositoryResult.unsupported;
+  Future<RepositoryResult> executeRoutine(String id) async =>
+      RepositoryResult.unsupported;
 
   static final _routines = <Routine>[
     Routine(
@@ -386,13 +405,17 @@ class PreviewRoutineRepository implements RoutineRepository {
           deviceId: 'mist',
         ),
       ],
-      schedule: const RoutineSchedule(label: 'Every day Â· All day', timezone: 'Home timezone'),
+      schedule: const RoutineSchedule(
+        label: 'Every day Â· All day',
+        timezone: 'Home timezone',
+      ),
       involvedDevices: [_devices[0], _devices[1]],
       lastExecution: _history['plant-care']!.first,
       nextRun: 'When soil is dry',
       createdAt: _time,
       updatedAt: _time,
-      summary: 'When soil becomes dry, run the plant mist maker for 30 seconds.',
+      summary:
+          'When soil becomes dry, run the plant mist maker for 30 seconds.',
     ),
     Routine(
       id: 'night-light',
@@ -415,7 +438,10 @@ class PreviewRoutineRepository implements RoutineRepository {
           deviceId: 'living-light',
         ),
       ],
-      schedule: const RoutineSchedule(label: 'After sunset', timezone: 'Home timezone'),
+      schedule: const RoutineSchedule(
+        label: 'After sunset',
+        timezone: 'Home timezone',
+      ),
       involvedDevices: [_devices[2], _devices[3]],
       lastExecution: _history['night-light']!.first,
       nextRun: 'After sunset',
@@ -445,7 +471,10 @@ class PreviewRoutineRepository implements RoutineRepository {
           deviceId: 'tank',
         ),
       ],
-      schedule: const RoutineSchedule(label: 'Any time', timezone: 'Home timezone'),
+      schedule: const RoutineSchedule(
+        label: 'Any time',
+        timezone: 'Home timezone',
+      ),
       involvedDevices: [_devices[4]],
       lastExecution: null,
       nextRun: 'When water is low',
@@ -462,18 +491,28 @@ class RoutineValidator {
   RoutineValidation validate(RoutineDraft draft) {
     final errors = <String>[];
     final warnings = <String>[];
-    if (draft.name.trim().isEmpty) errors.add('Choose a name for this routine.');
-    if (draft.trigger == null) errors.add('Choose what should trigger it.');
-    if (draft.actions.isEmpty) errors.add('Choose at least one action.');
+    if (draft.name.trim().isEmpty) {
+      errors.add('Choose a name for this routine.');
+    }
+    if (draft.trigger == null) {
+      errors.add('Choose what should trigger it.');
+    }
+    if (draft.actions.isEmpty) {
+      errors.add('Choose at least one action.');
+    }
     if (draft.trigger?.threshold != null &&
         (draft.trigger!.threshold! < 0 || draft.trigger!.threshold! > 100)) {
       errors.add('Choose a threshold between 0 and 100.');
     }
-    if (draft.actions.any((a) => a.detail.contains('seconds') && a.detail.startsWith('0'))) {
+    if (draft.actions.any(
+      (a) => a.detail.contains('seconds') && a.detail.startsWith('0'),
+    )) {
       errors.add('Action duration must be greater than zero.');
     }
     if (draft.actions.isNotEmpty && draft.trigger != null) {
-      warnings.add('The routine will run when the trigger crosses its threshold.');
+      warnings.add(
+        'The routine will run when the trigger crosses its threshold.',
+      );
     }
     final state = errors.isNotEmpty
         ? RoutineValidationState.incomplete
@@ -483,4 +522,3 @@ class RoutineValidator {
     return RoutineValidation(state: state, errors: errors, warnings: warnings);
   }
 }
-

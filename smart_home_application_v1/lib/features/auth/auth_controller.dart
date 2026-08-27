@@ -6,12 +6,12 @@ enum AuthState {
   unauthenticated,
   authenticating,
   authenticated,
-  failure
+  failure,
 }
 
 class AuthController extends ChangeNotifier {
   final AuthRepository _authRepository;
-  
+
   AuthState _state = AuthState.unknown;
   String? _errorMessage;
 

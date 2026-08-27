@@ -69,7 +69,9 @@ class BrightnessControl extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: tokens.gold,
-              inactiveTrackColor: tokens.isDark ? tokens.borderControl : const Color(0xFFE0E4EC),
+              inactiveTrackColor: tokens.isDark
+                  ? tokens.borderControl
+                  : const Color(0xFFE0E4EC),
               thumbColor: tokens.gold,
               overlayColor: tokens.gold.withValues(alpha: 0.2),
               trackHeight: 6,

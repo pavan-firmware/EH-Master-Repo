@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 /// Manages application-wide theme mode (System, Light, Dark) with persistence.
 class ThemeController extends ChangeNotifier {
   ThemeController({ThemeMode initialMode = ThemeMode.system})
-      : _themeMode = initialMode {
+    : _themeMode = initialMode {
     _loadPreference();
   }
 
@@ -63,18 +63,16 @@ class ThemeController extends ChangeNotifier {
 
 /// Provides [ThemeController] down the widget tree.
 class ThemeScope extends InheritedWidget {
-  const ThemeScope({
-    super.key,
-    required this.controller,
-    required super.child,
-  });
+  const ThemeScope({super.key, required this.controller, required super.child});
 
   final ThemeController controller;
 
   static ThemeController of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<ThemeScope>();
     if (scope == null) {
-      throw FlutterError('ThemeScope.of() called with a context that does not contain a ThemeScope.');
+      throw FlutterError(
+        'ThemeScope.of() called with a context that does not contain a ThemeScope.',
+      );
     }
     return scope.controller;
   }
@@ -85,5 +83,6 @@ class ThemeScope extends InheritedWidget {
   }
 
   @override
-  bool updateShouldNotify(ThemeScope oldWidget) => controller != oldWidget.controller;
+  bool updateShouldNotify(ThemeScope oldWidget) =>
+      controller != oldWidget.controller;
 }
