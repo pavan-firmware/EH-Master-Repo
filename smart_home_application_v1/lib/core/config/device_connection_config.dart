@@ -29,6 +29,6 @@ const deviceConnectionConfig = DeviceConnectionConfig(
   telemetryCharacteristicUuid: 'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6103',
   statusCharacteristicUuid: 'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6104',
   productInfoCharacteristicUuid: 'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6105',
-  deviceNamePrefix: 'SH-',
+  deviceNamePrefix: 'EH-',
   protocolVersion: '1',
 );

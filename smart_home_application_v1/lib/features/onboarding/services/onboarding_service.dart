@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import '../ble/ble_commissioning_channel.dart';
 import '../crypto/eh_prov1_crypto.dart';
 import '../models/onboarding_models.dart';
 
@@ -33,13 +34,29 @@ abstract class OnboardingService {
 }
 
 class DefaultOnboardingService implements OnboardingService {
-  const DefaultOnboardingService();
+  const DefaultOnboardingService({this.channel});
+
+  final BleCommissioningChannel? channel;
 
   Uint8List _generateRandomBytes(int length) {
     final rnd = Random.secure();
     return Uint8List.fromList(
       List<int>.generate(length, (_) => rnd.nextInt(256)),
     );
+  }
+
+  Uint8List _parseSecretKey(String? secret) {
+    final raw =
+        secret ??
+        'secret_32_byte_hex_string_for_device_qr_12345678901234567890';
+    if (raw.length == 64 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(raw)) {
+      final bytes = <int>[];
+      for (int i = 0; i < 64; i += 2) {
+        bytes.add(int.parse(raw.substring(i, i + 2), radix: 16));
+      }
+      return Uint8List.fromList(bytes);
+    }
+    return Uint8List.fromList(utf8.encode(raw.padRight(32).substring(0, 32)));
   }
 
   @override
@@ -94,8 +111,38 @@ class DefaultOnboardingService implements OnboardingService {
   Future<OnboardingProgress> startSecureCommissioning(
     OnboardingDeviceIdentity identity,
   ) async {
-    final sessionId =
-        'sess_${identity.deviceId.substring(0, 8)}-4000-8000-000000000001';
+    final devId = identity.deviceId;
+    final cleanDevId = devId.length >= 8 ? devId.substring(0, 8) : '00000000';
+    final sessionId = 'sess_$cleanDevId-4000-8000-000000000001';
+    final appChallenge = _generateRandomBytes(32);
+
+    if (channel != null && channel!.isConnected) {
+      try {
+        final sessionBytes = utf8.encode(sessionId);
+        final helloBuilder = BytesBuilder(copy: false)
+          ..addByte(0) // EH_PROV1_MSG_HELLO
+          ..add(sessionBytes)
+          ..add(appChallenge);
+
+        final response = await channel!.sendAndReceive(
+          helloBuilder.takeBytes(),
+          timeout: const Duration(seconds: 10),
+        );
+
+        if (response.length < 37 || response[0] != 1) {
+          return const OnboardingProgress(
+            stepState: OnboardingStepState.failed,
+            errorMessage: 'Invalid HELLO_ACK received from device',
+          );
+        }
+      } catch (err) {
+        return OnboardingProgress(
+          stepState: OnboardingStepState.failed,
+          errorMessage: 'BLE HELLO exchange failed: $err',
+        );
+      }
+    }
+
     return OnboardingProgress(
       stepState: OnboardingStepState.provingIdentity,
       identity: identity,
@@ -110,12 +157,7 @@ class DefaultOnboardingService implements OnboardingService {
     required Uint8List deviceChallenge,
   }) async {
     final appChallenge = _generateRandomBytes(32);
-    final secretKey = Uint8List.fromList(
-      utf8.encode(
-        identity.commissioningSecret ??
-            'secret_32_byte_hex_string_for_device_qr_12345678901234567890',
-      ),
-    );
+    final secretKey = _parseSecretKey(identity.commissioningSecret);
 
     final appTranscript = EhProv1Crypto.encodeCanonicalTranscript(
       messageType: 'APP_PROOF',
@@ -133,7 +175,46 @@ class DefaultOnboardingService implements OnboardingService {
       );
     }
 
-    final deviceTranscript = EhProv1Crypto.encodeCanonicalTranscript(
+    Uint8List deviceProof = Uint8List(32);
+
+    if (channel != null && channel!.isConnected) {
+      try {
+        final authBuilder = BytesBuilder(copy: false)
+          ..addByte(2) // EH_PROV1_MSG_AUTH
+          ..add(appProof);
+
+        final response = await channel!.sendAndReceive(
+          authBuilder.takeBytes(),
+          timeout: const Duration(seconds: 10),
+        );
+
+        if (response.length < 37 || response[0] != 3) {
+          return const OnboardingProgress(
+            stepState: OnboardingStepState.failed,
+            errorMessage: 'Invalid AUTH_ACK received from device',
+          );
+        }
+        deviceProof = Uint8List.fromList(response.sublist(1, 33));
+      } catch (err) {
+        return OnboardingProgress(
+          stepState: OnboardingStepState.failed,
+          errorMessage: 'BLE AUTH exchange failed: $err',
+        );
+      }
+    } else {
+      // Local/offline test path
+      final devTranscript = EhProv1Crypto.encodeCanonicalTranscript(
+        messageType: 'DEVICE_PROOF',
+        sessionId: sessionId,
+        deviceId: identity.deviceId,
+        appChallenge: appChallenge,
+        deviceChallenge: deviceChallenge,
+        sequenceNumber: 3,
+      );
+      deviceProof = EhProv1Crypto.hmacSha256(secretKey, devTranscript);
+    }
+
+    final expectedDeviceTranscript = EhProv1Crypto.encodeCanonicalTranscript(
       messageType: 'DEVICE_PROOF',
       sessionId: sessionId,
       deviceId: identity.deviceId,
@@ -143,12 +224,11 @@ class DefaultOnboardingService implements OnboardingService {
     );
     final expectedDeviceProof = EhProv1Crypto.hmacSha256(
       secretKey,
-      deviceTranscript,
+      expectedDeviceTranscript,
     );
 
-    // Verify proof
     final isValid = EhProv1Crypto.constantTimeCompare(
-      expectedDeviceProof,
+      deviceProof,
       expectedDeviceProof,
     );
     if (!isValid) {
@@ -181,12 +261,7 @@ class DefaultOnboardingService implements OnboardingService {
       );
     }
 
-    final secretKey = Uint8List.fromList(
-      utf8.encode(
-        identity.commissioningSecret ??
-            'secret_32_byte_hex_string_for_device_qr_12345678901234567890',
-      ),
-    );
+    final secretKey = _parseSecretKey(identity.commissioningSecret);
     final salt = Uint8List(64)
       ..setAll(0, appChallenge)
       ..setAll(32, deviceChallenge);
@@ -233,6 +308,34 @@ class DefaultOnboardingService implements OnboardingService {
         stepState: OnboardingStepState.failed,
         errorMessage: 'Wi-Fi credential encryption/decryption roundtrip failed',
       );
+    }
+
+    if (channel != null && channel!.isConnected) {
+      try {
+        final wifiBuilder = BytesBuilder(copy: false)
+          ..addByte(4) // EH_PROV1_MSG_WIFI_CRED
+          ..add(nonce)
+          ..add(encryptedPayload);
+
+        final response = await channel!.sendAndReceive(
+          wifiBuilder.takeBytes(),
+          timeout: const Duration(seconds: 15),
+        );
+
+        if (response.isEmpty ||
+            response[0] != 5 ||
+            (response.length > 1 && response[1] != 1)) {
+          return const OnboardingProgress(
+            stepState: OnboardingStepState.failed,
+            errorMessage: 'Wi-Fi credential provisioning rejected by device',
+          );
+        }
+      } catch (err) {
+        return OnboardingProgress(
+          stepState: OnboardingStepState.failed,
+          errorMessage: 'BLE Wi-Fi provisioning exchange failed: $err',
+        );
+      }
     }
 
     return OnboardingProgress(

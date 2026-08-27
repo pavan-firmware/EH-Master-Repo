@@ -30,6 +30,8 @@ class BleConnectionRepository implements ConnectionRepository {
           .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
           .where(
             (candidate) =>
+                candidate.name.trim().toUpperCase().startsWith('EH-') ||
+                candidate.name.trim().toUpperCase().startsWith('SH-') ||
                 candidate.name.trim().toUpperCase().startsWith(
                   config.deviceNamePrefix.toUpperCase(),
                 ) ||
@@ -210,9 +212,10 @@ class BleConnectionRepository implements ConnectionRepository {
       final value = jsonDecode(utf8.decode(bytes));
       if (value case {'product': String product}) return product;
       if (value case {'p': String product}) return product;
+      if (value case {'displayName': String name}) return name;
     } catch (_) {
       // The connection itself is still valid even if a development build sends malformed metadata.
     }
-    return 'Smart Home device';
+    return 'EH Smart Switch 3X';
   }
 }
