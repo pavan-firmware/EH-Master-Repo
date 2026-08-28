@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/repositories/settings_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../settings/presentation/add_room_device_page.dart';
 
 /// The device is already identified through BLE before this page is shown.
 /// Wi-Fi credentials, ownership authentication, and completion are deliberately
@@ -106,10 +108,28 @@ class DeviceProvisioningPage extends StatelessWidget {
           const SizedBox(height: 20),
           SizedBox(
             height: 50,
-            child: FilledButton(
+            child: FilledButton.icon(
+              onPressed: () => Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AddRoomDevicePage(
+                    repository: PreviewSettingsRepository(),
+                  ),
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+              ),
+              icon: const Icon(Icons.security_rounded),
+              label: const Text('Start Secure Setup'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 50,
+            child: OutlinedButton(
               onPressed: () =>
                   Navigator.popUntil(context, (route) => route.isFirst),
-              style: FilledButton.styleFrom(backgroundColor: tokens.blueDarker),
               child: const Text('Back to home'),
             ),
           ),

@@ -10,13 +10,13 @@ class PreviewHomeConnectionRepository implements HomeConnectionRepository {
   const PreviewHomeConnectionRepository();
 
   static const _device = ConnectedDeviceSummary(
-    id: 'SH-8EF248',
-    name: 'Smart Mist Maker',
-    model: 'SH-MIST-V1',
+    id: 'EH-SW3X-2026W12-00001',
+    name: 'EH Smart Switch 3X',
+    model: 'EH-SW3X-V1',
     firmware: '1.0.0',
     connectedVia: 'Wi-Fi (2.4 GHz)',
     signalLabel: 'Strong',
-    roomName: 'Plant Corner',
+    roomName: 'Living Room',
     online: true,
   );
 
