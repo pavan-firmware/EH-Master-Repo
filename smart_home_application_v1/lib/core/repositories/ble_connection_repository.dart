@@ -1,21 +1,26 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../features/onboarding/ble/ble_commissioning_channel.dart';
 import '../config/device_connection_config.dart';
 import 'connection_repository.dart';
 
-/// Development connection path: scan -> connect -> verify service -> read
-/// public product metadata. It deliberately has no actuator-control methods.
+/// Production connection path: single BLE connection owner (via [BleCommissioningChannel])
+/// that executes: scan -> connect -> explicit GATT discovery (6101 & 6102) -> validate 6105.
 class BleConnectionRepository implements ConnectionRepository {
-  BleConnectionRepository({FlutterReactiveBle? ble})
-    : _ble = ble ?? FlutterReactiveBle();
+  BleConnectionRepository({
+    FlutterReactiveBle? ble,
+    BleCommissioningChannel? channel,
+  }) : _ble = ble ?? FlutterReactiveBle(),
+       _channel = channel ?? BleCommissioningChannel(ble: ble);
 
   final FlutterReactiveBle _ble;
-  StreamSubscription<ConnectionStateUpdate>? _connectionSubscription;
+  final BleCommissioningChannel _channel;
+
+  BleCommissioningChannel get channel => _channel;
 
   @override
   Future<ConnectionResult> connect({
@@ -25,21 +30,14 @@ class BleConnectionRepository implements ConnectionRepository {
       await _requestBluetoothPermission();
       await _waitForBluetooth();
 
-      final serviceUuid = Uuid.parse(config.bleServiceUuid);
-      final candidates = await _ble
-          .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
-          .where(
-            (candidate) =>
-                candidate.name.trim().toUpperCase().startsWith('EH-') ||
-                candidate.name.trim().toUpperCase().startsWith('SH-') ||
-                candidate.name.trim().toUpperCase().startsWith(
-                  config.deviceNamePrefix.toUpperCase(),
-                ) ||
-                candidate.serviceUuids.contains(serviceUuid),
+      final candidates = await _channel
+          .scanForNearbyDevices(
+            namePrefix: config.deviceNamePrefix,
+            timeout: const Duration(seconds: 15),
           )
           .take(1)
-          .timeout(const Duration(seconds: 15))
           .toList();
+
       if (candidates.isEmpty) {
         throw const ConnectionFailure(
           ConnectionFailureKind.scanTimedOut,
@@ -48,74 +46,21 @@ class BleConnectionRepository implements ConnectionRepository {
       }
       final device = candidates.first;
 
-      await _connectionSubscription?.cancel();
-      final productInfoUuid = Uuid.parse(config.productInfoCharacteristicUuid);
-      final connected = Completer<void>();
-      _connectionSubscription = _ble
-          .connectToDevice(
-            id: device.id,
-            servicesWithCharacteristicsToDiscover: {
-              serviceUuid: [
-                Uuid.parse(config.telemetryCharacteristicUuid),
-                Uuid.parse(config.statusCharacteristicUuid),
-                productInfoUuid,
-              ],
-            },
-            connectionTimeout: const Duration(seconds: 12),
-          )
-          .listen(
-            (update) {
-              if (update.connectionState == DeviceConnectionState.connected &&
-                  !connected.isCompleted) {
-                connected.complete();
-              }
-              if (update.connectionState ==
-                      DeviceConnectionState.disconnected &&
-                  !connected.isCompleted) {
-                connected.completeError(
-                  const ConnectionFailure(
-                    ConnectionFailureKind.deviceDisconnected,
-                    'The nearby device disconnected before setup completed.',
-                    step: ConnectionStep.pairing,
-                  ),
-                );
-              }
-            },
-            onError: (Object error, StackTrace stackTrace) {
-              if (!connected.isCompleted) {
-                connected.completeError(error, stackTrace);
-              }
-            },
-          );
-      await connected.future.timeout(const Duration(seconds: 15));
+      // Connect and discover all services (6101 & 6102) via single session owner
+      await _channel.connect(device.id);
 
-      await _ble.discoverAllServices(device.id);
-      final services = await _ble.getDiscoveredServices(device.id);
-      final matchingServices = services.where(
-        (service) => service.id == serviceUuid,
-      );
-      if (matchingServices.isEmpty ||
-          !matchingServices.first.characteristics.any(
-            (characteristic) => characteristic.id == productInfoUuid,
-          )) {
+      final identity = _channel.deviceIdentity;
+      if (identity == null) {
         throw const ConnectionFailure(
           ConnectionFailureKind.unsupportedDevice,
-          'This nearby device does not use the approved EH Home service.',
+          'Failed to read valid product metadata from device.',
           step: ConnectionStep.identification,
         );
       }
 
-      final productInfo = await _ble.readCharacteristic(
-        QualifiedCharacteristic(
-          deviceId: device.id,
-          serviceId: serviceUuid,
-          characteristicId: productInfoUuid,
-        ),
-      );
-      final product = _readProductName(productInfo);
       return ConnectionResult(
         success: true,
-        message: 'Connected to $product (${device.name}).',
+        message: 'Connected to ${identity.displayName} (${device.name}).',
         step: ConnectionStep.verification,
       );
     } on TimeoutException {
@@ -124,6 +69,13 @@ class BleConnectionRepository implements ConnectionRepository {
         message:
             'No nearby Smart Home device was found. Make sure it is powered on and close to your phone.',
         failureKind: ConnectionFailureKind.scanTimedOut,
+      );
+    } on GattDiscoveryException catch (e) {
+      return ConnectionResult(
+        success: false,
+        message: e.message,
+        step: ConnectionStep.identification,
+        failureKind: ConnectionFailureKind.unsupportedDevice,
       );
     } on ConnectionFailure catch (failure) {
       return ConnectionResult(
@@ -143,39 +95,38 @@ class BleConnectionRepository implements ConnectionRepository {
 
   Future<void> _requestBluetoothPermission() async {
     if (Platform.isAndroid) {
-      // Android 11 and earlier will return no BLE scan results until the
-      // user grants location permission. Requesting it on newer versions is
-      // harmless because it is excluded from the manifest above API 30.
-      final location = await Permission.locationWhenInUse.request();
-      if (location.isPermanentlyDenied) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.permissionPermanentlyDenied,
-          'Location permission was permanently denied. Android needs it to find nearby BLE devices on this phone.',
-        );
-      }
-      if (!location.isGranted && !location.isLimited) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.permissionDenied,
-          'Location permission is required to find nearby BLE devices on this phone.',
-        );
-      }
+      // Request Bluetooth Scan & Connect first (Android 12+)
       final statuses = await [
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
       ].request();
-      if (statuses.values.any((status) => status.isPermanentlyDenied)) {
+
+      final scanStatus = statuses[Permission.bluetoothScan];
+      final connectStatus = statuses[Permission.bluetoothConnect];
+
+      if (scanStatus?.isPermanentlyDenied == true ||
+          connectStatus?.isPermanentlyDenied == true) {
         throw const ConnectionFailure(
           ConnectionFailureKind.permissionPermanentlyDenied,
           'Bluetooth permission was permanently denied. Enable it in app settings to continue.',
         );
       }
-      if (statuses.values.any(
-        (status) => !status.isGranted && !status.isLimited,
-      )) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.permissionDenied,
-          'Bluetooth permission is required to find your nearby device.',
-        );
+
+      // On Android <= 11, location permission is required for BLE scanning
+      if (scanStatus?.isGranted != true && connectStatus?.isGranted != true) {
+        final location = await Permission.locationWhenInUse.request();
+        if (location.isPermanentlyDenied) {
+          throw const ConnectionFailure(
+            ConnectionFailureKind.permissionPermanentlyDenied,
+            'Location permission was permanently denied. Android needs it to find nearby BLE devices on this phone.',
+          );
+        }
+        if (!location.isGranted && !location.isLimited) {
+          throw const ConnectionFailure(
+            ConnectionFailureKind.permissionDenied,
+            'Bluetooth or Location permission is required to find nearby devices.',
+          );
+        }
       }
     } else if (Platform.isIOS) {
       final status = await Permission.bluetooth.request();
@@ -207,15 +158,7 @@ class BleConnectionRepository implements ConnectionRepository {
         );
   }
 
-  String _readProductName(List<int> bytes) {
-    try {
-      final value = jsonDecode(utf8.decode(bytes));
-      if (value case {'product': String product}) return product;
-      if (value case {'p': String product}) return product;
-      if (value case {'displayName': String name}) return name;
-    } catch (_) {
-      // The connection itself is still valid even if a development build sends malformed metadata.
-    }
-    return 'EH Smart Switch 3X';
+  void dispose() {
+    _channel.dispose();
   }
 }

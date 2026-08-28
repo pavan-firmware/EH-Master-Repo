@@ -128,7 +128,45 @@ void main() {
     );
 
     test(
-      'DefaultOnboardingService handles end-to-end EH-PROV/1 commissioning flow',
+      'BLE reassembly rejects out-of-order, mismatched, or corrupted frames',
+      () {
+        final payload = Uint8List.fromList(List.generate(35, (i) => i));
+        final frames = BleCommissioningChannel.fragmentPayload(
+          payload,
+          chunkSize: 16,
+        );
+
+        // Empty frames list
+        expect(BleCommissioningChannel.reassembleFrames([]), Uint8List(0));
+
+        // Out of order frames
+        final outOfOrder = [frames[1], frames[0], frames[2]];
+        expect(
+          () => BleCommissioningChannel.reassembleFrames(outOfOrder),
+          throwsFormatException,
+        );
+
+        // Missing frame
+        final missing = [frames[0], frames[2]];
+        expect(
+          () => BleCommissioningChannel.reassembleFrames(missing),
+          throwsFormatException,
+        );
+
+        // Frame with invalid header (less than 2 bytes)
+        final truncated = [
+          frames[0],
+          Uint8List.fromList([1]),
+        ];
+        expect(
+          () => BleCommissioningChannel.reassembleFrames(truncated),
+          throwsFormatException,
+        );
+      },
+    );
+
+    test(
+      'DefaultOnboardingService handles end-to-end EH-PROV/1 commissioning flow with session persistence',
       () async {
         const service = DefaultOnboardingService();
 
@@ -139,15 +177,23 @@ void main() {
 
         final commResult = await service.startSecureCommissioning(
           qrResult.identity!,
+          fixedSessionId: sessionId,
+          fixedAppChallenge: appChal,
         );
         expect(commResult.stepState, OnboardingStepState.provingIdentity);
+        expect(commResult.sessionId, sessionId);
+        expect(commResult.session, isNotNull);
+        expect(commResult.session!.appChallenge, appChal);
 
         final proveResult = await service.proveIdentity(
           sessionId: commResult.sessionId!,
           identity: qrResult.identity!,
           deviceChallenge: devChal,
+          session: commResult.session,
         );
         expect(proveResult.stepState, OnboardingStepState.wifiProvisioning);
+        expect(proveResult.session!.sessionKey, isNotNull);
+        expect(proveResult.session!.sessionKey!.length, 32);
 
         final wifiResult = await service.provisionWifi(
           sessionId: commResult.sessionId!,
@@ -156,6 +202,7 @@ void main() {
           deviceChallenge: devChal,
           ssid: 'MyHomeWiFi',
           password: 'Password123!',
+          session: proveResult.session,
         );
         expect(wifiResult.stepState, OnboardingStepState.awaitingMtlsConfirm);
 
@@ -169,5 +216,16 @@ void main() {
         expect(claimResult.isComplete, isTrue);
       },
     );
+
+    test('Strict constant-time comparison prevents timing discrepancies', () {
+      final a = Uint8List.fromList([1, 2, 3, 4, 5]);
+      final b = Uint8List.fromList([1, 2, 3, 4, 5]);
+      final c = Uint8List.fromList([1, 2, 3, 4, 6]);
+      final d = Uint8List.fromList([1, 2, 3]);
+
+      expect(EhProv1Crypto.constantTimeCompare(a, b), isTrue);
+      expect(EhProv1Crypto.constantTimeCompare(a, c), isFalse);
+      expect(EhProv1Crypto.constantTimeCompare(a, d), isFalse);
+    });
   });
 }
