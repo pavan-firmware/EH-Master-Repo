@@ -1,19 +1,33 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 class BleCommissioningChannel {
-  BleCommissioningChannel({FlutterReactiveBle? ble})
-    : _ble = ble ?? FlutterReactiveBle();
+  BleCommissioningChannel({FlutterReactiveBle? ble}) : _customBle = ble;
 
-  final FlutterReactiveBle _ble;
+  final FlutterReactiveBle? _customBle;
+  FlutterReactiveBle? get _ble {
+    if (_customBle != null) return _customBle;
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return null;
+    try {
+      return FlutterReactiveBle();
+    } catch (_) {
+      return null;
+    }
+  }
+
   StreamSubscription<ConnectionStateUpdate>? _connSub;
-  StreamSubscription<List<int>>? _notifySub;
+  StreamSubscription<List<int>>? _notifySub1;
+  StreamSubscription<List<int>>? _notifySub2;
   final StreamController<Uint8List> _responseController =
       StreamController<Uint8List>.broadcast();
 
   Stream<Uint8List> get responses => _responseController.stream;
 
+  static final Uuid service1Uuid = Uuid.parse(
+    'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6101',
+  );
   static final Uuid provServiceUuid = Uuid.parse(
     'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6102',
   );
@@ -23,6 +37,11 @@ class BleCommissioningChannel {
   static final Uuid txCharUuid = Uuid.parse(
     'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6111',
   );
+  static final Uuid productInfoUuid = Uuid.parse(
+    'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6105',
+  );
+
+  QualifiedCharacteristic? _resolvedRxChar;
 
   String? _connectedDeviceId;
   bool _isConnected = false;
@@ -74,16 +93,47 @@ class BleCommissioningChannel {
     return builder.takeBytes();
   }
 
+  void _handleIncomingNotification(
+    List<int> data,
+    List<Uint8List> frameBuffer,
+  ) {
+    if (data.isEmpty) return;
+    final bytes = Uint8List.fromList(data);
+    if (bytes.length >= 2 && bytes[1] > 1) {
+      frameBuffer.add(bytes);
+      if (frameBuffer.length == bytes[1]) {
+        try {
+          final complete = reassembleFrames(frameBuffer);
+          frameBuffer.clear();
+          _responseController.add(complete);
+        } catch (_) {
+          frameBuffer.clear();
+        }
+      }
+    } else if (bytes.length >= 2 && bytes[0] == 0 && bytes[1] == 1) {
+      _responseController.add(bytes.sublist(2));
+    } else {
+      _responseController.add(bytes);
+    }
+  }
+
   Future<void> connect(String deviceId) async {
     await disconnect();
+
+    final ble = _ble;
+    if (ble == null) {
+      throw StateError('Bluetooth is off or unavailable');
+    }
 
     _connectedDeviceId = deviceId;
     final connectedCompleter = Completer<void>();
 
-    _connSub = _ble
+    // Pass servicesWithCharacteristicsToDiscover for both Service 1 and Service 2
+    _connSub = ble
         .connectToDevice(
           id: deviceId,
           servicesWithCharacteristicsToDiscover: {
+            service1Uuid: [productInfoUuid, rxCharUuid, txCharUuid],
             provServiceUuid: [rxCharUuid, txCharUuid],
           },
           connectionTimeout: const Duration(seconds: 15),
@@ -117,48 +167,109 @@ class BleCommissioningChannel {
 
     await connectedCompleter.future.timeout(const Duration(seconds: 15));
 
-    await _ble.discoverAllServices(deviceId);
-
-    final txChar = QualifiedCharacteristic(
+    _resolvedRxChar = QualifiedCharacteristic(
       deviceId: deviceId,
       serviceId: provServiceUuid,
-      characteristicId: txCharUuid,
+      characteristicId: rxCharUuid,
     );
 
-    _notifySub = _ble
-        .subscribeToCharacteristic(txChar)
-        .listen(
-          (data) {
-            if (data.isNotEmpty) {
-              _responseController.add(Uint8List.fromList(data));
-            }
-          },
-          onError: (Object err) {
-            // Notification error handling
-          },
-        );
+    final receivedFrames1 = <Uint8List>[];
+    final receivedFrames2 = <Uint8List>[];
+
+    // Subscribe to Service 2 TX (6102)
+    try {
+      final txChar6102 = QualifiedCharacteristic(
+        deviceId: deviceId,
+        serviceId: provServiceUuid,
+        characteristicId: txCharUuid,
+      );
+      _notifySub2 = ble
+          .subscribeToCharacteristic(txChar6102)
+          .listen(
+            (data) => _handleIncomingNotification(data, receivedFrames2),
+            onError: (_) {},
+          );
+    } catch (_) {}
+
+    // Subscribe to Service 1 TX (6101)
+    try {
+      final txChar6101 = QualifiedCharacteristic(
+        deviceId: deviceId,
+        serviceId: service1Uuid,
+        characteristicId: txCharUuid,
+      );
+      _notifySub1 = ble
+          .subscribeToCharacteristic(txChar6101)
+          .listen(
+            (data) => _handleIncomingNotification(data, receivedFrames1),
+            onError: (_) {},
+          );
+    } catch (_) {}
   }
 
   Future<void> writeMessage(
     Uint8List data, {
     QualifiedCharacteristic? customChar,
   }) async {
-    final devId = customChar?.deviceId ?? _connectedDeviceId;
-    if (devId == null) {
+    final ble = _ble;
+    if (ble == null) {
+      throw StateError('Bluetooth is off or unavailable');
+    }
+    final targetChar = customChar ?? _resolvedRxChar;
+    if (targetChar == null) {
       throw StateError('Cannot write message: BLE channel not connected');
     }
-    final targetChar =
-        customChar ??
-        QualifiedCharacteristic(
-          deviceId: devId,
-          serviceId: provServiceUuid,
+
+    final frames = fragmentPayload(data, chunkSize: 16);
+    for (final frame in frames) {
+      bool written = false;
+
+      // 1. Try Service 2 write with response
+      try {
+        await ble.writeCharacteristicWithResponse(
+          targetChar,
+          value: frame.toList(),
+        );
+        written = true;
+      } catch (_) {}
+
+      // 2. Try Service 2 write without response
+      if (!written) {
+        try {
+          await ble.writeCharacteristicWithoutResponse(
+            targetChar,
+            value: frame.toList(),
+          );
+          written = true;
+        } catch (_) {}
+      }
+
+      // 3. Fallback to Service 1 write with response
+      if (!written) {
+        final fallbackChar = QualifiedCharacteristic(
+          deviceId: targetChar.deviceId,
+          serviceId: service1Uuid,
           characteristicId: rxCharUuid,
         );
+        _resolvedRxChar = fallbackChar;
+        try {
+          await ble.writeCharacteristicWithResponse(
+            fallbackChar,
+            value: frame.toList(),
+          );
+          written = true;
+        } catch (_) {}
 
-    await _ble.writeCharacteristicWithResponse(
-      targetChar,
-      value: data.toList(),
-    );
+        // 4. Fallback to Service 1 write without response
+        if (!written) {
+          await ble.writeCharacteristicWithoutResponse(
+            fallbackChar,
+            value: frame.toList(),
+          );
+          written = true;
+        }
+      }
+    }
   }
 
   Future<Uint8List> sendAndReceive(
@@ -192,8 +303,11 @@ class BleCommissioningChannel {
   Future<void> disconnect() async {
     _isConnected = false;
     _connectedDeviceId = null;
-    await _notifySub?.cancel();
-    _notifySub = null;
+    _resolvedRxChar = null;
+    await _notifySub1?.cancel();
+    _notifySub1 = null;
+    await _notifySub2?.cancel();
+    _notifySub2 = null;
     await _connSub?.cancel();
     _connSub = null;
   }

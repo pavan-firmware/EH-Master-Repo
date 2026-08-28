@@ -94,6 +94,14 @@ class HomePage extends StatelessWidget {
                 onLightChanged: onLightChanged,
                 onUnavailable: onUnavailableControl,
               ),
+              const SizedBox(height: 24),
+              _SectionHeader(
+                title: 'Add a device',
+                action: 'Scan',
+                onAction: onConnectHome,
+              ),
+              const SizedBox(height: 14),
+              _AddDeviceBanner(onTap: onConnectHome),
               if (dashboard.routine != null) ...[
                 const SizedBox(height: 24),
                 _RoutineCard(
@@ -104,6 +112,70 @@ class HomePage extends StatelessWidget {
             ] else ...[
               _SetupSupportingContent(data: dashboard, onAction: onConnectHome),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddDeviceBanner extends StatelessWidget {
+  const _AddDeviceBanner({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: tokens.borderSubtle),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: tokens.iconBgBlue,
+              radius: 24,
+              child: Icon(
+                Icons.add_rounded,
+                color: tokens.bluePrimary,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Connect a new EH Smart Switch',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    'Scan nearby Bluetooth devices to set up',
+                    style: TextStyle(fontSize: 13, color: tokens.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              onPressed: onTap,
+              child: const Text('Add'),
+            ),
           ],
         ),
       ),

@@ -29,6 +29,9 @@ static bool s_status_subscribed = false;
 /* Service 2 (EH-PROV/1 Secure Commissioning): handles and subscription flags */
 static uint16_t s_rx_handle;
 static uint16_t s_tx_handle;
+static uint16_t s_rx_handle_s1;
+static uint16_t s_tx_handle_s1;
+static uint16_t s_active_tx_handle = 0;
 static bool s_tx_subscribed = false;
 
 static bool s_initialized = false;
@@ -115,28 +118,122 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
     return BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static uint8_t s_rx_reassembly_buf[512];
+static size_t s_rx_reassembly_len = 0;
+static uint8_t s_rx_expected_frames = 0;
+static uint8_t s_rx_received_frames = 0;
+
+static void notify_tx_payload(const uint8_t *payload, size_t len)
+{
+    if (!s_tx_subscribed || s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGW(TAG, "Cannot notify TX: client not subscribed (s_tx_subscribed=%d)", s_tx_subscribed);
+        return;
+    }
+
+    if (len <= 20) {
+        /* Single frame notification */
+        uint8_t frame[24];
+        frame[0] = 0;
+        frame[1] = 1;
+        memcpy(frame + 2, payload, len);
+        struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(frame, len + 2);
+        if (tx_om) {
+            uint16_t handle = s_active_tx_handle != 0 ? s_active_tx_handle : (s_tx_handle != 0 ? s_tx_handle : s_tx_handle_s1);
+            ble_gatts_notify_custom(s_conn_handle, handle, tx_om);
+        }
+        return;
+    }
+
+    /* Multi-frame fragmented notification: 16 bytes payload per frame */
+    size_t chunk_size = 16;
+    uint8_t total_frames = (len + chunk_size - 1) / chunk_size;
+    for (uint8_t i = 0; i < total_frames; i++) {
+        size_t start = i * chunk_size;
+        size_t chunk_len = (start + chunk_size < len) ? chunk_size : (len - start);
+        uint8_t frame[20];
+        frame[0] = i;
+        frame[1] = total_frames;
+        memcpy(frame + 2, payload + start, chunk_len);
+        struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(frame, chunk_len + 2);
+        if (tx_om) {
+            uint16_t handle = s_active_tx_handle != 0 ? s_active_tx_handle : (s_tx_handle != 0 ? s_tx_handle : s_tx_handle_s1);
+            ble_gatts_notify_custom(s_conn_handle, handle, tx_om);
+        }
+    }
+}
+
 static int gatt_access_cb(uint16_t conn_handle, uint16_t attr_handle,
                            struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn_handle;
     (void)arg;
 
-    if (attr_handle == s_rx_handle && ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+    if ((attr_handle == s_rx_handle || attr_handle == s_rx_handle_s1) && ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
         uint16_t in_len = OS_MBUF_PKTLEN(ctxt->om);
         uint8_t in_buf[256];
         if (in_len > sizeof(in_buf)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
 
         os_mbuf_copydata(ctxt->om, 0, in_len, in_buf);
 
+        const uint8_t *msg_ptr = in_buf;
+        size_t msg_len = in_len;
+
+        /* Check if incoming write has 2-byte fragmentation header [frame_idx, total_frames, chunk...] */
+        if (in_len >= 2 && in_buf[1] > 1) {
+            uint8_t frame_idx = in_buf[0];
+            uint8_t total_frames = in_buf[1];
+
+            if (frame_idx == 0) {
+                s_rx_reassembly_len = 0;
+                s_rx_expected_frames = total_frames;
+                s_rx_received_frames = 0;
+            }
+
+            if (total_frames != s_rx_expected_frames || frame_idx != s_rx_received_frames) {
+                ESP_LOGE(TAG, "BLE frame ordering mismatch: expected frame %d of %d, got %d of %d",
+                         s_rx_received_frames, s_rx_expected_frames, frame_idx, total_frames);
+                s_rx_reassembly_len = 0;
+                s_rx_expected_frames = 0;
+                s_rx_received_frames = 0;
+                return BLE_ATT_ERR_UNLIKELY;
+            }
+
+            size_t chunk_len = in_len - 2;
+            if (s_rx_reassembly_len + chunk_len > sizeof(s_rx_reassembly_buf)) {
+                return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            }
+
+            memcpy(s_rx_reassembly_buf + s_rx_reassembly_len, in_buf + 2, chunk_len);
+            s_rx_reassembly_len += chunk_len;
+            s_rx_received_frames++;
+
+            if (s_rx_received_frames < s_rx_expected_frames) {
+                /* Intermediate frame received successfully */
+                return 0;
+            }
+
+            /* All frames received! Reassembled message is ready */
+            msg_ptr = s_rx_reassembly_buf;
+            msg_len = s_rx_reassembly_len;
+            s_rx_reassembly_len = 0;
+            s_rx_expected_frames = 0;
+            s_rx_received_frames = 0;
+        } else if (in_len >= 2 && in_buf[0] == 0 && in_buf[1] == 1) {
+            /* Single-frame packet with 2-byte header */
+            msg_ptr = in_buf + 2;
+            msg_len = in_len - 2;
+        }
+
         uint8_t out_buf[256];
         size_t out_len = 0;
-        esp_err_t err = eh_prov1_handle_message(in_buf, in_len, out_buf, &out_len, sizeof(out_buf));
+        ESP_LOGI(TAG, "Processing EH-PROV/1 message (type=%d, len=%zu)", msg_ptr[0], msg_len);
+        esp_err_t err = eh_prov1_handle_message(msg_ptr, msg_len, out_buf, &out_len, sizeof(out_buf));
 
-        if (err == ESP_OK && out_len > 0 && s_tx_subscribed) {
-            struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(out_buf, out_len);
-            if (tx_om) {
-                ble_gatts_notify_custom(s_conn_handle, s_tx_handle, tx_om);
-            }
+        if (err == ESP_OK && out_len > 0) {
+            ESP_LOGI(TAG, "EH-PROV/1 response ready (type=%d, len=%zu), sending notifications", out_buf[0], out_len);
+            notify_tx_payload(out_buf, out_len);
+        } else if (err != ESP_OK) {
+            ESP_LOGE(TAG, "eh_prov1_handle_message failed: %s (err=%d)", esp_err_to_name(err), err);
         }
         return err == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
     }
@@ -145,7 +242,7 @@ static int gatt_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 
 static const struct ble_gatt_svc_def s_prov_gatt_svcs[] = {
     {
-        /* Service 1: Device Info & Telemetry (a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6101) */
+        /* Service 1: Device Info & Telemetry + Commissioning (a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6101) */
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &s_device_info_service_uuid.u,
         .characteristics = (struct ble_gatt_chr_def[]) {
@@ -170,6 +267,20 @@ static const struct ble_gatt_svc_def s_prov_gatt_svcs[] = {
                 .val_handle = &s_product_info_handle,
                 .flags = BLE_GATT_CHR_F_READ,
             },
+            {
+                /* Commissioning RX */
+                .uuid = &s_prov_rx_uuid.u,
+                .access_cb = gatt_access_cb,
+                .val_handle = &s_rx_handle_s1,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+            },
+            {
+                /* Commissioning TX */
+                .uuid = &s_prov_tx_uuid.u,
+                .access_cb = gatt_access_cb,
+                .val_handle = &s_tx_handle_s1,
+                .flags = BLE_GATT_CHR_F_NOTIFY,
+            },
             {0},
         },
     },
@@ -183,7 +294,7 @@ static const struct ble_gatt_svc_def s_prov_gatt_svcs[] = {
                 .uuid = &s_prov_rx_uuid.u,
                 .access_cb = gatt_access_cb,
                 .val_handle = &s_rx_handle,
-                .flags = BLE_GATT_CHR_F_WRITE,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
             },
             {
                 /* Notify-only TX characteristic: pushes server responses */
@@ -205,6 +316,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             s_conn_handle = event->connect.conn_handle;
+            s_active_tx_handle = 0;
             ESP_LOGI(TAG, "Flutter connected for BLE services (conn_handle=%d)", s_conn_handle);
         } else {
             ESP_LOGW(TAG, "BLE connection failed: status=%d", event->connect.status);
@@ -215,14 +327,16 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "BLE disconnected (reason=%d), restarting advertising", event->disconnect.reason);
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_tx_subscribed = false;
+        s_active_tx_handle = 0;
         s_telemetry_subscribed = false;
         s_status_subscribed = false;
         ble_commissioning_start_advertising();
         return 0;
     case BLE_GAP_EVENT_SUBSCRIBE:
-        if (event->subscribe.attr_handle == s_tx_handle) {
+        if (event->subscribe.attr_handle == s_tx_handle || event->subscribe.attr_handle == s_tx_handle_s1) {
             s_tx_subscribed = event->subscribe.cur_notify;
-            ESP_LOGI(TAG, "BLE TX (EH-PROV/1) subscription: %s", s_tx_subscribed ? "SUBSCRIBED" : "UNSUBSCRIBED");
+            s_active_tx_handle = event->subscribe.attr_handle;
+            ESP_LOGI(TAG, "BLE TX (EH-PROV/1) subscription on handle %d: %s", s_active_tx_handle, s_tx_subscribed ? "SUBSCRIBED" : "UNSUBSCRIBED");
         } else if (event->subscribe.attr_handle == s_telemetry_handle) {
             s_telemetry_subscribed = event->subscribe.cur_notify;
             ESP_LOGI(TAG, "BLE Telemetry subscription: %s", s_telemetry_subscribed ? "SUBSCRIBED" : "UNSUBSCRIBED");

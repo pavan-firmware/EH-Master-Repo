@@ -5,8 +5,10 @@ import '../../../core/models/connection_models.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/home_connection_repository.dart';
+import '../../../core/repositories/settings_repository.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../activity/presentation/activity_page.dart';
+import '../../settings/presentation/add_room_device_page.dart';
 import '../../settings/presentation/help/help_support_page.dart';
 import '../../settings/presentation/settings_ui.dart';
 import 'device_provisioning_page.dart';
@@ -125,8 +127,10 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const DeviceProvisioningPage(
-                              deviceName: 'SH-8EF248',
+                            builder: (_) => AddRoomDevicePage(
+                              repository: const PreviewSettingsRepository(),
+                              onStartSecureSetup: widget.onStart,
+                              connectionState: widget.connectionState,
                             ),
                           ),
                         ),
@@ -143,9 +147,18 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                   height: 52,
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: tokens.blueDarker,
+                      backgroundColor: tokens.bluePrimary,
                     ),
-                    onPressed: widget.onStart,
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AddRoomDevicePage(
+                          repository: const PreviewSettingsRepository(),
+                          onStartSecureSetup: widget.onStart,
+                          connectionState: widget.connectionState,
+                        ),
+                      ),
+                    ),
                     child: const Text('Connect your home'),
                   ),
                 ),

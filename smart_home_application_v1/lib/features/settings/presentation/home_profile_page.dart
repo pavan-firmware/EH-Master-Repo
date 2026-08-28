@@ -7,6 +7,7 @@ import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../connection/presentation/connection_page.dart';
 import '../../rooms/presentation/room_context_page.dart';
+import 'add_room_device_page.dart';
 import 'home_details_page.dart';
 import 'people_page.dart';
 import 'settings_ui.dart';
@@ -177,8 +178,9 @@ class HomeProfilePage extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => ConnectionPage(
-                  onStart: onConnectHome,
+                builder: (_) => AddRoomDevicePage(
+                  repository: repository,
+                  onStartSecureSetup: onConnectHome,
                   connectionState: connectionState,
                 ),
               ),

@@ -6,6 +6,20 @@ import '../ble/ble_commissioning_channel.dart';
 import '../crypto/eh_prov1_crypto.dart';
 import '../models/onboarding_models.dart';
 
+class EhProv1Session {
+  EhProv1Session({
+    required this.sessionId,
+    required this.appChallenge,
+    this.deviceChallenge,
+    this.sessionKey,
+  });
+
+  final String sessionId;
+  final Uint8List appChallenge;
+  Uint8List? deviceChallenge;
+  Uint8List? sessionKey;
+}
+
 abstract class OnboardingService {
   Future<OnboardingProgress> verifyQrCode(String qrPayload);
   Future<OnboardingProgress> startSecureCommissioning(
@@ -37,6 +51,17 @@ class DefaultOnboardingService implements OnboardingService {
   const DefaultOnboardingService({this.channel});
 
   final BleCommissioningChannel? channel;
+
+  static final Map<String, EhProv1Session> _activeSessions = {};
+
+  static String _generateCanonicalUuid() {
+    final rnd = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // RFC 4122 v4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 1
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}';
+  }
 
   Uint8List _generateRandomBytes(int length) {
     final rnd = Random.secure();
@@ -88,7 +113,7 @@ class DefaultOnboardingService implements OnboardingService {
             parsed['productVariantId'] as String? ?? 'eh-smart-switch-3x',
         hardwareRevision: parsed['hardwareRevision'] as String? ?? 'HW_1_0',
         firmwareFamily:
-            parsed['firmwareFamily'] as String? ?? 'esp32c6-switch-platform',
+            parsed['firmwareFamily'] as String? ?? 'esp32-switch-platform',
         displayName: 'EH Smart Switch 3X',
         commissioningSecret:
             parsed['commissioningSecret'] as String? ??
@@ -111,35 +136,52 @@ class DefaultOnboardingService implements OnboardingService {
   Future<OnboardingProgress> startSecureCommissioning(
     OnboardingDeviceIdentity identity,
   ) async {
-    final devId = identity.deviceId;
-    final cleanDevId = devId.length >= 8 ? devId.substring(0, 8) : '00000000';
-    final sessionId = 'sess_$cleanDevId-4000-8000-000000000001';
+    final sessionId = _generateCanonicalUuid();
     final appChallenge = _generateRandomBytes(32);
+    final session = EhProv1Session(
+      sessionId: sessionId,
+      appChallenge: appChallenge,
+    );
+    _activeSessions[sessionId] = session;
 
-    if (channel != null && channel!.isConnected) {
-      try {
-        final sessionBytes = utf8.encode(sessionId);
-        final helloBuilder = BytesBuilder(copy: false)
-          ..addByte(0) // EH_PROV1_MSG_HELLO
-          ..add(sessionBytes)
-          ..add(appChallenge);
-
-        final response = await channel!.sendAndReceive(
-          helloBuilder.takeBytes(),
-          timeout: const Duration(seconds: 10),
-        );
-
-        if (response.length < 37 || response[0] != 1) {
-          return const OnboardingProgress(
+    if (channel != null) {
+      if (!channel!.isConnected) {
+        try {
+          await channel!.connect(identity.deviceId);
+        } catch (err) {
+          return OnboardingProgress(
             stepState: OnboardingStepState.failed,
-            errorMessage: 'Invalid HELLO_ACK received from device',
+            errorMessage:
+                'Failed to connect to device commissioning service: $err',
           );
         }
-      } catch (err) {
-        return OnboardingProgress(
-          stepState: OnboardingStepState.failed,
-          errorMessage: 'BLE HELLO exchange failed: $err',
-        );
+      }
+      if (channel!.isConnected) {
+        try {
+          final sessionBytes = utf8.encode(sessionId);
+          final helloBuilder = BytesBuilder(copy: false)
+            ..addByte(0) // EH_PROV1_MSG_HELLO
+            ..add(sessionBytes)
+            ..add(appChallenge);
+
+          final response = await channel!.sendAndReceive(
+            helloBuilder.takeBytes(),
+            timeout: const Duration(seconds: 10),
+          );
+
+          if (response.length < 37 || response[0] != 1) {
+            return const OnboardingProgress(
+              stepState: OnboardingStepState.failed,
+              errorMessage: 'Invalid HELLO_ACK received from device',
+            );
+          }
+          session.deviceChallenge = Uint8List.fromList(response.sublist(1, 33));
+        } catch (err) {
+          return OnboardingProgress(
+            stepState: OnboardingStepState.failed,
+            errorMessage: 'BLE HELLO exchange failed: $err',
+          );
+        }
       }
     }
 
@@ -156,7 +198,9 @@ class DefaultOnboardingService implements OnboardingService {
     required OnboardingDeviceIdentity identity,
     required Uint8List deviceChallenge,
   }) async {
-    final appChallenge = _generateRandomBytes(32);
+    final session = _activeSessions[sessionId];
+    final appChallenge = session?.appChallenge ?? _generateRandomBytes(32);
+    final effectiveDevChal = session?.deviceChallenge ?? deviceChallenge;
     final secretKey = _parseSecretKey(identity.commissioningSecret);
 
     final appTranscript = EhProv1Crypto.encodeCanonicalTranscript(
@@ -164,7 +208,7 @@ class DefaultOnboardingService implements OnboardingService {
       sessionId: sessionId,
       deviceId: identity.deviceId,
       appChallenge: appChallenge,
-      deviceChallenge: deviceChallenge,
+      deviceChallenge: effectiveDevChal,
       sequenceNumber: 2,
     );
     final appProof = EhProv1Crypto.hmacSha256(secretKey, appTranscript);
@@ -175,7 +219,7 @@ class DefaultOnboardingService implements OnboardingService {
       );
     }
 
-    Uint8List deviceProof = Uint8List(32);
+    Uint8List receivedDeviceProof = Uint8List(32);
 
     if (channel != null && channel!.isConnected) {
       try {
@@ -194,7 +238,7 @@ class DefaultOnboardingService implements OnboardingService {
             errorMessage: 'Invalid AUTH_ACK received from device',
           );
         }
-        deviceProof = Uint8List.fromList(response.sublist(1, 33));
+        receivedDeviceProof = Uint8List.fromList(response.sublist(1, 33));
       } catch (err) {
         return OnboardingProgress(
           stepState: OnboardingStepState.failed,
@@ -208,10 +252,10 @@ class DefaultOnboardingService implements OnboardingService {
         sessionId: sessionId,
         deviceId: identity.deviceId,
         appChallenge: appChallenge,
-        deviceChallenge: deviceChallenge,
+        deviceChallenge: effectiveDevChal,
         sequenceNumber: 3,
       );
-      deviceProof = EhProv1Crypto.hmacSha256(secretKey, devTranscript);
+      receivedDeviceProof = EhProv1Crypto.hmacSha256(secretKey, devTranscript);
     }
 
     final expectedDeviceTranscript = EhProv1Crypto.encodeCanonicalTranscript(
@@ -219,7 +263,7 @@ class DefaultOnboardingService implements OnboardingService {
       sessionId: sessionId,
       deviceId: identity.deviceId,
       appChallenge: appChallenge,
-      deviceChallenge: deviceChallenge,
+      deviceChallenge: effectiveDevChal,
       sequenceNumber: 3,
     );
     final expectedDeviceProof = EhProv1Crypto.hmacSha256(
@@ -228,7 +272,7 @@ class DefaultOnboardingService implements OnboardingService {
     );
 
     final isValid = EhProv1Crypto.constantTimeCompare(
-      deviceProof,
+      receivedDeviceProof,
       expectedDeviceProof,
     );
     if (!isValid) {
@@ -261,10 +305,14 @@ class DefaultOnboardingService implements OnboardingService {
       );
     }
 
+    final session = _activeSessions[sessionId];
+    final effectiveAppChal = session?.appChallenge ?? appChallenge;
+    final effectiveDevChal = session?.deviceChallenge ?? deviceChallenge;
+
     final secretKey = _parseSecretKey(identity.commissioningSecret);
     final salt = Uint8List(64)
-      ..setAll(0, appChallenge)
-      ..setAll(32, deviceChallenge);
+      ..setAll(0, effectiveAppChal)
+      ..setAll(32, effectiveDevChal);
     final info = Uint8List.fromList(
       utf8.encode('EH-PROV/1|WIFI|$sessionId|${identity.deviceId}'),
     );
@@ -275,14 +323,15 @@ class DefaultOnboardingService implements OnboardingService {
       info: info,
       outputLength: 32,
     );
+    session?.sessionKey = sessionKey;
 
     final nonce = _generateRandomBytes(12);
     final aad = EhProv1Crypto.encodeCanonicalTranscript(
       messageType: 'WIFI',
       sessionId: sessionId,
       deviceId: identity.deviceId,
-      appChallenge: appChallenge,
-      deviceChallenge: deviceChallenge,
+      appChallenge: effectiveAppChal,
+      deviceChallenge: effectiveDevChal,
       sequenceNumber: 4,
     );
     final plaintext = Uint8List.fromList(
@@ -359,6 +408,8 @@ class DefaultOnboardingService implements OnboardingService {
         errorMessage: 'Home assignment is required to complete claiming',
       );
     }
+
+    _activeSessions.remove(sessionId);
 
     return OnboardingProgress(
       stepState: OnboardingStepState.complete,
