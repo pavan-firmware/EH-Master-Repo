@@ -76,9 +76,19 @@ static const ble_uuid128_t s_prov_tx_uuid = BLE_UUID128_INIT(
 static int append_read_slice(struct ble_gatt_access_ctxt *ctxt,
                              const char *payload, size_t length)
 {
-    if (ctxt->offset >= length) return 0;
-    return os_mbuf_append(ctxt->om, payload + ctxt->offset, length - ctxt->offset) == 0
-        ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    if (ctxt->offset > length) {
+        ESP_LOGW(TAG, "GATT read offset error: offset=%u > length=%u", (unsigned)ctxt->offset, (unsigned)length);
+        return BLE_ATT_ERR_INVALID_OFFSET;
+    }
+    if (ctxt->offset == length) {
+        ESP_LOGD(TAG, "GATT read EOF: offset=%u == length=%u", (unsigned)ctxt->offset, (unsigned)length);
+        return 0;
+    }
+    size_t chunk_len = length - ctxt->offset;
+    ESP_LOGI(TAG, "GATT_6105_READ_OFFSET offset=%u total=%u chunk=%u",
+             (unsigned)ctxt->offset, (unsigned)length, (unsigned)chunk_len);
+    int rc = os_mbuf_append(ctxt->om, payload + ctxt->offset, chunk_len);
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
@@ -101,6 +111,7 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
                        "\"variant\":\"eh-smart-switch-3x\"}",
                        id ? id->device_id : "UNKNOWN",
                        id ? id->serial_number : "UNKNOWN");
+        ESP_LOGI(TAG, "GATT_6105_READ_START len=%d offset=%d", len, ctxt->offset);
     } else if (attr_handle == s_status_handle) {
         len = snprintf(payload, sizeof(payload),
                        "{\"state\":\"BLE_COMMISSIONING\",\"wifi\":false,\"mqtt\":false,\"relays\":[false,false,false]}");
@@ -110,7 +121,11 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
     }
 
     if (len > 0) {
-        return append_read_slice(ctxt, payload, (size_t)len);
+        int res = append_read_slice(ctxt, payload, (size_t)len);
+        if (res == 0 && attr_handle == s_product_info_handle) {
+            ESP_LOGI(TAG, "GATT_6105_READ_OK");
+        }
+        return res;
     }
     return BLE_ATT_ERR_INSUFFICIENT_RES;
 }

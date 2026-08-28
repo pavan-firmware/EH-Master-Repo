@@ -19,12 +19,20 @@ class ConnectionResult {
     required this.message,
     this.step = ConnectionStep.discovery,
     this.failureKind = ConnectionFailureKind.none,
+    this.deviceId,
+    this.serialNumber,
+    this.displayName,
+    this.channel,
   });
 
   final bool success;
   final String message;
   final ConnectionStep step;
   final ConnectionFailureKind failureKind;
+  final String? deviceId;
+  final String? serialNumber;
+  final String? displayName;
+  final dynamic channel;
 
   bool get canRetry =>
       !success &&
