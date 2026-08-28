@@ -60,6 +60,8 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   EhProv1Session? _session;
   OnboardingDeviceIdentity? _activeIdentity;
 
+  bool _isProvisioned = false;
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +89,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         lower.contains('identity proof') ||
         lower.contains('authentication proof')) {
       return "Device authentication failed. The commissioning secret does not match this device.";
+    }
+    if (lower.contains('still connecting')) {
+      return "Device is still connecting to Wi-Fi. Keep device nearby or check your network router.";
     }
     if (lower.contains('rejected') ||
         lower.contains('could not accept') ||
@@ -142,6 +147,8 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   }
 
   Future<void> _startProvisioning() async {
+    if (_isProvisioned) return;
+
     final ssid = _ssidController.text.trim();
     final password = _passwordController.text;
 
@@ -264,7 +271,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
       final connectionConfirm = await _service.waitForWifiConnection(
         deviceId: identity.deviceId,
         session: _session,
-        timeout: const Duration(seconds: 20),
+        timeout: const Duration(seconds: 25),
       );
       if (connectionConfirm.hasFailed) {
         throw Exception(
@@ -273,14 +280,17 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         );
       }
 
-      // Step 5: Complete & Update Home State
-      if (widget.onDeviceProvisioned != null) {
-        widget.onDeviceProvisioned!(
-          deviceId: identity.deviceId,
-          displayName: identity.displayName,
-          serialNumber: identity.serialNumber,
-          roomName: 'Living Room',
-        );
+      // Step 5: Complete & Update Home State (Idempotent)
+      if (!_isProvisioned) {
+        _isProvisioned = true;
+        if (widget.onDeviceProvisioned != null) {
+          widget.onDeviceProvisioned!(
+            deviceId: identity.deviceId,
+            displayName: identity.displayName,
+            serialNumber: identity.serialNumber,
+            roomName: 'Living Room',
+          );
+        }
       }
 
       setState(() {

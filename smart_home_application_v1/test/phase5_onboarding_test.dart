@@ -316,6 +316,15 @@ void main() {
       expect(expectedProof.length, 32);
     });
 
+    test('waitForWifiConnection completes when channel is null or inactive', () async {
+      const service = DefaultOnboardingService();
+      final res = await service.waitForWifiConnection(
+        deviceId: '4444688e-989d-458e-820e-ac62a99ed8e1',
+        session: null,
+      );
+      expect(res.stepState, OnboardingStepState.complete);
+    });
+
     test('Strict constant-time comparison prevents timing discrepancies', () {
       final a = Uint8List.fromList([1, 2, 3, 4, 5]);
       final b = Uint8List.fromList([1, 2, 3, 4, 5]);
