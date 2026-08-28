@@ -18,13 +18,21 @@ class HomeConnectionPage extends StatefulWidget {
     this.onStart,
     this.connectionState,
     this.connectionMessage,
-    this.repository = const PreviewHomeConnectionRepository(),
+    this.repository = const RealHomeConnectionRepository(),
+    this.onDeviceProvisioned,
   });
 
   final Future<ConnectionResult> Function()? onStart;
   final HomeConnectionState? connectionState;
   final String? connectionMessage;
   final HomeConnectionRepository repository;
+  final void Function({
+    required String deviceId,
+    required String displayName,
+    required String serialNumber,
+    String? roomName,
+  })?
+  onDeviceProvisioned;
 
   @override
   State<HomeConnectionPage> createState() => _HomeConnectionPageState();
@@ -67,6 +75,30 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
     if (mounted) setState(() => _checking = false);
   }
 
+  String _mapErrorMessage(String error) {
+    final lower = error.toLowerCase();
+    if (lower.contains('gatt_err_unlikely') ||
+        lower.contains('writecharacteristicfailure') ||
+        lower.contains('status 14')) {
+      return "Couldn't send secure setup data. Make sure the device is close and powered on.";
+    }
+    if (lower.contains('no nearby') ||
+        lower.contains('not found') ||
+        lower.contains('scantimedout')) {
+      return "No nearby Smart Home device was found. Make sure it is powered on and close to your phone.";
+    }
+    if (lower.contains('disconnected') || lower.contains('timeout')) {
+      return "The device disconnected or took too long to connect. Keep it nearby and try again.";
+    }
+    if (lower.contains('permission')) {
+      return "Bluetooth and Location permissions are required to discover nearby devices.";
+    }
+    return error
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('Connection failed: ', '')
+        .replaceFirst('Nearby connection failed: ', '');
+  }
+
   Future<void> _handleConnect() async {
     if (widget.onStart == null || _inProgress) return;
 
@@ -102,6 +134,7 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
               channel: result.channel is BleCommissioningChannel
                   ? result.channel as BleCommissioningChannel
                   : null,
+              onDeviceProvisioned: widget.onDeviceProvisioned,
             ),
           ),
         );
@@ -109,7 +142,7 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
         setState(() {
           _inProgress = false;
           _activeStatus = null;
-          _errorMessage = result.message;
+          _errorMessage = _mapErrorMessage(result.message);
         });
       }
     } catch (e) {
@@ -117,7 +150,7 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
       setState(() {
         _inProgress = false;
         _activeStatus = null;
-        _errorMessage = 'Connection failed: $e';
+        _errorMessage = _mapErrorMessage(e.toString());
       });
     }
   }

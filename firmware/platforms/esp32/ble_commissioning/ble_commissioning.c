@@ -113,8 +113,16 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
                        id ? id->serial_number : "UNKNOWN");
         ESP_LOGI(TAG, "GATT_6105_READ_START len=%d offset=%d", len, ctxt->offset);
     } else if (attr_handle == s_status_handle) {
+        eh_prov1_state_t prov_st = eh_prov1_get_state();
+        const char *st_name = (prov_st == EH_PROV1_STATE_ACTIVE)
+                                  ? "ACTIVE"
+                                  : (prov_st == EH_PROV1_STATE_WIFI_CONNECTING
+                                         ? "WIFI_CONNECTING"
+                                         : "BLE_COMMISSIONING");
+        bool is_wifi_active = (prov_st == EH_PROV1_STATE_ACTIVE);
         len = snprintf(payload, sizeof(payload),
-                       "{\"state\":\"BLE_COMMISSIONING\",\"wifi\":false,\"mqtt\":false,\"relays\":[false,false,false]}");
+                       "{\"state\":\"%s\",\"wifi\":%s,\"mqtt\":false,\"relays\":[false,false,false]}",
+                       st_name, is_wifi_active ? "true" : "false");
     } else if (attr_handle == s_telemetry_handle) {
         len = snprintf(payload, sizeof(payload),
                        "{\"v\":230.0,\"i\":0.0,\"p\":0.0,\"e\":0.0}");
@@ -143,14 +151,48 @@ static int gatt_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 
         os_mbuf_copydata(ctxt->om, 0, in_len, in_buf);
 
+        uint8_t msg_buf[512];
+        size_t msg_len = sizeof(msg_buf);
+        bool is_complete = false;
+
+        esp_err_t frame_err = eh_prov1_process_frame(in_buf, in_len, msg_buf, &msg_len, &is_complete);
+        if (frame_err != ESP_OK) {
+            ESP_LOGE(TAG, "eh_prov1_process_frame error: %d", frame_err);
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+
+        if (!is_complete) {
+            // Transport frame accepted. Wait for subsequent frames.
+            return 0;
+        }
+
+        // Full message reassembled -> execute protocol handler
         uint8_t out_buf[256];
         size_t out_len = 0;
-        esp_err_t err = eh_prov1_handle_message(in_buf, in_len, out_buf, &out_len, sizeof(out_buf));
+        esp_err_t err = eh_prov1_handle_message(msg_buf, msg_len, out_buf, &out_len, sizeof(out_buf));
 
         if (err == ESP_OK && out_len > 0 && s_tx_subscribed) {
-            struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(out_buf, out_len);
-            if (tx_om) {
-                ble_gatts_notify_custom(s_conn_handle, s_tx_handle, tx_om);
+            const size_t max_chunk_len = 16;
+            size_t total_frames = (out_len + max_chunk_len - 1) / max_chunk_len;
+            if (total_frames == 0) total_frames = 1;
+
+            for (uint8_t f = 0; f < total_frames; f++) {
+                uint8_t frame_buf[32];
+                size_t frame_len = eh_prov1_fragment_payload(out_buf, out_len, f, frame_buf, sizeof(frame_buf));
+                if (frame_len > 0) {
+                    struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(frame_buf, frame_len);
+                    if (tx_om) {
+                        ble_gatts_notify_custom(s_conn_handle, s_tx_handle, tx_om);
+                    }
+                }
+            }
+
+            if (out_buf[0] == EH_PROV1_MSG_HELLO_ACK) {
+                ESP_LOGI(TAG, "PROV_HELLO_ACK_SENT frames=%u", (unsigned)total_frames);
+            } else if (out_buf[0] == EH_PROV1_MSG_AUTH_ACK) {
+                ESP_LOGI(TAG, "PROV_AUTH_ACK_SENT frames=%u", (unsigned)total_frames);
+            } else if (out_buf[0] == EH_PROV1_MSG_WIFI_ACK) {
+                ESP_LOGI(TAG, "PROV_WIFI_ACK_SENT frames=%u", (unsigned)total_frames);
             }
         }
         return err == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
@@ -232,6 +274,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_tx_subscribed = false;
         s_telemetry_subscribed = false;
         s_status_subscribed = false;
+        eh_prov1_reset_framing();
         ble_commissioning_start_advertising();
         return 0;
     case BLE_GAP_EVENT_SUBSCRIBE:

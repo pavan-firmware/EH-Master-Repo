@@ -25,6 +25,7 @@ class DeviceProvisioningPage extends StatefulWidget {
     this.serialNumber,
     this.channel,
     this.onboardingService,
+    this.onDeviceProvisioned,
   });
 
   final String deviceName;
@@ -32,6 +33,13 @@ class DeviceProvisioningPage extends StatefulWidget {
   final String? serialNumber;
   final BleCommissioningChannel? channel;
   final OnboardingService? onboardingService;
+  final void Function({
+    required String deviceId,
+    required String displayName,
+    required String serialNumber,
+    String? roomName,
+  })?
+  onDeviceProvisioned;
 
   @override
   State<DeviceProvisioningPage> createState() => _DeviceProvisioningPageState();
@@ -64,6 +72,27 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     super.dispose();
   }
 
+  String _mapErrorMessage(String error) {
+    final lower = error.toLowerCase();
+    if (lower.contains('gatt_err_unlikely') ||
+        lower.contains('writecharacteristicfailure') ||
+        lower.contains('status 14')) {
+      return "Couldn't send secure setup data. Keep device nearby and retry.";
+    }
+    if (lower.contains('rejected') ||
+        lower.contains('could not accept') ||
+        lower.contains('could not connect') ||
+        lower.contains('ssid')) {
+      return "The device could not connect to this Wi-Fi network. Check the network name and password.";
+    }
+    if (lower.contains('disconnected') || lower.contains('timeout')) {
+      return "The device disconnected or took too long to respond. Keep it nearby and try again.";
+    }
+    return error
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('BLE Wi-Fi provisioning exchange failed: ', '');
+  }
+
   Future<void> _startProvisioning() async {
     final ssid = _ssidController.text.trim();
     final password = _passwordController.text;
@@ -74,12 +103,6 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
       });
       return;
     }
-
-    setState(() {
-      _stage = ProvisioningUiStage.commissioningHandshake;
-      _errorMessage = null;
-      _statusDetail = 'Starting secure commissioning handshake with device...';
-    });
 
     try {
       final identity =
@@ -101,32 +124,46 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         );
       }
 
-      // Step 1: Start Commissioning (HELLO -> HELLO_ACK)
-      final helloResult = await _service.startSecureCommissioning(identity);
-      if (helloResult.hasFailed || helloResult.session == null) {
-        throw Exception(
-          helloResult.errorMessage ?? 'BLE HELLO exchange failed',
-        );
-      }
-      _session = helloResult.session;
+      final bool isSessionAuthenticated =
+          _session?.sessionKey != null &&
+          _session?.sessionId != null &&
+          (widget.channel?.isConnected ?? false);
 
-      // Step 2: Prove Identity (AUTH -> AUTH_ACK)
-      setState(() {
-        _statusDetail = 'Verifying cryptographic device identity...';
-      });
+      if (!isSessionAuthenticated) {
+        // Step 1: Start Commissioning (HELLO -> HELLO_ACK)
+        setState(() {
+          _stage = ProvisioningUiStage.commissioningHandshake;
+          _errorMessage = null;
+          _statusDetail =
+              'Starting secure commissioning handshake with device...';
+        });
 
-      final authResult = await _service.proveIdentity(
-        sessionId: _session!.sessionId,
-        identity: identity,
-        deviceChallenge: Uint8List.fromList(_session!.deviceChallenge ?? []),
-        session: _session,
-      );
-      if (authResult.hasFailed || authResult.session == null) {
-        throw Exception(
-          authResult.errorMessage ?? 'Identity proof verification failed',
+        final helloResult = await _service.startSecureCommissioning(identity);
+        if (helloResult.hasFailed || helloResult.session == null) {
+          throw Exception(
+            helloResult.errorMessage ?? 'BLE HELLO exchange failed',
+          );
+        }
+        _session = helloResult.session;
+
+        // Step 2: Prove Identity (AUTH -> AUTH_ACK)
+        setState(() {
+          _statusDetail = 'Verifying cryptographic device identity...';
+        });
+
+        final authResult = await _service.proveIdentity(
+          sessionId: _session!.sessionId,
+          identity: identity,
+          deviceChallenge: Uint8List.fromList(_session!.deviceChallenge ?? []),
+          session: _session,
         );
+        if (authResult.hasFailed || authResult.session == null) {
+          throw Exception(
+            authResult.errorMessage ?? 'Identity proof verification failed',
+          );
+        }
+        _session = authResult.session;
       }
-      _session = authResult.session;
 
       // Step 3: Wi-Fi Provisioning (WIFI_CRED -> WIFI_ACK)
       setState(() {
@@ -148,19 +185,54 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
           wifiResult.errorMessage ?? 'Device rejected Wi-Fi configuration',
         );
       }
+      if (wifiResult.session != null) {
+        _session = wifiResult.session;
+      }
 
-      // Step 4: Claim / Complete
+      // Step 4: Wi-Fi Connecting & Confirmation
+      setState(() {
+        _stage = ProvisioningUiStage.awaitingDeviceAck;
+        _statusDetail = 'Connecting device to "$ssid" Wi-Fi network...';
+      });
+
+      final connectionConfirm = await _service.waitForWifiConnection(
+        deviceId: identity.deviceId,
+        session: _session,
+        timeout: const Duration(seconds: 20),
+      );
+      if (connectionConfirm.hasFailed) {
+        throw Exception(
+          connectionConfirm.errorMessage ??
+              'The device could not connect to this Wi-Fi network. Check the password and try again.',
+        );
+      }
+
+      // Step 5: Complete & Update Home State
+      if (widget.onDeviceProvisioned != null) {
+        widget.onDeviceProvisioned!(
+          deviceId: identity.deviceId,
+          displayName: identity.displayName,
+          serialNumber: identity.serialNumber,
+          roomName: 'Living Room',
+        );
+      }
+
       setState(() {
         _stage = ProvisioningUiStage.success;
         _statusDetail =
             'Device connected to Wi-Fi and successfully commissioned!';
       });
     } catch (e) {
+      final isBleLost = widget.channel != null && !widget.channel!.isConnected;
+      if (isBleLost) {
+        _session = null;
+      }
       setState(() {
         _stage = ProvisioningUiStage.failed;
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        _statusDetail =
-            'Setup incomplete. Make sure the device is nearby and powered on.';
+        _errorMessage = _mapErrorMessage(e.toString());
+        _statusDetail = isBleLost
+            ? 'The device disconnected. Keep it nearby and try again.'
+            : 'Wi-Fi setup incomplete. Verify your Wi-Fi details and try again.';
       });
     }
   }

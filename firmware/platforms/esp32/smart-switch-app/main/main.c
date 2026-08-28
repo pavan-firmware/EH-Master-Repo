@@ -39,6 +39,7 @@
 #include "ota_manager.h"
 #include "factory_identity_v2.h"
 #include "ble_commissioning.h"
+#include "eh_prov1.h"
 #include "mqtt_protocol.h"
 
 // Forward declaration of MQTT command handler
@@ -48,6 +49,7 @@ static void on_relay_state_changed(uint8_t channel_index, bool new_power, const 
 static void on_wifi_connected(const char* ip_address);
 static void on_wifi_disconnected(void);
 static void on_telemetry_ready(const bl0942_data_t* data);
+static bool on_ble_wifi_provision(const char* ssid, const char* password);
 
 static void log_memory_diagnostics(void)
 {
@@ -57,6 +59,19 @@ static void log_memory_diagnostics(void)
     ESP_LOGI(TAG, "Heap Diagnostics - Free: %u bytes, Min Free: %u bytes",
              (unsigned int)free_heap, (unsigned int)min_free_heap);
 #endif
+}
+
+static bool on_ble_wifi_provision(const char* ssid, const char* password)
+{
+    ESP_LOGI(TAG, "WIFI_CREDENTIALS_ACCEPTED");
+    if (!wifi_manager_set_credentials(ssid, password)) {
+        ESP_LOGE(TAG, "WIFI_CONNECT_FAILED reason=invalid_credentials");
+        return false;
+    }
+    ESP_LOGI(TAG, "WIFI_CONNECT_STARTED");
+    app_lifecycle_set_state(APP_STATE_WIFI_CONNECTING);
+    wifi_manager_connect();
+    return true;
 }
 
 static void on_physical_switch_toggled(uint8_t channel_index)
@@ -84,6 +99,7 @@ static void __attribute__((unused)) on_mqtt_command_received(const eh_mqtt_comma
 
 static void on_wifi_connected(const char* ip_address)
 {
+    ESP_LOGI(TAG, "WIFI_CONNECTED ip=%s", ip_address);
     ESP_LOGI(TAG, "Wi-Fi connected (%s), transitioning to MQTT connection...", ip_address);
     app_lifecycle_set_state(APP_STATE_MQTT_CONNECTING);
 
@@ -91,12 +107,14 @@ static void on_wifi_connected(const char* ip_address)
     ota_manager_confirm_boot_valid();
 
     // Transition to ACTIVE once transport is connected
+    eh_prov1_set_state(EH_PROV1_STATE_ACTIVE);
     app_lifecycle_set_state(APP_STATE_ACTIVE);
     log_memory_diagnostics();
 }
 
 static void on_wifi_disconnected(void)
 {
+    ESP_LOGW(TAG, "WIFI_CONNECT_FAILED reason=disconnected");
     ESP_LOGW(TAG, "Wi-Fi lost, entering ERROR_RECOVERY");
     app_lifecycle_set_state(APP_STATE_ERROR_RECOVERY);
 }
@@ -138,6 +156,7 @@ void app_main(void)
     relay_manager_register_change_cb(on_relay_state_changed);
     wifi_manager_register_callbacks(on_wifi_connected, on_wifi_disconnected);
     telemetry_manager_register_cb(on_telemetry_ready);
+    eh_prov1_register_wifi_handler(on_ble_wifi_provision);
 
     log_memory_diagnostics();
 

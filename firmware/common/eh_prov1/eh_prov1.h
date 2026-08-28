@@ -47,7 +47,11 @@ typedef struct {
     bool in_progress;
 } eh_prov1_framing_t;
 
+typedef bool (*eh_prov1_wifi_handler_t)(const char *ssid, const char *password);
+
 esp_err_t eh_prov1_init(void);
+void eh_prov1_reset_framing(void);
+void eh_prov1_register_wifi_handler(eh_prov1_wifi_handler_t handler);
 eh_prov1_state_t eh_prov1_get_state(void);
 void eh_prov1_set_state(eh_prov1_state_t state);
 
