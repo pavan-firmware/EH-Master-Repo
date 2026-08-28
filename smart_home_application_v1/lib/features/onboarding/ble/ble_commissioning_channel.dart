@@ -50,6 +50,7 @@ class BleCommissioningChannel {
   StreamSubscription<List<int>>? _notifySub;
   StreamSubscription<DiscoveredDevice>? _activeScanSub;
   DateTime? _lastScanTime;
+  Future<DiscoveredDevice>? _inFlightScan;
 
   final StreamController<Uint8List> _responseController =
       StreamController<Uint8List>.broadcast();
@@ -132,12 +133,29 @@ class BleCommissioningChannel {
   Future<void> _cancelActiveScan() async {
     await _activeScanSub?.cancel();
     _activeScanSub = null;
+    _inFlightScan = null;
   }
 
-  /// Single controlled scan for nearby physical devices with scan throttle protection
+  /// Single flight scan for nearby physical devices with service filter (6101) & scan throttle protection
   Future<DiscoveredDevice> scanForSingleDevice({
     String namePrefix = 'EH-',
     Duration timeout = const Duration(seconds: 15),
+  }) async {
+    if (_inFlightScan != null) {
+      return _inFlightScan!;
+    }
+
+    _inFlightScan = _executeScan(namePrefix: namePrefix, timeout: timeout);
+    try {
+      return await _inFlightScan!;
+    } finally {
+      _inFlightScan = null;
+    }
+  }
+
+  Future<DiscoveredDevice> _executeScan({
+    required String namePrefix,
+    required Duration timeout,
   }) async {
     await _cancelActiveScan();
 
@@ -152,20 +170,22 @@ class BleCommissioningChannel {
 
     final completer = Completer<DiscoveredDevice>();
     final prefixUpper = namePrefix.trim().toUpperCase();
+    debugPrint(
+      '[BLE] BLE_SCAN_START withService=$infoServiceUuid prefix=$namePrefix',
+    );
 
+    // Primary: Service-based scan (6101)
     _activeScanSub = _ble
-        .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
-        .where((device) {
-          final name = device.name.trim().toUpperCase();
-          return name.startsWith('EH-') ||
-              name.startsWith('SH-') ||
-              name.startsWith(prefixUpper) ||
-              device.serviceUuids.contains(infoServiceUuid) ||
-              device.serviceUuids.contains(provServiceUuid);
-        })
+        .scanForDevices(
+          withServices: [infoServiceUuid],
+          scanMode: ScanMode.lowLatency,
+        )
         .listen(
           (device) {
             if (!completer.isCompleted) {
+              debugPrint(
+                '[BLE] BLE_DEVICE_FOUND id=${device.id} name=${device.name}',
+              );
               completer.complete(device);
             }
           },
@@ -177,6 +197,41 @@ class BleCommissioningChannel {
           },
         );
 
+    // Fallback: If service-based scan does not discover within 3.5 seconds, use prefix scan
+    final fallbackTimer = Timer(const Duration(milliseconds: 3500), () {
+      if (!completer.isCompleted) {
+        _activeScanSub?.cancel();
+        _activeScanSub = _ble
+            .scanForDevices(
+              withServices: const [],
+              scanMode: ScanMode.lowLatency,
+            )
+            .where((device) {
+              final name = device.name.trim().toUpperCase();
+              return name.startsWith('EH-') ||
+                  name.startsWith('SH-') ||
+                  name.startsWith(prefixUpper) ||
+                  device.serviceUuids.contains(infoServiceUuid) ||
+                  device.serviceUuids.contains(provServiceUuid);
+            })
+            .listen(
+              (device) {
+                if (!completer.isCompleted) {
+                  debugPrint(
+                    '[BLE] BLE_DEVICE_FOUND (fallback) id=${device.id} name=${device.name}',
+                  );
+                  completer.complete(device);
+                }
+              },
+              onError: (Object err) {
+                if (!completer.isCompleted) {
+                  completer.completeError(err);
+                }
+              },
+            );
+      }
+    });
+
     try {
       final result = await completer.future.timeout(
         timeout,
@@ -186,27 +241,9 @@ class BleCommissioningChannel {
       );
       return result;
     } finally {
+      fallbackTimer.cancel();
       await _cancelActiveScan();
     }
-  }
-
-  /// Stream of nearby devices
-  Stream<DiscoveredDevice> scanForNearbyDevices({
-    String namePrefix = 'EH-',
-    Duration timeout = const Duration(seconds: 15),
-  }) {
-    final prefixUpper = namePrefix.trim().toUpperCase();
-    return _ble
-        .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
-        .where((device) {
-          final name = device.name.trim().toUpperCase();
-          return name.startsWith('EH-') ||
-              name.startsWith('SH-') ||
-              name.startsWith(prefixUpper) ||
-              device.serviceUuids.contains(infoServiceUuid) ||
-              device.serviceUuids.contains(provServiceUuid);
-        })
-        .timeout(timeout, onTimeout: (sink) => sink.close());
   }
 
   /// Establish the single authoritative BLE connection and discover all GATT services.
@@ -228,6 +265,7 @@ class BleCommissioningChannel {
     required bool allowRetry,
   }) async {
     final connectedCompleter = Completer<void>();
+    debugPrint('[BLE] BLE_CONNECT_START id=$deviceId');
 
     _connSub = _ble
         .connectToDevice(
@@ -246,6 +284,7 @@ class BleCommissioningChannel {
           (update) {
             if (update.connectionState == DeviceConnectionState.connected) {
               _isConnected = true;
+              debugPrint('[BLE] BLE_CONNECTED id=$deviceId');
               if (!connectedCompleter.isCompleted) {
                 connectedCompleter.complete();
               }
@@ -253,6 +292,7 @@ class BleCommissioningChannel {
                 DeviceConnectionState.disconnected) {
               _isConnected = false;
               _isGattReady = false;
+              debugPrint('[BLE] BLE_DISCONNECTED id=$deviceId');
               if (!connectedCompleter.isCompleted) {
                 connectedCompleter.completeError(
                   TimeoutException(
@@ -276,9 +316,24 @@ class BleCommissioningChannel {
       onTimeout: () => throw TimeoutException('BLE connection timed out'),
     );
 
+    // Negotiate higher MTU on Android to read the complete 140-byte 6105 product JSON in one transaction
+    if (Platform.isAndroid) {
+      try {
+        final negotiatedMtu = await _ble.requestMtu(
+          deviceId: deviceId,
+          mtu: 256,
+        );
+        debugPrint('[BLE] MTU negotiated: $negotiatedMtu');
+      } catch (e) {
+        debugPrint('[BLE] MTU request error (continuing): $e');
+      }
+    }
+
     // Explicit service discovery
+    debugPrint('[BLE] GATT_DISCOVERY_START');
     await _ble.discoverAllServices(deviceId);
     final services = await _ble.getDiscoveredServices(deviceId);
+    debugPrint('[BLE] GATT_DISCOVERY_COMPLETE count=${services.length}');
 
     Service? infoService;
     Service? provService;
@@ -314,9 +369,7 @@ class BleCommissioningChannel {
         );
         try {
           await _ble.clearGattCache(deviceId);
-        } catch (_) {
-          // Some Android versions/devices might not support clearGattCache
-        }
+        } catch (_) {}
         await disconnect();
         _connectedDeviceId = deviceId;
         return await _establishConnectionWithDiscovery(
@@ -331,6 +384,8 @@ class BleCommissioningChannel {
         'provService=${provService != null}, 6110(rx)=$hasRx, 6111(tx)=$hasTx',
       );
     }
+
+    debugPrint('[BLE] GATT_SERVICE_OK (6101 & 6102 verified)');
 
     // Subscribe to TX (6111) notifications
     final txChar = QualifiedCharacteristic(
@@ -351,9 +406,10 @@ class BleCommissioningChannel {
           },
         );
 
+    debugPrint('[BLE] BLE_TX_NOTIFY_SUBSCRIBED');
     _isGattReady = true;
 
-    // Read and parse product info
+    // Read and parse product info from 6105
     _deviceIdentity = await readProductInfo(deviceId);
   }
 
@@ -365,7 +421,9 @@ class BleCommissioningChannel {
       characteristicId: productInfoCharUuid,
     );
 
+    debugPrint('[BLE] GATT_6105_READ_START');
     final rawBytes = await _ble.readCharacteristic(productChar);
+    debugPrint('[BLE] GATT_6105_READ_OK byteCount=${rawBytes.length}');
     final jsonStr = utf8.decode(rawBytes);
 
     try {

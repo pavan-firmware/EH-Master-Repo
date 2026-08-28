@@ -51,6 +51,10 @@ class BleConnectionRepository implements ConnectionRepository {
         success: true,
         message: 'Connected to ${identity.displayName} (${device.name}).',
         step: ConnectionStep.verification,
+        deviceId: identity.deviceId,
+        serialNumber: identity.serialNumber,
+        displayName: identity.displayName,
+        channel: _channel,
       );
     } on TimeoutException {
       return const ConnectionResult(

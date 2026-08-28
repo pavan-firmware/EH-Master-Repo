@@ -5,6 +5,7 @@ import '../../../core/models/device_models.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/home_connection_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../onboarding/ble/ble_commissioning_channel.dart';
 import '../../settings/presentation/help/help_support_page.dart';
 import '../../settings/presentation/settings_ui.dart';
 import 'device_provisioning_page.dart';
@@ -88,12 +89,19 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
         navigator.push(
           MaterialPageRoute(
             builder: (_) => DeviceProvisioningPage(
-              deviceName: result.message.contains('Connected to ')
-                  ? result.message
-                        .replaceFirst('Connected to ', '')
-                        .split(' (')
-                        .first
-                  : 'EH Smart Switch 3X',
+              deviceName:
+                  result.displayName ??
+                  (result.message.contains('Connected to ')
+                      ? result.message
+                            .replaceFirst('Connected to ', '')
+                            .split(' (')
+                            .first
+                      : 'EH Smart Switch 3X'),
+              deviceId: result.deviceId,
+              serialNumber: result.serialNumber,
+              channel: result.channel is BleCommissioningChannel
+                  ? result.channel as BleCommissioningChannel
+                  : null,
             ),
           ),
         );

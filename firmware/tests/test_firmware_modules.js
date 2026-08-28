@@ -346,6 +346,58 @@ test('14. OTA: Oversized binary exceeding partition size rejected', () => {
   assert.strictEqual(res.reason, 'BINARY_TOO_LARGE');
 });
 
+// ---------------------------------------------------------------------------
+// 6. GATT 6105 Product Info Long-Read / Offset Handling Simulation
+// ---------------------------------------------------------------------------
+const BLE_ATT_ERR_INVALID_OFFSET = 0x07;
+const BLE_ATT_ERR_INSUFFICIENT_RES = 0x11;
+
+function simulateGattReadSlice(payload, offset) {
+  const length = payload.length;
+  if (offset > length) {
+    return { status: BLE_ATT_ERR_INVALID_OFFSET, data: null };
+  }
+  if (offset === length) {
+    return { status: 0, data: '' }; // EOF
+  }
+  const slice = payload.slice(offset);
+  return { status: 0, data: slice };
+}
+
+test('15. GATT 6105: Read at offset 0 returns full payload', () => {
+  const payload = JSON.stringify({
+    product: 'EH Smart Switch 3X',
+    p: 'EH Smart Switch 3X',
+    deviceId: 'c0a80101-0000-4000-8000-000000000001',
+    serialNumber: 'EH-SW3X-2026W12-00001',
+    firmwareVersion: '1.0.0',
+    variant: 'eh-smart-switch-3x'
+  });
+  const res = simulateGattReadSlice(payload, 0);
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.data, payload);
+});
+
+test('16. GATT 6105: Blob read at partial offset returns remaining slice', () => {
+  const payload = '{"product":"EH Smart Switch 3X","deviceId":"123"}';
+  const res = simulateGattReadSlice(payload, 10);
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.data, payload.slice(10));
+});
+
+test('17. GATT 6105: Read at exact EOF (offset == length) returns empty slice without error', () => {
+  const payload = '{"product":"EH Smart Switch 3X"}';
+  const res = simulateGattReadSlice(payload, payload.length);
+  assert.strictEqual(res.status, 0);
+  assert.strictEqual(res.data, '');
+});
+
+test('18. GATT 6105: Read beyond EOF (offset > length) returns BLE_ATT_ERR_INVALID_OFFSET', () => {
+  const payload = '{"product":"EH Smart Switch 3X"}';
+  const res = simulateGattReadSlice(payload, payload.length + 1);
+  assert.strictEqual(res.status, BLE_ATT_ERR_INVALID_OFFSET);
+});
+
 console.log(`\n────────────────────────────────────────────────────────────`);
 console.log(`  ALL ${passCount} FIRMWARE HOST TESTS PASSED ✅`);
 console.log(`────────────────────────────────────────────────────────────\n`);
