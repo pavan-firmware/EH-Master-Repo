@@ -8,6 +8,7 @@
 #include "host/ble_gap.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "nimble/nimble_npl.h"
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -32,6 +33,71 @@ static uint16_t s_tx_handle;
 static bool s_tx_subscribed = false;
 
 static bool s_initialized = false;
+
+#define MAX_TX_QUEUE_ITEMS 16
+#define MAX_TX_FRAME_LEN 32
+
+typedef struct {
+    uint16_t conn_handle;
+    uint16_t attr_handle;
+    uint8_t data[MAX_TX_FRAME_LEN];
+    size_t len;
+    uint8_t msg_type;
+    uint8_t total_frames;
+} prov_tx_item_t;
+
+static prov_tx_item_t s_tx_queue[MAX_TX_QUEUE_ITEMS];
+static size_t s_tx_head = 0;
+static size_t s_tx_tail = 0;
+static size_t s_tx_count = 0;
+static struct ble_npl_event s_tx_event;
+
+static void prov_tx_event_cb(struct ble_npl_event *ev)
+{
+    (void)ev;
+    unsigned sent_hello_ack = 0;
+    unsigned sent_auth_ack = 0;
+    unsigned sent_wifi_ack = 0;
+
+    while (s_tx_count > 0) {
+        prov_tx_item_t item = s_tx_queue[s_tx_head];
+        s_tx_head = (s_tx_head + 1) % MAX_TX_QUEUE_ITEMS;
+        s_tx_count--;
+
+        if (item.conn_handle != s_conn_handle ||
+            s_conn_handle == BLE_HS_CONN_HANDLE_NONE ||
+            !s_tx_subscribed) {
+            ESP_LOGW(TAG, "BLE_TX_DROPPED_NOT_SUBSCRIBED");
+            continue;
+        }
+
+        struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(item.data, item.len);
+        if (tx_om) {
+            int rc = ble_gatts_notify_custom(item.conn_handle, item.attr_handle, tx_om);
+            if (rc != 0) {
+                ESP_LOGE(TAG, "ble_gatts_notify_custom failed: rc=%d", rc);
+            } else {
+                if (item.msg_type == EH_PROV1_MSG_HELLO_ACK) {
+                    sent_hello_ack = item.total_frames;
+                } else if (item.msg_type == EH_PROV1_MSG_AUTH_ACK) {
+                    sent_auth_ack = item.total_frames;
+                } else if (item.msg_type == EH_PROV1_MSG_WIFI_ACK) {
+                    sent_wifi_ack = item.total_frames;
+                }
+            }
+        }
+    }
+
+    if (sent_hello_ack > 0) {
+        ESP_LOGI(TAG, "PROV_HELLO_ACK_SENT frames=%u", sent_hello_ack);
+    }
+    if (sent_auth_ack > 0) {
+        ESP_LOGI(TAG, "PROV_AUTH_ACK_SENT frames=%u", sent_auth_ack);
+    }
+    if (sent_wifi_ack > 0) {
+        ESP_LOGI(TAG, "PROV_WIFI_ACK_SENT frames=%u", sent_wifi_ack);
+    }
+}
 
 /* Proprietary EH Home UUID namespace:
  * - 0x6101: Primary Service 1 (Device Info & Telemetry - Used by Flutter Home Controller)
@@ -171,29 +237,45 @@ static int gatt_access_cb(uint16_t conn_handle, uint16_t attr_handle,
         size_t out_len = 0;
         esp_err_t err = eh_prov1_handle_message(msg_buf, msg_len, out_buf, &out_len, sizeof(out_buf));
 
-        if (err == ESP_OK && out_len > 0 && s_tx_subscribed) {
+        if (err == ESP_OK && out_len > 0) {
+            if (!s_tx_subscribed || s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+                ESP_LOGW(TAG, "BLE_TX_DROPPED_NOT_SUBSCRIBED");
+                return 0;
+            }
+
             const size_t max_chunk_len = 16;
             size_t total_frames = (out_len + max_chunk_len - 1) / max_chunk_len;
             if (total_frames == 0) total_frames = 1;
 
             for (uint8_t f = 0; f < total_frames; f++) {
+                if (s_tx_count >= MAX_TX_QUEUE_ITEMS) {
+                    ESP_LOGE(TAG, "BLE_TX_QUEUE_FULL dropped frame %u of %u", f, (unsigned)total_frames);
+                    break;
+                }
                 uint8_t frame_buf[32];
                 size_t frame_len = eh_prov1_fragment_payload(out_buf, out_len, f, frame_buf, sizeof(frame_buf));
                 if (frame_len > 0) {
-                    struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(frame_buf, frame_len);
-                    if (tx_om) {
-                        ble_gatts_notify_custom(s_conn_handle, s_tx_handle, tx_om);
-                    }
+                    s_tx_queue[s_tx_tail].conn_handle = s_conn_handle;
+                    s_tx_queue[s_tx_tail].attr_handle = s_tx_handle;
+                    memcpy(s_tx_queue[s_tx_tail].data, frame_buf, frame_len);
+                    s_tx_queue[s_tx_tail].len = frame_len;
+                    s_tx_queue[s_tx_tail].msg_type = out_buf[0];
+                    s_tx_queue[s_tx_tail].total_frames = (uint8_t)total_frames;
+                    s_tx_tail = (s_tx_tail + 1) % MAX_TX_QUEUE_ITEMS;
+                    s_tx_count++;
                 }
             }
 
             if (out_buf[0] == EH_PROV1_MSG_HELLO_ACK) {
-                ESP_LOGI(TAG, "PROV_HELLO_ACK_SENT frames=%u", (unsigned)total_frames);
+                ESP_LOGI(TAG, "PROV_HELLO_ACK_QUEUED frames=%u", (unsigned)total_frames);
             } else if (out_buf[0] == EH_PROV1_MSG_AUTH_ACK) {
-                ESP_LOGI(TAG, "PROV_AUTH_ACK_SENT frames=%u", (unsigned)total_frames);
+                ESP_LOGI(TAG, "PROV_AUTH_ACK_QUEUED frames=%u", (unsigned)total_frames);
             } else if (out_buf[0] == EH_PROV1_MSG_WIFI_ACK) {
-                ESP_LOGI(TAG, "PROV_WIFI_ACK_SENT frames=%u", (unsigned)total_frames);
+                ESP_LOGI(TAG, "PROV_WIFI_ACK_QUEUED frames=%u", (unsigned)total_frames);
             }
+
+            // Post deferred TX event to NimBLE default event queue (outside of GATT write callback)
+            ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_tx_event);
         }
         return err == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
     }
@@ -274,6 +356,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_tx_subscribed = false;
         s_telemetry_subscribed = false;
         s_status_subscribed = false;
+        s_tx_head = 0;
+        s_tx_tail = 0;
+        s_tx_count = 0;
         eh_prov1_reset_framing();
         ble_commissioning_start_advertising();
         return 0;
@@ -381,6 +466,8 @@ esp_err_t ble_commissioning_init(void)
         ESP_LOGE(TAG, "Failed to initialize NimBLE port: %s", esp_err_to_name(ret));
         return ret;
     }
+
+    ble_npl_event_init(&s_tx_event, prov_tx_event_cb, NULL);
 
     const factory_identity_v2_t *id = factory_identity_v2_get();
     const char *device_name = (id && strlen(id->serial_number) > 0) ? id->serial_number : "EH-DEVICE";
