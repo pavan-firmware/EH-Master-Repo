@@ -73,6 +73,12 @@ class EhProv1Crypto {
     return out;
   }
 
+  /// SHA-256 computation
+  static Uint8List sha256(Uint8List data) {
+    final digest = SHA256Digest();
+    return digest.process(data);
+  }
+
   /// HMAC-SHA256 computation
   static Uint8List hmacSha256(Uint8List key, Uint8List data) {
     final hmac = HMac(SHA256Digest(), 64)..init(KeyParameter(key));

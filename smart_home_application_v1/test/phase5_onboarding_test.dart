@@ -169,11 +169,15 @@ void main() {
       'DefaultOnboardingService handles end-to-end EH-PROV/1 commissioning flow with session persistence',
       () async {
         const service = DefaultOnboardingService();
+        const testSecretHex =
+            '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
 
         final qrResult = await service.verifyQrCode(
-          'EH1:{"deviceId":"c0a80101-0000-4000-8000-000000000001"}',
+          'EH1:c0a80101-0000-4000-8000-000000000001:eh-smart-switch-3x:$testSecretHex:123456',
         );
         expect(qrResult.stepState, OnboardingStepState.secureCommissioning);
+        expect(qrResult.identity!.deviceId, 'c0a80101-0000-4000-8000-000000000001');
+        expect(qrResult.identity!.commissioningSecret, testSecretHex);
 
         final commResult = await service.startSecureCommissioning(
           qrResult.identity!,
@@ -216,6 +220,33 @@ void main() {
         expect(claimResult.isComplete, isTrue);
       },
     );
+
+    test('Missing commissioningSecret rejects proveIdentity before AUTH', () async {
+      const service = DefaultOnboardingService();
+      const identityWithoutSecret = OnboardingDeviceIdentity(
+        deviceId: 'c0a80101-0000-4000-8000-000000000001',
+        serialNumber: 'SN-EH-3X-2026',
+        productVariantId: 'eh-smart-switch-3x',
+        hardwareRevision: 'HW_1_0',
+        firmwareFamily: 'esp32-switch-platform',
+        displayName: 'EH Smart Switch 3X',
+        commissioningSecret: null,
+      );
+
+      final proveResult = await service.proveIdentity(
+        sessionId: sessionId,
+        identity: identityWithoutSecret,
+        deviceChallenge: devChal,
+      );
+      expect(proveResult.hasFailed, isTrue);
+      expect(proveResult.errorMessage, contains('Commissioning secret is required'));
+    });
+
+    test('parseSecretKey throws ArgumentError on empty or invalid secret', () {
+      expect(() => DefaultOnboardingService.parseSecretKey(null), throwsArgumentError);
+      expect(() => DefaultOnboardingService.parseSecretKey(''), throwsArgumentError);
+      expect(() => DefaultOnboardingService.parseSecretKey('short_key'), throwsArgumentError);
+    });
 
     test('Strict constant-time comparison prevents timing discrepancies', () {
       final a = Uint8List.fromList([1, 2, 3, 4, 5]);

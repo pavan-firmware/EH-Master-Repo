@@ -64,9 +64,10 @@ class DefaultOnboardingService implements OnboardingService {
   }
 
   static Uint8List parseSecretKey(String? secret) {
-    final raw =
-        secret ??
-        'secret_32_byte_hex_string_for_device_qr_12345678901234567890';
+    if (secret == null || secret.trim().isEmpty) {
+      throw ArgumentError('commissioningSecret is required and cannot be empty');
+    }
+    final raw = secret.trim();
     if (raw.length == 64 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(raw)) {
       final bytes = <int>[];
       for (int i = 0; i < 64; i += 2) {
@@ -74,12 +75,18 @@ class DefaultOnboardingService implements OnboardingService {
       }
       return Uint8List.fromList(bytes);
     }
-    return Uint8List.fromList(utf8.encode(raw.padRight(32).substring(0, 32)));
+    if (raw.length == 32) {
+      return Uint8List.fromList(utf8.encode(raw));
+    }
+    throw ArgumentError(
+      'commissioningSecret must be a 64-character hex string or 32-character ASCII string',
+    );
   }
 
   @override
   Future<OnboardingProgress> verifyQrCode(String qrPayload) async {
-    if (!qrPayload.startsWith('EH1:')) {
+    final trimmed = qrPayload.trim();
+    if (!trimmed.startsWith('EH1:')) {
       return const OnboardingProgress(
         stepState: OnboardingStepState.failed,
         errorMessage:
@@ -88,29 +95,60 @@ class DefaultOnboardingService implements OnboardingService {
     }
 
     try {
-      final payloadRaw = qrPayload.substring(4);
-      Map<String, dynamic> parsed;
+      final payloadRaw = trimmed.substring(4);
+      String deviceId = '';
+      String productVariantId = 'eh-smart-switch-3x';
+      String commissioningSecret = '';
+      String serialNumber = 'SN-EH-3X-2026';
+      String displayName = 'EH Smart Switch 3X';
+
       if (payloadRaw.startsWith('{')) {
-        parsed = jsonDecode(payloadRaw) as Map<String, dynamic>;
+        final parsed = jsonDecode(payloadRaw) as Map<String, dynamic>;
+        deviceId = parsed['deviceId'] as String? ?? '';
+        productVariantId =
+            parsed['productVariantId'] as String? ?? productVariantId;
+        commissioningSecret = parsed['commissioningSecret'] as String? ?? '';
+        serialNumber = parsed['serialNumber'] as String? ?? serialNumber;
+        displayName = parsed['displayName'] as String? ?? displayName;
+      } else if (payloadRaw.contains(':')) {
+        // Canonical colon format: EH1:<deviceId>:<productVariantId>:<commissioningSecretHex>:<setupCode>
+        final parts = payloadRaw.split(':');
+        if (parts.length < 3) {
+          return const OnboardingProgress(
+            stepState: OnboardingStepState.failed,
+            errorMessage: 'Malformed EH1 QR code structure.',
+          );
+        }
+        deviceId = parts[0];
+        productVariantId = parts[1];
+        commissioningSecret = parts[2];
       } else {
+        // Base64 JSON format fallback
         final decoded = utf8.decode(base64.decode(payloadRaw));
-        parsed = jsonDecode(decoded) as Map<String, dynamic>;
+        final parsed = jsonDecode(decoded) as Map<String, dynamic>;
+        deviceId = parsed['deviceId'] as String? ?? '';
+        productVariantId =
+            parsed['productVariantId'] as String? ?? productVariantId;
+        commissioningSecret = parsed['commissioningSecret'] as String? ?? '';
+        serialNumber = parsed['serialNumber'] as String? ?? serialNumber;
+        displayName = parsed['displayName'] as String? ?? displayName;
+      }
+
+      if (deviceId.isEmpty || commissioningSecret.isEmpty) {
+        return const OnboardingProgress(
+          stepState: OnboardingStepState.failed,
+          errorMessage: 'QR code does not contain required device credentials.',
+        );
       }
 
       final identity = OnboardingDeviceIdentity(
-        deviceId:
-            parsed['deviceId'] as String? ??
-            'c0a80101-0000-4000-8000-000000000001',
-        serialNumber: parsed['serialNumber'] as String? ?? 'SN-EH-3X-2026',
-        productVariantId:
-            parsed['productVariantId'] as String? ?? 'eh-smart-switch-3x',
-        hardwareRevision: parsed['hardwareRevision'] as String? ?? 'HW_1_0',
-        firmwareFamily:
-            parsed['firmwareFamily'] as String? ?? 'esp32c6-switch-platform',
-        displayName: 'EH Smart Switch 3X',
-        commissioningSecret:
-            parsed['commissioningSecret'] as String? ??
-            'secret_32_byte_hex_string_for_device_qr_12345678901234567890',
+        deviceId: deviceId,
+        serialNumber: serialNumber,
+        productVariantId: productVariantId,
+        hardwareRevision: 'HW_1_0',
+        firmwareFamily: 'esp32-switch-platform',
+        displayName: displayName,
+        commissioningSecret: commissioningSecret,
       );
 
       return OnboardingProgress(
@@ -195,6 +233,15 @@ class DefaultOnboardingService implements OnboardingService {
     Uint8List? appChallenge,
     EhProv1Session? session,
   }) async {
+    if (identity.commissioningSecret == null ||
+        identity.commissioningSecret!.trim().isEmpty) {
+      return const OnboardingProgress(
+        stepState: OnboardingStepState.failed,
+        errorMessage:
+            'Commissioning secret is required. Please verify device with QR code.',
+      );
+    }
+
     // Preserve the original appChallenge from session; do not generate a new one!
     final activeAppChallenge = session?.appChallenge != null
         ? Uint8List.fromList(session!.appChallenge)
@@ -205,6 +252,13 @@ class DefaultOnboardingService implements OnboardingService {
         : deviceChallenge;
 
     final secretKey = parseSecretKey(identity.commissioningSecret);
+    final secretFp = EhProv1Crypto.sha256(secretKey)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join()
+        .substring(0, 8);
+    debugPrint(
+      '[PROV] APP_PROOF_SECRET_AVAILABLE=true APP_PROOF_DEVICE_ID=${identity.deviceId} APP_PROOF_SESSION_ID=$sessionId secret_fp=$secretFp',
+    );
 
     final appTranscript = EhProv1Crypto.encodeCanonicalTranscript(
       messageType: 'APP_PROOF',
