@@ -483,7 +483,7 @@ class DefaultOnboardingService implements OnboardingService {
   Future<OnboardingProgress> waitForWifiConnection({
     required String deviceId,
     required EhProv1Session? session,
-    Duration timeout = const Duration(seconds: 20),
+    Duration timeout = const Duration(seconds: 25),
   }) async {
     if (channel == null || !channel!.isConnected) {
       return OnboardingProgress(
@@ -499,17 +499,31 @@ class DefaultOnboardingService implements OnboardingService {
     while (stopwatch.elapsed < timeout) {
       await Future<void>.delayed(const Duration(milliseconds: 1500));
       try {
-        final status = await channel!.readStatus(deviceId);
+        final status = await channel!.readStatus();
         final isWifi = status['wifi'] == true;
-        final stateStr = status['state'] as String?;
+        final stateStr = (status['state'] as String?)?.toUpperCase();
 
-        if (isWifi || stateStr == 'ACTIVE') {
+        debugPrint('[PROV] 6104_PARSED state=$stateStr wifi=$isWifi');
+
+        if (isWifi || stateStr == 'ACTIVE' || stateStr == 'MQTT_CONNECTING' || stateStr == 'WIFI_CONNECTED') {
           debugPrint(
-            '[PROV] WIFI_CONNECTED confirmed via status characteristic!',
+            '[PROV] WIFI_CONNECTED confirmed via status characteristic (state=$stateStr wifi=$isWifi)!',
           );
           return OnboardingProgress(
             stepState: OnboardingStepState.complete,
             sessionId: session?.sessionId ?? '',
+            session: session,
+          );
+        } else if (stateStr == 'WIFI_CONNECTING' ||
+            stateStr == 'BLE_COMMISSIONING') {
+          debugPrint(
+            '[PROV] Status is transient ($stateStr), awaiting completion...',
+          );
+        } else if (stateStr == 'WIFI_FAILED') {
+          return OnboardingProgress(
+            stepState: OnboardingStepState.failed,
+            errorMessage:
+                'The device could not connect to this Wi-Fi network. Check the password and try again.',
             session: session,
           );
         }
@@ -522,7 +536,7 @@ class DefaultOnboardingService implements OnboardingService {
     return OnboardingProgress(
       stepState: OnboardingStepState.failed,
       errorMessage:
-          'The device could not connect to this Wi-Fi network. Check the password and try again.',
+          'Device is still connecting to Wi-Fi. Check your network or keep device nearby and try again.',
       session: session,
     );
   }

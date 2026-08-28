@@ -210,14 +210,19 @@ class BleCommissioningChannel {
   }
 
   /// Read 6104 status characteristic to verify Wi-Fi and device state
-  Future<Map<String, dynamic>> readStatus(String deviceId) async {
+  Future<Map<String, dynamic>> readStatus([String? deviceId]) async {
+    final targetDeviceId = _connectedDeviceId ?? deviceId;
+    if (targetDeviceId == null || targetDeviceId.isEmpty) {
+      throw StateError('No BLE device connected to read status');
+    }
     final statusChar = QualifiedCharacteristic(
-      deviceId: deviceId,
+      deviceId: targetDeviceId,
       serviceId: infoServiceUuid,
       characteristicId: statusCharUuid,
     );
     final rawBytes = await _ble.readCharacteristic(statusChar);
     final jsonStr = utf8.decode(rawBytes);
+    debugPrint('[BLE] 6104_READ raw=$jsonStr');
     try {
       final decoded = jsonDecode(jsonStr);
       if (decoded is Map<String, dynamic>) {
