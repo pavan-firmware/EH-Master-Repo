@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/models/home_dashboard_models.dart';
 import '../core/models/room_models.dart';
+import '../core/repositories/home_connection_repository.dart';
 import '../core/theme/app_theme.dart';
 import '../features/activity/presentation/activity_page.dart';
 import '../features/alerts/presentation/safety_alert_page.dart';
@@ -56,6 +57,11 @@ class _HomeShellState extends State<HomeShell> {
           onStart: _homeController.startConnectionSetup,
           connectionState: _homeController.connectionState,
           connectionMessage: _homeController.connectionMessage,
+          repository: RealHomeConnectionRepository(
+            primaryDevice: _homeController.connectedDeviceSummary,
+            onRefresh: _homeController.startConnectionSetup,
+          ),
+          onDeviceProvisioned: _homeController.markDeviceProvisioned,
         ),
       ),
     );

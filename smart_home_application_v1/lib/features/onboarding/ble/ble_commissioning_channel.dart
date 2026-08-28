@@ -169,12 +169,11 @@ class BleCommissioningChannel {
     _lastScanTime = DateTime.now();
 
     final completer = Completer<DiscoveredDevice>();
-    final prefixUpper = namePrefix.trim().toUpperCase();
     debugPrint(
       '[BLE] BLE_SCAN_START withService=$infoServiceUuid prefix=$namePrefix',
     );
 
-    // Primary: Service-based scan (6101)
+    // Production Service-Filtered scan: 6101
     _activeScanSub = _ble
         .scanForDevices(
           withServices: [infoServiceUuid],
@@ -197,41 +196,6 @@ class BleCommissioningChannel {
           },
         );
 
-    // Fallback: If service-based scan does not discover within 3.5 seconds, use prefix scan
-    final fallbackTimer = Timer(const Duration(milliseconds: 3500), () {
-      if (!completer.isCompleted) {
-        _activeScanSub?.cancel();
-        _activeScanSub = _ble
-            .scanForDevices(
-              withServices: const [],
-              scanMode: ScanMode.lowLatency,
-            )
-            .where((device) {
-              final name = device.name.trim().toUpperCase();
-              return name.startsWith('EH-') ||
-                  name.startsWith('SH-') ||
-                  name.startsWith(prefixUpper) ||
-                  device.serviceUuids.contains(infoServiceUuid) ||
-                  device.serviceUuids.contains(provServiceUuid);
-            })
-            .listen(
-              (device) {
-                if (!completer.isCompleted) {
-                  debugPrint(
-                    '[BLE] BLE_DEVICE_FOUND (fallback) id=${device.id} name=${device.name}',
-                  );
-                  completer.complete(device);
-                }
-              },
-              onError: (Object err) {
-                if (!completer.isCompleted) {
-                  completer.completeError(err);
-                }
-              },
-            );
-      }
-    });
-
     try {
       final result = await completer.future.timeout(
         timeout,
@@ -241,9 +205,26 @@ class BleCommissioningChannel {
       );
       return result;
     } finally {
-      fallbackTimer.cancel();
       await _cancelActiveScan();
     }
+  }
+
+  /// Read 6104 status characteristic to verify Wi-Fi and device state
+  Future<Map<String, dynamic>> readStatus(String deviceId) async {
+    final statusChar = QualifiedCharacteristic(
+      deviceId: deviceId,
+      serviceId: infoServiceUuid,
+      characteristicId: statusCharUuid,
+    );
+    final rawBytes = await _ble.readCharacteristic(statusChar);
+    final jsonStr = utf8.decode(rawBytes);
+    try {
+      final decoded = jsonDecode(jsonStr);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+    } catch (_) {}
+    return <String, dynamic>{};
   }
 
   /// Establish the single authoritative BLE connection and discover all GATT services.

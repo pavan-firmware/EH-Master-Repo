@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import '../ble/ble_commissioning_channel.dart';
 import '../crypto/eh_prov1_crypto.dart';
 import '../models/onboarding_models.dart';
@@ -28,6 +29,11 @@ abstract class OnboardingService {
     required String ssid,
     required String password,
     EhProv1Session? session,
+  });
+  Future<OnboardingProgress> waitForWifiConnection({
+    required String deviceId,
+    required EhProv1Session? session,
+    Duration timeout = const Duration(seconds: 15),
   });
   Future<OnboardingProgress> claimAndAssignDevice({
     required String deviceId,
@@ -148,17 +154,20 @@ class DefaultOnboardingService implements OnboardingService {
           ..add(sessionBytes)
           ..add(appChallenge);
 
+        debugPrint('[PROV] HELLO_SENT (sessionId: $sessionId)');
         final response = await channel!.sendAndReceive(
           helloBuilder.takeBytes(),
           timeout: const Duration(seconds: 15),
         );
 
-        if (response.length < 37 || response[0] != 1) {
+        // HELLO_ACK must be exact 37 bytes: 1B type(1) + 32B devChallenge + 4B seq(1)
+        if (response.length != 37 || response[0] != 1) {
           return const OnboardingProgress(
             stepState: OnboardingStepState.failed,
             errorMessage: 'Invalid HELLO_ACK received from device',
           );
         }
+        debugPrint('[PROV] HELLO_ACK_RECEIVED (37 bytes verified)');
 
         final devChallenge = response.sublist(1, 33);
         session = session.copyWith(deviceChallenge: devChallenge);
@@ -221,17 +230,20 @@ class DefaultOnboardingService implements OnboardingService {
           ..addByte(2) // EH_PROV1_MSG_AUTH
           ..add(appProof);
 
+        debugPrint('[PROV] AUTH_SENT');
         final response = await channel!.sendAndReceive(
           authBuilder.takeBytes(),
           timeout: const Duration(seconds: 15),
         );
 
-        if (response.length < 37 || response[0] != 3) {
+        // AUTH_ACK must be exact 37 bytes: 1B type(3) + 32B devProof + 4B seq(3)
+        if (response.length != 37 || response[0] != 3) {
           return const OnboardingProgress(
             stepState: OnboardingStepState.failed,
             errorMessage: 'Invalid AUTH_ACK received from device',
           );
         }
+        debugPrint('[PROV] AUTH_ACK_RECEIVED (37 bytes verified)');
         deviceProof = Uint8List.fromList(response.sublist(1, 33));
       } catch (err) {
         return OnboardingProgress(
@@ -380,23 +392,27 @@ class DefaultOnboardingService implements OnboardingService {
           ..add(nonce)
           ..add(encryptedPayload);
 
+        debugPrint('[PROV] WIFI_CRED_SENT (SSID: $ssid)');
         final response = await channel!.sendAndReceive(
           wifiBuilder.takeBytes(),
           timeout: const Duration(seconds: 20),
         );
 
-        if (response.isEmpty ||
-            response[0] != 5 ||
-            (response.length > 1 && response[1] != 1)) {
-          return const OnboardingProgress(
+        // WIFI_ACK must be exact 6 bytes: 1B type(5) + 1B status(1) + 4B seq(5)
+        if (response.length != 6 || response[0] != 5 || response[1] != 1) {
+          return OnboardingProgress(
             stepState: OnboardingStepState.failed,
-            errorMessage: 'Wi-Fi credential provisioning rejected by device',
+            errorMessage:
+                'The device could not accept these Wi-Fi credentials.',
+            session: session,
           );
         }
+        debugPrint('[PROV] WIFI_ACK_RECEIVED (6 bytes verified)');
       } catch (err) {
         return OnboardingProgress(
           stepState: OnboardingStepState.failed,
           errorMessage: 'BLE Wi-Fi provisioning exchange failed: $err',
+          session: session,
         );
       }
     }
@@ -405,6 +421,54 @@ class DefaultOnboardingService implements OnboardingService {
       stepState: OnboardingStepState.awaitingMtlsConfirm,
       identity: identity,
       sessionId: sessionId,
+      session: session,
+    );
+  }
+
+  @override
+  Future<OnboardingProgress> waitForWifiConnection({
+    required String deviceId,
+    required EhProv1Session? session,
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    if (channel == null || !channel!.isConnected) {
+      return OnboardingProgress(
+        stepState: OnboardingStepState.complete,
+        sessionId: session?.sessionId ?? '',
+        session: session,
+      );
+    }
+
+    debugPrint('[PROV] WIFI_CONNECT_WAIT started (deviceId: $deviceId)');
+    final stopwatch = Stopwatch()..start();
+
+    while (stopwatch.elapsed < timeout) {
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      try {
+        final status = await channel!.readStatus(deviceId);
+        final isWifi = status['wifi'] == true;
+        final stateStr = status['state'] as String?;
+
+        if (isWifi || stateStr == 'ACTIVE') {
+          debugPrint(
+            '[PROV] WIFI_CONNECTED confirmed via status characteristic!',
+          );
+          return OnboardingProgress(
+            stepState: OnboardingStepState.complete,
+            sessionId: session?.sessionId ?? '',
+            session: session,
+          );
+        }
+      } catch (e) {
+        debugPrint('[PROV] Polling status warning: $e');
+      }
+    }
+
+    // If timeout expires without confirmation, return friendly failure retaining the session
+    return OnboardingProgress(
+      stepState: OnboardingStepState.failed,
+      errorMessage:
+          'The device could not connect to this Wi-Fi network. Check the password and try again.',
       session: session,
     );
   }

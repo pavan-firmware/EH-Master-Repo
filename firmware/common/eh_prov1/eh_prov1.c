@@ -16,6 +16,7 @@ static const char *TAG = "eh_prov1";
 static eh_prov1_state_t s_state = EH_PROV1_STATE_FACTORY_NEW;
 static eh_prov1_session_t s_session;
 static eh_prov1_framing_t s_framing;
+static eh_prov1_wifi_handler_t s_wifi_handler = NULL;
 
 static int constant_time_memcmp(const void *a, const void *b, size_t size)
 {
@@ -26,6 +27,28 @@ static int constant_time_memcmp(const void *a, const void *b, size_t size)
         result |= p1[i] ^ p2[i];
     }
     return result;
+}
+
+static bool extract_json_string(const char *json, const char *key, char *out_val, size_t max_len)
+{
+    if (!json || !key || !out_val || max_len == 0) return false;
+    char pattern[32];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *pos = strstr(json, pattern);
+    if (!pos) return false;
+    pos += strlen(pattern);
+    while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
+    if (*pos != '"') return false;
+    pos++; // Skip opening quote
+    size_t idx = 0;
+    while (*pos && *pos != '"' && idx + 1 < max_len) {
+        if (*pos == '\\' && *(pos + 1)) {
+            pos++;
+        }
+        out_val[idx++] = *pos++;
+    }
+    out_val[idx] = '\0';
+    return (*pos == '"');
 }
 
 size_t eh_prov1_encode_transcript(const char *msg_type,
@@ -93,6 +116,8 @@ esp_err_t eh_prov1_process_frame(const uint8_t *frame, size_t frame_len,
     uint8_t total_frames = frame[1];
     size_t chunk_len = frame_len - 2;
 
+    ESP_LOGI(TAG, "BLE_RX_FRAME index=%d total=%d len=%u", frame_index, total_frames, (unsigned)chunk_len);
+
     if (frame_index == 0) {
         // Reset reassembly buffer for new message
         s_framing.current_len = 0;
@@ -126,6 +151,7 @@ esp_err_t eh_prov1_process_frame(const uint8_t *frame, size_t frame_len,
         *out_msg_len = s_framing.current_len;
         *out_is_complete = true;
         s_framing.in_progress = false;
+        ESP_LOGI(TAG, "BLE_RX_MESSAGE_COMPLETE len=%u", (unsigned)*out_msg_len);
     } else {
         *out_is_complete = false;
     }
@@ -175,6 +201,18 @@ esp_err_t eh_prov1_init(void)
     return ESP_OK;
 }
 
+void eh_prov1_reset_framing(void)
+{
+    memset(&s_framing, 0, sizeof(s_framing));
+    ESP_LOGI(TAG, "EH-PROV/1 framing reset");
+}
+
+void eh_prov1_register_wifi_handler(eh_prov1_wifi_handler_t handler)
+{
+    s_wifi_handler = handler;
+    ESP_LOGI(TAG, "EH-PROV/1 Wi-Fi handler registered");
+}
+
 eh_prov1_state_t eh_prov1_get_state(void)
 {
     return s_state;
@@ -209,6 +247,7 @@ esp_err_t eh_prov1_handle_message(const uint8_t *in_data, size_t in_len,
     uint8_t msg_type = in_data[0];
 
     if (msg_type == EH_PROV1_MSG_HELLO) {
+        ESP_LOGI(TAG, "PROV_HELLO_RECEIVED");
         // HELLO (seq=0): parse app_challenge and generate device_challenge
         if (in_len < 1 + 36 + 32) return ESP_ERR_INVALID_ARG;
 
@@ -231,6 +270,7 @@ esp_err_t eh_prov1_handle_message(const uint8_t *in_data, size_t in_len,
     }
 
     if (msg_type == EH_PROV1_MSG_AUTH) {
+        ESP_LOGI(TAG, "PROV_AUTH_RECEIVED");
         // AUTH (seq=2): verify appProof (32B)
         if (s_state != EH_PROV1_STATE_COMMISSIONING) return ESP_ERR_INVALID_STATE;
         if (in_len < 1 + 32) return ESP_ERR_INVALID_ARG;
@@ -281,8 +321,12 @@ esp_err_t eh_prov1_handle_message(const uint8_t *in_data, size_t in_len,
     }
 
     if (msg_type == EH_PROV1_MSG_WIFI_CRED) {
+        ESP_LOGI(TAG, "PROV_WIFI_RECEIVED");
         // WIFI_CRED (seq=4): decrypt AES-256-GCM
-        if (s_state != EH_PROV1_STATE_AUTHENTICATED || !s_session.is_authenticated) {
+        if (s_state != EH_PROV1_STATE_AUTHENTICATED && s_state != EH_PROV1_STATE_WIFI_CONFIGURING && s_state != EH_PROV1_STATE_WIFI_CONNECTING && s_state != EH_PROV1_STATE_FAILED) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (!s_session.is_authenticated) {
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -319,17 +363,56 @@ esp_err_t eh_prov1_handle_message(const uint8_t *in_data, size_t in_len,
         }
 
         plaintext[cipher_len] = '\0';
-        ESP_LOGI(TAG, "Wi-Fi credentials decrypted and verified successfully via GCM tag!");
-        s_state = EH_PROV1_STATE_REGISTRATION_PENDING;
+        ESP_LOGI(TAG, "PROV_WIFI_DECRYPT_OK");
 
-        // Construct WIFI_ACK response
-        if (max_out_len < 6) return ESP_ERR_NO_MEM;
-        out_data[0] = EH_PROV1_MSG_WIFI_ACK;
-        out_data[1] = 1; // Success
-        uint32_t seq5 = htonl(5);
-        memcpy(out_data + 2, &seq5, 4);
-        *out_len = 6;
-        return ESP_OK;
+        char ssid[64] = {0};
+        char password[64] = {0};
+
+        if (!extract_json_string((char*)plaintext, "s", ssid, sizeof(ssid))) {
+            extract_json_string((char*)plaintext, "ssid", ssid, sizeof(ssid));
+        }
+        if (!extract_json_string((char*)plaintext, "p", password, sizeof(password))) {
+            extract_json_string((char*)plaintext, "password", password, sizeof(password));
+        }
+
+        if (strlen(ssid) == 0) {
+            ESP_LOGE(TAG, "Wi-Fi SSID is missing in decrypted payload");
+            s_state = EH_PROV1_STATE_FAILED;
+            if (max_out_len < 6) return ESP_ERR_NO_MEM;
+            out_data[0] = EH_PROV1_MSG_WIFI_ACK;
+            out_data[1] = 0; // Fail
+            uint32_t seq5 = htonl(5);
+            memcpy(out_data + 2, &seq5, 4);
+            *out_len = 6;
+            return ESP_OK;
+        }
+
+        bool wifi_started = false;
+        if (s_wifi_handler) {
+            wifi_started = s_wifi_handler(ssid, password);
+        } else {
+            ESP_LOGW(TAG, "No Wi-Fi handler registered, cannot start Wi-Fi");
+        }
+
+        if (wifi_started) {
+            s_state = EH_PROV1_STATE_WIFI_CONNECTING;
+            if (max_out_len < 6) return ESP_ERR_NO_MEM;
+            out_data[0] = EH_PROV1_MSG_WIFI_ACK;
+            out_data[1] = 1; // Credentials accepted and Wi-Fi connection started
+            uint32_t seq5 = htonl(5);
+            memcpy(out_data + 2, &seq5, 4);
+            *out_len = 6;
+            return ESP_OK;
+        } else {
+            s_state = EH_PROV1_STATE_FAILED;
+            if (max_out_len < 6) return ESP_ERR_NO_MEM;
+            out_data[0] = EH_PROV1_MSG_WIFI_ACK;
+            out_data[1] = 0; // Failure
+            uint32_t seq5 = htonl(5);
+            memcpy(out_data + 2, &seq5, 4);
+            *out_len = 6;
+            return ESP_OK;
+        }
     }
 
     return ESP_ERR_INVALID_ARG;

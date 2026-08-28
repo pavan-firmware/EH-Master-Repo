@@ -355,6 +355,51 @@ class HomeDashboardData {
       primaryAction: action,
     );
   }
+
+  factory HomeDashboardData.liveDevice({
+    required String deviceName,
+    required String roomName,
+    required bool lightOn,
+    required ActuatorConfidence lightConfidence,
+  }) {
+    return HomeDashboardData(
+      state: HomeDashboardState.ready,
+      source: DashboardDataSource.live,
+      connectivity: ConnectivityCause.online,
+      telemetryFreshness: TelemetryFreshness.current,
+      devicesOnline: 1,
+      deviceCount: 1,
+      roomCount: 1,
+      activeRoomCount: 1,
+      networkLabel: 'Wi-Fi',
+      networkDetail: 'Connected',
+      securityLabel: 'Security',
+      securityDetail: 'Device online',
+      rooms: [
+        RoomPreview(
+          id: 'living',
+          name: roomName,
+          deviceCount: 1,
+          summary: lightOn ? 'Light on' : 'Light off',
+          status: 'Online',
+          isAttention: false,
+          freshness: TelemetryFreshness.current,
+          iconKey: 'living',
+        ),
+      ],
+      controls: [
+        QuickControlPreview(
+          id: 'light',
+          kind: QuickControlKind.light,
+          title: '$roomName\nLight',
+          value: lightOn ? 'On' : 'Off',
+          confidence: lightConfidence,
+          isEnabled: true,
+        ),
+      ],
+      routine: null,
+    );
+  }
 }
 
 String _timeLabel(DateTime value) {

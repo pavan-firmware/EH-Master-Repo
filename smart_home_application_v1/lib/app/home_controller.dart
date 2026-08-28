@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
+import '../core/models/connection_models.dart';
 import '../core/models/device_models.dart';
 import '../core/models/home_dashboard_models.dart';
 import '../core/repositories/home_repository.dart';
@@ -47,6 +48,10 @@ class HomeController extends ChangeNotifier {
   HomeConnectionState _connectionState = HomeConnectionState.notConfigured;
   String? _connectionMessage;
   DeviceConnection _cloudDeviceConnection = DeviceConnection.offline;
+  ConnectedDeviceSummary? _connectedDeviceSummary;
+  String? _activeDeviceId;
+  String? _activeDisplayName;
+  String? _activeSerialNumber;
 
   StreamSubscription<SSEEventEnvelope>? _sseSubscription;
 
@@ -60,6 +65,10 @@ class HomeController extends ChangeNotifier {
   HomeConnectionState get connectionState => _connectionState;
   String? get connectionMessage => _connectionMessage;
   ActuatorConfidence get lightConfidence => _lightConfidence;
+  ConnectedDeviceSummary? get connectedDeviceSummary => _connectedDeviceSummary;
+  String? get activeDeviceId => _activeDeviceId;
+  String? get activeDisplayName => _activeDisplayName;
+  String? get activeSerialNumber => _activeSerialNumber;
 
   /// Commands are only available when cloud is enabled (authenticated + connected).
   bool get hardwareControlsAvailable => _cloudEnabled;
@@ -86,11 +95,22 @@ class HomeController extends ChangeNotifier {
           connectivity: ConnectivityCause.bleDisconnected,
         );
       case HomeConnectionState.connected:
+        final deviceName =
+            _activeDisplayName ?? _activeSerialNumber ?? 'EH Home device';
+        if (_connectedDeviceSummary != null &&
+            _connectedDeviceSummary!.online) {
+          return HomeDashboardData.liveDevice(
+            deviceName: _connectedDeviceSummary!.name,
+            roomName: _connectedDeviceSummary!.roomName,
+            lightOn: _livingRoomLightOn,
+            lightConfidence: _lightConfidence,
+          );
+        }
         return HomeDashboardData.setup(
           state: HomeDashboardState.wifiRequired,
           title: 'Almost there',
           message:
-              'SH-8EF248 is connected nearby. Connect it to your home Wi-Fi to finish setup.',
+              '$deviceName is connected nearby. Connect it to your home Wi-Fi to finish setup.',
           action: 'Continue setup',
           connectivity: ConnectivityCause.wifiUnavailable,
         );
@@ -182,6 +202,9 @@ class HomeController extends ChangeNotifier {
     );
     if (result.success) {
       _showDesignPreview = false;
+      _activeDeviceId = result.deviceId;
+      _activeDisplayName = result.displayName;
+      _activeSerialNumber = result.serialNumber;
       _connectionState = HomeConnectionState.connected;
       _connectionMessage = result.message;
     } else {
@@ -190,6 +213,31 @@ class HomeController extends ChangeNotifier {
     }
     notifyListeners();
     return result;
+  }
+
+  void markDeviceProvisioned({
+    required String deviceId,
+    required String displayName,
+    required String serialNumber,
+    String? roomName,
+  }) {
+    _activeDeviceId = deviceId;
+    _activeDisplayName = displayName;
+    _activeSerialNumber = serialNumber;
+    _connectedDeviceSummary = ConnectedDeviceSummary(
+      id: deviceId,
+      name: displayName,
+      model: 'eh-smart-switch-3x',
+      firmware: '1.0.0',
+      connectedVia: 'Wi-Fi (2.4 GHz)',
+      signalLabel: 'Strong',
+      roomName: roomName ?? 'Living Room',
+      online: true,
+    );
+    _showDesignPreview = false;
+    _connectionState = HomeConnectionState.connected;
+    _connectionMessage = '$displayName is connected and online.';
+    notifyListeners();
   }
 
   Future<FirmwareRelease?> loadAvailableRelease() async {
