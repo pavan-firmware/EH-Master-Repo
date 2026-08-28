@@ -11,7 +11,6 @@ import '../../activity/presentation/activity_page.dart';
 import '../../settings/presentation/add_room_device_page.dart';
 import '../../settings/presentation/help/help_support_page.dart';
 import '../../settings/presentation/settings_ui.dart';
-import 'device_provisioning_page.dart';
 import 'forget_home_page.dart';
 import 'wifi_connection_detail_page.dart';
 

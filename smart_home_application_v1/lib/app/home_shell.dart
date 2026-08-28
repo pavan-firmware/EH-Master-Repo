@@ -7,7 +7,6 @@ import '../core/repositories/settings_repository.dart';
 import '../features/activity/presentation/activity_page.dart';
 import '../features/alerts/presentation/safety_alert_page.dart';
 import '../features/automations/presentation/automations_page.dart';
-import '../features/connection/presentation/connection_page.dart';
 import '../features/dashboard/presentation/home_insights_page.dart';
 import '../features/dashboard/presentation/home_page.dart';
 import '../features/rooms/presentation/rooms_page.dart';

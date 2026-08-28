@@ -5,7 +5,6 @@ import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/settings_repository.dart';
-import '../../connection/presentation/connection_page.dart';
 import '../../rooms/presentation/room_context_page.dart';
 import 'add_room_device_page.dart';
 import 'home_details_page.dart';
