@@ -15,16 +15,6 @@ class GattDiscoveryException implements Exception {
 }
 
 /// Authoritative single BLE connection owner and commissioning channel for EH-PROV/1.
-///
-/// Controls the entire lifecycle:
-/// - Scan & candidate filtering
-/// - Single GATT connection
-/// - Explicit service discovery & validation (6101 & 6102)
-/// - Bounded Android GATT cache clearing recovery
-/// - Reading 6105 product metadata
-/// - Ordered frame fragmentation to 6110
-/// - Sequential frame reassembly from 6111
-/// - Clean disconnect and disposal
 class BleCommissioningChannel {
   BleCommissioningChannel({FlutterReactiveBle? ble})
     : _ble = ble ?? FlutterReactiveBle();
@@ -58,6 +48,9 @@ class BleCommissioningChannel {
 
   StreamSubscription<ConnectionStateUpdate>? _connSub;
   StreamSubscription<List<int>>? _notifySub;
+  StreamSubscription<DiscoveredDevice>? _activeScanSub;
+  DateTime? _lastScanTime;
+
   final StreamController<Uint8List> _responseController =
       StreamController<Uint8List>.broadcast();
 
@@ -136,7 +129,68 @@ class BleCommissioningChannel {
     return builder.takeBytes();
   }
 
-  /// Scan for physical ESP32 devices matching name prefix or proprietary services
+  Future<void> _cancelActiveScan() async {
+    await _activeScanSub?.cancel();
+    _activeScanSub = null;
+  }
+
+  /// Single controlled scan for nearby physical devices with scan throttle protection
+  Future<DiscoveredDevice> scanForSingleDevice({
+    String namePrefix = 'EH-',
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    await _cancelActiveScan();
+
+    // Scan cooldown: ensure at least 2 seconds between scans to prevent Android SCAN_FAILED_SCANNING_TOO_FREQUENTLY
+    if (_lastScanTime != null) {
+      final elapsed = DateTime.now().difference(_lastScanTime!);
+      if (elapsed < const Duration(seconds: 2)) {
+        await Future<void>.delayed(const Duration(seconds: 2) - elapsed);
+      }
+    }
+    _lastScanTime = DateTime.now();
+
+    final completer = Completer<DiscoveredDevice>();
+    final prefixUpper = namePrefix.trim().toUpperCase();
+
+    _activeScanSub = _ble
+        .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
+        .where((device) {
+          final name = device.name.trim().toUpperCase();
+          return name.startsWith('EH-') ||
+              name.startsWith('SH-') ||
+              name.startsWith(prefixUpper) ||
+              device.serviceUuids.contains(infoServiceUuid) ||
+              device.serviceUuids.contains(provServiceUuid);
+        })
+        .listen(
+          (device) {
+            if (!completer.isCompleted) {
+              completer.complete(device);
+            }
+          },
+          onError: (Object err) {
+            debugPrint('[BLE] Scan error: $err');
+            if (!completer.isCompleted) {
+              completer.completeError(err);
+            }
+          },
+        );
+
+    try {
+      final result = await completer.future.timeout(
+        timeout,
+        onTimeout: () {
+          throw TimeoutException('No nearby Smart Home device was found.');
+        },
+      );
+      return result;
+    } finally {
+      await _cancelActiveScan();
+    }
+  }
+
+  /// Stream of nearby devices
   Stream<DiscoveredDevice> scanForNearbyDevices({
     String namePrefix = 'EH-',
     Duration timeout = const Duration(seconds: 15),
@@ -157,6 +211,7 @@ class BleCommissioningChannel {
 
   /// Establish the single authoritative BLE connection and discover all GATT services.
   Future<void> connect(String deviceId) async {
+    await _cancelActiveScan();
     await disconnect();
     _connectedDeviceId = deviceId;
 
@@ -225,36 +280,42 @@ class BleCommissioningChannel {
     await _ble.discoverAllServices(deviceId);
     final services = await _ble.getDiscoveredServices(deviceId);
 
-    final hasInfoService = services.any((s) => s.id == infoServiceUuid);
-    final infoService = hasInfoService
-        ? services.firstWhere((s) => s.id == infoServiceUuid)
-        : null;
+    Service? infoService;
+    Service? provService;
+
+    for (final s in services) {
+      if (s.id == infoServiceUuid) {
+        infoService = s;
+      } else if (s.id == provServiceUuid) {
+        provService = s;
+      }
+    }
+
     final hasProductInfo =
-        infoService?.characteristics.any((c) => c.id == productInfoCharUuid) ??
-        false;
+        infoService != null &&
+        infoService.characteristics.any((c) => c.id == productInfoCharUuid);
 
-    final hasProvService = services.any((s) => s.id == provServiceUuid);
-    final provService = hasProvService
-        ? services.firstWhere((s) => s.id == provServiceUuid)
-        : null;
     final hasRx =
-        provService?.characteristics.any((c) => c.id == rxCharUuid) ?? false;
-    final hasTx =
-        provService?.characteristics.any((c) => c.id == txCharUuid) ?? false;
+        provService != null &&
+        provService.characteristics.any((c) => c.id == rxCharUuid);
 
-    if (!hasProvService ||
+    final hasTx =
+        provService != null &&
+        provService.characteristics.any((c) => c.id == txCharUuid);
+
+    if (infoService == null ||
+        provService == null ||
+        !hasProductInfo ||
         !hasRx ||
-        !hasTx ||
-        !hasInfoService ||
-        !hasProductInfo) {
+        !hasTx) {
       if (allowRetry && Platform.isAndroid) {
         debugPrint(
-          '[BLE] Missing required characteristics after discovery. Clearing GATT cache and retrying...',
+          '[BLE] Missing required characteristics after discovery (infoService=${infoService != null}, provService=${provService != null}, prodInfo=$hasProductInfo, rx=$hasRx, tx=$hasTx). Clearing GATT cache and retrying...',
         );
         try {
           await _ble.clearGattCache(deviceId);
         } catch (_) {
-          // Some Android versions/devices might not support or fail clearGattCache
+          // Some Android versions/devices might not support clearGattCache
         }
         await disconnect();
         _connectedDeviceId = deviceId;
@@ -265,9 +326,9 @@ class BleCommissioningChannel {
       }
 
       throw GattDiscoveryException(
-        'Characteristic not found or discovered: '
-        'infoService=$hasInfoService, productInfo=$hasProductInfo, '
-        'provService=$hasProvService, 6110(rx)=$hasRx, 6111(tx)=$hasTx on $deviceId',
+        'Characteristic not found or discovered on $deviceId: '
+        'infoService=${infoService != null}, productInfo=$hasProductInfo, '
+        'provService=${provService != null}, 6110(rx)=$hasRx, 6111(tx)=$hasTx',
       );
     }
 
@@ -457,6 +518,8 @@ class BleCommissioningChannel {
     _connectedDeviceId = null;
     _deviceIdentity = null;
     _resetReassemblyState();
+
+    await _cancelActiveScan();
 
     await _notifySub?.cancel();
     _notifySub = null;

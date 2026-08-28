@@ -30,21 +30,10 @@ class BleConnectionRepository implements ConnectionRepository {
       await _requestBluetoothPermission();
       await _waitForBluetooth();
 
-      final candidates = await _channel
-          .scanForNearbyDevices(
-            namePrefix: config.deviceNamePrefix,
-            timeout: const Duration(seconds: 15),
-          )
-          .take(1)
-          .toList();
-
-      if (candidates.isEmpty) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.scanTimedOut,
-          'No nearby Smart Home device was found. Make sure it is powered on and close to your phone.',
-        );
-      }
-      final device = candidates.first;
+      final device = await _channel.scanForSingleDevice(
+        namePrefix: config.deviceNamePrefix,
+        timeout: const Duration(seconds: 15),
+      );
 
       // Connect and discover all services (6101 & 6102) via single session owner
       await _channel.connect(device.id);

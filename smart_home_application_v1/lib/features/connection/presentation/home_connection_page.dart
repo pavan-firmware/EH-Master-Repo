@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/models/activity_models.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/home_connection_repository.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../activity/presentation/activity_page.dart';
 import '../../settings/presentation/help/help_support_page.dart';
 import '../../settings/presentation/settings_ui.dart';
 import 'device_provisioning_page.dart';
@@ -34,11 +32,23 @@ class HomeConnectionPage extends StatefulWidget {
 class _HomeConnectionPageState extends State<HomeConnectionPage> {
   late Future<HomeConnectionOverview> _overview;
   bool _checking = false;
+  bool _inProgress = false;
+  String? _activeStatus;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeConnectionPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.connectionState != oldWidget.connectionState ||
+        widget.connectionMessage != oldWidget.connectionMessage) {
+      _load();
+    }
   }
 
   void _load() {
@@ -54,6 +64,54 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
     await widget.repository.refresh();
     _load();
     if (mounted) setState(() => _checking = false);
+  }
+
+  Future<void> _handleConnect() async {
+    if (widget.onStart == null || _inProgress) return;
+
+    setState(() {
+      _inProgress = true;
+      _errorMessage = null;
+      _activeStatus = 'Searching for nearby EH Home devices...';
+    });
+
+    final navigator = Navigator.of(context);
+    try {
+      final result = await widget.onStart!();
+      if (!mounted) return;
+
+      if (result.success) {
+        setState(() {
+          _inProgress = false;
+          _activeStatus = null;
+        });
+        navigator.push(
+          MaterialPageRoute(
+            builder: (_) => DeviceProvisioningPage(
+              deviceName: result.message.contains('Connected to ')
+                  ? result.message
+                        .replaceFirst('Connected to ', '')
+                        .split(' (')
+                        .first
+                  : 'EH Smart Switch 3X',
+            ),
+          ),
+        );
+      } else {
+        setState(() {
+          _inProgress = false;
+          _activeStatus = null;
+          _errorMessage = result.message;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _inProgress = false;
+        _activeStatus = null;
+        _errorMessage = 'Connection failed: $e';
+      });
+    }
   }
 
   @override
@@ -86,6 +144,93 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                 checking: _checking,
                 onRefresh: _refresh,
               ),
+              if (_inProgress) ...[
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: tokens.surfaceCard,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: tokens.bluePrimary.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: tokens.bluePrimary,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          _activeStatus ?? 'Connecting to nearby device...',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: tokens.isDark
+                        ? const Color(0xFF331A1A)
+                        : const Color(0xFFFFEEEE),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: tokens.error.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
+                            color: tokens.error,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Connection Incomplete',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: tokens.isDark
+                                  ? Colors.white
+                                  : const Color(0xFF991B1B),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _errorMessage!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          color: tokens.isDark
+                              ? const Color(0xFFFCA5A5)
+                              : tokens.errorText,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (overview.isFullyConnected) ...[
                 const SizedBox(height: 24),
                 const SettingsSectionTitle('CONNECTION SETUP'),
@@ -147,28 +292,14 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                     style: FilledButton.styleFrom(
                       backgroundColor: tokens.blueDarker,
                     ),
-                    onPressed: () async {
-                      if (widget.onStart != null) {
-                        final navigator = Navigator.of(context);
-                        final result = await widget.onStart!();
-                        if (result.success && mounted) {
-                          navigator.push(
-                            MaterialPageRoute(
-                              builder: (_) => DeviceProvisioningPage(
-                                deviceName:
-                                    result.message.contains('Connected to ')
-                                    ? result.message
-                                          .replaceFirst('Connected to ', '')
-                                          .split(' (')
-                                          .first
-                                    : 'EH Smart Switch 3X',
-                              ),
-                            ),
-                          );
-                        }
-                      }
-                    },
-                    child: const Text('Connect your home'),
+                    onPressed: _inProgress ? null : _handleConnect,
+                    child: Text(
+                      _inProgress
+                          ? 'Connecting...'
+                          : (_errorMessage != null
+                                ? 'Try Again'
+                                : 'Connect your home'),
+                    ),
                   ),
                 ),
               ],
@@ -201,21 +332,29 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
     );
   }
 
-  List<SettingsStepData> _mapSteps(List<SetupStep> steps) => steps
+  static List<SettingsStepData> _mapSteps(List<SetupStep> steps) => steps
       .map(
-        (s) => SettingsStepData(
-          index: s.index,
-          title: s.title,
-          subtitle: s.subtitle,
-          status: switch (s.status) {
-            SetupStepStatus.completed => SettingsStepVisual.completed,
-            SetupStepStatus.active => SettingsStepVisual.active,
-            SetupStepStatus.failed => SettingsStepVisual.failed,
-            SetupStepStatus.pending => SettingsStepVisual.pending,
-          },
+        (step) => SettingsStepData(
+          index: step.index,
+          title: step.title,
+          subtitle: step.subtitle,
+          status: _toUiStatus(step.status),
         ),
       )
       .toList();
+
+  static SettingsStepVisual _toUiStatus(SetupStepStatus status) {
+    switch (status) {
+      case SetupStepStatus.completed:
+        return SettingsStepVisual.completed;
+      case SetupStepStatus.active:
+        return SettingsStepVisual.active;
+      case SetupStepStatus.pending:
+        return SettingsStepVisual.pending;
+      case SetupStepStatus.failed:
+        return SettingsStepVisual.failed;
+    }
+  }
 }
 
 class _ConnectionStatusCard extends StatelessWidget {
@@ -232,180 +371,182 @@ class _ConnectionStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final connected = overview.isFullyConnected;
-    return SettingsHeroCard(
-      leading: settingsHeroIcon(
-        icon: connected ? Icons.home_rounded : Icons.home_outlined,
-        color: connected ? tokens.success : tokens.bluePrimary,
-        background: connected ? tokens.successContainer : tokens.blueSelectedBg,
+    final isConnected = overview.isFullyConnected;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: tokens.surfaceCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: tokens.borderSubtle),
       ),
-      title: overview.title,
-      subtitle: overview.subtitle,
-      statusChip: SettingsStatusChip(
-        label: overview.statusLabel,
-        color: connected ? tokens.success : tokens.warning,
-        background: connected
-            ? tokens.successContainer
-            : tokens.warningContainer,
-        leading: Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: connected ? tokens.success : tokens.warning,
-            shape: BoxShape.circle,
-          ),
-        ),
-      ),
-      footer: connected
-          ? SettingsMetricRow(
-              metrics: overview.layers
-                  .map(
-                    (layer) => SettingsMetricItem(
-                      icon: _layerIcon(layer.kind),
-                      label: layer.label,
-                      value: layer.statusLabel,
-                      iconColor:
-                          layer.status == ConnectionLayerStatus.connected ||
-                              layer.status == ConnectionLayerStatus.ready
-                          ? tokens.success
-                          : tokens.textSecondary,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: isConnected
+                      ? (tokens.isDark
+                            ? tokens.iconBgGreen
+                            : SettingsColors.paleGreen)
+                      : (tokens.isDark
+                            ? tokens.iconBgBlue
+                            : const Color(0xFFE0E7FF)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  isConnected
+                      ? Icons.check_circle_rounded
+                      : Icons.bluetooth_searching_rounded,
+                  color: isConnected ? tokens.success : tokens.bluePrimary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      overview.title,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textPrimary,
+                      ),
                     ),
-                  )
-                  .toList(),
-            )
-          : null,
+                    const SizedBox(height: 2),
+                    Text(
+                      overview.subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: tokens.isDark
+                            ? tokens.textSecondary
+                            : SettingsColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Divider(height: 1, color: tokens.borderSubtle),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Status: ${overview.statusLabel}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isConnected ? tokens.success : tokens.textPrimary,
+                ),
+              ),
+              IconButton(
+                onPressed: checking ? null : onRefresh,
+                icon: checking
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: tokens.bluePrimary,
+                        ),
+                      )
+                    : Icon(
+                        Icons.refresh_rounded,
+                        color: tokens.bluePrimary,
+                        size: 20,
+                      ),
+                tooltip: 'Refresh status',
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
-
-  IconData _layerIcon(ConnectionLayerKind kind) => switch (kind) {
-    ConnectionLayerKind.bluetooth => Icons.bluetooth_rounded,
-    ConnectionLayerKind.homeWifi => Icons.wifi_rounded,
-    ConnectionLayerKind.havenService => Icons.cloud_rounded,
-  };
 }
 
 class _ConnectedDeviceCard extends StatelessWidget {
   const _ConnectedDeviceCard({required this.device});
+
   final ConnectedDeviceSummary device;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     return SettingsSurface(
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => DeviceDetailPage(
-              device: ActivityDeviceSnapshot(
-                id: device.id,
-                name: device.name,
-                room: device.roomName,
-                connection: device.online
-                    ? ActivityDeviceConnection.online
-                    : ActivityDeviceConnection.offline,
-                lastSeen: DateTime.now(),
-                lastReading: 'Online',
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: tokens.isDark
+                    ? tokens.iconBgBlue
+                    : const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.toggle_on_rounded,
+                color: tokens.bluePrimary,
+                size: 26,
               ),
             ),
-          ),
-        ),
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: tokens.iconBgWater,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.water_drop_outlined,
-                      color: tokens.iconFgWater,
+                  Text(
+                    device.name,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.textPrimary,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          device.name,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                            color: tokens.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          device.id,
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 2),
+                  Text(
+                    '${device.roomName} • ${device.connectedVia}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: tokens.isDark
+                          ? tokens.textSecondary
+                          : SettingsColors.muted,
                     ),
-                  ),
-                  SettingsStatusChip(
-                    label: device.online ? 'Online' : 'Offline',
-                    color: device.online ? tokens.success : tokens.warning,
-                    background: device.online
-                        ? tokens.successContainer
-                        : tokens.warningContainer,
-                    leading: Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: device.online ? tokens.success : tokens.warning,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                  Icon(Icons.chevron_right_rounded, color: tokens.chevron),
-                ],
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Divider(height: 1, color: tokens.borderSubtle),
-              ),
-              SettingsMetricRow(
-                metrics: [
-                  SettingsMetricItem(
-                    icon: Icons.memory_rounded,
-                    label: 'Model',
-                    value: device.model,
-                  ),
-                  SettingsMetricItem(
-                    icon: Icons.system_update_alt_rounded,
-                    label: 'Firmware',
-                    value: device.firmware,
-                  ),
-                  SettingsMetricItem(
-                    icon: Icons.wifi_rounded,
-                    label: 'Connected via',
-                    value: 'Wi-Fi',
-                  ),
-                  SettingsMetricItem(
-                    icon: Icons.signal_cellular_alt_rounded,
-                    label: 'Signal',
-                    value: device.signalLabel,
-                    iconColor: tokens.success,
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: tokens.isDark
+                    ? tokens.iconBgGreen
+                    : SettingsColors.paleGreen,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Online',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: tokens.success,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
-
-/// Backward-compatible export name.
-typedef ConnectionPage = HomeConnectionPage;
