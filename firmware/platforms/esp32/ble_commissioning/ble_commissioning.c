@@ -3,12 +3,14 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 #include "host/ble_hs.h"
 #include "host/ble_gatt.h"
 #include "host/ble_gap.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
-#include "nimble/nimble_npl.h"
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -43,59 +45,49 @@ typedef struct {
     uint8_t data[MAX_TX_FRAME_LEN];
     size_t len;
     uint8_t msg_type;
+    uint8_t frame_index;
     uint8_t total_frames;
 } prov_tx_item_t;
 
-static prov_tx_item_t s_tx_queue[MAX_TX_QUEUE_ITEMS];
-static size_t s_tx_head = 0;
-static size_t s_tx_tail = 0;
-static size_t s_tx_count = 0;
-static struct ble_npl_event s_tx_event;
+static QueueHandle_t s_tx_queue = NULL;
+static TaskHandle_t s_tx_task_handle = NULL;
 
-static void prov_tx_event_cb(struct ble_npl_event *ev)
+static void ble_tx_worker_task(void *pvParameters)
 {
-    (void)ev;
-    unsigned sent_hello_ack = 0;
-    unsigned sent_auth_ack = 0;
-    unsigned sent_wifi_ack = 0;
+    (void)pvParameters;
+    prov_tx_item_t item;
 
-    while (s_tx_count > 0) {
-        prov_tx_item_t item = s_tx_queue[s_tx_head];
-        s_tx_head = (s_tx_head + 1) % MAX_TX_QUEUE_ITEMS;
-        s_tx_count--;
+    ESP_LOGI(TAG, "BLE TX Worker Task started");
 
-        if (item.conn_handle != s_conn_handle ||
-            s_conn_handle == BLE_HS_CONN_HANDLE_NONE ||
-            !s_tx_subscribed) {
-            ESP_LOGW(TAG, "BLE_TX_DROPPED_NOT_SUBSCRIBED");
-            continue;
-        }
+    while (1) {
+        if (xQueueReceive(s_tx_queue, &item, portMAX_DELAY) == pdTRUE) {
+            // Verify connection handle and subscription state in safe worker context
+            if (item.conn_handle == BLE_HS_CONN_HANDLE_NONE ||
+                item.conn_handle != s_conn_handle ||
+                !s_tx_subscribed) {
+                ESP_LOGW(TAG, "BLE_TX_DROPPED_NOT_SUBSCRIBED (conn=%d, sub=%d)", item.conn_handle, s_tx_subscribed);
+                continue;
+            }
 
-        struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(item.data, item.len);
-        if (tx_om) {
+            struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(item.data, item.len);
+            if (!tx_om) {
+                ESP_LOGE(TAG, "Failed to allocate os_mbuf for BLE TX notification");
+                continue;
+            }
+
             int rc = ble_gatts_notify_custom(item.conn_handle, item.attr_handle, tx_om);
             if (rc != 0) {
                 ESP_LOGE(TAG, "ble_gatts_notify_custom failed: rc=%d", rc);
             } else {
                 if (item.msg_type == EH_PROV1_MSG_HELLO_ACK) {
-                    sent_hello_ack = item.total_frames;
+                    ESP_LOGI(TAG, "PROV_HELLO_ACK_SENT frame=%u", (unsigned)item.frame_index);
                 } else if (item.msg_type == EH_PROV1_MSG_AUTH_ACK) {
-                    sent_auth_ack = item.total_frames;
+                    ESP_LOGI(TAG, "PROV_AUTH_ACK_SENT frame=%u", (unsigned)item.frame_index);
                 } else if (item.msg_type == EH_PROV1_MSG_WIFI_ACK) {
-                    sent_wifi_ack = item.total_frames;
+                    ESP_LOGI(TAG, "PROV_WIFI_ACK_SENT frame=%u", (unsigned)item.frame_index);
                 }
             }
         }
-    }
-
-    if (sent_hello_ack > 0) {
-        ESP_LOGI(TAG, "PROV_HELLO_ACK_SENT frames=%u", sent_hello_ack);
-    }
-    if (sent_auth_ack > 0) {
-        ESP_LOGI(TAG, "PROV_AUTH_ACK_SENT frames=%u", sent_auth_ack);
-    }
-    if (sent_wifi_ack > 0) {
-        ESP_LOGI(TAG, "PROV_WIFI_ACK_SENT frames=%u", sent_wifi_ack);
     }
 }
 
@@ -248,21 +240,22 @@ static int gatt_access_cb(uint16_t conn_handle, uint16_t attr_handle,
             if (total_frames == 0) total_frames = 1;
 
             for (uint8_t f = 0; f < total_frames; f++) {
-                if (s_tx_count >= MAX_TX_QUEUE_ITEMS) {
-                    ESP_LOGE(TAG, "BLE_TX_QUEUE_FULL dropped frame %u of %u", f, (unsigned)total_frames);
-                    break;
-                }
                 uint8_t frame_buf[32];
                 size_t frame_len = eh_prov1_fragment_payload(out_buf, out_len, f, frame_buf, sizeof(frame_buf));
-                if (frame_len > 0) {
-                    s_tx_queue[s_tx_tail].conn_handle = s_conn_handle;
-                    s_tx_queue[s_tx_tail].attr_handle = s_tx_handle;
-                    memcpy(s_tx_queue[s_tx_tail].data, frame_buf, frame_len);
-                    s_tx_queue[s_tx_tail].len = frame_len;
-                    s_tx_queue[s_tx_tail].msg_type = out_buf[0];
-                    s_tx_queue[s_tx_tail].total_frames = (uint8_t)total_frames;
-                    s_tx_tail = (s_tx_tail + 1) % MAX_TX_QUEUE_ITEMS;
-                    s_tx_count++;
+                if (frame_len > 0 && s_tx_queue) {
+                    prov_tx_item_t item;
+                    item.conn_handle = s_conn_handle;
+                    item.attr_handle = s_tx_handle;
+                    memcpy(item.data, frame_buf, frame_len);
+                    item.len = frame_len;
+                    item.msg_type = out_buf[0];
+                    item.frame_index = f;
+                    item.total_frames = (uint8_t)total_frames;
+
+                    if (xQueueSend(s_tx_queue, &item, 0) != pdTRUE) {
+                        ESP_LOGE(TAG, "BLE_TX_QUEUE_FULL dropped frame %u of %u", f, (unsigned)total_frames);
+                        break;
+                    }
                 }
             }
 
@@ -273,9 +266,6 @@ static int gatt_access_cb(uint16_t conn_handle, uint16_t attr_handle,
             } else if (out_buf[0] == EH_PROV1_MSG_WIFI_ACK) {
                 ESP_LOGI(TAG, "PROV_WIFI_ACK_QUEUED frames=%u", (unsigned)total_frames);
             }
-
-            // Post deferred TX event to NimBLE default event queue (outside of GATT write callback)
-            ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_tx_event);
         }
         return err == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
     }
@@ -356,9 +346,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_tx_subscribed = false;
         s_telemetry_subscribed = false;
         s_status_subscribed = false;
-        s_tx_head = 0;
-        s_tx_tail = 0;
-        s_tx_count = 0;
+        if (s_tx_queue) {
+            xQueueReset(s_tx_queue);
+        }
         eh_prov1_reset_framing();
         ble_commissioning_start_advertising();
         return 0;
@@ -461,13 +451,34 @@ esp_err_t ble_commissioning_init(void)
 
     eh_prov1_init();
 
+    if (s_tx_queue == NULL) {
+        s_tx_queue = xQueueCreate(MAX_TX_QUEUE_ITEMS, sizeof(prov_tx_item_t));
+        if (s_tx_queue == NULL) {
+            ESP_LOGE(TAG, "Failed to create BLE TX queue");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    if (s_tx_task_handle == NULL) {
+        BaseType_t xReturned = xTaskCreate(
+            ble_tx_worker_task,
+            "ble_tx_worker",
+            4096,
+            NULL,
+            5,
+            &s_tx_task_handle
+        );
+        if (xReturned != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create BLE TX worker task");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     esp_err_t ret = nimble_port_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize NimBLE port: %s", esp_err_to_name(ret));
         return ret;
     }
-
-    ble_npl_event_init(&s_tx_event, prov_tx_event_cb, NULL);
 
     const factory_identity_v2_t *id = factory_identity_v2_get();
     const char *device_name = (id && strlen(id->serial_number) > 0) ? id->serial_number : "EH-DEVICE";
