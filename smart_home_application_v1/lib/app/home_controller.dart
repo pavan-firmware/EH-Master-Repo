@@ -173,7 +173,6 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<ConnectionResult> startConnectionSetup() async {
-    _showDesignPreview = false;
     _connectionState = HomeConnectionState.connecting;
     _connectionMessage = 'Looking for your home device nearby';
     notifyListeners();
@@ -181,10 +180,14 @@ class HomeController extends ChangeNotifier {
     final result = await _connectionRepository.connect(
       config: deviceConnectionConfig,
     );
-    _connectionState = result.success
-        ? HomeConnectionState.connected
-        : HomeConnectionState.failed;
-    _connectionMessage = result.message;
+    if (result.success) {
+      _showDesignPreview = false;
+      _connectionState = HomeConnectionState.connected;
+      _connectionMessage = result.message;
+    } else {
+      _connectionState = HomeConnectionState.notConfigured;
+      _connectionMessage = result.message;
+    }
     notifyListeners();
     return result;
   }

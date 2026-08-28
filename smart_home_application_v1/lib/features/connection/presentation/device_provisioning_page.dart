@@ -84,14 +84,22 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     try {
       final identity =
           widget.channel?.deviceIdentity ??
-          OnboardingDeviceIdentity(
-            deviceId: widget.deviceId ?? 'c0a80101-0000-4000-8000-000000000001',
-            serialNumber: widget.serialNumber ?? 'EH-SW3X-2026W12-00001',
-            productVariantId: 'eh-smart-switch-3x',
-            hardwareRevision: 'HW_1_0',
-            firmwareFamily: 'esp32-switch-platform',
-            displayName: widget.deviceName,
-          );
+          (widget.deviceId != null && widget.serialNumber != null
+              ? OnboardingDeviceIdentity(
+                  deviceId: widget.deviceId!,
+                  serialNumber: widget.serialNumber!,
+                  productVariantId: 'eh-smart-switch-3x',
+                  hardwareRevision: 'HW_1_0',
+                  firmwareFamily: 'esp32-switch-platform',
+                  displayName: widget.deviceName,
+                )
+              : null);
+
+      if (identity == null) {
+        throw Exception(
+          'Device identity could not be verified from hardware (6105). Please reconnect.',
+        );
+      }
 
       // Step 1: Start Commissioning (HELLO -> HELLO_ACK)
       final helloResult = await _service.startSecureCommissioning(identity);
