@@ -170,6 +170,10 @@ class _HomeShellState extends State<HomeShell> {
             onConnectHome: _homeController.startConnectionSetup,
             connectionState: _homeController.connectionState,
             connectionMessage: _homeController.connectionMessage,
+            connectionRepository: RealHomeConnectionRepository(
+              primaryDevice: _homeController.connectedDeviceSummary,
+              onRefresh: _homeController.startConnectionSetup,
+            ),
           ),
         ];
         return Scaffold(
