@@ -9,6 +9,7 @@ import '../../onboarding/services/onboarding_service.dart';
 
 enum ProvisioningUiStage {
   inputCredentials,
+  verifyDevice,
   commissioningHandshake,
   sendingWifi,
   awaitingDeviceAck,
@@ -48,6 +49,7 @@ class DeviceProvisioningPage extends StatefulWidget {
 class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   final _ssidController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _qrController = TextEditingController();
   bool _obscurePassword = true;
 
   ProvisioningUiStage _stage = ProvisioningUiStage.inputCredentials;
@@ -56,6 +58,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
       'Enter your 2.4 GHz Wi-Fi details to connect this device.';
   late final OnboardingService _service;
   EhProv1Session? _session;
+  OnboardingDeviceIdentity? _activeIdentity;
 
   @override
   void initState() {
@@ -69,6 +72,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   void dispose() {
     _ssidController.dispose();
     _passwordController.dispose();
+    _qrController.dispose();
     super.dispose();
   }
 
@@ -78,6 +82,11 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         lower.contains('writecharacteristicfailure') ||
         lower.contains('status 14')) {
       return "Couldn't send secure setup data. Keep device nearby and retry.";
+    }
+    if (lower.contains('mismatch') ||
+        lower.contains('identity proof') ||
+        lower.contains('authentication proof')) {
+      return "Device authentication failed. The commissioning secret does not match this device.";
     }
     if (lower.contains('rejected') ||
         lower.contains('could not accept') ||
@@ -93,6 +102,45 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         .replaceFirst('BLE Wi-Fi provisioning exchange failed: ', '');
   }
 
+  Future<void> _verifyDeviceQr() async {
+    final qrText = _qrController.text.trim();
+    if (qrText.isEmpty) {
+      setState(() {
+        _errorMessage = 'Please enter or scan the device QR code payload.';
+      });
+      return;
+    }
+
+    final result = await _service.verifyQrCode(qrText);
+    if (result.hasFailed || result.identity == null) {
+      setState(() {
+        _errorMessage = result.errorMessage ?? 'Invalid device QR code.';
+      });
+      return;
+    }
+
+    final currentDeviceId =
+        widget.channel?.deviceIdentity?.deviceId ?? widget.deviceId;
+    if (currentDeviceId != null &&
+        currentDeviceId.trim().isNotEmpty &&
+        result.identity!.deviceId.trim().toLowerCase() !=
+            currentDeviceId.trim().toLowerCase()) {
+      setState(() {
+        _errorMessage = 'The QR code belongs to a different device.';
+      });
+      return;
+    }
+
+    setState(() {
+      _activeIdentity = (widget.channel?.deviceIdentity ?? result.identity!)
+          .copyWith(commissioningSecret: result.identity!.commissioningSecret);
+      _errorMessage = null;
+      _statusDetail = 'Device verified';
+    });
+
+    _startProvisioning();
+  }
+
   Future<void> _startProvisioning() async {
     final ssid = _ssidController.text.trim();
     final password = _passwordController.text;
@@ -104,25 +152,43 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
       return;
     }
 
-    try {
-      final identity =
-          widget.channel?.deviceIdentity ??
-          (widget.deviceId != null && widget.serialNumber != null
-              ? OnboardingDeviceIdentity(
-                  deviceId: widget.deviceId!,
-                  serialNumber: widget.serialNumber!,
-                  productVariantId: 'eh-smart-switch-3x',
-                  hardwareRevision: 'HW_1_0',
-                  firmwareFamily: 'esp32-switch-platform',
-                  displayName: widget.deviceName,
-                )
-              : null);
+    final baseIdentity =
+        _activeIdentity ??
+        widget.channel?.deviceIdentity ??
+        (widget.deviceId != null && widget.serialNumber != null
+            ? OnboardingDeviceIdentity(
+                deviceId: widget.deviceId!,
+                serialNumber: widget.serialNumber!,
+                productVariantId: 'eh-smart-switch-3x',
+                hardwareRevision: 'HW_1_0',
+                firmwareFamily: 'esp32-switch-platform',
+                displayName: widget.deviceName,
+              )
+            : null);
 
-      if (identity == null) {
-        throw Exception(
-          'Device identity could not be verified from hardware (6105). Please reconnect.',
-        );
-      }
+    if (baseIdentity == null) {
+      setState(() {
+        _stage = ProvisioningUiStage.failed;
+        _errorMessage =
+            'Device identity could not be verified from hardware (6105). Please reconnect.';
+      });
+      return;
+    }
+
+    // If commissioningSecret is missing, prompt user to verify device via QR code
+    if (baseIdentity.commissioningSecret == null ||
+        baseIdentity.commissioningSecret!.trim().isEmpty) {
+      setState(() {
+        _stage = ProvisioningUiStage.verifyDevice;
+        _errorMessage = null;
+        _statusDetail =
+            'Scan the QR code on your device to securely verify ownership.';
+      });
+      return;
+    }
+
+    try {
+      final identity = baseIdentity;
 
       final bool isSessionAuthenticated =
           _session?.sessionKey != null &&
@@ -327,6 +393,81 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
                 ),
                 icon: const Icon(Icons.send_rounded),
                 label: const Text('Connect & Provision'),
+              ),
+            ),
+          ] else if (_stage == ProvisioningUiStage.verifyDevice) ...[
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: tokens.blueDarker.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.qr_code_scanner_rounded,
+                    color: tokens.bluePrimary,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Verify Device Ownership',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Scan the QR code on your EH Home device or enter the payload to securely verify ownership.',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _qrController,
+              decoration: InputDecoration(
+                labelText: 'QR Payload or Code (EH1:...)',
+                hintText: 'EH1:<deviceId>:<variant>:<secret>:<pin>',
+                prefixIcon: const Icon(Icons.qr_code_rounded),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 14),
+              Text(
+                _errorMessage!,
+                style: TextStyle(
+                  color: tokens.warning,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: _verifyDeviceQr,
+                style: FilledButton.styleFrom(
+                  backgroundColor: tokens.blueDarker,
+                ),
+                icon: const Icon(Icons.verified_user_rounded),
+                label: const Text('Verify & Continue'),
               ),
             ),
           ] else if (_stage == ProvisioningUiStage.commissioningHandshake ||

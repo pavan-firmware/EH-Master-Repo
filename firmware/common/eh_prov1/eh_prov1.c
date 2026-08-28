@@ -275,6 +275,20 @@ esp_err_t eh_prov1_handle_message(const uint8_t *in_data, size_t in_len,
         if (s_state != EH_PROV1_STATE_COMMISSIONING) return ESP_ERR_INVALID_STATE;
         if (in_len < 1 + 32) return ESP_ERR_INVALID_ARG;
 
+        uint8_t secret_fp[32];
+        const mbedtls_md_info_t *sha_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+        if (sha_info) {
+            mbedtls_md(sha_info, id->commissioning_secret, 32, secret_fp);
+            char secret_fp_hex[9];
+            for (int i = 0; i < 4; i++) {
+                snprintf(secret_fp_hex + i * 2, 3, "%02x", secret_fp[i]);
+            }
+            ESP_LOGI(TAG, "APP_PROOF_VERIFY deviceId=%s secret_fp=%s", id->device_id, secret_fp_hex);
+        } else {
+            ESP_LOGI(TAG, "APP_PROOF_VERIFY deviceId=%s", id->device_id);
+        }
+        ESP_LOGI(TAG, "APP_PROOF_SECRET_AVAILABLE=true");
+
         const uint8_t *app_proof = in_data + 1;
         uint8_t transcript_buf[256];
         size_t t_len = eh_prov1_encode_transcript("APP_PROOF", s_session.session_id,
