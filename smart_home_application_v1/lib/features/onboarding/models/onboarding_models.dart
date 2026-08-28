@@ -2,6 +2,7 @@ enum OnboardingStepState {
   discovery,
   scanning,
   bleConnecting,
+  discoveringGatt,
   verifyingIdentity,
   secureCommissioning,
   provingIdentity,
@@ -35,11 +36,44 @@ class OnboardingDeviceIdentity {
   final String? commissioningSecret;
 }
 
+class EhProv1Session {
+  const EhProv1Session({
+    required this.sessionId,
+    required this.appChallenge,
+    required this.identity,
+    this.deviceChallenge,
+    this.sessionKey,
+  });
+
+  final String sessionId;
+  final List<int> appChallenge;
+  final OnboardingDeviceIdentity identity;
+  final List<int>? deviceChallenge;
+  final List<int>? sessionKey;
+
+  EhProv1Session copyWith({
+    String? sessionId,
+    List<int>? appChallenge,
+    OnboardingDeviceIdentity? identity,
+    List<int>? deviceChallenge,
+    List<int>? sessionKey,
+  }) {
+    return EhProv1Session(
+      sessionId: sessionId ?? this.sessionId,
+      appChallenge: appChallenge ?? this.appChallenge,
+      identity: identity ?? this.identity,
+      deviceChallenge: deviceChallenge ?? this.deviceChallenge,
+      sessionKey: sessionKey ?? this.sessionKey,
+    );
+  }
+}
+
 class OnboardingProgress {
   const OnboardingProgress({
     required this.stepState,
     this.identity,
     this.sessionId,
+    this.session,
     this.homeId,
     this.roomId,
     this.customName,
@@ -49,6 +83,7 @@ class OnboardingProgress {
   final OnboardingStepState stepState;
   final OnboardingDeviceIdentity? identity;
   final String? sessionId;
+  final EhProv1Session? session;
   final String? homeId;
   final String? roomId;
   final String? customName;

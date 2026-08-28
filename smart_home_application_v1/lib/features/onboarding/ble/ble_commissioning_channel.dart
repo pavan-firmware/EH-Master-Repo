@@ -1,19 +1,51 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import '../models/onboarding_models.dart';
 
+class GattDiscoveryException implements Exception {
+  const GattDiscoveryException(this.message);
+  final String message;
+
+  @override
+  String toString() => 'GattDiscoveryException: $message';
+}
+
+/// Authoritative single BLE connection owner and commissioning channel for EH-PROV/1.
+///
+/// Controls the entire lifecycle:
+/// - Scan & candidate filtering
+/// - Single GATT connection
+/// - Explicit service discovery & validation (6101 & 6102)
+/// - Bounded Android GATT cache clearing recovery
+/// - Reading 6105 product metadata
+/// - Ordered frame fragmentation to 6110
+/// - Sequential frame reassembly from 6111
+/// - Clean disconnect and disposal
 class BleCommissioningChannel {
   BleCommissioningChannel({FlutterReactiveBle? ble})
     : _ble = ble ?? FlutterReactiveBle();
 
   final FlutterReactiveBle _ble;
-  StreamSubscription<ConnectionStateUpdate>? _connSub;
-  StreamSubscription<List<int>>? _notifySub;
-  final StreamController<Uint8List> _responseController =
-      StreamController<Uint8List>.broadcast();
 
-  Stream<Uint8List> get responses => _responseController.stream;
+  // Service 1: Device Info & Telemetry
+  static final Uuid infoServiceUuid = Uuid.parse(
+    'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6101',
+  );
+  static final Uuid telemetryCharUuid = Uuid.parse(
+    'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6103',
+  );
+  static final Uuid statusCharUuid = Uuid.parse(
+    'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6104',
+  );
+  static final Uuid productInfoCharUuid = Uuid.parse(
+    'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6105',
+  );
 
+  // Service 2: EH-PROV/1 Secure Commissioning
   static final Uuid provServiceUuid = Uuid.parse(
     'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6102',
   );
@@ -24,10 +56,28 @@ class BleCommissioningChannel {
     'a8d4e1f0-2b47-4c60-8e19-5c7a9f3b6111',
   );
 
+  StreamSubscription<ConnectionStateUpdate>? _connSub;
+  StreamSubscription<List<int>>? _notifySub;
+  final StreamController<Uint8List> _responseController =
+      StreamController<Uint8List>.broadcast();
+
+  Stream<Uint8List> get responses => _responseController.stream;
+
   String? _connectedDeviceId;
   bool _isConnected = false;
+  bool _isGattReady = false;
+  OnboardingDeviceIdentity? _deviceIdentity;
+
   bool get isConnected => _isConnected;
+  bool get isGattReady => _isGattReady;
   String? get connectedDeviceId => _connectedDeviceId;
+  OnboardingDeviceIdentity? get deviceIdentity => _deviceIdentity;
+
+  // Reassembly state
+  BytesBuilder? _reassemblyBuilder;
+  int _nextExpectedFrame = 0;
+  int _totalFramesExpected = 0;
+  bool _reassemblyInProgress = false;
 
   /// Fragment payload into 20-byte BLE chunks (2-byte header + 16-byte chunk)
   static List<Uint8List> fragmentPayload(
@@ -58,12 +108,24 @@ class BleCommissioningChannel {
   static Uint8List reassembleFrames(List<Uint8List> frames) {
     if (frames.isEmpty) return Uint8List(0);
     final builder = BytesBuilder(copy: false);
+    final totalExpected = frames[0].length >= 2 ? frames[0][1] : 0;
+    if (frames.length != totalExpected) {
+      throw FormatException(
+        'Frame count mismatch: expected $totalExpected, got ${frames.length}',
+      );
+    }
     for (int i = 0; i < frames.length; i++) {
       final frame = frames[i];
       if (frame.length < 2) {
         throw const FormatException('Invalid BLE frame header');
       }
       final frameIndex = frame[0];
+      final frameTotal = frame[1];
+      if (frameTotal != totalExpected) {
+        throw FormatException(
+          'Total frames mismatch in frame $i: expected $totalExpected, got $frameTotal',
+        );
+      }
       if (frameIndex != i) {
         throw FormatException(
           'Out of order BLE frame index: $frameIndex, expected $i',
@@ -74,16 +136,53 @@ class BleCommissioningChannel {
     return builder.takeBytes();
   }
 
+  /// Scan for physical ESP32 devices matching name prefix or proprietary services
+  Stream<DiscoveredDevice> scanForNearbyDevices({
+    String namePrefix = 'EH-',
+    Duration timeout = const Duration(seconds: 15),
+  }) {
+    final prefixUpper = namePrefix.trim().toUpperCase();
+    return _ble
+        .scanForDevices(withServices: const [], scanMode: ScanMode.lowLatency)
+        .where((device) {
+          final name = device.name.trim().toUpperCase();
+          return name.startsWith('EH-') ||
+              name.startsWith('SH-') ||
+              name.startsWith(prefixUpper) ||
+              device.serviceUuids.contains(infoServiceUuid) ||
+              device.serviceUuids.contains(provServiceUuid);
+        })
+        .timeout(timeout, onTimeout: (sink) => sink.close());
+  }
+
+  /// Establish the single authoritative BLE connection and discover all GATT services.
   Future<void> connect(String deviceId) async {
     await disconnect();
-
     _connectedDeviceId = deviceId;
+
+    try {
+      await _establishConnectionWithDiscovery(deviceId, allowRetry: true);
+    } catch (e) {
+      await disconnect();
+      rethrow;
+    }
+  }
+
+  Future<void> _establishConnectionWithDiscovery(
+    String deviceId, {
+    required bool allowRetry,
+  }) async {
     final connectedCompleter = Completer<void>();
 
     _connSub = _ble
         .connectToDevice(
           id: deviceId,
           servicesWithCharacteristicsToDiscover: {
+            infoServiceUuid: [
+              telemetryCharUuid,
+              statusCharUuid,
+              productInfoCharUuid,
+            ],
             provServiceUuid: [rxCharUuid, txCharUuid],
           },
           connectionTimeout: const Duration(seconds: 15),
@@ -98,10 +197,11 @@ class BleCommissioningChannel {
             } else if (update.connectionState ==
                 DeviceConnectionState.disconnected) {
               _isConnected = false;
+              _isGattReady = false;
               if (!connectedCompleter.isCompleted) {
                 connectedCompleter.completeError(
                   TimeoutException(
-                    'Device disconnected before commissioning setup completed',
+                    'Device disconnected before connection completed',
                   ),
                 );
               }
@@ -109,42 +209,196 @@ class BleCommissioningChannel {
           },
           onError: (Object err, StackTrace st) {
             _isConnected = false;
+            _isGattReady = false;
             if (!connectedCompleter.isCompleted) {
               connectedCompleter.completeError(err, st);
             }
           },
         );
 
-    await connectedCompleter.future.timeout(const Duration(seconds: 15));
+    await connectedCompleter.future.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => throw TimeoutException('BLE connection timed out'),
+    );
 
+    // Explicit service discovery
     await _ble.discoverAllServices(deviceId);
+    final services = await _ble.getDiscoveredServices(deviceId);
 
+    final hasInfoService = services.any((s) => s.id == infoServiceUuid);
+    final infoService = hasInfoService
+        ? services.firstWhere((s) => s.id == infoServiceUuid)
+        : null;
+    final hasProductInfo =
+        infoService?.characteristics.any((c) => c.id == productInfoCharUuid) ??
+        false;
+
+    final hasProvService = services.any((s) => s.id == provServiceUuid);
+    final provService = hasProvService
+        ? services.firstWhere((s) => s.id == provServiceUuid)
+        : null;
+    final hasRx =
+        provService?.characteristics.any((c) => c.id == rxCharUuid) ?? false;
+    final hasTx =
+        provService?.characteristics.any((c) => c.id == txCharUuid) ?? false;
+
+    if (!hasProvService ||
+        !hasRx ||
+        !hasTx ||
+        !hasInfoService ||
+        !hasProductInfo) {
+      if (allowRetry && Platform.isAndroid) {
+        debugPrint(
+          '[BLE] Missing required characteristics after discovery. Clearing GATT cache and retrying...',
+        );
+        try {
+          await _ble.clearGattCache(deviceId);
+        } catch (_) {
+          // Some Android versions/devices might not support or fail clearGattCache
+        }
+        await disconnect();
+        _connectedDeviceId = deviceId;
+        return await _establishConnectionWithDiscovery(
+          deviceId,
+          allowRetry: false,
+        );
+      }
+
+      throw GattDiscoveryException(
+        'Characteristic not found or discovered: '
+        'infoService=$hasInfoService, productInfo=$hasProductInfo, '
+        'provService=$hasProvService, 6110(rx)=$hasRx, 6111(tx)=$hasTx on $deviceId',
+      );
+    }
+
+    // Subscribe to TX (6111) notifications
     final txChar = QualifiedCharacteristic(
       deviceId: deviceId,
       serviceId: provServiceUuid,
       characteristicId: txCharUuid,
     );
 
+    await _notifySub?.cancel();
+    _resetReassemblyState();
+
     _notifySub = _ble
         .subscribeToCharacteristic(txChar)
         .listen(
-          (data) {
-            if (data.isNotEmpty) {
-              _responseController.add(Uint8List.fromList(data));
-            }
-          },
+          _handleIncomingNotificationFrame,
           onError: (Object err) {
-            // Notification error handling
+            debugPrint('[BLE] TX notification error: $err');
           },
         );
+
+    _isGattReady = true;
+
+    // Read and parse product info
+    _deviceIdentity = await readProductInfo(deviceId);
   }
 
+  /// Read 6105 product info and validate JSON schema
+  Future<OnboardingDeviceIdentity> readProductInfo(String deviceId) async {
+    final productChar = QualifiedCharacteristic(
+      deviceId: deviceId,
+      serviceId: infoServiceUuid,
+      characteristicId: productInfoCharUuid,
+    );
+
+    final rawBytes = await _ble.readCharacteristic(productChar);
+    final jsonStr = utf8.decode(rawBytes);
+
+    try {
+      final decoded = jsonDecode(jsonStr);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Product info JSON must be an object');
+      }
+
+      final product = decoded['product'] as String? ?? decoded['p'] as String?;
+      final devId = decoded['deviceId'] as String?;
+      final serial = decoded['serialNumber'] as String?;
+      final variant =
+          decoded['variant'] as String? ??
+          decoded['productVariantId'] as String? ??
+          'eh-smart-switch-3x';
+
+      if (product == null || devId == null || serial == null) {
+        throw FormatException(
+          'Missing required product info fields in payload: $jsonStr',
+        );
+      }
+
+      return OnboardingDeviceIdentity(
+        deviceId: devId,
+        serialNumber: serial,
+        productVariantId: variant,
+        hardwareRevision: 'HW_1_0',
+        firmwareFamily: 'esp32-switch-platform',
+        displayName: product,
+      );
+    } catch (e) {
+      throw FormatException(
+        'Failed to parse device product info (6105): $e (raw: "$jsonStr")',
+      );
+    }
+  }
+
+  void _resetReassemblyState() {
+    _reassemblyBuilder = null;
+    _nextExpectedFrame = 0;
+    _totalFramesExpected = 0;
+    _reassemblyInProgress = false;
+  }
+
+  void _handleIncomingNotificationFrame(List<int> rawData) {
+    if (rawData.length < 2) {
+      debugPrint('[BLE] Notification frame too short: ${rawData.length} bytes');
+      return;
+    }
+
+    final frameIndex = rawData[0];
+    final totalFrames = rawData[1];
+    final chunk = rawData.sublist(2);
+
+    if (frameIndex == 0) {
+      _reassemblyBuilder = BytesBuilder(copy: false)..add(chunk);
+      _nextExpectedFrame = 1;
+      _totalFramesExpected = totalFrames;
+      _reassemblyInProgress = true;
+
+      if (totalFrames == 1) {
+        final completeMsg = _reassemblyBuilder!.takeBytes();
+        _resetReassemblyState();
+        _responseController.add(completeMsg);
+      }
+    } else {
+      if (!_reassemblyInProgress ||
+          frameIndex != _nextExpectedFrame ||
+          totalFrames != _totalFramesExpected) {
+        debugPrint(
+          '[BLE] Out of order frame: index $frameIndex, expected $_nextExpectedFrame, total $totalFrames (expected $_totalFramesExpected)',
+        );
+        _resetReassemblyState();
+        return;
+      }
+
+      _reassemblyBuilder!.add(chunk);
+      _nextExpectedFrame++;
+
+      if (_nextExpectedFrame == _totalFramesExpected) {
+        final completeMsg = _reassemblyBuilder!.takeBytes();
+        _resetReassemblyState();
+        _responseController.add(completeMsg);
+      }
+    }
+  }
+
+  /// Write logical message to 6110 using sequential frame chunks
   Future<void> writeMessage(
     Uint8List data, {
     QualifiedCharacteristic? customChar,
   }) async {
     final devId = customChar?.deviceId ?? _connectedDeviceId;
-    if (devId == null) {
+    if (devId == null || !_isConnected) {
       throw StateError('Cannot write message: BLE channel not connected');
     }
     final targetChar =
@@ -155,15 +409,20 @@ class BleCommissioningChannel {
           characteristicId: rxCharUuid,
         );
 
-    await _ble.writeCharacteristicWithResponse(
-      targetChar,
-      value: data.toList(),
-    );
+    final frames = fragmentPayload(data, chunkSize: 16);
+    for (int i = 0; i < frames.length; i++) {
+      final frame = frames[i];
+      await _ble.writeCharacteristicWithResponse(
+        targetChar,
+        value: frame.toList(),
+      );
+    }
   }
 
+  /// Send fragmented request and await reassembled response message
   Future<Uint8List> sendAndReceive(
     Uint8List request, {
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 15),
   }) async {
     final responseCompleter = Completer<Uint8List>();
     late final StreamSubscription<Uint8List> sub;
@@ -183,7 +442,10 @@ class BleCommissioningChannel {
 
     try {
       await writeMessage(request);
-      return await responseCompleter.future.timeout(timeout);
+      return await responseCompleter.future.timeout(
+        timeout,
+        onTimeout: () => throw TimeoutException('BLE response timed out'),
+      );
     } finally {
       await sub.cancel();
     }
@@ -191,9 +453,14 @@ class BleCommissioningChannel {
 
   Future<void> disconnect() async {
     _isConnected = false;
+    _isGattReady = false;
     _connectedDeviceId = null;
+    _deviceIdentity = null;
+    _resetReassemblyState();
+
     await _notifySub?.cancel();
     _notifySub = null;
+
     await _connSub?.cancel();
     _connSub = null;
   }

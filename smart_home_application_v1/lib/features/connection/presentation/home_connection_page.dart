@@ -125,8 +125,10 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const DeviceProvisioningPage(
-                              deviceName: 'SH-8EF248',
+                            builder: (_) => DeviceProvisioningPage(
+                              deviceName:
+                                  overview.primaryDevice?.name ??
+                                  'EH Smart Switch 3X',
                             ),
                           ),
                         ),
@@ -145,7 +147,27 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                     style: FilledButton.styleFrom(
                       backgroundColor: tokens.blueDarker,
                     ),
-                    onPressed: widget.onStart,
+                    onPressed: () async {
+                      if (widget.onStart != null) {
+                        final navigator = Navigator.of(context);
+                        final result = await widget.onStart!();
+                        if (result.success && mounted) {
+                          navigator.push(
+                            MaterialPageRoute(
+                              builder: (_) => DeviceProvisioningPage(
+                                deviceName:
+                                    result.message.contains('Connected to ')
+                                    ? result.message
+                                          .replaceFirst('Connected to ', '')
+                                          .split(' (')
+                                          .first
+                                    : 'EH Smart Switch 3X',
+                              ),
+                            ),
+                          );
+                        }
+                      }
+                    },
                     child: const Text('Connect your home'),
                   ),
                 ),
