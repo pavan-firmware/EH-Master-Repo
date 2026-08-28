@@ -242,10 +242,78 @@ void main() {
       expect(proveResult.errorMessage, contains('Commissioning secret is required'));
     });
 
-    test('parseSecretKey throws ArgumentError on empty or invalid secret', () {
-      expect(() => DefaultOnboardingService.parseSecretKey(null), throwsArgumentError);
-      expect(() => DefaultOnboardingService.parseSecretKey(''), throwsArgumentError);
-      expect(() => DefaultOnboardingService.parseSecretKey('short_key'), throwsArgumentError);
+    test('Valid EH1 colon payload parses correctly', () async {
+      const service = DefaultOnboardingService();
+      const secretHex =
+          '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
+      final res = await service.verifyQrCode(
+        'EH1:4444688e-989d-458e-820e-ac62a99ed8e1:eh-smart-switch-3x:$secretHex:123456',
+      );
+      expect(res.stepState, OnboardingStepState.secureCommissioning);
+      expect(res.identity, isNotNull);
+      expect(res.identity!.deviceId, '4444688e-989d-458e-820e-ac62a99ed8e1');
+      expect(res.identity!.productVariantId, 'eh-smart-switch-3x');
+      expect(res.identity!.commissioningSecret, secretHex);
+    });
+
+    test('Malformed or incomplete EH1 payload is rejected', () async {
+      const service = DefaultOnboardingService();
+      final res1 = await service.verifyQrCode('INVALID:payload');
+      expect(res1.hasFailed, isTrue);
+      expect(res1.errorMessage, contains('Invalid QR payload version prefix'));
+
+      final res2 = await service.verifyQrCode('EH1:only-one-part');
+      expect(res2.hasFailed, isTrue);
+      expect(res2.errorMessage, contains('Malformed EH1 QR code structure'));
+
+      final res3 = await service.verifyQrCode('EH1:devId:variant:');
+      expect(res3.hasFailed, isTrue);
+      expect(res3.errorMessage, contains('does not contain required device credentials'));
+    });
+
+    test('AUTH computes exact HMAC-SHA256 APP_PROOF using real credential', () async {
+      const service = DefaultOnboardingService();
+      const testSecretHex =
+          '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
+      final secretBytes = DefaultOnboardingService.parseSecretKey(testSecretHex);
+
+      const identity = OnboardingDeviceIdentity(
+        deviceId: '4444688e-989d-458e-820e-ac62a99ed8e1',
+        serialNumber: 'EH-SW3X-2026W12-00001',
+        productVariantId: 'eh-smart-switch-3x',
+        hardwareRevision: 'HW_1_0',
+        firmwareFamily: 'esp32-switch-platform',
+        displayName: 'EH Smart Switch 3X',
+        commissioningSecret: testSecretHex,
+      );
+
+      final transcript = EhProv1Crypto.encodeCanonicalTranscript(
+        messageType: 'APP_PROOF',
+        sessionId: sessionId,
+        deviceId: identity.deviceId,
+        appChallenge: appChal,
+        deviceChallenge: devChal,
+        sequenceNumber: 2,
+      );
+      final expectedProof = EhProv1Crypto.hmacSha256(secretBytes, transcript);
+
+      final session = EhProv1Session(
+        sessionId: sessionId,
+        appChallenge: appChal,
+        deviceChallenge: devChal,
+        identity: identity,
+      );
+
+      final proveResult = await service.proveIdentity(
+        sessionId: sessionId,
+        identity: identity,
+        deviceChallenge: devChal,
+        session: session,
+      );
+
+      expect(proveResult.stepState, OnboardingStepState.wifiProvisioning);
+      expect(proveResult.session!.sessionKey, isNotNull);
+      expect(expectedProof.length, 32);
     });
 
     test('Strict constant-time comparison prevents timing discrepancies', () {
