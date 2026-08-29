@@ -57,11 +57,12 @@ class HomeController extends ChangeNotifier {
   final bool _cloudEnabled;
 
   bool _awayMode = false;
-  bool _livingRoomLightOn = true;
+  bool _livingRoomLightOn = false;
   bool _misting = false;
   bool _alertAcknowledged = false;
   bool _lightCommandPending = false;
   bool _mistingCommandPending = false;
+  bool _disposed = false;
   ActuatorConfidence _lightConfidence = ActuatorConfidence.unknown;
   FirmwareRelease? _availableRelease;
   HomeConnectionState _connectionState = HomeConnectionState.notConfigured;
@@ -95,13 +96,30 @@ class HomeController extends ChangeNotifier {
   bool get hardwareControlsAvailable => _cloudEnabled;
   DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
 
+  final List<String> _customRooms = [];
+  List<String> get customRooms => List.unmodifiable(_customRooms);
+
+  Future<void> addCustomRoom(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    await _storageService.addRoom(trimmed);
+    if (!_customRooms.contains(trimmed)) {
+      _customRooms.add(trimmed);
+    }
+    notifyListeners();
+  }
+
   List<Room> get rooms {
-    if (_devices.isNotEmpty) {
-      final Map<String, List<ConnectedDeviceSummary>> roomMap = {};
-      for (final d in _devices) {
-        final room = d.roomName.trim().isEmpty ? 'Living Room' : d.roomName;
-        roomMap.putIfAbsent(room, () => []).add(d);
-      }
+    final Map<String, List<ConnectedDeviceSummary>> roomMap = {};
+    for (final d in _devices) {
+      final room = d.roomName.trim().isEmpty ? 'Living Room' : d.roomName;
+      roomMap.putIfAbsent(room, () => []).add(d);
+    }
+    for (final r in _customRooms) {
+      roomMap.putIfAbsent(r, () => []);
+    }
+
+    if (roomMap.isNotEmpty) {
       return roomMap.entries.map((entry) {
         final roomName = entry.key;
         final roomDevices = entry.value;
@@ -111,9 +129,11 @@ class HomeController extends ChangeNotifier {
           name: roomName,
           iconKey: 'living',
           deviceCount: roomDevices.length,
-          connectivity: ConnectivityCause.online,
-          telemetryFreshness: TelemetryFreshness.current,
-          summary: _livingRoomLightOn ? 'Active · Normal' : 'Standby · Normal',
+          connectivity: roomDevices.isNotEmpty ? ConnectivityCause.online : ConnectivityCause.unknown,
+          telemetryFreshness: roomDevices.isNotEmpty ? TelemetryFreshness.current : TelemetryFreshness.unknown,
+          summary: roomDevices.isNotEmpty
+              ? (_livingRoomLightOn ? 'Active · Normal' : 'Standby · Normal')
+              : '0 devices',
           status: RoomStatus.normal,
           capabilities: roomDevices.expand((d) {
             final opName = formatOperatingName(d.name);
@@ -131,13 +151,13 @@ class HomeController extends ChangeNotifier {
                 id: '${d.id}_ch2',
                 label: '$opName Switch 2',
                 value: ch2On ? 'On' : 'Off',
-                kind: RoomCapabilityKind.light,
+                kind: RoomCapabilityKind.outlet,
               ),
               RoomCapability(
                 id: '${d.id}_ch3',
                 label: '$opName Switch 3',
                 value: ch3On ? 'On' : 'Off',
-                kind: RoomCapabilityKind.light,
+                kind: RoomCapabilityKind.switchControl,
               ),
             ];
           }).toList(),
@@ -166,12 +186,46 @@ class HomeController extends ChangeNotifier {
     return const [];
   }
 
+  List<String> _quickControlIds = [];
+  List<String> get quickControlIds => List.unmodifiable(_quickControlIds);
+
+  Future<void> setQuickControls(List<String> ids) async {
+    _quickControlIds = List.from(ids);
+    await _storageService.saveQuickControlIds(_quickControlIds);
+    notifyListeners();
+  }
+
   HomeDashboardData get dashboard {
     if (_devices.isNotEmpty) {
+      List<QuickControlPreview>? customControls;
+      if (_quickControlIds.isNotEmpty) {
+        customControls = [];
+        for (final qId in _quickControlIds) {
+          // format: deviceId:channelIndex
+          final parts = qId.split(':');
+          final devId = parts.first;
+          final chIdx = parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1;
+          final dev = _devices.firstWhere((d) => d.id == devId, orElse: () => _devices.first);
+          final cleanName = formatOperatingName(dev.name);
+          final chPower = getDeviceChannelPower(dev.id, chIdx, defaultValue: chIdx == 1 ? _livingRoomLightOn : false);
+          customControls.add(
+            QuickControlPreview(
+              id: qId,
+              kind: chIdx == 2 ? QuickControlKind.fan : QuickControlKind.light,
+              title: '${dev.roomName}\n$cleanName SW$chIdx',
+              value: chPower ? 'On' : 'Off',
+              confidence: _deviceConfidences[dev.id] ?? ActuatorConfidence.confirmed,
+              isEnabled: true,
+            ),
+          );
+        }
+      }
+
       return HomeDashboardData.forLiveDevices(
         devices: _devices,
         lightOn: _livingRoomLightOn,
         lightConfidence: _lightConfidence,
+        customControls: customControls,
       );
     }
 
@@ -292,6 +346,7 @@ class HomeController extends ChangeNotifier {
 
   Future<void> _hydrateFromStorage() async {
     final savedList = await _storageService.loadDevices();
+    if (_disposed) return;
     if (savedList.isNotEmpty) {
       _devices = List.from(savedList);
       _connectedDeviceSummary = _devices.first;
@@ -300,6 +355,8 @@ class HomeController extends ChangeNotifier {
       _activeSerialNumber = _devices.first.model;
       _connectionState = HomeConnectionState.connected;
       _connectionMessage = '${_devices.first.name} is connected and online.';
+      _quickControlIds = await _storageService.loadQuickControlIds();
+      if (_disposed) return;
       debugPrint('[HOME] DEVICE_REGISTERED count=${_devices.length}');
       debugPrint('[HOME] DEVICE_PERSISTED');
       debugPrint('[HOME] HOME_STATE_REFRESH');
@@ -387,27 +444,48 @@ class HomeController extends ChangeNotifier {
 
   Future<void> setLivingRoomLight(bool value) async {
     if (_lightCommandPending || _livingRoomLightOn == value) return;
-    if (!_cloudEnabled) {
-      _lightConfidence = ActuatorConfidence.unavailable;
-      notifyListeners();
-      return;
-    }
     _lightCommandPending = true;
     _lightConfidence = ActuatorConfidence.pending;
     notifyListeners();
 
     final targetId = _activeDeviceId ??
-        (_devices.isNotEmpty ? _devices.first.id : 'living-room-light');
+        (_devices.isNotEmpty ? _devices.first.id : '4444688e-989d-458e-820e-ac62a99ed8e1');
+
+    if (!_cloudEnabled) {
+      try {
+        final receipt = await _repository.sendCommand(
+          deviceId: targetId,
+          action: 'set_power',
+          parameters: {'channel': 1, 'enabled': value},
+          idempotencyKey: 'light-${DateTime.now().microsecondsSinceEpoch}',
+        );
+        if (receipt.state == CommandState.succeeded) {
+          _livingRoomLightOn = value;
+          _channelStates.putIfAbsent(targetId, () => {})[1] = value;
+          _lightConfidence = ActuatorConfidence.confirmed;
+          _lightCommandPending = false;
+        } else if (receipt.state == CommandState.failed) {
+          _lightConfidence = ActuatorConfidence.failed;
+          _lightCommandPending = false;
+        } else {
+          _lightConfidence = ActuatorConfidence.pending;
+        }
+      } catch (_) {
+        _lightConfidence = ActuatorConfidence.failed;
+        _lightCommandPending = false;
+      }
+      notifyListeners();
+      return;
+    }
 
     try {
       await _repository.sendCommand(
         deviceId: targetId,
         action: 'set_power',
-        parameters: {'enabled': value},
+        parameters: {'channel': 1, 'enabled': value},
         idempotencyKey: 'light-${DateTime.now().microsecondsSinceEpoch}',
       );
-      // Do NOT assume state changed. Wait for command.receipt + device.state via SSE.
-      // _lightCommandPending stays true until SSE receipt clears it.
+      // Wait for SSE in cloud mode
     } catch (_) {
       _lightConfidence = ActuatorConfidence.failed;
       _lightCommandPending = false;
@@ -506,6 +584,7 @@ class HomeController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _sseSubscription?.cancel();
     super.dispose();
   }

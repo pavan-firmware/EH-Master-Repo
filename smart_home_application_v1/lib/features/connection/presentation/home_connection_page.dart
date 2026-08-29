@@ -333,6 +333,19 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                             ),
                           ),
                         ),
+                        showDivider: true,
+                      ),
+                      SettingsListItem(
+                        icon: Icons.add_circle_outline_rounded,
+                        title: 'Add another device',
+                        subtitle: 'Discover and onboard a new EH Home device',
+                        iconColor: tokens.isDark
+                            ? tokens.bluePrimary
+                            : SettingsColors.green,
+                        iconBackground: tokens.isDark
+                            ? tokens.iconBgBlue
+                            : SettingsColors.paleGreen,
+                        onTap: _inProgress ? null : _handleConnect,
                       ),
                     ],
                   ),

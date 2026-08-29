@@ -49,6 +49,13 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 }
 #endif
 
+#ifdef ESP_PLATFORM
+#include "nvs.h"
+#define WIFI_NVS_NAMESPACE "eh_wifi"
+#define KEY_WIFI_SSID "ssid"
+#define KEY_WIFI_PASS "pass"
+#endif
+
 void wifi_manager_init(void)
 {
     s_is_connected = false;
@@ -65,6 +72,81 @@ void wifi_manager_init(void)
     esp_wifi_set_mode(WIFI_MODE_STA);
 #endif
     ESP_LOGI(TAG, "Wi-Fi manager initialized in station mode");
+}
+
+bool wifi_manager_save_credentials(const char* ssid, const char* password)
+{
+    if (!ssid || strlen(ssid) == 0) {
+        return false;
+    }
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS namespace %s: %s", WIFI_NVS_NAMESPACE, esp_err_to_name(err));
+        return false;
+    }
+    nvs_set_str(handle, KEY_WIFI_SSID, ssid);
+    if (password && strlen(password) > 0) {
+        nvs_set_str(handle, KEY_WIFI_PASS, password);
+    } else {
+        nvs_erase_key(handle, KEY_WIFI_PASS);
+    }
+    nvs_commit(handle);
+    nvs_close(handle);
+#endif
+    ESP_LOGI(TAG, "WIFI_CREDENTIALS_PERSISTED");
+    return true;
+}
+
+bool wifi_manager_load_credentials(char* out_ssid, size_t max_ssid_len, char* out_pass, size_t max_pass_len)
+{
+    if (!out_ssid || max_ssid_len == 0) {
+        return false;
+    }
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        return false;
+    }
+    size_t ssid_len = max_ssid_len;
+    err = nvs_get_str(handle, KEY_WIFI_SSID, out_ssid, &ssid_len);
+    if (err != ESP_OK || ssid_len == 0) {
+        nvs_close(handle);
+        return false;
+    }
+    if (out_pass && max_pass_len > 0) {
+        size_t pass_len = max_pass_len;
+        if (nvs_get_str(handle, KEY_WIFI_PASS, out_pass, &pass_len) != ESP_OK) {
+            out_pass[0] = '\0';
+        }
+    }
+    nvs_close(handle);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool wifi_manager_has_credentials(void)
+{
+    char tmp_ssid[33] = {0};
+    return wifi_manager_load_credentials(tmp_ssid, sizeof(tmp_ssid), NULL, 0);
+}
+
+void wifi_manager_clear_credentials(void)
+{
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_erase_all(handle);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+#endif
+    s_current_ssid[0] = '\0';
+    ESP_LOGI(TAG, "Wi-Fi credentials cleared from NVS");
 }
 
 bool wifi_manager_set_credentials(const char* ssid, const char* password)

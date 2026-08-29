@@ -323,7 +323,7 @@ class _QuickDeviceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final enabled = device.confidence == ActuatorConfidence.confirmed && false;
+    final enabled = device.confidence == ActuatorConfidence.confirmed;
     final devColor = _deviceColor(device.kind, tokens);
     final devBg = tokens.isDark
         ? devColor.withValues(alpha: 0.18)
@@ -377,7 +377,7 @@ class _QuickDeviceCard extends StatelessWidget {
             ),
             const SizedBox(height: 11),
             Center(
-              child: _UnavailableControl(kind: device.kind, enabled: enabled),
+              child: _UnavailableControl(kind: device.kind, enabled: enabled, value: device.value),
             ),
           ],
         ),
@@ -387,9 +387,10 @@ class _QuickDeviceCard extends StatelessWidget {
 }
 
 class _UnavailableControl extends StatelessWidget {
-  const _UnavailableControl({required this.kind, required this.enabled});
+  const _UnavailableControl({required this.kind, required this.enabled, this.value = 'Off'});
   final RoomCapabilityKind kind;
   final bool enabled;
+  final String value;
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
@@ -424,21 +425,26 @@ class _UnavailableControl extends StatelessWidget {
         ],
       );
     }
+    final isOn = value.toLowerCase() == 'on';
     return Container(
       width: 52,
       height: 30,
       decoration: BoxDecoration(
-        color: tokens.isDark ? tokens.switchTrackOff : const Color(0xFFE1E5EB),
+        color: isOn
+            ? tokens.bluePrimary
+            : (tokens.isDark ? tokens.switchTrackOff : const Color(0xFFE1E5EB)),
         borderRadius: BorderRadius.circular(99),
         border: Border.all(
-          color: tokens.isDark ? tokens.borderControl : const Color(0xFFC8CDD5),
+          color: isOn
+              ? tokens.bluePrimary
+              : (tokens.isDark ? tokens.borderControl : const Color(0xFFC8CDD5)),
         ),
       ),
-      alignment: Alignment.centerLeft,
+      alignment: isOn ? Alignment.centerRight : Alignment.centerLeft,
       padding: const EdgeInsets.all(3),
       child: CircleAvatar(
         radius: 12,
-        backgroundColor: tokens.isDark ? tokens.switchThumbOff : Colors.white,
+        backgroundColor: Colors.white,
       ),
     );
   }
@@ -744,6 +750,10 @@ Color _deviceColor(RoomCapabilityKind kind, EHThemeTokens tokens) {
   if (tokens.isDark) {
     return switch (kind) {
       RoomCapabilityKind.light || RoomCapabilityKind.lamp => tokens.gold,
+      RoomCapabilityKind.outlet ||
+      RoomCapabilityKind.socket ||
+      RoomCapabilityKind.switchControl => tokens.bluePrimary,
+      RoomCapabilityKind.energy => tokens.gold,
       RoomCapabilityKind.fan => tokens.bluePrimary,
       RoomCapabilityKind.curtain => tokens.iconFgPurple,
       RoomCapabilityKind.temperature => tokens.iconFgWater,
@@ -756,6 +766,10 @@ Color _deviceColor(RoomCapabilityKind kind, EHThemeTokens tokens) {
   return switch (kind) {
     RoomCapabilityKind.light ||
     RoomCapabilityKind.lamp => const Color(0xFFB88700),
+    RoomCapabilityKind.outlet ||
+    RoomCapabilityKind.socket ||
+    RoomCapabilityKind.switchControl => const Color(0xFF168DD1),
+    RoomCapabilityKind.energy => const Color(0xFFB88700),
     RoomCapabilityKind.fan => const Color(0xFF168DD1),
     RoomCapabilityKind.curtain => const Color(0xFF7953E8),
     RoomCapabilityKind.temperature => const Color(0xFF159B9E),
@@ -769,10 +783,14 @@ Color _deviceColor(RoomCapabilityKind kind, EHThemeTokens tokens) {
 IconData _deviceIcon(RoomCapabilityKind kind) => switch (kind) {
   RoomCapabilityKind.light => Icons.lightbulb_outline_rounded,
   RoomCapabilityKind.lamp => Icons.light_rounded,
+  RoomCapabilityKind.outlet ||
+  RoomCapabilityKind.socket => Icons.power_outlined,
+  RoomCapabilityKind.switchControl => Icons.toggle_on_outlined,
+  RoomCapabilityKind.energy => Icons.bolt_rounded,
   RoomCapabilityKind.fan => Icons.air_rounded,
   RoomCapabilityKind.curtain => Icons.curtains_outlined,
   RoomCapabilityKind.temperature => Icons.thermostat_outlined,
-  RoomCapabilityKind.gasSensor => Icons.air_rounded,
+  RoomCapabilityKind.gasSensor => Icons.sensors_rounded,
   RoomCapabilityKind.soilMoisture ||
   RoomCapabilityKind.waterLevel => Icons.water_drop_outlined,
   RoomCapabilityKind.mistCare => Icons.cloud_outlined,

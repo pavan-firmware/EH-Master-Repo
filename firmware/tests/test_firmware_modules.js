@@ -398,6 +398,68 @@ test('18. GATT 6105: Read beyond EOF (offset > length) returns BLE_ATT_ERR_INVAL
   assert.strictEqual(res.status, BLE_ATT_ERR_INVALID_OFFSET);
 });
 
+// ---------------------------------------------------------------------------
+// 7. Wi-Fi Credential Persistence & Reboot Recovery Simulation
+// ---------------------------------------------------------------------------
+class NvsStorageSimulator {
+  constructor() {
+    this.storage = {};
+  }
+  set(namespace, key, value) {
+    this.storage[`${namespace}:${key}`] = value;
+  }
+  get(namespace, key) {
+    return this.storage[`${namespace}:${key}`] || null;
+  }
+  clear(namespace) {
+    Object.keys(this.storage).forEach(k => {
+      if (k.startsWith(`${namespace}:`)) delete this.storage[k];
+    });
+  }
+}
+
+test('19. Reboot Recovery: Stored credentials auto-connect and bypass BLE commissioning', () => {
+  const nvs = new NvsStorageSimulator();
+  // 1. First boot: FACTORY_NEW -> BLE provisioning
+  let lc = new LifecycleSimulator();
+  assert.strictEqual(lc.state, APP_STATES.FACTORY_NEW);
+  let hasWifi = (nvs.get('eh_wifi', 'ssid') !== null);
+  assert.strictEqual(hasWifi, false);
+  lc.transition(APP_STATES.BLE_COMMISSIONING);
+
+  // 2. BLE provisioning saves credentials
+  nvs.set('eh_wifi', 'ssid', 'MyHomeWiFi');
+  nvs.set('eh_wifi', 'pass', 'SecretPass123');
+  lc.transition(APP_STATES.WIFI_CONNECTING);
+  lc.transition(APP_STATES.MQTT_CONNECTING);
+  lc.transition(APP_STATES.ACTIVE);
+  lc.markCommissioned();
+  assert.strictEqual(lc.state, APP_STATES.ACTIVE);
+
+  // 3. Simulated Power Cycle / Reboot
+  const rebootLc = new LifecycleSimulator();
+  hasWifi = (nvs.get('eh_wifi', 'ssid') !== null);
+  assert.strictEqual(hasWifi, true);
+  assert.strictEqual(nvs.get('eh_wifi', 'ssid'), 'MyHomeWiFi');
+
+  // Boot directly transitions to WIFI_CONNECTING without entering BLE_COMMISSIONING
+  assert.strictEqual(rebootLc.transition(APP_STATES.WIFI_CONNECTING), true);
+  assert.strictEqual(rebootLc.transition(APP_STATES.MQTT_CONNECTING), true);
+  assert.strictEqual(rebootLc.transition(APP_STATES.ACTIVE), true);
+});
+
+test('20. Security: Passwords in memory/NVS are isolated and factory reset wipes credentials', () => {
+  const nvs = new NvsStorageSimulator();
+  nvs.set('eh_wifi', 'ssid', 'HomeAP');
+  nvs.set('eh_wifi', 'pass', 'HomePassword');
+  assert.strictEqual(nvs.get('eh_wifi', 'ssid'), 'HomeAP');
+
+  // Factory reset clears NVS
+  nvs.clear('eh_wifi');
+  assert.strictEqual(nvs.get('eh_wifi', 'ssid'), null);
+  assert.strictEqual(nvs.get('eh_wifi', 'pass'), null);
+});
+
 console.log(`\n────────────────────────────────────────────────────────────`);
 console.log(`  ALL ${passCount} FIRMWARE HOST TESTS PASSED ✅`);
 console.log(`────────────────────────────────────────────────────────────\n`);

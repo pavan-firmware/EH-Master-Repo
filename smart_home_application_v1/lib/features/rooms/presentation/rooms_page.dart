@@ -4,7 +4,6 @@ import '../../../app/home_controller.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
-import '../../onboarding/presentation/nearby_setup_page.dart';
 import 'room_context_page.dart';
 
 class RoomsPage extends StatefulWidget {
@@ -130,14 +129,101 @@ class _RoomsPageState extends State<RoomsPage> {
     }
   }
 
-  void _addRoom() {
+  Future<void> _addRoom() async {
     _dismissSearch();
-    if (widget.onAddDevice != null) {
-      widget.onAddDevice!();
-    } else {
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const NearbySetupPage()));
+    final nameController = TextEditingController();
+    final tokens = context.ehColors;
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Create Room',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: tokens.textPrimary,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add a new room to organize your devices.',
+              style: TextStyle(color: tokens.textSecondary, fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: 'Room name',
+                hintText: 'e.g. Master Bedroom, Balcony, Study',
+                filled: true,
+                fillColor: tokens.surfaceElevated,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: tokens.bluePrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  final name = nameController.text.trim();
+                  if (name.isNotEmpty) {
+                    widget.homeController?.addCustomRoom(name);
+                    Navigator.of(ctx).pop(true);
+                  }
+                },
+                child: const Text(
+                  'Save Room',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (created == true && mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Room "${nameController.text.trim()}" created successfully.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -842,13 +928,17 @@ String _sortLabel(_RoomSort sort) => switch (sort) {
 
 IconData _capabilityIcon(RoomCapabilityKind kind) => switch (kind) {
   RoomCapabilityKind.light => Icons.lightbulb_outline_rounded,
+  RoomCapabilityKind.lamp => Icons.light_rounded,
+  RoomCapabilityKind.outlet ||
+  RoomCapabilityKind.socket => Icons.power_outlined,
+  RoomCapabilityKind.switchControl => Icons.toggle_on_outlined,
+  RoomCapabilityKind.energy => Icons.bolt_rounded,
   RoomCapabilityKind.temperature => Icons.thermostat_outlined,
-  RoomCapabilityKind.gasSensor => Icons.air_rounded,
+  RoomCapabilityKind.gasSensor => Icons.sensors_rounded,
   RoomCapabilityKind.soilMoisture ||
   RoomCapabilityKind.waterLevel => Icons.water_drop_outlined,
   RoomCapabilityKind.mistCare => Icons.cloud_outlined,
   RoomCapabilityKind.lowLevelAlert => Icons.notifications_none_rounded,
   RoomCapabilityKind.fan => Icons.air_rounded,
   RoomCapabilityKind.curtain => Icons.curtains_outlined,
-  RoomCapabilityKind.lamp => Icons.light_rounded,
 };

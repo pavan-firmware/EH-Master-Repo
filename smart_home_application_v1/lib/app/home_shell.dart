@@ -111,31 +111,174 @@ class _HomeShellState extends State<HomeShell> {
 
   void _showControlCustomization() {
     final tokens = context.ehColors;
+    final availableDevices = _homeController.dashboard.rooms.isNotEmpty;
+    if (!availableDevices) {
+      showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        backgroundColor: tokens.surfaceCard,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Quick controls',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    color: tokens.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Connect a device to choose and configure up to four quick controls.',
+                  style: TextStyle(color: tokens.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Build selectable channel controls across registered devices
+    final availableControls = <({String id, String label, String room})>[];
+    for (final room in _homeController.rooms) {
+      for (final dev in room.devices) {
+        availableControls.add((
+          id: '${dev.id}:1',
+          label: '${dev.name} (Switch 1)',
+          room: room.name,
+        ));
+        availableControls.add((
+          id: '${dev.id}:2',
+          label: '${dev.name} (Switch 2)',
+          room: room.name,
+        ));
+        availableControls.add((
+          id: '${dev.id}:3',
+          label: '${dev.name} (Switch 3)',
+          room: room.name,
+        ));
+      }
+    }
+
+    final currentSelected = List<String>.from(_homeController.quickControlIds);
+    if (currentSelected.isEmpty && availableControls.isNotEmpty) {
+      for (var i = 0; i < availableControls.length && i < 4; i++) {
+        currentSelected.add(availableControls[i].id);
+      }
+    }
+
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: tokens.surfaceCard,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Quick controls',
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
-                  color: tokens.textPrimary,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Customize quick controls',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      '${currentSelected.length}/4 selected',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.bluePrimary,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Choose up to four confirmed, secure device controls. This will be available after device commissioning.',
-                style: TextStyle(color: tokens.textSecondary),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  'Select up to four verified controls for instant access from your home screen.',
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 280),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: availableControls.length,
+                    itemBuilder: (context, index) {
+                      final item = availableControls[index];
+                      final isSelected = currentSelected.contains(item.id);
+                      return CheckboxListTile(
+                        value: isSelected,
+                        activeColor: tokens.bluePrimary,
+                        title: Text(
+                          item.label,
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          item.room,
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        onChanged: (val) {
+                          setModalState(() {
+                            if (val == true) {
+                              if (currentSelected.length < 4) {
+                                currentSelected.add(item.id);
+                              }
+                            } else {
+                              currentSelected.remove(item.id);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: tokens.bluePrimary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      _homeController.setQuickControls(currentSelected);
+                      Navigator.of(ctx).pop();
+                      _showMessage('Quick controls updated.');
+                    },
+                    child: const Text(
+                      'Save Controls',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

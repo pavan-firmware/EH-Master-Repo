@@ -190,4 +190,33 @@ class DeviceStorageService {
       await prefs.setStringList(_keyRooms, _cachedRooms);
     } catch (_) {}
   }
+
+  static const String _keyQuickControls = 'eh_quick_controls_v4';
+  static final List<String> _cachedQuickControls = [];
+
+  /// Load selected quick control IDs.
+  Future<List<String>> loadQuickControlIds() async {
+    if (_cachedQuickControls.isNotEmpty) {
+      return List<String>.unmodifiable(_cachedQuickControls);
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_keyQuickControls);
+      if (list != null) {
+        _cachedQuickControls.clear();
+        _cachedQuickControls.addAll(list);
+      }
+    } catch (_) {}
+    return List<String>.unmodifiable(_cachedQuickControls);
+  }
+
+  /// Save selected quick control IDs.
+  Future<void> saveQuickControlIds(List<String> ids) async {
+    _cachedQuickControls.clear();
+    _cachedQuickControls.addAll(ids);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_keyQuickControls, ids);
+    } catch (_) {}
+  }
 }

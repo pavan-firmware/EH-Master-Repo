@@ -408,6 +408,7 @@ class HomeDashboardData {
     required List<dynamic> devices,
     required bool lightOn,
     required ActuatorConfidence lightConfidence,
+    List<QuickControlPreview>? customControls,
   }) {
     if (devices.isEmpty) {
       return HomeDashboardData.setup(
@@ -441,19 +442,21 @@ class HomeDashboardData {
       );
     }).toList();
 
-    final controls = devices.map((d) {
-      final rawName = d.name as String? ?? 'Smart Switch 3X';
-      final cleanName = rawName.startsWith('EH ') ? rawName.substring(3).trim() : rawName;
-      final roomName = d.roomName as String? ?? 'Room';
-      return QuickControlPreview(
-        id: d.id as String? ?? 'dev',
-        kind: QuickControlKind.light,
-        title: '$roomName\n$cleanName',
-        value: lightOn ? 'On' : 'Off',
-        confidence: lightConfidence,
-        isEnabled: true,
-      );
-    }).toList();
+    final controls = customControls != null && customControls.isNotEmpty
+        ? customControls
+        : devices.map((d) {
+            final rawName = d.name as String? ?? 'Smart Switch 3X';
+            final cleanName = rawName.startsWith('EH ') ? rawName.substring(3).trim() : rawName;
+            final roomName = d.roomName as String? ?? 'Room';
+            return QuickControlPreview(
+              id: d.id as String? ?? 'dev',
+              kind: QuickControlKind.light,
+              title: '$roomName\n$cleanName',
+              value: lightOn ? 'On' : 'Off',
+              confidence: lightConfidence,
+              isEnabled: true,
+            );
+          }).toList();
 
     return HomeDashboardData(
       state: HomeDashboardState.ready,

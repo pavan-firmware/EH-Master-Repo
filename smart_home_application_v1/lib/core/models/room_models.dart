@@ -77,6 +77,10 @@ enum RoomCapabilityKind {
   fan,
   curtain,
   lamp,
+  outlet,
+  socket,
+  switchControl,
+  energy,
 }
 
 class RoomDevice {

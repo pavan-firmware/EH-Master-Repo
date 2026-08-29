@@ -33,6 +33,26 @@ void wifi_manager_connect(void);
 void wifi_manager_disconnect(void);
 
 /**
+ * Save Wi-Fi credentials to persistent NVS storage.
+ */
+bool wifi_manager_save_credentials(const char* ssid, const char* password);
+
+/**
+ * Load stored Wi-Fi credentials from persistent NVS storage.
+ */
+bool wifi_manager_load_credentials(char* out_ssid, size_t max_ssid_len, char* out_pass, size_t max_pass_len);
+
+/**
+ * Check if valid Wi-Fi credentials exist in NVS storage.
+ */
+bool wifi_manager_has_credentials(void);
+
+/**
+ * Clear stored Wi-Fi credentials from NVS storage (e.g. factory reset).
+ */
+void wifi_manager_clear_credentials(void);
+
+/**
  * Check if Wi-Fi is currently connected with valid IP.
  */
 bool wifi_manager_is_connected(void);

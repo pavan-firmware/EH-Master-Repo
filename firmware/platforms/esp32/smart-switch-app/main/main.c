@@ -68,6 +68,8 @@ static bool on_ble_wifi_provision(const char* ssid, const char* password)
         ESP_LOGE(TAG, "WIFI_CONNECT_FAILED reason=invalid_credentials");
         return false;
     }
+    wifi_manager_save_credentials(ssid, password);
+    ESP_LOGI(TAG, "WIFI_CREDENTIALS_PERSISTED");
     ESP_LOGI(TAG, "WIFI_CONNECT_STARTED");
     app_lifecycle_set_state(APP_STATE_WIFI_CONNECTING);
     wifi_manager_connect();
@@ -100,11 +102,16 @@ static void __attribute__((unused)) on_mqtt_command_received(const eh_mqtt_comma
 static void on_wifi_connected(const char* ip_address)
 {
     ESP_LOGI(TAG, "WIFI_CONNECTED ip=%s", ip_address);
+    ESP_LOGI(TAG, "WIFI_GOT_IP");
     ESP_LOGI(TAG, "Wi-Fi connected (%s), transitioning to MQTT connection...", ip_address);
     app_lifecycle_set_state(APP_STATE_MQTT_CONNECTING);
 
     // Validate and confirm boot image validity
     ota_manager_confirm_boot_valid();
+
+    // Lock commissioning secret upon successful network connection
+    factory_identity_v2_set_secret_consumed(true);
+    app_lifecycle_mark_commissioned();
 
     // Transition to ACTIVE once transport is connected
     eh_prov1_set_state(EH_PROV1_STATE_ACTIVE);
@@ -115,6 +122,7 @@ static void on_wifi_connected(const char* ip_address)
 static void on_wifi_disconnected(void)
 {
     ESP_LOGW(TAG, "WIFI_CONNECT_FAILED reason=disconnected");
+    ESP_LOGW(TAG, "WIFI_AUTO_CONNECT_FAILED");
     ESP_LOGW(TAG, "Wi-Fi lost, entering ERROR_RECOVERY");
     app_lifecycle_set_state(APP_STATE_ERROR_RECOVERY);
 }
@@ -166,15 +174,20 @@ void app_main(void)
         ESP_LOGI(TAG, "Device Identity: ID=%s, Serial=%s (DEV MODE)", id->device_id, id->serial_number);
     }
 
-    // Check if Wi-Fi already provisioned
-    bool has_wifi = false; // In production, query NVS credentials
+    // Check if Wi-Fi already provisioned in NVS
+    char stored_ssid[33] = {0};
+    char stored_pass[65] = {0};
+    bool has_wifi = wifi_manager_load_credentials(stored_ssid, sizeof(stored_ssid), stored_pass, sizeof(stored_pass));
     if (!has_wifi) {
         ESP_LOGI(TAG, "No Wi-Fi credentials found. Entering BLE_COMMISSIONING mode...");
         app_lifecycle_set_state(APP_STATE_BLE_COMMISSIONING);
         ble_commissioning_init();
     } else {
-        ESP_LOGI(TAG, "Stored credentials found. Connecting to Wi-Fi...");
+        ESP_LOGI(TAG, "WIFI_CREDENTIALS_LOADED");
+        ESP_LOGI(TAG, "Stored credentials found for SSID: %s. Connecting to Wi-Fi...", stored_ssid);
+        wifi_manager_set_credentials(stored_ssid, stored_pass);
         app_lifecycle_set_state(APP_STATE_WIFI_CONNECTING);
+        ESP_LOGI(TAG, "WIFI_AUTO_CONNECT_START");
         wifi_manager_connect();
     }
 }
