@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
@@ -7,7 +8,9 @@ import '../../onboarding/presentation/nearby_setup_page.dart';
 import 'room_context_page.dart';
 
 class RoomsPage extends StatefulWidget {
-  const RoomsPage({super.key});
+  const RoomsPage({super.key, this.homeController});
+
+  final HomeController? homeController;
 
   @override
   State<RoomsPage> createState() => _RoomsPageState();
@@ -47,8 +50,9 @@ class _RoomsPageState extends State<RoomsPage> {
 
   List<Room> get _visibleRooms {
     final query = _search.text.trim().toLowerCase();
+    final sourceRooms = widget.homeController?.rooms ?? RoomCatalog.preview;
     final rooms =
-        RoomCatalog.preview.where((room) {
+        sourceRooms.where((room) {
           final matchesQuery =
               query.isEmpty || room.name.toLowerCase().contains(query);
           final matchesFilter = switch (_filter) {
@@ -126,7 +130,8 @@ class _RoomsPageState extends State<RoomsPage> {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final rooms = _visibleRooms;
-    final totalDevices = RoomCatalog.preview.fold<int>(
+    final sourceRooms = widget.homeController?.rooms ?? RoomCatalog.preview;
+    final totalDevices = sourceRooms.fold<int>(
       0,
       (sum, room) => sum + room.deviceCount,
     );

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../core/models/connection_models.dart';
 import '../core/models/device_models.dart';
 import '../core/models/home_dashboard_models.dart';
+import '../core/models/room_models.dart';
 import '../core/repositories/home_repository.dart';
 import '../core/repositories/fake_home_repository.dart';
 import '../core/repositories/connection_repository.dart';
@@ -79,6 +80,54 @@ class HomeController extends ChangeNotifier {
   /// Commands are only available when cloud is enabled (authenticated + connected).
   bool get hardwareControlsAvailable => _cloudEnabled;
   DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
+
+  List<Room> get rooms {
+    if (_connectedDeviceSummary != null && _connectedDeviceSummary!.online) {
+      final roomName = _connectedDeviceSummary!.roomName;
+      final roomId = roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+      return [
+        Room(
+          id: roomId,
+          name: roomName,
+          iconKey: 'living',
+          deviceCount: 1,
+          connectivity: ConnectivityCause.online,
+          telemetryFreshness: TelemetryFreshness.current,
+          summary: _livingRoomLightOn ? 'Light on · Normal' : 'Light off · Normal',
+          status: RoomStatus.normal,
+          capabilities: [
+            RoomCapability(
+              id: 'light',
+              label: '$roomName light',
+              value: _livingRoomLightOn ? 'On' : 'Off',
+              kind: RoomCapabilityKind.light,
+            ),
+          ],
+          devices: [
+            RoomDevice(
+              id: _connectedDeviceSummary!.id,
+              name: _connectedDeviceSummary!.name,
+              type: 'Smart Switch',
+              value: _livingRoomLightOn ? 'On' : 'Off',
+              kind: RoomCapabilityKind.light,
+              confidence: ActuatorConfidence.confirmed,
+            ),
+          ],
+          insights: const RoomInsights(
+            energyKwh: '1.2 kWh',
+            energyChange: '+0.1 kWh',
+            activeWindow: 'Today',
+            averageTemperature: '24°C',
+            averageHumidity: '55%',
+          ),
+        ),
+      ];
+    }
+    if (_showDesignPreview) {
+      return RoomCatalog.preview;
+    }
+    return const [];
+  }
 
   /// The completed-home preview exists only until the user starts connecting a
   /// real device. Once BLE succeeds, the dashboard correctly moves to Wi-Fi

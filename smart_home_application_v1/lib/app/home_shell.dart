@@ -163,7 +163,7 @@ class _HomeShellState extends State<HomeShell> {
               'This control stays unavailable until secure device acknowledgement is implemented.',
             ),
           ),
-          const RoomsPage(),
+          RoomsPage(homeController: _homeController),
           AutomationsPage(onConnectHome: _openConnection),
           const ActivityPage(),
           SettingsPage(
