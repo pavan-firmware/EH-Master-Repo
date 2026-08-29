@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
+import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../onboarding/ble/ble_commissioning_channel.dart';
 import '../../onboarding/models/onboarding_models.dart';
+import '../../onboarding/presentation/qr_scanner_dialog.dart';
 import '../../onboarding/services/onboarding_service.dart';
 
 enum ProvisioningUiStage {
@@ -26,6 +28,7 @@ class DeviceProvisioningPage extends StatefulWidget {
     this.serialNumber,
     this.channel,
     this.onboardingService,
+    this.storageService,
     this.onDeviceProvisioned,
   });
 
@@ -34,6 +37,7 @@ class DeviceProvisioningPage extends StatefulWidget {
   final String? serialNumber;
   final BleCommissioningChannel? channel;
   final OnboardingService? onboardingService;
+  final DeviceStorageService? storageService;
   final void Function({
     required String deviceId,
     required String displayName,
@@ -50,15 +54,28 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   final _ssidController = TextEditingController();
   final _passwordController = TextEditingController();
   final _qrController = TextEditingController();
+  final _customRoomController = TextEditingController();
   bool _obscurePassword = true;
+  bool _showManualQrInput = false;
 
   ProvisioningUiStage _stage = ProvisioningUiStage.inputCredentials;
   String? _errorMessage;
   String _statusDetail =
       'Enter your 2.4 GHz Wi-Fi details to connect this device.';
   late final OnboardingService _service;
+  late final DeviceStorageService _storageService;
   EhProv1Session? _session;
   OnboardingDeviceIdentity? _activeIdentity;
+
+  String _selectedRoom = 'Living Room';
+  List<String> _availableRooms = [
+    'Living Room',
+    'Bedroom',
+    'Kitchen',
+    'Office',
+    'Dining Room',
+    'Balcony',
+  ];
 
   bool _isProvisioned = false;
   bool _isProvisioningInProgress = false;
@@ -69,6 +86,20 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     _service =
         widget.onboardingService ??
         DefaultOnboardingService(channel: widget.channel);
+    _storageService = widget.storageService ?? DeviceStorageService();
+    _loadRooms();
+  }
+
+  Future<void> _loadRooms() async {
+    final rooms = await _storageService.loadRooms();
+    if (mounted && rooms.isNotEmpty) {
+      setState(() {
+        _availableRooms = rooms;
+        if (!_availableRooms.contains(_selectedRoom)) {
+          _selectedRoom = _availableRooms.first;
+        }
+      });
+    }
   }
 
   @override
@@ -76,6 +107,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     _ssidController.dispose();
     _passwordController.dispose();
     _qrController.dispose();
+    _customRoomController.dispose();
     super.dispose();
   }
 
@@ -108,10 +140,18 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         .replaceFirst('BLE Wi-Fi provisioning exchange failed: ', '');
   }
 
-  Future<void> _verifyDeviceQr() async {
+  Future<void> _openQrScanner() async {
+    final scannedPayload = await QrScannerDialog.show(context);
+    if (scannedPayload != null && scannedPayload.isNotEmpty) {
+      _qrController.text = scannedPayload;
+      await _verifyDeviceQr(scannedPayload);
+    }
+  }
+
+  Future<void> _verifyDeviceQr([String? explicitPayload]) async {
     if (_isProvisioned || _isProvisioningInProgress) return;
 
-    final qrText = _qrController.text.trim();
+    final qrText = explicitPayload ?? _qrController.text.trim();
     if (qrText.isEmpty) {
       setState(() {
         _errorMessage = 'Please enter or scan the device QR code payload.';
@@ -138,6 +178,10 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
       });
       return;
     }
+
+    debugPrint('[QR] PAYLOAD_PARSED');
+    debugPrint('[QR] DEVICE_ID_MATCH id=${result.identity!.deviceId}');
+    debugPrint('[QR] DEVICE_VERIFIED');
 
     setState(() {
       _activeIdentity = (widget.channel?.deviceIdentity ?? result.identity!)
@@ -187,29 +231,17 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         return;
       }
 
-      // Pre-check: if device is ALREADY active and on Wi-Fi, mark complete immediately!
+      // Pre-check: if device is ALREADY active on Wi-Fi, move directly to room assignment
       if (widget.channel != null && widget.channel!.isConnected) {
         try {
           final curStatus = await widget.channel!.readStatus();
           final curState = (curStatus['state'] as String?)?.toUpperCase();
           final curWifi = curStatus['wifi'] == true;
           if (curState == 'ACTIVE' || curWifi) {
-            debugPrint('[PROV] Device is already ACTIVE on Wi-Fi. Skipping exchange and completing.');
-            if (!_isProvisioned) {
-              _isProvisioned = true;
-              if (widget.onDeviceProvisioned != null) {
-                widget.onDeviceProvisioned!(
-                  deviceId: baseIdentity.deviceId,
-                  displayName: baseIdentity.displayName,
-                  serialNumber: baseIdentity.serialNumber,
-                  roomName: 'Living Room',
-                );
-              }
-            }
+            debugPrint('[PROV] DEVICE_ACTIVE (already confirmed on Wi-Fi). Moving to room assignment.');
             setState(() {
-              _stage = ProvisioningUiStage.success;
-              _statusDetail =
-                  'Device connected to Wi-Fi and successfully commissioned!';
+              _stage = ProvisioningUiStage.roomAssignment;
+              _statusDetail = 'Choose a room for your ${baseIdentity.displayName}.';
             });
             return;
           }
@@ -218,7 +250,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         }
       }
 
-      // If commissioningSecret is missing, prompt user to verify device via QR code
+      // If commissioningSecret is missing, prompt user to scan QR code
       if (baseIdentity.commissioningSecret == null ||
           baseIdentity.commissioningSecret!.trim().isEmpty) {
         setState(() {
@@ -315,23 +347,12 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         );
       }
 
-      // Step 5: Complete & Update Home State (Idempotent)
-      if (!_isProvisioned) {
-        _isProvisioned = true;
-        if (widget.onDeviceProvisioned != null) {
-          widget.onDeviceProvisioned!(
-            deviceId: identity.deviceId,
-            displayName: identity.displayName,
-            serialNumber: identity.serialNumber,
-            roomName: 'Living Room',
-          );
-        }
-      }
+      debugPrint('[PROV] DEVICE_ACTIVE');
 
+      // Step 5: Room Assignment
       setState(() {
-        _stage = ProvisioningUiStage.success;
-        _statusDetail =
-            'Device connected to Wi-Fi and successfully commissioned!';
+        _stage = ProvisioningUiStage.roomAssignment;
+        _statusDetail = 'Choose a room for your ${identity.displayName}.';
       });
     } catch (e) {
       final isBleLost = widget.channel != null && !widget.channel!.isConnected;
@@ -348,6 +369,53 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     } finally {
       _isProvisioningInProgress = false;
     }
+  }
+
+  void _finishRoomAssignment() {
+    if (_isProvisioned) return;
+    _isProvisioned = true;
+
+    final assignedRoom = _customRoomController.text.trim().isNotEmpty
+        ? _customRoomController.text.trim()
+        : _selectedRoom;
+
+    final targetIdentity =
+        _activeIdentity ??
+        widget.channel?.deviceIdentity ??
+        OnboardingDeviceIdentity(
+          deviceId: widget.deviceId ?? '4444688e-989d-458e-820e-ac62a99ed8e1',
+          serialNumber: widget.serialNumber ?? 'EH-SW3X-2026W12-00001',
+          productVariantId: 'eh-smart-switch-3x',
+          hardwareRevision: 'HW_1_0',
+          firmwareFamily: 'esp32-switch-platform',
+          displayName: widget.deviceName,
+        );
+
+    if (_customRoomController.text.trim().isNotEmpty) {
+      _storageService.addRoom(assignedRoom);
+    }
+
+    debugPrint('[ROOM] DEVICE_ASSIGNED room=$assignedRoom');
+
+    if (widget.onDeviceProvisioned != null) {
+      widget.onDeviceProvisioned!(
+        deviceId: targetIdentity.deviceId,
+        displayName: targetIdentity.displayName,
+        serialNumber: targetIdentity.serialNumber,
+        roomName: assignedRoom,
+      );
+    }
+
+    setState(() {
+      _stage = ProvisioningUiStage.success;
+      _statusDetail =
+          '${targetIdentity.displayName} is securely connected in $assignedRoom!';
+    });
+  }
+
+  void _backToHome() {
+    widget.channel?.disconnect();
+    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   @override
@@ -444,57 +512,115 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             ),
           ] else if (_stage == ProvisioningUiStage.verifyDevice) ...[
             Container(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: tokens.blueDarker.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: tokens.bluePrimary.withValues(alpha: 0.2)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.qr_code_scanner_rounded,
-                    color: tokens.bluePrimary,
-                    size: 28,
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: tokens.bluePrimary.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.qr_code_scanner_rounded,
+                          color: tokens.bluePrimary,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Verify Device Ownership',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                color: tokens.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Scan the QR code on your EH Home device label.',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Verify Device Ownership',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: tokens.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Scan the QR code on your EH Home device or enter the payload to securely verify ownership.',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton.icon(
+                      onPressed: _isProvisioningInProgress ? null : _openQrScanner,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tokens.bluePrimary,
+                      ),
+                      icon: const Icon(Icons.camera_alt_rounded),
+                      label: const Text(
+                        'Scan QR Code',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _qrController,
-              decoration: InputDecoration(
-                labelText: 'QR Payload or Code (EH1:...)',
-                hintText: 'EH1:<deviceId>:<variant>:<secret>:<pin>',
-                prefixIcon: const Icon(Icons.qr_code_rounded),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () =>
+                  setState(() => _showManualQrInput = !_showManualQrInput),
+              icon: Icon(
+                _showManualQrInput
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                color: tokens.textSecondary,
+              ),
+              label: Text(
+                _showManualQrInput
+                    ? 'Hide manual code entry'
+                    : 'Or enter setup code manually',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 13),
               ),
             ),
+            if (_showManualQrInput) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _qrController,
+                decoration: InputDecoration(
+                  labelText: 'QR Payload / Code (EH1:...)',
+                  hintText: 'EH1:<deviceId>:<variant>:<secret>:<pin>',
+                  prefixIcon: const Icon(Icons.qr_code_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 48,
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isProvisioningInProgress ? null : _verifyDeviceQr,
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('Verify Code'),
+                ),
+              ),
+            ],
             if (_errorMessage != null) ...[
               const SizedBox(height: 14),
               Text(
@@ -505,18 +631,6 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
                 ),
               ),
             ],
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 52,
-              child: FilledButton.icon(
-                onPressed: _isProvisioningInProgress ? null : _verifyDeviceQr,
-                style: FilledButton.styleFrom(
-                  backgroundColor: tokens.blueDarker,
-                ),
-                icon: const Icon(Icons.verified_user_rounded),
-                label: const Text('Verify & Continue'),
-              ),
-            ),
           ] else if (_stage == ProvisioningUiStage.commissioningHandshake ||
               _stage == ProvisioningUiStage.sendingWifi ||
               _stage == ProvisioningUiStage.awaitingDeviceAck) ...[
@@ -530,7 +644,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
                     Text(
                       _stage == ProvisioningUiStage.commissioningHandshake
                           ? 'Establishing Secure Session…'
-                          : 'Sending Wi-Fi Credentials…',
+                          : (_stage == ProvisioningUiStage.sendingWifi
+                              ? 'Sending Wi-Fi Credentials…'
+                              : 'Connecting Device to Wi-Fi…'),
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -547,6 +663,60 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
                     ),
                   ],
                 ),
+              ),
+            ),
+          ] else if (_stage == ProvisioningUiStage.roomAssignment) ...[
+            Text(
+              'Select a Room',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: tokens.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _availableRooms.map((room) {
+                final isSelected = _selectedRoom == room && _customRoomController.text.isEmpty;
+                return ChoiceChip(
+                  label: Text(room),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _selectedRoom = room;
+                        _customRoomController.clear();
+                      });
+                    }
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _customRoomController,
+              decoration: InputDecoration(
+                labelText: 'Or enter custom room name',
+                hintText: 'e.g. Master Bedroom, Garage',
+                prefixIcon: const Icon(Icons.add_home_rounded),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: _finishRoomAssignment,
+                style: FilledButton.styleFrom(
+                  backgroundColor: tokens.blueDarker,
+                ),
+                icon: const Icon(Icons.check_rounded),
+                label: const Text('Assign Room & Finish'),
               ),
             ),
           ] else if (_stage == ProvisioningUiStage.success) ...[
@@ -594,8 +764,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             SizedBox(
               height: 50,
               child: FilledButton(
-                onPressed: () =>
-                    Navigator.popUntil(context, (route) => route.isFirst),
+                onPressed: _backToHome,
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.blueDarker,
                 ),
