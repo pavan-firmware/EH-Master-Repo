@@ -197,6 +197,7 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
         len = snprintf(payload, sizeof(payload),
                        "{\"state\":\"%s\",\"wifi\":%s,\"mqtt\":false,\"relays\":[false,false,false]}",
                        st_name, is_wifi_active ? "true" : "false");
+        ESP_LOGI(TAG, "GATT_6104_READ_START len=%d offset=%d state=%s wifi=%d", len, ctxt->offset, st_name, (int)is_wifi_active);
     } else if (attr_handle == s_telemetry_handle) {
         len = snprintf(payload, sizeof(payload),
                        "{\"v\":230.0,\"i\":0.0,\"p\":0.0,\"e\":0.0}");
@@ -204,8 +205,12 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
 
     if (len > 0) {
         int res = append_read_slice(ctxt, payload, (size_t)len);
-        if (res == 0 && attr_handle == s_product_info_handle) {
-            ESP_LOGI(TAG, "GATT_6105_READ_OK");
+        if (res == 0) {
+            if (attr_handle == s_product_info_handle) {
+                ESP_LOGI(TAG, "GATT_6105_READ_OK");
+            } else if (attr_handle == s_status_handle) {
+                ESP_LOGI(TAG, "GATT_6104_READ_OK");
+            }
         }
         return res;
     }

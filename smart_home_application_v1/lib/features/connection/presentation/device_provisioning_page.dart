@@ -61,6 +61,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   OnboardingDeviceIdentity? _activeIdentity;
 
   bool _isProvisioned = false;
+  bool _isProvisioningInProgress = false;
 
   @override
   void initState() {
@@ -108,6 +109,8 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   }
 
   Future<void> _verifyDeviceQr() async {
+    if (_isProvisioned || _isProvisioningInProgress) return;
+
     final qrText = _qrController.text.trim();
     if (qrText.isEmpty) {
       setState(() {
@@ -147,54 +150,86 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   }
 
   Future<void> _startProvisioning() async {
-    if (_isProvisioned) return;
-
-    final ssid = _ssidController.text.trim();
-    final password = _passwordController.text;
-
-    if (ssid.isEmpty) {
-      setState(() {
-        _errorMessage = 'Wi-Fi network name (SSID) is required';
-      });
-      return;
-    }
-
-    final baseIdentity =
-        _activeIdentity ??
-        widget.channel?.deviceIdentity ??
-        (widget.deviceId != null && widget.serialNumber != null
-            ? OnboardingDeviceIdentity(
-                deviceId: widget.deviceId!,
-                serialNumber: widget.serialNumber!,
-                productVariantId: 'eh-smart-switch-3x',
-                hardwareRevision: 'HW_1_0',
-                firmwareFamily: 'esp32-switch-platform',
-                displayName: widget.deviceName,
-              )
-            : null);
-
-    if (baseIdentity == null) {
-      setState(() {
-        _stage = ProvisioningUiStage.failed;
-        _errorMessage =
-            'Device identity could not be verified from hardware (6105). Please reconnect.';
-      });
-      return;
-    }
-
-    // If commissioningSecret is missing, prompt user to verify device via QR code
-    if (baseIdentity.commissioningSecret == null ||
-        baseIdentity.commissioningSecret!.trim().isEmpty) {
-      setState(() {
-        _stage = ProvisioningUiStage.verifyDevice;
-        _errorMessage = null;
-        _statusDetail =
-            'Scan the QR code on your device to securely verify ownership.';
-      });
-      return;
-    }
+    if (_isProvisioned || _isProvisioningInProgress) return;
+    _isProvisioningInProgress = true;
 
     try {
+      final ssid = _ssidController.text.trim();
+      final password = _passwordController.text;
+
+      if (ssid.isEmpty) {
+        setState(() {
+          _errorMessage = 'Wi-Fi network name (SSID) is required';
+        });
+        return;
+      }
+
+      final baseIdentity =
+          _activeIdentity ??
+          widget.channel?.deviceIdentity ??
+          (widget.deviceId != null && widget.serialNumber != null
+              ? OnboardingDeviceIdentity(
+                  deviceId: widget.deviceId!,
+                  serialNumber: widget.serialNumber!,
+                  productVariantId: 'eh-smart-switch-3x',
+                  hardwareRevision: 'HW_1_0',
+                  firmwareFamily: 'esp32-switch-platform',
+                  displayName: widget.deviceName,
+                )
+              : null);
+
+      if (baseIdentity == null) {
+        setState(() {
+          _stage = ProvisioningUiStage.failed;
+          _errorMessage =
+              'Device identity could not be verified from hardware (6105). Please reconnect.';
+        });
+        return;
+      }
+
+      // Pre-check: if device is ALREADY active and on Wi-Fi, mark complete immediately!
+      if (widget.channel != null && widget.channel!.isConnected) {
+        try {
+          final curStatus = await widget.channel!.readStatus();
+          final curState = (curStatus['state'] as String?)?.toUpperCase();
+          final curWifi = curStatus['wifi'] == true;
+          if (curState == 'ACTIVE' || curWifi) {
+            debugPrint('[PROV] Device is already ACTIVE on Wi-Fi. Skipping exchange and completing.');
+            if (!_isProvisioned) {
+              _isProvisioned = true;
+              if (widget.onDeviceProvisioned != null) {
+                widget.onDeviceProvisioned!(
+                  deviceId: baseIdentity.deviceId,
+                  displayName: baseIdentity.displayName,
+                  serialNumber: baseIdentity.serialNumber,
+                  roomName: 'Living Room',
+                );
+              }
+            }
+            setState(() {
+              _stage = ProvisioningUiStage.success;
+              _statusDetail =
+                  'Device connected to Wi-Fi and successfully commissioned!';
+            });
+            return;
+          }
+        } catch (e) {
+          debugPrint('[PROV] Pre-check status warning: $e');
+        }
+      }
+
+      // If commissioningSecret is missing, prompt user to verify device via QR code
+      if (baseIdentity.commissioningSecret == null ||
+          baseIdentity.commissioningSecret!.trim().isEmpty) {
+        setState(() {
+          _stage = ProvisioningUiStage.verifyDevice;
+          _errorMessage = null;
+          _statusDetail =
+              'Scan the QR code on your device to securely verify ownership.';
+        });
+        return;
+      }
+
       final identity = baseIdentity;
 
       final bool isSessionAuthenticated =
@@ -310,6 +345,8 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             ? 'The device disconnected. Keep it nearby and try again.'
             : 'Wi-Fi setup incomplete. Verify your Wi-Fi details and try again.';
       });
+    } finally {
+      _isProvisioningInProgress = false;
     }
   }
 
@@ -397,7 +434,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             SizedBox(
               height: 52,
               child: FilledButton.icon(
-                onPressed: _startProvisioning,
+                onPressed: _isProvisioningInProgress ? null : _startProvisioning,
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.blueDarker,
                 ),
@@ -472,7 +509,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             SizedBox(
               height: 52,
               child: FilledButton.icon(
-                onPressed: _verifyDeviceQr,
+                onPressed: _isProvisioningInProgress ? null : _verifyDeviceQr,
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.blueDarker,
                 ),
@@ -611,10 +648,12 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             SizedBox(
               height: 50,
               child: FilledButton(
-                onPressed: () => setState(() {
-                  _stage = ProvisioningUiStage.inputCredentials;
-                  _errorMessage = null;
-                }),
+                onPressed: _isProvisioningInProgress
+                    ? null
+                    : () => setState(() {
+                        _stage = ProvisioningUiStage.inputCredentials;
+                        _errorMessage = null;
+                      }),
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.blueDarker,
                 ),

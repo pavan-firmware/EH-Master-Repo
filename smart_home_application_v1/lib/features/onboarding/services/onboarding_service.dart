@@ -111,7 +111,7 @@ class DefaultOnboardingService implements OnboardingService {
         serialNumber = parsed['serialNumber'] as String? ?? serialNumber;
         displayName = parsed['displayName'] as String? ?? displayName;
       } else if (payloadRaw.contains(':')) {
-        // Canonical colon format: EH1:<deviceId>:<productVariantId>:<commissioningSecretHex>:<setupCode>
+        // Canonical colon format after EH1: prefix -> <deviceId>:<productVariantId>:<commissioningSecretHex>:<setupCode>
         final parts = payloadRaw.split(':');
         if (parts.length < 3) {
           return const OnboardingProgress(
@@ -123,15 +123,10 @@ class DefaultOnboardingService implements OnboardingService {
         productVariantId = parts[1];
         commissioningSecret = parts[2];
       } else {
-        // Base64 JSON format fallback
-        final decoded = utf8.decode(base64.decode(payloadRaw));
-        final parsed = jsonDecode(decoded) as Map<String, dynamic>;
-        deviceId = parsed['deviceId'] as String? ?? '';
-        productVariantId =
-            parsed['productVariantId'] as String? ?? productVariantId;
-        commissioningSecret = parsed['commissioningSecret'] as String? ?? '';
-        serialNumber = parsed['serialNumber'] as String? ?? serialNumber;
-        displayName = parsed['displayName'] as String? ?? displayName;
+        return const OnboardingProgress(
+          stepState: OnboardingStepState.failed,
+          errorMessage: 'Malformed EH1 QR code structure.',
+        );
       }
 
       if (deviceId.isEmpty || commissioningSecret.isEmpty) {
@@ -479,6 +474,8 @@ class DefaultOnboardingService implements OnboardingService {
     );
   }
 
+  static bool _isWaitingForWifi = false;
+
   @override
   Future<OnboardingProgress> waitForWifiConnection({
     required String deviceId,
@@ -493,52 +490,65 @@ class DefaultOnboardingService implements OnboardingService {
       );
     }
 
+    if (_isWaitingForWifi) {
+      debugPrint('[PROV] WIFI_CONNECT_WAIT already in progress, skipping duplicate.');
+      return OnboardingProgress(
+        stepState: OnboardingStepState.complete,
+        sessionId: session?.sessionId ?? '',
+        session: session,
+      );
+    }
+
+    _isWaitingForWifi = true;
     debugPrint('[PROV] WIFI_CONNECT_WAIT started (deviceId: $deviceId)');
     final stopwatch = Stopwatch()..start();
 
-    while (stopwatch.elapsed < timeout) {
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
-      try {
-        final status = await channel!.readStatus();
-        final isWifi = status['wifi'] == true;
-        final stateStr = (status['state'] as String?)?.toUpperCase();
+    try {
+      while (stopwatch.elapsed < timeout) {
+        try {
+          final status = await channel!.readStatus();
+          final isWifi = status['wifi'] == true;
+          final stateStr = (status['state'] as String?)?.toUpperCase();
 
-        debugPrint('[PROV] 6104_PARSED state=$stateStr wifi=$isWifi');
+          debugPrint('[PROV] 6104_PARSED state=$stateStr wifi=$isWifi');
 
-        if (isWifi || stateStr == 'ACTIVE' || stateStr == 'MQTT_CONNECTING' || stateStr == 'WIFI_CONNECTED') {
-          debugPrint(
-            '[PROV] WIFI_CONNECTED confirmed via status characteristic (state=$stateStr wifi=$isWifi)!',
-          );
-          return OnboardingProgress(
-            stepState: OnboardingStepState.complete,
-            sessionId: session?.sessionId ?? '',
-            session: session,
-          );
-        } else if (stateStr == 'WIFI_CONNECTING' ||
-            stateStr == 'BLE_COMMISSIONING') {
-          debugPrint(
-            '[PROV] Status is transient ($stateStr), awaiting completion...',
-          );
-        } else if (stateStr == 'WIFI_FAILED') {
-          return OnboardingProgress(
-            stepState: OnboardingStepState.failed,
-            errorMessage:
-                'The device could not connect to this Wi-Fi network. Check the password and try again.',
-            session: session,
-          );
+          if (isWifi || stateStr == 'ACTIVE' || stateStr == 'MQTT_CONNECTING' || stateStr == 'WIFI_CONNECTED') {
+            debugPrint(
+              '[PROV] WIFI_CONNECTED confirmed via status characteristic (state=$stateStr wifi=$isWifi)!',
+            );
+            return OnboardingProgress(
+              stepState: OnboardingStepState.complete,
+              sessionId: session?.sessionId ?? '',
+              session: session,
+            );
+          } else if (stateStr == 'WIFI_CONNECTING' ||
+              stateStr == 'BLE_COMMISSIONING') {
+            debugPrint(
+              '[PROV] Status is transient ($stateStr), awaiting completion...',
+            );
+          } else if (stateStr == 'WIFI_FAILED') {
+            return OnboardingProgress(
+              stepState: OnboardingStepState.failed,
+              errorMessage:
+                  'The device could not connect to this Wi-Fi network. Check the password and try again.',
+              session: session,
+            );
+          }
+        } catch (e) {
+          debugPrint('[PROV] Polling status warning: $e');
         }
-      } catch (e) {
-        debugPrint('[PROV] Polling status warning: $e');
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
       }
-    }
 
-    // If timeout expires without confirmation, return friendly failure retaining the session
-    return OnboardingProgress(
-      stepState: OnboardingStepState.failed,
-      errorMessage:
-          'Device is still connecting to Wi-Fi. Check your network or keep device nearby and try again.',
-      session: session,
-    );
+      return OnboardingProgress(
+        stepState: OnboardingStepState.failed,
+        errorMessage:
+            'Device is still connecting to Wi-Fi. Check your network or keep device nearby and try again.',
+        session: session,
+      );
+    } finally {
+      _isWaitingForWifi = false;
+    }
   }
 
   @override
