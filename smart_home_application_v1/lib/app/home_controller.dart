@@ -14,6 +14,8 @@ import '../core/services/realtime_event_service.dart';
 
 import '../core/services/device_storage_service.dart';
 
+import '../core/utils/device_name_formatter.dart';
+
 /// HomeController manages all home/device/connection state.
 ///
 /// In production (Phase 7C), pass [repository] = CloudHomeRepository
@@ -30,15 +32,16 @@ class HomeController extends ChangeNotifier {
        _connectionRepository =
            connectionRepository ?? BleConnectionRepository(),
        _storageService = storageService ?? DeviceStorageService() {
-    final cached = DeviceStorageService.cachedDevice;
-    if (cached != null) {
-      _connectedDeviceSummary = cached;
-      _activeDeviceId = cached.id;
-      _activeDisplayName = cached.name;
-      _activeSerialNumber = cached.model;
+    final cachedList = DeviceStorageService.cachedDevices;
+    if (cachedList.isNotEmpty) {
+      _devices = List.from(cachedList);
+      _connectedDeviceSummary = _devices.first;
+      _activeDeviceId = _devices.first.id;
+      _activeDisplayName = _devices.first.name;
+      _activeSerialNumber = _devices.first.model;
       _connectionState = HomeConnectionState.connected;
-      _connectionMessage = '${cached.name} is connected and online.';
-      debugPrint('[HOME] SYNC_HYDRATED id=${cached.id} name=${cached.name} room=${cached.roomName}');
+      _connectionMessage = '${_devices.first.name} is connected and online.';
+      debugPrint('[HOME] SYNC_HYDRATED devices_count=${_devices.length}');
     }
     if (realtimeEventService != null) {
       _subscribeToRealtime(realtimeEventService);
@@ -65,6 +68,7 @@ class HomeController extends ChangeNotifier {
   String? _connectionMessage;
   DeviceConnection _cloudDeviceConnection = DeviceConnection.offline;
   ConnectedDeviceSummary? _connectedDeviceSummary;
+  List<ConnectedDeviceSummary> _devices = [];
   String? _activeDeviceId;
   String? _activeDisplayName;
   String? _activeSerialNumber;
@@ -82,6 +86,7 @@ class HomeController extends ChangeNotifier {
   String? get connectionMessage => _connectionMessage;
   ActuatorConfidence get lightConfidence => _lightConfidence;
   ConnectedDeviceSummary? get connectedDeviceSummary => _connectedDeviceSummary;
+  List<ConnectedDeviceSummary> get devices => List.unmodifiable(_devices);
   String? get activeDeviceId => _activeDeviceId;
   String? get activeDisplayName => _activeDisplayName;
   String? get activeSerialNumber => _activeSerialNumber;
@@ -91,37 +96,45 @@ class HomeController extends ChangeNotifier {
   DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
 
   List<Room> get rooms {
-    if (_connectedDeviceSummary != null && _connectedDeviceSummary!.online) {
-      final roomName = _connectedDeviceSummary!.roomName;
-      final roomId = roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
-      return [
-        Room(
+    if (_devices.isNotEmpty) {
+      final Map<String, List<ConnectedDeviceSummary>> roomMap = {};
+      for (final d in _devices) {
+        final room = d.roomName.trim().isEmpty ? 'Living Room' : d.roomName;
+        roomMap.putIfAbsent(room, () => []).add(d);
+      }
+      return roomMap.entries.map((entry) {
+        final roomName = entry.key;
+        final roomDevices = entry.value;
+        final roomId = roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+        return Room(
           id: roomId,
           name: roomName,
           iconKey: 'living',
-          deviceCount: 1,
+          deviceCount: roomDevices.length,
           connectivity: ConnectivityCause.online,
           telemetryFreshness: TelemetryFreshness.current,
-          summary: _livingRoomLightOn ? 'Light on · Normal' : 'Light off · Normal',
+          summary: _livingRoomLightOn ? 'Active · Normal' : 'Standby · Normal',
           status: RoomStatus.normal,
-          capabilities: [
-            RoomCapability(
-              id: 'light',
-              label: '$roomName light',
+          capabilities: roomDevices.map((d) {
+            final opName = formatOperatingName(d.name);
+            return RoomCapability(
+              id: d.id,
+              label: '$roomName $opName',
               value: _livingRoomLightOn ? 'On' : 'Off',
               kind: RoomCapabilityKind.light,
-            ),
-          ],
-          devices: [
-            RoomDevice(
-              id: _connectedDeviceSummary!.id,
-              name: _connectedDeviceSummary!.name,
-              type: 'Smart Switch',
+            );
+          }).toList(),
+          devices: roomDevices.map((d) {
+            final opName = formatOperatingName(d.name);
+            return RoomDevice(
+              id: d.id,
+              name: opName,
+              type: 'Smart Switch 3X',
               value: _livingRoomLightOn ? 'On' : 'Off',
               kind: RoomCapabilityKind.light,
               confidence: ActuatorConfidence.confirmed,
-            ),
-          ],
+            );
+          }).toList(),
           insights: const RoomInsights(
             energyKwh: '1.2 kWh',
             energyChange: '+0.1 kWh',
@@ -129,17 +142,16 @@ class HomeController extends ChangeNotifier {
             averageTemperature: '24°C',
             averageHumidity: '55%',
           ),
-        ),
-      ];
+        );
+      }).toList();
     }
     return const [];
   }
 
   HomeDashboardData get dashboard {
-    if (_connectedDeviceSummary != null && _connectedDeviceSummary!.online) {
-      return HomeDashboardData.liveDevice(
-        deviceName: _connectedDeviceSummary!.name,
-        roomName: _connectedDeviceSummary!.roomName,
+    if (_devices.isNotEmpty) {
+      return HomeDashboardData.forLiveDevices(
+        devices: _devices,
         lightOn: _livingRoomLightOn,
         lightConfidence: _lightConfidence,
       );
@@ -244,18 +256,19 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> _hydrateFromStorage() async {
-    final saved = await _storageService.loadDevice();
-    if (saved != null) {
-      _connectedDeviceSummary = saved;
-      _activeDeviceId = saved.id;
-      _activeDisplayName = saved.name;
-      _activeSerialNumber = saved.model;
+    final savedList = await _storageService.loadDevices();
+    if (savedList.isNotEmpty) {
+      _devices = List.from(savedList);
+      _connectedDeviceSummary = _devices.first;
+      _activeDeviceId = _devices.first.id;
+      _activeDisplayName = _devices.first.name;
+      _activeSerialNumber = _devices.first.model;
       _connectionState = HomeConnectionState.connected;
-      _connectionMessage = '${saved.name} is connected and online.';
-      debugPrint('[HOME] DEVICE_REGISTERED id=${saved.id} name=${saved.name} room=${saved.roomName}');
+      _connectionMessage = '${_devices.first.name} is connected and online.';
+      debugPrint('[HOME] DEVICE_REGISTERED count=${_devices.length}');
       debugPrint('[HOME] DEVICE_PERSISTED');
       debugPrint('[HOME] HOME_STATE_REFRESH');
-      debugPrint('[HOME] REAL_DEVICE_COUNT=1');
+      debugPrint('[HOME] REAL_DEVICE_COUNT=${_devices.length}');
       debugPrint('[HOME] DEVICE_STATUS=ONLINE');
       notifyListeners();
     }
@@ -276,7 +289,7 @@ class HomeController extends ChangeNotifier {
       _connectionState = HomeConnectionState.connected;
       _connectionMessage = result.message;
     } else {
-      if (_connectedDeviceSummary == null) {
+      if (_devices.isEmpty) {
         _connectionState = HomeConnectionState.notConfigured;
       }
       _connectionMessage = result.message;
@@ -304,6 +317,12 @@ class HomeController extends ChangeNotifier {
       roomName: roomName ?? 'Living Room',
       online: true,
     );
+    final idx = _devices.indexWhere((d) => d.id == deviceId);
+    if (idx >= 0) {
+      _devices[idx] = summary;
+    } else {
+      _devices.add(summary);
+    }
     _connectedDeviceSummary = summary;
     _connectionState = HomeConnectionState.connected;
     _connectionMessage = '$displayName is connected and online.';
@@ -314,7 +333,7 @@ class HomeController extends ChangeNotifier {
     debugPrint('[HOME] DEVICE_REGISTERED id=$deviceId name=$displayName room=${roomName ?? "Living Room"}');
     debugPrint('[HOME] DEVICE_PERSISTED');
     debugPrint('[HOME] HOME_STATE_REFRESH');
-    debugPrint('[HOME] REAL_DEVICE_COUNT=1');
+    debugPrint('[HOME] REAL_DEVICE_COUNT=${_devices.length}');
     debugPrint('[HOME] DEVICE_STATUS=ONLINE');
 
     notifyListeners();

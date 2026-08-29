@@ -362,6 +362,9 @@ class HomeDashboardData {
     required bool lightOn,
     required ActuatorConfidence lightConfidence,
   }) {
+    final cleanDeviceName = deviceName.startsWith('EH ')
+        ? deviceName.substring(3).trim()
+        : deviceName;
     return HomeDashboardData(
       state: HomeDashboardState.ready,
       source: DashboardDataSource.live,
@@ -377,10 +380,10 @@ class HomeDashboardData {
       securityDetail: 'Device online',
       rooms: [
         RoomPreview(
-          id: 'living',
+          id: roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_'),
           name: roomName,
           deviceCount: 1,
-          summary: lightOn ? 'Light on' : 'Light off',
+          summary: lightOn ? 'Active' : 'Standby',
           status: 'Online',
           isAttention: false,
           freshness: TelemetryFreshness.current,
@@ -391,12 +394,82 @@ class HomeDashboardData {
         QuickControlPreview(
           id: 'light',
           kind: QuickControlKind.light,
-          title: '$roomName\nLight',
+          title: '$roomName\n$cleanDeviceName',
           value: lightOn ? 'On' : 'Off',
           confidence: lightConfidence,
           isEnabled: true,
         ),
       ],
+      routine: null,
+    );
+  }
+
+  factory HomeDashboardData.forLiveDevices({
+    required List<dynamic> devices,
+    required bool lightOn,
+    required ActuatorConfidence lightConfidence,
+  }) {
+    if (devices.isEmpty) {
+      return HomeDashboardData.setup(
+        state: HomeDashboardState.setupRequired,
+        title: 'Connect your first device',
+        message: 'Add a nearby device to get your home up and running.',
+        action: 'Add a device',
+        connectivity: ConnectivityCause.unknown,
+      );
+    }
+
+    final Map<String, List<dynamic>> roomMap = {};
+    for (final d in devices) {
+      final room = (d.roomName as String? ?? 'Living Room').trim();
+      roomMap.putIfAbsent(room.isEmpty ? 'Living Room' : room, () => []).add(d);
+    }
+
+    final rooms = roomMap.entries.map((entry) {
+      final roomName = entry.key;
+      final roomDevices = entry.value;
+      final roomId = roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+      return RoomPreview(
+        id: roomId,
+        name: roomName,
+        deviceCount: roomDevices.length,
+        summary: lightOn ? 'Active' : 'Standby',
+        status: 'Online',
+        isAttention: false,
+        freshness: TelemetryFreshness.current,
+        iconKey: 'living',
+      );
+    }).toList();
+
+    final controls = devices.map((d) {
+      final rawName = d.name as String? ?? 'Smart Switch 3X';
+      final cleanName = rawName.startsWith('EH ') ? rawName.substring(3).trim() : rawName;
+      final roomName = d.roomName as String? ?? 'Room';
+      return QuickControlPreview(
+        id: d.id as String? ?? 'dev',
+        kind: QuickControlKind.light,
+        title: '$roomName\n$cleanName',
+        value: lightOn ? 'On' : 'Off',
+        confidence: lightConfidence,
+        isEnabled: true,
+      );
+    }).toList();
+
+    return HomeDashboardData(
+      state: HomeDashboardState.ready,
+      source: DashboardDataSource.live,
+      connectivity: ConnectivityCause.online,
+      telemetryFreshness: TelemetryFreshness.current,
+      devicesOnline: devices.where((d) => d.online == true).length,
+      deviceCount: devices.length,
+      roomCount: roomMap.length,
+      activeRoomCount: roomMap.length,
+      networkLabel: 'Wi-Fi',
+      networkDetail: 'Connected',
+      securityLabel: 'Security',
+      securityDetail: 'All devices online',
+      rooms: rooms,
+      controls: controls,
       routine: null,
     );
   }

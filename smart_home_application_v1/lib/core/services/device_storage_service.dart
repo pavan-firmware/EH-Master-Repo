@@ -4,15 +4,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/connection_models.dart';
 
-/// Persistent storage service for commissioned EH Home devices and rooms.
+/// Persistent storage service for multiple commissioned EH Home devices and rooms.
 class DeviceStorageService {
   DeviceStorageService();
 
-  static const String _keyPrimaryDevice = 'eh_primary_device_v3';
-  static const String _keyRooms = 'eh_custom_rooms_v3';
+  static const String _keyDevicesList = 'eh_devices_list_v4';
+  static const String _keyRooms = 'eh_custom_rooms_v4';
 
   // In-memory cache for synchronous reads and instant startup
-  static ConnectedDeviceSummary? _cachedDevice;
+  static final List<ConnectedDeviceSummary> _cachedDevices = [];
   static final List<String> _cachedRooms = [
     'Living Room',
     'Bedroom',
@@ -22,26 +22,36 @@ class DeviceStorageService {
     'Balcony',
   ];
 
-  static ConnectedDeviceSummary? get cachedDevice => _cachedDevice;
+  static ConnectedDeviceSummary? get primaryDevice =>
+      _cachedDevices.isNotEmpty ? _cachedDevices.first : null;
+
+  static List<ConnectedDeviceSummary> get cachedDevices =>
+      List<ConnectedDeviceSummary>.unmodifiable(_cachedDevices);
 
   /// Global upfront initialization called from main() before runApp().
   static Future<void> init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString(_keyPrimaryDevice);
-      if (jsonStr != null && jsonStr.isNotEmpty) {
-        final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-        _cachedDevice = ConnectedDeviceSummary(
-          id: data['id'] as String? ?? '',
-          name: data['name'] as String? ?? 'EH Smart Switch 3X',
-          model: data['model'] as String? ?? 'eh-smart-switch-3x',
-          firmware: data['firmware'] as String? ?? '1.0.0',
-          connectedVia: data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
-          signalLabel: data['signalLabel'] as String? ?? 'Strong',
-          roomName: data['roomName'] as String? ?? 'Living Room',
-          online: data['online'] as bool? ?? true,
-        );
-        debugPrint('[HOME] INIT_HYDRATED id=${_cachedDevice!.id} room=${_cachedDevice!.roomName}');
+      final jsonListStr = prefs.getString(_keyDevicesList);
+      if (jsonListStr != null && jsonListStr.isNotEmpty) {
+        final List<dynamic> decodedList = jsonDecode(jsonListStr) as List<dynamic>;
+        _cachedDevices.clear();
+        for (final item in decodedList) {
+          final data = item as Map<String, dynamic>;
+          _cachedDevices.add(
+            ConnectedDeviceSummary(
+              id: data['id'] as String? ?? '',
+              name: data['name'] as String? ?? 'Smart Switch 3X',
+              model: data['model'] as String? ?? 'eh-smart-switch-3x',
+              firmware: data['firmware'] as String? ?? '1.0.0',
+              connectedVia: data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
+              signalLabel: data['signalLabel'] as String? ?? 'Strong',
+              roomName: data['roomName'] as String? ?? 'Living Room',
+              online: data['online'] as bool? ?? true,
+            ),
+          );
+        }
+        debugPrint('[HOME] INIT_HYDRATED devices_count=${_cachedDevices.length}');
       }
       final list = prefs.getStringList(_keyRooms);
       if (list != null && list.isNotEmpty) {
@@ -56,69 +66,101 @@ class DeviceStorageService {
     }
   }
 
-  /// Save a commissioned device to persistent storage.
+  /// Save or update a commissioned device in persistent storage.
   Future<void> saveDevice(ConnectedDeviceSummary device) async {
-    _cachedDevice = device;
-    final jsonMap = {
-      'id': device.id,
-      'name': device.name,
-      'model': device.model,
-      'firmware': device.firmware,
-      'connectedVia': device.connectedVia,
-      'signalLabel': device.signalLabel,
-      'roomName': device.roomName,
-      'online': device.online,
-    };
-    final jsonStr = jsonEncode(jsonMap);
+    final index = _cachedDevices.indexWhere((d) => d.id == device.id);
+    if (index >= 0) {
+      _cachedDevices[index] = device;
+    } else {
+      _cachedDevices.add(device);
+    }
+
+    final jsonList = _cachedDevices.map((d) => {
+      'id': d.id,
+      'name': d.name,
+      'model': d.model,
+      'firmware': d.firmware,
+      'connectedVia': d.connectedVia,
+      'signalLabel': d.signalLabel,
+      'roomName': d.roomName,
+      'online': d.online,
+    }).toList();
+
+    final jsonStr = jsonEncode(jsonList);
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyPrimaryDevice, jsonStr);
-      debugPrint('[HOME] DEVICE_PERSISTED (shared_preferences) id=${device.id} room=${device.roomName}');
+      await prefs.setString(_keyDevicesList, jsonStr);
+      debugPrint('[HOME] DEVICE_PERSISTED id=${device.id} room=${device.roomName} total=${_cachedDevices.length}');
     } catch (e) {
       debugPrint('[HOME] SharedPreferences write warning: $e');
     }
   }
 
-  /// Load the commissioned device from persistent storage.
-  Future<ConnectedDeviceSummary?> loadDevice() async {
-    if (_cachedDevice != null) {
-      return _cachedDevice;
+  /// Load all commissioned devices from persistent storage.
+  Future<List<ConnectedDeviceSummary>> loadDevices() async {
+    if (_cachedDevices.isNotEmpty) {
+      return List<ConnectedDeviceSummary>.unmodifiable(_cachedDevices);
     }
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString(_keyPrimaryDevice);
-      if (jsonStr != null && jsonStr.isNotEmpty) {
-        final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-        _cachedDevice = ConnectedDeviceSummary(
-          id: data['id'] as String? ?? '',
-          name: data['name'] as String? ?? 'EH Smart Switch 3X',
-          model: data['model'] as String? ?? 'eh-smart-switch-3x',
-          firmware: data['firmware'] as String? ?? '1.0.0',
-          connectedVia: data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
-          signalLabel: data['signalLabel'] as String? ?? 'Strong',
-          roomName: data['roomName'] as String? ?? 'Living Room',
-          online: data['online'] as bool? ?? true,
-        );
-        debugPrint('[HOME] DEVICE_HYDRATED (shared_preferences) id=${_cachedDevice!.id} room=${_cachedDevice!.roomName}');
-        return _cachedDevice;
+      final jsonListStr = prefs.getString(_keyDevicesList);
+      if (jsonListStr != null && jsonListStr.isNotEmpty) {
+        final List<dynamic> decodedList = jsonDecode(jsonListStr) as List<dynamic>;
+        _cachedDevices.clear();
+        for (final item in decodedList) {
+          final data = item as Map<String, dynamic>;
+          _cachedDevices.add(
+            ConnectedDeviceSummary(
+              id: data['id'] as String? ?? '',
+              name: data['name'] as String? ?? 'Smart Switch 3X',
+              model: data['model'] as String? ?? 'eh-smart-switch-3x',
+              firmware: data['firmware'] as String? ?? '1.0.0',
+              connectedVia: data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
+              signalLabel: data['signalLabel'] as String? ?? 'Strong',
+              roomName: data['roomName'] as String? ?? 'Living Room',
+              online: data['online'] as bool? ?? true,
+            ),
+          );
+        }
+        return List<ConnectedDeviceSummary>.unmodifiable(_cachedDevices);
       }
     } catch (e) {
       debugPrint('[HOME] SharedPreferences read warning: $e');
     }
 
-    return null;
+    return List<ConnectedDeviceSummary>.unmodifiable(_cachedDevices);
   }
 
-  /// Remove the commissioned device (e.g. on "Forget Device").
-  Future<void> clearDevice() async {
-    _cachedDevice = null;
+  /// Remove a commissioned device.
+  Future<void> removeDevice(String deviceId) async {
+    _cachedDevices.removeWhere((d) => d.id == deviceId);
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_keyPrimaryDevice);
+      final jsonList = _cachedDevices.map((d) => {
+        'id': d.id,
+        'name': d.name,
+        'model': d.model,
+        'firmware': d.firmware,
+        'connectedVia': d.connectedVia,
+        'signalLabel': d.signalLabel,
+        'roomName': d.roomName,
+        'online': d.online,
+      }).toList();
+      await prefs.setString(_keyDevicesList, jsonEncode(jsonList));
     } catch (_) {}
-    debugPrint('[HOME] DEVICE_CLEARED');
+    debugPrint('[HOME] DEVICE_REMOVED id=$deviceId');
+  }
+
+  /// Remove all commissioned devices (e.g. factory reset).
+  Future<void> clearAllDevices() async {
+    _cachedDevices.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyDevicesList);
+    } catch (_) {}
+    debugPrint('[HOME] ALL_DEVICES_CLEARED');
   }
 
   /// Load available rooms (standard + user created).
