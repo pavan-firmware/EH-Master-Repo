@@ -101,9 +101,12 @@ class _HomeShellState extends State<HomeShell> {
               ),
             ),
     );
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => RoomContextPage(room: typedRoom)));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            RoomContextPage(room: typedRoom, onAddDevice: _openConnection),
+      ),
+    );
   }
 
   void _showControlCustomization() {
@@ -184,7 +187,10 @@ class _HomeShellState extends State<HomeShell> {
               'This control stays unavailable until secure device acknowledgement is implemented.',
             ),
           ),
-          RoomsPage(homeController: _homeController),
+          RoomsPage(
+            homeController: _homeController,
+            onAddDevice: _openConnection,
+          ),
           AutomationsPage(onConnectHome: _openConnection),
           const ActivityPage(),
           SettingsPage(

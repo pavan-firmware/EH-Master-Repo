@@ -31,10 +31,11 @@ void main() {
       );
 
       await storageService.saveDevice(device);
-      final loaded = await storageService.loadDevice();
+      final loadedList = await storageService.loadDevices();
 
-      expect(loaded, isNotNull);
-      expect(loaded!.id, '4444688e-989d-458e-820e-ac62a99ed8e1');
+      expect(loadedList, isNotEmpty);
+      final loaded = loadedList.first;
+      expect(loaded.id, '4444688e-989d-458e-820e-ac62a99ed8e1');
       expect(loaded.name, 'EH Smart Switch 3X');
       expect(loaded.roomName, 'Living Room');
       expect(loaded.online, isTrue);

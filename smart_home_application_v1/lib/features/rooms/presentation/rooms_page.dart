@@ -8,9 +8,10 @@ import '../../onboarding/presentation/nearby_setup_page.dart';
 import 'room_context_page.dart';
 
 class RoomsPage extends StatefulWidget {
-  const RoomsPage({super.key, this.homeController});
+  const RoomsPage({super.key, this.homeController, this.onAddDevice});
 
   final HomeController? homeController;
+  final VoidCallback? onAddDevice;
 
   @override
   State<RoomsPage> createState() => _RoomsPageState();
@@ -78,7 +79,14 @@ class _RoomsPageState extends State<RoomsPage> {
   void _openRoom(Room room) {
     _dismissSearch();
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => RoomContextPage(room: room)))
+        .push(
+          MaterialPageRoute(
+            builder: (_) => RoomContextPage(
+              room: room,
+              onAddDevice: widget.onAddDevice,
+            ),
+          ),
+        )
         .then((_) {
           if (mounted) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -122,9 +130,16 @@ class _RoomsPageState extends State<RoomsPage> {
     }
   }
 
-  void _addRoom() => Navigator.of(
-    context,
-  ).push(MaterialPageRoute(builder: (_) => const NearbySetupPage()));
+  void _addRoom() {
+    _dismissSearch();
+    if (widget.onAddDevice != null) {
+      widget.onAddDevice!();
+    } else {
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const NearbySetupPage()));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

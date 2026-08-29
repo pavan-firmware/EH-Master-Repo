@@ -6,8 +6,9 @@ import '../../../core/theme/app_theme.dart';
 
 /// One reusable detail page renders all room types from typed capabilities.
 class RoomContextPage extends StatelessWidget {
-  const RoomContextPage({super.key, required this.room});
+  const RoomContextPage({super.key, required this.room, this.onAddDevice});
   final Room room;
+  final VoidCallback? onAddDevice;
 
   @override
   Widget build(BuildContext context) {
@@ -101,7 +102,7 @@ class RoomContextPage extends StatelessWidget {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () {},
+                  onPressed: onAddDevice,
                   style: TextButton.styleFrom(
                     foregroundColor: tokens.bluePrimary,
                   ),

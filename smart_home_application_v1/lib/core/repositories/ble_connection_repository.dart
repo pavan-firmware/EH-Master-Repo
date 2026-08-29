@@ -138,17 +138,24 @@ class BleConnectionRepository implements ConnectionRepository {
     }
   }
 
-  Future<void> _waitForBluetooth() {
-    return _ble.statusStream
-        .where((status) => status == BleStatus.ready)
-        .first
-        .timeout(
-          const Duration(seconds: 10),
-          onTimeout: () => throw const ConnectionFailure(
-            ConnectionFailureKind.bluetoothUnavailable,
-            'Bluetooth is off or unavailable. Turn it on and try again.',
-          ),
-        );
+  Future<void> _waitForBluetooth() async {
+    if (_ble.status == BleStatus.ready) {
+      return;
+    }
+    try {
+      await _ble.statusStream
+          .where((status) => status == BleStatus.ready)
+          .first
+          .timeout(const Duration(seconds: 4));
+    } catch (_) {
+      if (_ble.status == BleStatus.ready) {
+        return;
+      }
+      throw const ConnectionFailure(
+        ConnectionFailureKind.bluetoothUnavailable,
+        'Bluetooth is off or unavailable. Turn it on and try again.',
+      );
+    }
   }
 
   void dispose() {
