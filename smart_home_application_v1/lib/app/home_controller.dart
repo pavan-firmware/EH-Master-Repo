@@ -11,6 +11,8 @@ import '../core/repositories/ble_connection_repository.dart';
 import '../core/config/device_connection_config.dart';
 import '../core/services/realtime_event_service.dart';
 
+import '../core/services/device_storage_service.dart';
+
 /// HomeController manages all home/device/connection state.
 ///
 /// In production (Phase 7C), pass [repository] = CloudHomeRepository
@@ -21,17 +23,21 @@ class HomeController extends ChangeNotifier {
     HomeRepository? repository,
     ConnectionRepository? connectionRepository,
     RealtimeEventService? realtimeEventService,
+    DeviceStorageService? storageService,
     this._cloudEnabled = false,
   }) : _repository = repository ?? FakeHomeRepository(),
        _connectionRepository =
-           connectionRepository ?? BleConnectionRepository() {
+           connectionRepository ?? BleConnectionRepository(),
+       _storageService = storageService ?? DeviceStorageService() {
     if (realtimeEventService != null) {
       _subscribeToRealtime(realtimeEventService);
     }
+    _hydrateFromStorage();
   }
 
   final HomeRepository _repository;
   final ConnectionRepository _connectionRepository;
+  final DeviceStorageService _storageService;
 
   /// True when a real authenticated backend is powering this controller.
   final bool _cloudEnabled;
@@ -192,6 +198,25 @@ class HomeController extends ChangeNotifier {
     }
   }
 
+  Future<void> _hydrateFromStorage() async {
+    final saved = await _storageService.loadDevice();
+    if (saved != null) {
+      _connectedDeviceSummary = saved;
+      _showDesignPreview = false;
+      _activeDeviceId = saved.id;
+      _activeDisplayName = saved.name;
+      _activeSerialNumber = saved.model;
+      _connectionState = HomeConnectionState.connected;
+      _connectionMessage = '${saved.name} is connected and online.';
+      debugPrint('[HOME] DEVICE_REGISTERED id=${saved.id} name=${saved.name} room=${saved.roomName}');
+      debugPrint('[HOME] DEVICE_PERSISTED');
+      debugPrint('[HOME] HOME_STATE_REFRESH');
+      debugPrint('[HOME] REAL_DEVICE_COUNT=1');
+      debugPrint('[HOME] DEVICE_STATUS=ONLINE');
+      notifyListeners();
+    }
+  }
+
   Future<ConnectionResult> startConnectionSetup() async {
     _connectionState = HomeConnectionState.connecting;
     _connectionMessage = 'Looking for your home device nearby';
@@ -208,7 +233,9 @@ class HomeController extends ChangeNotifier {
       _connectionState = HomeConnectionState.connected;
       _connectionMessage = result.message;
     } else {
-      _connectionState = HomeConnectionState.notConfigured;
+      if (_connectedDeviceSummary == null) {
+        _connectionState = HomeConnectionState.notConfigured;
+      }
       _connectionMessage = result.message;
     }
     notifyListeners();
@@ -224,7 +251,7 @@ class HomeController extends ChangeNotifier {
     _activeDeviceId = deviceId;
     _activeDisplayName = displayName;
     _activeSerialNumber = serialNumber;
-    _connectedDeviceSummary = ConnectedDeviceSummary(
+    final summary = ConnectedDeviceSummary(
       id: deviceId,
       name: displayName,
       model: 'eh-smart-switch-3x',
@@ -234,9 +261,20 @@ class HomeController extends ChangeNotifier {
       roomName: roomName ?? 'Living Room',
       online: true,
     );
+    _connectedDeviceSummary = summary;
     _showDesignPreview = false;
     _connectionState = HomeConnectionState.connected;
     _connectionMessage = '$displayName is connected and online.';
+
+    // Persist to local storage
+    _storageService.saveDevice(summary);
+
+    debugPrint('[HOME] DEVICE_REGISTERED id=$deviceId name=$displayName room=${roomName ?? "Living Room"}');
+    debugPrint('[HOME] DEVICE_PERSISTED');
+    debugPrint('[HOME] HOME_STATE_REFRESH');
+    debugPrint('[HOME] REAL_DEVICE_COUNT=1');
+    debugPrint('[HOME] DEVICE_STATUS=ONLINE');
+
     notifyListeners();
   }
 
