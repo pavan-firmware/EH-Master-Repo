@@ -27,7 +27,7 @@ class AppConfig {
 
     if (Platform.isAndroid) {
       // Development LAN host IP for physical Android device connectivity
-      return 'http://192.168.1.62:3000';
+      return 'http://192.168.1.8:3000';
     }
 
     return 'http://localhost:3000';
