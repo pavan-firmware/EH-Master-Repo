@@ -30,6 +30,16 @@ class HomeController extends ChangeNotifier {
        _connectionRepository =
            connectionRepository ?? BleConnectionRepository(),
        _storageService = storageService ?? DeviceStorageService() {
+    final cached = DeviceStorageService.cachedDevice;
+    if (cached != null) {
+      _connectedDeviceSummary = cached;
+      _activeDeviceId = cached.id;
+      _activeDisplayName = cached.name;
+      _activeSerialNumber = cached.model;
+      _connectionState = HomeConnectionState.connected;
+      _connectionMessage = '${cached.name} is connected and online.';
+      debugPrint('[HOME] SYNC_HYDRATED id=${cached.id} name=${cached.name} room=${cached.roomName}');
+    }
     if (realtimeEventService != null) {
       _subscribeToRealtime(realtimeEventService);
     }
@@ -49,7 +59,6 @@ class HomeController extends ChangeNotifier {
   bool _alertAcknowledged = false;
   bool _lightCommandPending = false;
   bool _mistingCommandPending = false;
-  bool _showDesignPreview = true;
   ActuatorConfidence _lightConfidence = ActuatorConfidence.unknown;
   FirmwareRelease? _availableRelease;
   HomeConnectionState _connectionState = HomeConnectionState.notConfigured;
@@ -123,18 +132,14 @@ class HomeController extends ChangeNotifier {
         ),
       ];
     }
-    if (_showDesignPreview) {
-      return RoomCatalog.preview;
-    }
     return const [];
   }
 
-  /// The completed-home preview exists only until the user starts connecting a
-  /// real device. Once BLE succeeds, the dashboard correctly moves to Wi-Fi
-  /// setup instead of pretending that a BLE-only node is online at home.
   HomeDashboardData get dashboard {
-    if (_showDesignPreview) {
-      return HomeDashboardData.designPreview(
+    if (_connectedDeviceSummary != null && _connectedDeviceSummary!.online) {
+      return HomeDashboardData.liveDevice(
+        deviceName: _connectedDeviceSummary!.name,
+        roomName: _connectedDeviceSummary!.roomName,
         lightOn: _livingRoomLightOn,
         lightConfidence: _lightConfidence,
       );
@@ -151,16 +156,7 @@ class HomeController extends ChangeNotifier {
         );
       case HomeConnectionState.connected:
         final deviceName =
-            _activeDisplayName ?? _activeSerialNumber ?? 'EH Home device';
-        if (_connectedDeviceSummary != null &&
-            _connectedDeviceSummary!.online) {
-          return HomeDashboardData.liveDevice(
-            deviceName: _connectedDeviceSummary!.name,
-            roomName: _connectedDeviceSummary!.roomName,
-            lightOn: _livingRoomLightOn,
-            lightConfidence: _lightConfidence,
-          );
-        }
+            _activeDisplayName ?? _activeSerialNumber ?? 'EH Smart Switch 3X';
         return HomeDashboardData.setup(
           state: HomeDashboardState.wifiRequired,
           title: 'Almost there',
@@ -251,7 +247,6 @@ class HomeController extends ChangeNotifier {
     final saved = await _storageService.loadDevice();
     if (saved != null) {
       _connectedDeviceSummary = saved;
-      _showDesignPreview = false;
       _activeDeviceId = saved.id;
       _activeDisplayName = saved.name;
       _activeSerialNumber = saved.model;
@@ -275,7 +270,6 @@ class HomeController extends ChangeNotifier {
       config: deviceConnectionConfig,
     );
     if (result.success) {
-      _showDesignPreview = false;
       _activeDeviceId = result.deviceId;
       _activeDisplayName = result.displayName;
       _activeSerialNumber = result.serialNumber;
@@ -311,7 +305,6 @@ class HomeController extends ChangeNotifier {
       online: true,
     );
     _connectedDeviceSummary = summary;
-    _showDesignPreview = false;
     _connectionState = HomeConnectionState.connected;
     _connectionMessage = '$displayName is connected and online.';
 

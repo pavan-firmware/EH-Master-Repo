@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/core/models/connection_models.dart';
 import 'package:smart_home_application_v1/core/models/device_models.dart';
 import 'package:smart_home_application_v1/core/models/home_dashboard_models.dart';
@@ -13,6 +14,7 @@ void main() {
     late DeviceStorageService storageService;
 
     setUp(() {
+      SharedPreferences.setMockInitialValues({});
       storageService = DeviceStorageService();
     });
 

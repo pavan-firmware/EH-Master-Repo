@@ -76,9 +76,30 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _openRoomContext(RoomPreview room) {
-    final typedRoom = RoomCatalog.preview.firstWhere(
-      (candidate) => candidate.id == room.id,
-      orElse: () => RoomCatalog.preview.first,
+    final availableRooms = _homeController.rooms;
+    final typedRoom = availableRooms.firstWhere(
+      (candidate) => candidate.id == room.id || candidate.name == room.name,
+      orElse: () => availableRooms.isNotEmpty
+          ? availableRooms.first
+          : Room(
+              id: room.id,
+              name: room.name,
+              iconKey: 'living',
+              deviceCount: 1,
+              connectivity: ConnectivityCause.online,
+              telemetryFreshness: TelemetryFreshness.current,
+              summary: 'Online',
+              status: RoomStatus.normal,
+              capabilities: const [],
+              devices: const [],
+              insights: const RoomInsights(
+                energyKwh: '0.0 kWh',
+                energyChange: '0.0 kWh',
+                activeWindow: 'Today',
+                averageTemperature: '24°C',
+                averageHumidity: '55%',
+              ),
+            ),
     );
     Navigator.of(
       context,
