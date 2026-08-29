@@ -30,21 +30,10 @@ class BleConnectionRepository implements ConnectionRepository {
       await _requestBluetoothPermission();
       await _waitForBluetooth();
 
-      final candidates = await _channel
-          .scanForNearbyDevices(
-            namePrefix: config.deviceNamePrefix,
-            timeout: const Duration(seconds: 15),
-          )
-          .take(1)
-          .toList();
-
-      if (candidates.isEmpty) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.scanTimedOut,
-          'No nearby Smart Home device was found. Make sure it is powered on and close to your phone.',
-        );
-      }
-      final device = candidates.first;
+      final device = await _channel.scanForSingleDevice(
+        namePrefix: config.deviceNamePrefix,
+        timeout: const Duration(seconds: 15),
+      );
 
       // Connect and discover all services (6101 & 6102) via single session owner
       await _channel.connect(device.id);
@@ -62,6 +51,10 @@ class BleConnectionRepository implements ConnectionRepository {
         success: true,
         message: 'Connected to ${identity.displayName} (${device.name}).',
         step: ConnectionStep.verification,
+        deviceId: identity.deviceId,
+        serialNumber: identity.serialNumber,
+        displayName: identity.displayName,
+        channel: _channel,
       );
     } on TimeoutException {
       return const ConnectionResult(
@@ -145,17 +138,24 @@ class BleConnectionRepository implements ConnectionRepository {
     }
   }
 
-  Future<void> _waitForBluetooth() {
-    return _ble.statusStream
-        .where((status) => status == BleStatus.ready)
-        .first
-        .timeout(
-          const Duration(seconds: 10),
-          onTimeout: () => throw const ConnectionFailure(
-            ConnectionFailureKind.bluetoothUnavailable,
-            'Bluetooth is off or unavailable. Turn it on and try again.',
-          ),
-        );
+  Future<void> _waitForBluetooth() async {
+    if (_ble.status == BleStatus.ready) {
+      return;
+    }
+    try {
+      await _ble.statusStream
+          .where((status) => status == BleStatus.ready)
+          .first
+          .timeout(const Duration(seconds: 4));
+    } catch (_) {
+      if (_ble.status == BleStatus.ready) {
+        return;
+      }
+      throw const ConnectionFailure(
+        ConnectionFailureKind.bluetoothUnavailable,
+        'Bluetooth is off or unavailable. Turn it on and try again.',
+      );
+    }
   }
 
   void dispose() {

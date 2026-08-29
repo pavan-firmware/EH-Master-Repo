@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/models/home_dashboard_models.dart';
 import '../core/models/room_models.dart';
+import '../core/repositories/home_connection_repository.dart';
 import '../core/theme/app_theme.dart';
 import '../features/activity/presentation/activity_page.dart';
 import '../features/alerts/presentation/safety_alert_page.dart';
@@ -56,6 +57,11 @@ class _HomeShellState extends State<HomeShell> {
           onStart: _homeController.startConnectionSetup,
           connectionState: _homeController.connectionState,
           connectionMessage: _homeController.connectionMessage,
+          repository: RealHomeConnectionRepository(
+            primaryDevice: _homeController.connectedDeviceSummary,
+            onRefresh: _homeController.startConnectionSetup,
+          ),
+          onDeviceProvisioned: _homeController.markDeviceProvisioned,
         ),
       ),
     );
@@ -70,13 +76,37 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _openRoomContext(RoomPreview room) {
-    final typedRoom = RoomCatalog.preview.firstWhere(
-      (candidate) => candidate.id == room.id,
-      orElse: () => RoomCatalog.preview.first,
+    final availableRooms = _homeController.rooms;
+    final typedRoom = availableRooms.firstWhere(
+      (candidate) => candidate.id == room.id || candidate.name == room.name,
+      orElse: () => availableRooms.isNotEmpty
+          ? availableRooms.first
+          : Room(
+              id: room.id,
+              name: room.name,
+              iconKey: 'living',
+              deviceCount: 1,
+              connectivity: ConnectivityCause.online,
+              telemetryFreshness: TelemetryFreshness.current,
+              summary: 'Online',
+              status: RoomStatus.normal,
+              capabilities: const [],
+              devices: const [],
+              insights: const RoomInsights(
+                energyKwh: '0.0 kWh',
+                energyChange: '0.0 kWh',
+                activeWindow: 'Today',
+                averageTemperature: '24°C',
+                averageHumidity: '55%',
+              ),
+            ),
     );
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => RoomContextPage(room: typedRoom)));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            RoomContextPage(room: typedRoom, onAddDevice: _openConnection),
+      ),
+    );
   }
 
   void _showControlCustomization() {
@@ -157,13 +187,20 @@ class _HomeShellState extends State<HomeShell> {
               'This control stays unavailable until secure device acknowledgement is implemented.',
             ),
           ),
-          const RoomsPage(),
+          RoomsPage(
+            homeController: _homeController,
+            onAddDevice: _openConnection,
+          ),
           AutomationsPage(onConnectHome: _openConnection),
           const ActivityPage(),
           SettingsPage(
             onConnectHome: _homeController.startConnectionSetup,
             connectionState: _homeController.connectionState,
             connectionMessage: _homeController.connectionMessage,
+            connectionRepository: RealHomeConnectionRepository(
+              primaryDevice: _homeController.connectedDeviceSummary,
+              onRefresh: _homeController.startConnectionSetup,
+            ),
           ),
         ];
         return Scaffold(

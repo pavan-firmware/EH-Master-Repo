@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../app/home_controller.dart';
+import '../splash/presentation/splash_screen.dart';
 import 'auth_controller.dart';
 import 'register_screen.dart';
 
@@ -110,6 +112,18 @@ class _LoginScreenState extends State<LoginScreen> {
                               );
                             },
                       child: const Text('Create an account'),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (_) => SplashScreen(homeController: HomeController()),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.home_rounded),
+                      label: const Text('Continue to Local Home'),
                     ),
                   ],
                 ),

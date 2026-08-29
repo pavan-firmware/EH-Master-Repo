@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
@@ -7,7 +8,10 @@ import '../../onboarding/presentation/nearby_setup_page.dart';
 import 'room_context_page.dart';
 
 class RoomsPage extends StatefulWidget {
-  const RoomsPage({super.key});
+  const RoomsPage({super.key, this.homeController, this.onAddDevice});
+
+  final HomeController? homeController;
+  final VoidCallback? onAddDevice;
 
   @override
   State<RoomsPage> createState() => _RoomsPageState();
@@ -47,8 +51,9 @@ class _RoomsPageState extends State<RoomsPage> {
 
   List<Room> get _visibleRooms {
     final query = _search.text.trim().toLowerCase();
+    final sourceRooms = widget.homeController?.rooms ?? const [];
     final rooms =
-        RoomCatalog.preview.where((room) {
+        sourceRooms.where((room) {
           final matchesQuery =
               query.isEmpty || room.name.toLowerCase().contains(query);
           final matchesFilter = switch (_filter) {
@@ -74,7 +79,14 @@ class _RoomsPageState extends State<RoomsPage> {
   void _openRoom(Room room) {
     _dismissSearch();
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => RoomContextPage(room: room)))
+        .push(
+          MaterialPageRoute(
+            builder: (_) => RoomContextPage(
+              room: room,
+              onAddDevice: widget.onAddDevice,
+            ),
+          ),
+        )
         .then((_) {
           if (mounted) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -118,15 +130,23 @@ class _RoomsPageState extends State<RoomsPage> {
     }
   }
 
-  void _addRoom() => Navigator.of(
-    context,
-  ).push(MaterialPageRoute(builder: (_) => const NearbySetupPage()));
+  void _addRoom() {
+    _dismissSearch();
+    if (widget.onAddDevice != null) {
+      widget.onAddDevice!();
+    } else {
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const NearbySetupPage()));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final rooms = _visibleRooms;
-    final totalDevices = RoomCatalog.preview.fold<int>(
+    final sourceRooms = widget.homeController?.rooms ?? const [];
+    final totalDevices = sourceRooms.fold<int>(
       0,
       (sum, room) => sum + room.deviceCount,
     );
@@ -152,30 +172,39 @@ class _RoomsPageState extends State<RoomsPage> {
                           Text(
                             'Rooms',
                             style: TextStyle(
-                              color: tokens.textPrimary,
-                              fontSize: 29,
+                              fontSize: 32,
                               fontWeight: FontWeight.w800,
-                              height: 1,
+                              color: tokens.textPrimary,
+                              letterSpacing: -0.5,
                             ),
                           ),
-                          const SizedBox(height: 7),
+                          const SizedBox(height: 4),
                           Text(
                             'View and control every space in your home.',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
+                              fontSize: 14,
                               color: tokens.textSecondary,
-                              fontSize: 13,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 9),
-                    _RoundAction(
-                      icon: Icons.add_rounded,
-                      tooltip: 'Add room',
+                    InkWell(
                       onTap: _addRoom,
+                      borderRadius: BorderRadius.circular(24),
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: tokens.bluePrimary,
+                        ),
+                        child: const Icon(
+                          Icons.add_rounded,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -183,12 +212,10 @@ class _RoomsPageState extends State<RoomsPage> {
                 TextField(
                   controller: _search,
                   focusNode: _searchFocus,
-                  style: TextStyle(color: tokens.textPrimary),
-                  onChanged: (_) => setState(() {}),
                   onTapOutside: (_) => _dismissSearch(),
+                  onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     hintText: 'Search rooms',
-                    hintStyle: TextStyle(color: tokens.textTertiary),
                     prefixIcon: Icon(
                       Icons.search_rounded,
                       color: tokens.textSecondary,
@@ -225,7 +252,8 @@ class _RoomsPageState extends State<RoomsPage> {
                       _FilterChip(
                         icon: Icons.grid_view_rounded,
                         label: 'All rooms',
-                        count: '${RoomCatalog.preview.length} rooms',
+                        count:
+                            '${sourceRooms.length} ${sourceRooms.length == 1 ? "room" : "rooms"}',
                         selected: _filter == _RoomFilter.all,
                         color: tokens.bluePrimary,
                         onTap: () => setState(() => _filter = _RoomFilter.all),
@@ -234,7 +262,7 @@ class _RoomsPageState extends State<RoomsPage> {
                         icon: Icons.warning_amber_rounded,
                         label: 'Attention',
                         count:
-                            '${RoomCatalog.preview.where((r) => r.needsAttention).length} room',
+                            '${sourceRooms.where((r) => r.needsAttention).length} room',
                         selected: _filter == _RoomFilter.attention,
                         color: tokens.warning,
                         onTap: () =>
@@ -253,7 +281,7 @@ class _RoomsPageState extends State<RoomsPage> {
                         icon: Icons.circle,
                         label: 'Offline',
                         count:
-                            '${RoomCatalog.preview.where((r) => r.isOffline).fold<int>(0, (sum, r) => sum + r.deviceCount)} devices',
+                            '${sourceRooms.where((r) => r.isOffline).fold<int>(0, (sum, r) => sum + r.deviceCount)} devices',
                         selected: _filter == _RoomFilter.offline,
                         color: tokens.textTertiary,
                         onTap: () =>
@@ -277,7 +305,7 @@ class _RoomsPageState extends State<RoomsPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        '${rooms.length} ${rooms.length == 1 ? 'room' : 'rooms'} · $totalDevices devices',
+                        '${rooms.length} ${rooms.length == 1 ? 'room' : 'rooms'} · $totalDevices ${totalDevices == 1 ? 'device' : 'devices'}',
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontSize: 16,
@@ -655,38 +683,6 @@ class _FilterChip extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RoundAction extends StatelessWidget {
-  const _RoundAction({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.ehColors;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(99),
-        child: Ink(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: tokens.blueDarker,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: tokens.buttonText, size: 25),
         ),
       ),
     );

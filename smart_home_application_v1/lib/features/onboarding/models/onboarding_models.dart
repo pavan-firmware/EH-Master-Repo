@@ -34,6 +34,26 @@ class OnboardingDeviceIdentity {
   final String firmwareFamily;
   final String displayName;
   final String? commissioningSecret;
+
+  OnboardingDeviceIdentity copyWith({
+    String? deviceId,
+    String? serialNumber,
+    String? productVariantId,
+    String? hardwareRevision,
+    String? firmwareFamily,
+    String? displayName,
+    String? commissioningSecret,
+  }) {
+    return OnboardingDeviceIdentity(
+      deviceId: deviceId ?? this.deviceId,
+      serialNumber: serialNumber ?? this.serialNumber,
+      productVariantId: productVariantId ?? this.productVariantId,
+      hardwareRevision: hardwareRevision ?? this.hardwareRevision,
+      firmwareFamily: firmwareFamily ?? this.firmwareFamily,
+      displayName: displayName ?? this.displayName,
+      commissioningSecret: commissioningSecret ?? this.commissioningSecret,
+    );
+  }
 }
 
 class EhProv1Session {
