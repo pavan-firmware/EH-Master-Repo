@@ -361,9 +361,12 @@ class HomeController extends ChangeNotifier {
     _lightConfidence = ActuatorConfidence.pending;
     notifyListeners();
 
+    final targetId = _activeDeviceId ??
+        (_devices.isNotEmpty ? _devices.first.id : 'living-room-light');
+
     try {
       await _repository.sendCommand(
-        deviceId: 'living-room-light',
+        deviceId: targetId,
         action: 'set_power',
         parameters: {'enabled': value},
         idempotencyKey: 'light-${DateTime.now().microsecondsSinceEpoch}',
@@ -386,8 +389,11 @@ class HomeController extends ChangeNotifier {
     _mistingCommandPending = true;
     notifyListeners();
 
+    final targetId = _activeDeviceId ??
+        (_devices.isNotEmpty ? _devices.first.id : 'plant-mister');
+
     final receipt = await _repository.sendCommand(
-      deviceId: 'plant-mister',
+      deviceId: targetId,
       action: 'set_misting',
       parameters: {'enabled': value},
       idempotencyKey: 'misting-${DateTime.now().microsecondsSinceEpoch}',
