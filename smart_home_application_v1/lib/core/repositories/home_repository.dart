@@ -1,7 +1,7 @@
 import '../models/device_models.dart';
 
 abstract interface class HomeRepository {
-  Future<List<DeviceSnapshot>> getDevices();
+  Future<List<DeviceSnapshot>> getDevices({String? homeId});
 
   Future<CommandReceipt> sendCommand({
     required String deviceId,

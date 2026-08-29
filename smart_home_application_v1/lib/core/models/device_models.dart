@@ -10,6 +10,36 @@ enum HomeConnectionState {
 
 enum CommandState { accepted, executing, succeeded, failed, expired }
 
+enum DeviceLifecycleState {
+  factory,
+  provisioning,
+  claimable,
+  claimed,
+  configuring,
+  active,
+  offline,
+  resetPending,
+  decommissioned,
+}
+
+class DeviceStateSnapshot {
+  const DeviceStateSnapshot({
+    required this.deviceId,
+    required this.connectionState,
+    this.desiredState = const {},
+    this.reportedState = const {},
+    this.actualState = const {},
+    this.lastSeenAt,
+  });
+
+  final String deviceId;
+  final DeviceConnection connectionState;
+  final Map<String, dynamic> desiredState;
+  final Map<String, dynamic> reportedState;
+  final Map<String, dynamic> actualState;
+  final DateTime? lastSeenAt;
+}
+
 enum FirmwareJobState {
   idle,
   preflight,

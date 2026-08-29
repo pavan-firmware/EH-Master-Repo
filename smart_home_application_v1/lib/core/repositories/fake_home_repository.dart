@@ -17,7 +17,7 @@ class FakeHomeRepository implements HomeRepository {
   final List<Map<String, dynamic>> _mockRooms = [];
 
   @override
-  Future<List<DeviceSnapshot>> getDevices() async {
+  Future<List<DeviceSnapshot>> getDevices({String? homeId}) async {
     if (_mockDevices.isNotEmpty) return List.unmodifiable(_mockDevices);
     return [
       DeviceSnapshot(

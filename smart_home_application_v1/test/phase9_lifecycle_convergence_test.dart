@@ -8,6 +8,7 @@ import 'package:smart_home_application_v1/core/api/sse_client.dart';
 import 'package:smart_home_application_v1/core/models/connection_models.dart';
 import 'package:smart_home_application_v1/core/models/device_models.dart';
 import 'package:smart_home_application_v1/core/models/home_dashboard_models.dart';
+import 'package:smart_home_application_v1/core/repositories/cloud_home_repository.dart';
 import 'package:smart_home_application_v1/core/repositories/fake_home_repository.dart';
 import 'package:smart_home_application_v1/core/repositories/unavailable_connection_repository.dart';
 import 'package:smart_home_application_v1/core/services/device_storage_service.dart';
@@ -41,6 +42,29 @@ class _FakeSseClient extends SseClient {
 
   @override
   void disconnect() {}
+}
+
+class _TrackingHomeRepo extends FakeHomeRepository {
+  final List<Map<String, dynamic>> dispatchedCommands = [];
+
+  @override
+  Future<CommandReceipt> sendCommand({
+    required String deviceId,
+    required String action,
+    required Map<String, Object?> parameters,
+    required String idempotencyKey,
+  }) async {
+    dispatchedCommands.add({
+      'deviceId': deviceId,
+      'action': action,
+      'parameters': parameters,
+      'idempotencyKey': idempotencyKey,
+    });
+    return CommandReceipt(
+      commandId: idempotencyKey,
+      state: CommandState.accepted,
+    );
+  }
 }
 
 void main() {
@@ -212,6 +236,115 @@ void main() {
       expect(rehydratedController.rooms.first.name, 'Kitchen');
       expect(rehydratedController.dashboard.state, HomeDashboardState.ready);
       expect(rehydratedController.dashboard.devicesOnline, 1);
+    });
+
+    test('5. Multi-Device Command Isolation: commanding Device A does not alter Device B', () async {
+      const devA = ConnectedDeviceSummary(
+        id: 'dev_aaaa_1111',
+        name: 'Living Switch',
+        model: 'eh-smart-switch-3x',
+        firmware: '1.0.0',
+        connectedVia: 'Wi-Fi',
+        signalLabel: 'Strong',
+        roomName: 'Living Room',
+        online: true,
+      );
+
+      const devB = ConnectedDeviceSummary(
+        id: 'dev_bbbb_2222',
+        name: 'Bedroom Switch',
+        model: 'eh-smart-switch-3x',
+        firmware: '1.0.0',
+        connectedVia: 'Wi-Fi',
+        signalLabel: 'Strong',
+        roomName: 'Bedroom',
+        online: true,
+      );
+
+      await storageService.saveDevice(devA);
+      await storageService.saveDevice(devB);
+
+      final trackingRepo = _TrackingHomeRepo();
+      final controller = HomeController(
+        storageService: storageService,
+        repository: trackingRepo,
+        connectionRepository: const UnavailableConnectionRepository(),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Command Device A channel 1 to ON
+      await controller.setDeviceChannelPower(deviceId: devA.id, channelIndex: 1, value: true);
+
+      // Verify Device A channel 1 is ON, Device B channel 1 is untouched (false)
+      expect(controller.getDeviceChannelPower(devA.id, 1), isTrue);
+      expect(controller.getDeviceChannelPower(devB.id, 1), isFalse);
+      expect(trackingRepo.dispatchedCommands.last['deviceId'], devA.id);
+    });
+
+    test('6. Multi-Device Physical Event Isolation: SSE event for Device B leaves Device A untouched', () async {
+      const devA = ConnectedDeviceSummary(
+        id: 'dev_aaaa_1111',
+        name: 'Living Switch',
+        model: 'eh-smart-switch-3x',
+        firmware: '1.0.0',
+        connectedVia: 'Wi-Fi',
+        signalLabel: 'Strong',
+        roomName: 'Living Room',
+        online: true,
+      );
+
+      const devB = ConnectedDeviceSummary(
+        id: 'dev_bbbb_2222',
+        name: 'Bedroom Switch',
+        model: 'eh-smart-switch-3x',
+        firmware: '1.0.0',
+        connectedVia: 'Wi-Fi',
+        signalLabel: 'Strong',
+        roomName: 'Bedroom',
+        online: true,
+      );
+
+      await storageService.saveDevice(devA);
+      await storageService.saveDevice(devB);
+
+      final controller = HomeController(
+        storageService: storageService,
+        repository: homeRepo,
+        connectionRepository: const UnavailableConnectionRepository(),
+        realtimeEventService: realtimeService,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Device A starts with ch1 ON
+      await controller.setDeviceChannelPower(deviceId: devA.id, channelIndex: 1, value: true);
+      expect(controller.getDeviceChannelPower(devA.id, 1), isTrue);
+
+      // Incoming physical switch event for Device B (ch2 turns ON)
+      mockSse.emitJson({
+        'deviceId': devB.id,
+        'source': 'PHYSICAL_SWITCH',
+        'channels': {
+          'ch2': {'relay': true},
+        },
+      });
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Verify Device B ch2 is ON, but Device A ch1 remains ON and Device A ch2 remains OFF
+      expect(controller.getDeviceChannelPower(devB.id, 2), isTrue);
+      expect(controller.getDeviceChannelPower(devA.id, 1), isTrue);
+      expect(controller.getDeviceChannelPower(devA.id, 2), isFalse);
+    });
+
+    test('7. Multi-Home Explicit Context in CloudHomeRepository', () async {
+      final apiClient = ApiClient(baseUrl: 'http://localhost:3000');
+      final cloudRepo = CloudHomeRepository(apiClient, activeHomeId: 'home_custom_99');
+
+      expect(cloudRepo.activeHomeId, 'home_custom_99');
+      cloudRepo.setActiveHomeId('home_new_101');
+      expect(cloudRepo.activeHomeId, 'home_new_101');
     });
   });
 }

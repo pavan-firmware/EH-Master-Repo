@@ -4,20 +4,29 @@ import '../api/api_client.dart';
 
 class CloudHomeRepository implements HomeRepository {
   final ApiClient _apiClient;
+  String? _activeHomeId;
 
-  CloudHomeRepository(this._apiClient);
+  CloudHomeRepository(this._apiClient, {String? activeHomeId}) {
+    _activeHomeId = activeHomeId;
+  }
+
+  String? get activeHomeId => _activeHomeId;
+  void setActiveHomeId(String homeId) => _activeHomeId = homeId;
 
   @override
-  Future<List<DeviceSnapshot>> getDevices() async {
-    final homesResponse = await _apiClient.get('/api/v1/homes');
-    if (homesResponse == null || (homesResponse as List).isEmpty) {
-      return [];
+  Future<List<DeviceSnapshot>> getDevices({String? homeId}) async {
+    String resolvedHomeId = homeId ?? _activeHomeId ?? '';
+    if (resolvedHomeId.isEmpty) {
+      final homesResponse = await _apiClient.get('/api/v1/homes');
+      if (homesResponse == null || (homesResponse as List).isEmpty) {
+        return [];
+      }
+      resolvedHomeId = homesResponse[0]['id'] as String;
+      _activeHomeId = resolvedHomeId;
     }
 
-    final homeId = homesResponse[0]['id'];
-
     final devicesResponse = await _apiClient.get(
-      '/api/v1/homes/$homeId/devices',
+      '/api/v1/homes/$resolvedHomeId/devices',
     );
     if (devicesResponse == null) return [];
 

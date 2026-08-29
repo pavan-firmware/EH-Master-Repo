@@ -433,7 +433,24 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
 
     if (!_cloudEnabled) {
-      _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
+      try {
+        final receipt = await _repository.sendCommand(
+          deviceId: deviceId,
+          action: 'set_power',
+          parameters: {'channel': channelIndex, 'enabled': value},
+          idempotencyKey:
+              'cmd-$deviceId-ch$channelIndex-${DateTime.now().microsecondsSinceEpoch}',
+        );
+        if (receipt.state == CommandState.succeeded) {
+          _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
+        } else if (receipt.state == CommandState.failed) {
+          _deviceConfidences[deviceId] = ActuatorConfidence.failed;
+        } else {
+          _deviceConfidences[deviceId] = ActuatorConfidence.pending;
+        }
+      } catch (_) {
+        _deviceConfidences[deviceId] = ActuatorConfidence.failed;
+      }
       notifyListeners();
       return;
     }
@@ -446,14 +463,15 @@ class HomeController extends ChangeNotifier {
         idempotencyKey:
             'cmd-$deviceId-ch$channelIndex-${DateTime.now().microsecondsSinceEpoch}',
       );
-      if (receipt.state == CommandState.succeeded ||
-          receipt.state == CommandState.accepted) {
-        _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
+      if (receipt.state == CommandState.failed) {
+        _deviceConfidences[deviceId] = ActuatorConfidence.failed;
+        notifyListeners();
       }
+      // Keep pending until authoritative SSE event (device.state or command.receipt APPLIED)
     } catch (_) {
       _deviceConfidences[deviceId] = ActuatorConfidence.failed;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<void> setMisting(bool value) async {
