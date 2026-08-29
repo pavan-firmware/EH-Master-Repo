@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/time_greeting.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
 
 class HomePage extends StatelessWidget {
@@ -252,7 +253,7 @@ class _HomeHeader extends StatelessWidget {
               height: 1.08,
             ),
             children: [
-              const TextSpan(text: 'Good evening, '),
+              TextSpan(text: getTimeAwareGreeting()),
               TextSpan(
                 text: 'Pavan',
                 style: TextStyle(

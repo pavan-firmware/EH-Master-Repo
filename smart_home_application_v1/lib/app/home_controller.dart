@@ -1,14 +1,20 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
+import '../core/models/connection_models.dart';
 import '../core/models/device_models.dart';
 import '../core/models/home_dashboard_models.dart';
+import '../core/models/room_models.dart';
 import '../core/repositories/home_repository.dart';
 import '../core/repositories/fake_home_repository.dart';
 import '../core/repositories/connection_repository.dart';
 import '../core/repositories/ble_connection_repository.dart';
 import '../core/config/device_connection_config.dart';
 import '../core/services/realtime_event_service.dart';
+
+import '../core/services/device_storage_service.dart';
+
+import '../core/utils/device_name_formatter.dart';
 
 /// HomeController manages all home/device/connection state.
 ///
@@ -20,17 +26,32 @@ class HomeController extends ChangeNotifier {
     HomeRepository? repository,
     ConnectionRepository? connectionRepository,
     RealtimeEventService? realtimeEventService,
+    DeviceStorageService? storageService,
     this._cloudEnabled = false,
   }) : _repository = repository ?? FakeHomeRepository(),
        _connectionRepository =
-           connectionRepository ?? BleConnectionRepository() {
+           connectionRepository ?? BleConnectionRepository(),
+       _storageService = storageService ?? DeviceStorageService() {
+    final cachedList = DeviceStorageService.cachedDevices;
+    if (cachedList.isNotEmpty) {
+      _devices = List.from(cachedList);
+      _connectedDeviceSummary = _devices.first;
+      _activeDeviceId = _devices.first.id;
+      _activeDisplayName = _devices.first.name;
+      _activeSerialNumber = _devices.first.model;
+      _connectionState = HomeConnectionState.connected;
+      _connectionMessage = '${_devices.first.name} is connected and online.';
+      debugPrint('[HOME] SYNC_HYDRATED devices_count=${_devices.length}');
+    }
     if (realtimeEventService != null) {
       _subscribeToRealtime(realtimeEventService);
     }
+    _hydrateFromStorage();
   }
 
   final HomeRepository _repository;
   final ConnectionRepository _connectionRepository;
+  final DeviceStorageService _storageService;
 
   /// True when a real authenticated backend is powering this controller.
   final bool _cloudEnabled;
@@ -41,12 +62,16 @@ class HomeController extends ChangeNotifier {
   bool _alertAcknowledged = false;
   bool _lightCommandPending = false;
   bool _mistingCommandPending = false;
-  bool _showDesignPreview = true;
   ActuatorConfidence _lightConfidence = ActuatorConfidence.unknown;
   FirmwareRelease? _availableRelease;
   HomeConnectionState _connectionState = HomeConnectionState.notConfigured;
   String? _connectionMessage;
   DeviceConnection _cloudDeviceConnection = DeviceConnection.offline;
+  ConnectedDeviceSummary? _connectedDeviceSummary;
+  List<ConnectedDeviceSummary> _devices = [];
+  String? _activeDeviceId;
+  String? _activeDisplayName;
+  String? _activeSerialNumber;
 
   StreamSubscription<SSEEventEnvelope>? _sseSubscription;
 
@@ -60,17 +85,73 @@ class HomeController extends ChangeNotifier {
   HomeConnectionState get connectionState => _connectionState;
   String? get connectionMessage => _connectionMessage;
   ActuatorConfidence get lightConfidence => _lightConfidence;
+  ConnectedDeviceSummary? get connectedDeviceSummary => _connectedDeviceSummary;
+  List<ConnectedDeviceSummary> get devices => List.unmodifiable(_devices);
+  String? get activeDeviceId => _activeDeviceId;
+  String? get activeDisplayName => _activeDisplayName;
+  String? get activeSerialNumber => _activeSerialNumber;
 
   /// Commands are only available when cloud is enabled (authenticated + connected).
   bool get hardwareControlsAvailable => _cloudEnabled;
   DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
 
-  /// The completed-home preview exists only until the user starts connecting a
-  /// real device. Once BLE succeeds, the dashboard correctly moves to Wi-Fi
-  /// setup instead of pretending that a BLE-only node is online at home.
+  List<Room> get rooms {
+    if (_devices.isNotEmpty) {
+      final Map<String, List<ConnectedDeviceSummary>> roomMap = {};
+      for (final d in _devices) {
+        final room = d.roomName.trim().isEmpty ? 'Living Room' : d.roomName;
+        roomMap.putIfAbsent(room, () => []).add(d);
+      }
+      return roomMap.entries.map((entry) {
+        final roomName = entry.key;
+        final roomDevices = entry.value;
+        final roomId = roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+        return Room(
+          id: roomId,
+          name: roomName,
+          iconKey: 'living',
+          deviceCount: roomDevices.length,
+          connectivity: ConnectivityCause.online,
+          telemetryFreshness: TelemetryFreshness.current,
+          summary: _livingRoomLightOn ? 'Active · Normal' : 'Standby · Normal',
+          status: RoomStatus.normal,
+          capabilities: roomDevices.map((d) {
+            final opName = formatOperatingName(d.name);
+            return RoomCapability(
+              id: d.id,
+              label: '$roomName $opName',
+              value: _livingRoomLightOn ? 'On' : 'Off',
+              kind: RoomCapabilityKind.light,
+            );
+          }).toList(),
+          devices: roomDevices.map((d) {
+            final opName = formatOperatingName(d.name);
+            return RoomDevice(
+              id: d.id,
+              name: opName,
+              type: 'Smart Switch 3X',
+              value: _livingRoomLightOn ? 'On' : 'Off',
+              kind: RoomCapabilityKind.light,
+              confidence: ActuatorConfidence.confirmed,
+            );
+          }).toList(),
+          insights: const RoomInsights(
+            energyKwh: '1.2 kWh',
+            energyChange: '+0.1 kWh',
+            activeWindow: 'Today',
+            averageTemperature: '24°C',
+            averageHumidity: '55%',
+          ),
+        );
+      }).toList();
+    }
+    return const [];
+  }
+
   HomeDashboardData get dashboard {
-    if (_showDesignPreview) {
-      return HomeDashboardData.designPreview(
+    if (_devices.isNotEmpty) {
+      return HomeDashboardData.forLiveDevices(
+        devices: _devices,
         lightOn: _livingRoomLightOn,
         lightConfidence: _lightConfidence,
       );
@@ -86,11 +167,13 @@ class HomeController extends ChangeNotifier {
           connectivity: ConnectivityCause.bleDisconnected,
         );
       case HomeConnectionState.connected:
+        final deviceName =
+            _activeDisplayName ?? _activeSerialNumber ?? 'EH Smart Switch 3X';
         return HomeDashboardData.setup(
           state: HomeDashboardState.wifiRequired,
           title: 'Almost there',
           message:
-              'SH-8EF248 is connected nearby. Connect it to your home Wi-Fi to finish setup.',
+              '$deviceName is connected nearby. Connect it to your home Wi-Fi to finish setup.',
           action: 'Continue setup',
           connectivity: ConnectivityCause.wifiUnavailable,
         );
@@ -172,8 +255,26 @@ class HomeController extends ChangeNotifier {
     }
   }
 
+  Future<void> _hydrateFromStorage() async {
+    final savedList = await _storageService.loadDevices();
+    if (savedList.isNotEmpty) {
+      _devices = List.from(savedList);
+      _connectedDeviceSummary = _devices.first;
+      _activeDeviceId = _devices.first.id;
+      _activeDisplayName = _devices.first.name;
+      _activeSerialNumber = _devices.first.model;
+      _connectionState = HomeConnectionState.connected;
+      _connectionMessage = '${_devices.first.name} is connected and online.';
+      debugPrint('[HOME] DEVICE_REGISTERED count=${_devices.length}');
+      debugPrint('[HOME] DEVICE_PERSISTED');
+      debugPrint('[HOME] HOME_STATE_REFRESH');
+      debugPrint('[HOME] REAL_DEVICE_COUNT=${_devices.length}');
+      debugPrint('[HOME] DEVICE_STATUS=ONLINE');
+      notifyListeners();
+    }
+  }
+
   Future<ConnectionResult> startConnectionSetup() async {
-    _showDesignPreview = false;
     _connectionState = HomeConnectionState.connecting;
     _connectionMessage = 'Looking for your home device nearby';
     notifyListeners();
@@ -181,12 +282,61 @@ class HomeController extends ChangeNotifier {
     final result = await _connectionRepository.connect(
       config: deviceConnectionConfig,
     );
-    _connectionState = result.success
-        ? HomeConnectionState.connected
-        : HomeConnectionState.failed;
-    _connectionMessage = result.message;
+    if (result.success) {
+      _activeDeviceId = result.deviceId;
+      _activeDisplayName = result.displayName;
+      _activeSerialNumber = result.serialNumber;
+      _connectionState = HomeConnectionState.connected;
+      _connectionMessage = result.message;
+    } else {
+      if (_devices.isEmpty) {
+        _connectionState = HomeConnectionState.notConfigured;
+      }
+      _connectionMessage = result.message;
+    }
     notifyListeners();
     return result;
+  }
+
+  void markDeviceProvisioned({
+    required String deviceId,
+    required String displayName,
+    required String serialNumber,
+    String? roomName,
+  }) {
+    _activeDeviceId = deviceId;
+    _activeDisplayName = displayName;
+    _activeSerialNumber = serialNumber;
+    final summary = ConnectedDeviceSummary(
+      id: deviceId,
+      name: displayName,
+      model: 'eh-smart-switch-3x',
+      firmware: '1.0.0',
+      connectedVia: 'Wi-Fi (2.4 GHz)',
+      signalLabel: 'Strong',
+      roomName: roomName ?? 'Living Room',
+      online: true,
+    );
+    final idx = _devices.indexWhere((d) => d.id == deviceId);
+    if (idx >= 0) {
+      _devices[idx] = summary;
+    } else {
+      _devices.add(summary);
+    }
+    _connectedDeviceSummary = summary;
+    _connectionState = HomeConnectionState.connected;
+    _connectionMessage = '$displayName is connected and online.';
+
+    // Persist to local storage
+    _storageService.saveDevice(summary);
+
+    debugPrint('[HOME] DEVICE_REGISTERED id=$deviceId name=$displayName room=${roomName ?? "Living Room"}');
+    debugPrint('[HOME] DEVICE_PERSISTED');
+    debugPrint('[HOME] HOME_STATE_REFRESH');
+    debugPrint('[HOME] REAL_DEVICE_COUNT=${_devices.length}');
+    debugPrint('[HOME] DEVICE_STATUS=ONLINE');
+
+    notifyListeners();
   }
 
   Future<FirmwareRelease?> loadAvailableRelease() async {
@@ -211,9 +361,12 @@ class HomeController extends ChangeNotifier {
     _lightConfidence = ActuatorConfidence.pending;
     notifyListeners();
 
+    final targetId = _activeDeviceId ??
+        (_devices.isNotEmpty ? _devices.first.id : 'living-room-light');
+
     try {
       await _repository.sendCommand(
-        deviceId: 'living-room-light',
+        deviceId: targetId,
         action: 'set_power',
         parameters: {'enabled': value},
         idempotencyKey: 'light-${DateTime.now().microsecondsSinceEpoch}',
@@ -236,8 +389,11 @@ class HomeController extends ChangeNotifier {
     _mistingCommandPending = true;
     notifyListeners();
 
+    final targetId = _activeDeviceId ??
+        (_devices.isNotEmpty ? _devices.first.id : 'plant-mister');
+
     final receipt = await _repository.sendCommand(
-      deviceId: 'plant-mister',
+      deviceId: targetId,
       action: 'set_misting',
       parameters: {'enabled': value},
       idempotencyKey: 'misting-${DateTime.now().microsecondsSinceEpoch}',

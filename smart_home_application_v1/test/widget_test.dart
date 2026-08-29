@@ -15,9 +15,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(RichText), findsWidgets);
-    expect(find.text('All systems normal'), findsOneWidget);
-    expect(find.text('Kitchen needs attention'), findsOneWidget);
-    expect(find.text('Your rooms'), findsOneWidget);
+    expect(find.text('Connect your first device'), findsOneWidget);
+    expect(find.text('Add a device'), findsWidgets);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byIcon(Icons.notifications_none_rounded));

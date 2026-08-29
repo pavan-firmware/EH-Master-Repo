@@ -98,6 +98,7 @@ class _SettingsPageState extends State<SettingsPage> {
               home: home,
               system: system,
               repository: widget.repository,
+              connectionRepository: widget.connectionRepository,
               onConnectHome: widget.onConnectHome,
               connectionState: widget.connectionState,
               connectionMessage: widget.connectionMessage,
@@ -126,6 +127,7 @@ class _SettingsContent extends StatelessWidget {
     required this.home,
     required this.system,
     required this.repository,
+    required this.connectionRepository,
     required this.onConnectHome,
     required this.connectionState,
     required this.connectionMessage,
@@ -134,6 +136,7 @@ class _SettingsContent extends StatelessWidget {
   final HomeSettingsData home;
   final _SystemSummary system;
   final SettingsRepository repository;
+  final HomeConnectionRepository connectionRepository;
   final Future<ConnectionResult> Function()? onConnectHome;
   final HomeConnectionState? connectionState;
   final String? connectionMessage;
@@ -360,6 +363,7 @@ class _SettingsContent extends StatelessWidget {
                       onStart: onConnectHome,
                       connectionState: connectionState,
                       connectionMessage: connectionMessage,
+                      repository: connectionRepository,
                     ),
                   ),
                 ),

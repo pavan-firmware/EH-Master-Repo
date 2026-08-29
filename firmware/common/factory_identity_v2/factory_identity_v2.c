@@ -84,6 +84,15 @@ esp_err_t factory_identity_v2_init(void)
 
     ESP_LOGI(TAG, "Factory Identity v2 loaded. DeviceID: %s, Serial: %s, Consumed: %d",
              s_identity.device_id, s_identity.serial_number, s_identity.commissioning_secret_consumed);
+
+    if (s_identity.is_development && !s_identity.commissioning_secret_consumed) {
+        char comm_sec_hex[65];
+        for (int i = 0; i < 32; i++) {
+            snprintf(comm_sec_hex + i * 2, 3, "%02x", s_identity.commissioning_secret[i]);
+        }
+        ESP_LOGI(TAG, "DEV_COMMISSIONING_QR: EH1:%s:eh-smart-switch-3x:%s:123456",
+                 s_identity.device_id, comm_sec_hex);
+    }
     return ESP_OK;
 }
 

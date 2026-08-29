@@ -8,6 +8,7 @@
 #include "host/ble_gap.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "nimble/nimble_npl.h"
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -32,6 +33,79 @@ static uint16_t s_tx_handle;
 static bool s_tx_subscribed = false;
 
 static bool s_initialized = false;
+
+#define MAX_TX_QUEUE_ITEMS 16
+#define MAX_TX_FRAME_LEN 32
+
+typedef struct {
+    uint16_t conn_handle;
+    uint16_t attr_handle;
+    uint8_t data[MAX_TX_FRAME_LEN];
+    size_t len;
+    uint8_t msg_type;
+    uint8_t frame_index;
+    uint8_t total_frames;
+} prov_tx_item_t;
+
+/* Bounded owned TX queue for NimBLE host-context dispatch */
+static prov_tx_item_t s_tx_queue[MAX_TX_QUEUE_ITEMS];
+static size_t s_tx_head = 0;
+static size_t s_tx_tail = 0;
+static size_t s_tx_count = 0;
+static struct ble_npl_event s_tx_event;
+
+/* Static BSS buffers to prevent stack pressure on the 4KB ble_host_task */
+static uint8_t s_rx_in_buf[256];
+static uint8_t s_msg_buf[512];
+static uint8_t s_out_buf[256];
+
+/**
+ * Authoritative NimBLE host execution context for BLE notifications.
+ * Executes on ble_host_task from nimble_port_run() event queue.
+ * Processes exactly one transport frame per host scheduling turn.
+ */
+static void prov_tx_event_cb(struct ble_npl_event *ev)
+{
+    (void)ev;
+    if (s_tx_count == 0) {
+        return;
+    }
+
+    prov_tx_item_t item = s_tx_queue[s_tx_head];
+    s_tx_head = (s_tx_head + 1) % MAX_TX_QUEUE_ITEMS;
+    s_tx_count--;
+
+    if (item.conn_handle == BLE_HS_CONN_HANDLE_NONE ||
+        item.conn_handle != s_conn_handle ||
+        !s_tx_subscribed) {
+        ESP_LOGW(TAG, "BLE_TX_DROPPED_NOT_SUBSCRIBED (conn=%d, sub=%d)", item.conn_handle, s_tx_subscribed);
+        return;
+    }
+
+    struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(item.data, item.len);
+    if (!tx_om) {
+        ESP_LOGE(TAG, "Failed to allocate os_mbuf for BLE TX notification");
+        return;
+    }
+
+    int rc = ble_gatts_notify_custom(item.conn_handle, item.attr_handle, tx_om);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "ble_gatts_notify_custom failed: rc=%d", rc);
+    } else {
+        if (item.msg_type == EH_PROV1_MSG_HELLO_ACK) {
+            ESP_LOGI(TAG, "PROV_HELLO_ACK_SENT frame=%u", (unsigned)item.frame_index);
+        } else if (item.msg_type == EH_PROV1_MSG_AUTH_ACK) {
+            ESP_LOGI(TAG, "PROV_AUTH_ACK_SENT frame=%u", (unsigned)item.frame_index);
+        } else if (item.msg_type == EH_PROV1_MSG_WIFI_ACK) {
+            ESP_LOGI(TAG, "PROV_WIFI_ACK_SENT frame=%u", (unsigned)item.frame_index);
+        }
+    }
+
+    /* Schedule the next frame in host event loop (sequential dispatch) */
+    if (s_tx_count > 0 && s_tx_subscribed && s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_tx_event);
+    }
+}
 
 /* Proprietary EH Home UUID namespace:
  * - 0x6101: Primary Service 1 (Device Info & Telemetry - Used by Flutter Home Controller)
@@ -76,9 +150,19 @@ static const ble_uuid128_t s_prov_tx_uuid = BLE_UUID128_INIT(
 static int append_read_slice(struct ble_gatt_access_ctxt *ctxt,
                              const char *payload, size_t length)
 {
-    if (ctxt->offset >= length) return 0;
-    return os_mbuf_append(ctxt->om, payload + ctxt->offset, length - ctxt->offset) == 0
-        ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    if (ctxt->offset > length) {
+        ESP_LOGW(TAG, "GATT read offset error: offset=%u > length=%u", (unsigned)ctxt->offset, (unsigned)length);
+        return BLE_ATT_ERR_INVALID_OFFSET;
+    }
+    if (ctxt->offset == length) {
+        ESP_LOGD(TAG, "GATT read EOF: offset=%u == length=%u", (unsigned)ctxt->offset, (unsigned)length);
+        return 0;
+    }
+    size_t chunk_len = length - ctxt->offset;
+    ESP_LOGI(TAG, "GATT_6105_READ_OFFSET offset=%u total=%u chunk=%u",
+             (unsigned)ctxt->offset, (unsigned)length, (unsigned)chunk_len);
+    int rc = os_mbuf_append(ctxt->om, payload + ctxt->offset, chunk_len);
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
@@ -101,16 +185,34 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
                        "\"variant\":\"eh-smart-switch-3x\"}",
                        id ? id->device_id : "UNKNOWN",
                        id ? id->serial_number : "UNKNOWN");
+        ESP_LOGI(TAG, "GATT_6105_READ_START len=%d offset=%d", len, ctxt->offset);
     } else if (attr_handle == s_status_handle) {
+        eh_prov1_state_t prov_st = eh_prov1_get_state();
+        const char *st_name = (prov_st == EH_PROV1_STATE_ACTIVE)
+                                  ? "ACTIVE"
+                                  : (prov_st == EH_PROV1_STATE_WIFI_CONNECTING
+                                         ? "WIFI_CONNECTING"
+                                         : "BLE_COMMISSIONING");
+        bool is_wifi_active = (prov_st == EH_PROV1_STATE_ACTIVE);
         len = snprintf(payload, sizeof(payload),
-                       "{\"state\":\"BLE_COMMISSIONING\",\"wifi\":false,\"mqtt\":false,\"relays\":[false,false,false]}");
+                       "{\"state\":\"%s\",\"wifi\":%s,\"mqtt\":false,\"relays\":[false,false,false]}",
+                       st_name, is_wifi_active ? "true" : "false");
+        ESP_LOGI(TAG, "GATT_6104_READ_START len=%d offset=%d state=%s wifi=%d", len, ctxt->offset, st_name, (int)is_wifi_active);
     } else if (attr_handle == s_telemetry_handle) {
         len = snprintf(payload, sizeof(payload),
                        "{\"v\":230.0,\"i\":0.0,\"p\":0.0,\"e\":0.0}");
     }
 
     if (len > 0) {
-        return append_read_slice(ctxt, payload, (size_t)len);
+        int res = append_read_slice(ctxt, payload, (size_t)len);
+        if (res == 0) {
+            if (attr_handle == s_product_info_handle) {
+                ESP_LOGI(TAG, "GATT_6105_READ_OK");
+            } else if (attr_handle == s_status_handle) {
+                ESP_LOGI(TAG, "GATT_6104_READ_OK");
+            }
+        }
+        return res;
     }
     return BLE_ATT_ERR_INSUFFICIENT_RES;
 }
@@ -123,20 +225,68 @@ static int gatt_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 
     if (attr_handle == s_rx_handle && ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
         uint16_t in_len = OS_MBUF_PKTLEN(ctxt->om);
-        uint8_t in_buf[256];
-        if (in_len > sizeof(in_buf)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        if (in_len > sizeof(s_rx_in_buf)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
 
-        os_mbuf_copydata(ctxt->om, 0, in_len, in_buf);
+        os_mbuf_copydata(ctxt->om, 0, in_len, s_rx_in_buf);
 
-        uint8_t out_buf[256];
+        size_t msg_len = sizeof(s_msg_buf);
+        bool is_complete = false;
+
+        esp_err_t frame_err = eh_prov1_process_frame(s_rx_in_buf, in_len, s_msg_buf, &msg_len, &is_complete);
+        if (frame_err != ESP_OK) {
+            ESP_LOGE(TAG, "eh_prov1_process_frame error: %d", frame_err);
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+
+        if (!is_complete) {
+            // Transport frame accepted. Return 0 (success) immediately.
+            return 0;
+        }
+
+        // Full message reassembled -> execute protocol handler
         size_t out_len = 0;
-        esp_err_t err = eh_prov1_handle_message(in_buf, in_len, out_buf, &out_len, sizeof(out_buf));
+        esp_err_t err = eh_prov1_handle_message(s_msg_buf, msg_len, s_out_buf, &out_len, sizeof(s_out_buf));
 
-        if (err == ESP_OK && out_len > 0 && s_tx_subscribed) {
-            struct os_mbuf *tx_om = ble_hs_mbuf_from_flat(out_buf, out_len);
-            if (tx_om) {
-                ble_gatts_notify_custom(s_conn_handle, s_tx_handle, tx_om);
+        if (err == ESP_OK && out_len > 0) {
+            if (!s_tx_subscribed || s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+                ESP_LOGW(TAG, "BLE_TX_DROPPED_NOT_SUBSCRIBED");
+                return 0;
             }
+
+            const size_t max_chunk_len = 16;
+            size_t total_frames = (out_len + max_chunk_len - 1) / max_chunk_len;
+            if (total_frames == 0) total_frames = 1;
+
+            for (uint8_t f = 0; f < total_frames; f++) {
+                if (s_tx_count >= MAX_TX_QUEUE_ITEMS) {
+                    ESP_LOGE(TAG, "BLE_TX_QUEUE_FULL dropped frame %u of %u", f, (unsigned)total_frames);
+                    break;
+                }
+                uint8_t frame_buf[32];
+                size_t frame_len = eh_prov1_fragment_payload(s_out_buf, out_len, f, frame_buf, sizeof(frame_buf));
+                if (frame_len > 0) {
+                    s_tx_queue[s_tx_tail].conn_handle = s_conn_handle;
+                    s_tx_queue[s_tx_tail].attr_handle = s_tx_handle;
+                    memcpy(s_tx_queue[s_tx_tail].data, frame_buf, frame_len);
+                    s_tx_queue[s_tx_tail].len = frame_len;
+                    s_tx_queue[s_tx_tail].msg_type = s_out_buf[0];
+                    s_tx_queue[s_tx_tail].frame_index = f;
+                    s_tx_queue[s_tx_tail].total_frames = (uint8_t)total_frames;
+                    s_tx_tail = (s_tx_tail + 1) % MAX_TX_QUEUE_ITEMS;
+                    s_tx_count++;
+                }
+            }
+
+            if (s_out_buf[0] == EH_PROV1_MSG_HELLO_ACK) {
+                ESP_LOGI(TAG, "PROV_HELLO_ACK_QUEUED frames=%u", (unsigned)total_frames);
+            } else if (s_out_buf[0] == EH_PROV1_MSG_AUTH_ACK) {
+                ESP_LOGI(TAG, "PROV_AUTH_ACK_QUEUED frames=%u", (unsigned)total_frames);
+            } else if (s_out_buf[0] == EH_PROV1_MSG_WIFI_ACK) {
+                ESP_LOGI(TAG, "PROV_WIFI_ACK_QUEUED frames=%u", (unsigned)total_frames);
+            }
+
+            /* Schedule host-context notification event on NimBLE default event queue */
+            ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_tx_event);
         }
         return err == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
     }
@@ -217,6 +367,10 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_tx_subscribed = false;
         s_telemetry_subscribed = false;
         s_status_subscribed = false;
+        s_tx_head = 0;
+        s_tx_tail = 0;
+        s_tx_count = 0;
+        eh_prov1_reset_framing();
         ble_commissioning_start_advertising();
         return 0;
     case BLE_GAP_EVENT_SUBSCRIBE:
@@ -323,6 +477,8 @@ esp_err_t ble_commissioning_init(void)
         ESP_LOGE(TAG, "Failed to initialize NimBLE port: %s", esp_err_to_name(ret));
         return ret;
     }
+
+    ble_npl_event_init(&s_tx_event, prov_tx_event_cb, NULL);
 
     const factory_identity_v2_t *id = factory_identity_v2_get();
     const char *device_name = (id && strlen(id->serial_number) > 0) ? id->serial_number : "EH-DEVICE";
