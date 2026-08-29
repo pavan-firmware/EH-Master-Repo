@@ -115,24 +115,42 @@ class HomeController extends ChangeNotifier {
           telemetryFreshness: TelemetryFreshness.current,
           summary: _livingRoomLightOn ? 'Active · Normal' : 'Standby · Normal',
           status: RoomStatus.normal,
-          capabilities: roomDevices.map((d) {
+          capabilities: roomDevices.expand((d) {
             final opName = formatOperatingName(d.name);
-            return RoomCapability(
-              id: d.id,
-              label: '$roomName $opName',
-              value: _livingRoomLightOn ? 'On' : 'Off',
-              kind: RoomCapabilityKind.light,
-            );
+            final ch1On = getDeviceChannelPower(d.id, 1, defaultValue: _livingRoomLightOn);
+            final ch2On = getDeviceChannelPower(d.id, 2, defaultValue: false);
+            final ch3On = getDeviceChannelPower(d.id, 3, defaultValue: false);
+            return [
+              RoomCapability(
+                id: '${d.id}_ch1',
+                label: '$opName Switch 1',
+                value: ch1On ? 'On' : 'Off',
+                kind: RoomCapabilityKind.light,
+              ),
+              RoomCapability(
+                id: '${d.id}_ch2',
+                label: '$opName Switch 2',
+                value: ch2On ? 'On' : 'Off',
+                kind: RoomCapabilityKind.light,
+              ),
+              RoomCapability(
+                id: '${d.id}_ch3',
+                label: '$opName Switch 3',
+                value: ch3On ? 'On' : 'Off',
+                kind: RoomCapabilityKind.light,
+              ),
+            ];
           }).toList(),
           devices: roomDevices.map((d) {
             final opName = formatOperatingName(d.name);
+            final ch1On = getDeviceChannelPower(d.id, 1, defaultValue: _livingRoomLightOn);
             return RoomDevice(
               id: d.id,
               name: opName,
               type: 'Smart Switch 3X',
-              value: _livingRoomLightOn ? 'On' : 'Off',
+              value: ch1On ? 'On' : 'Off',
               kind: RoomCapabilityKind.light,
-              confidence: ActuatorConfidence.confirmed,
+              confidence: _deviceConfidences[d.id] ?? ActuatorConfidence.confirmed,
             );
           }).toList(),
           insights: const RoomInsights(
@@ -199,6 +217,13 @@ class HomeController extends ChangeNotifier {
     }
   }
 
+  final Map<String, Map<int, bool>> _channelStates = {};
+  final Map<String, ActuatorConfidence> _deviceConfidences = {};
+
+  bool getDeviceChannelPower(String deviceId, int channelIndex, {bool defaultValue = false}) {
+    return _channelStates[deviceId]?[channelIndex] ?? defaultValue;
+  }
+
   void _subscribeToRealtime(RealtimeEventService service) {
     _sseSubscription = service.events.listen(_handleSseEvent);
   }
@@ -220,19 +245,27 @@ class HomeController extends ChangeNotifier {
       case 'device.state':
         // Authoritative state convergence for toggle channels
         final state = envelope.payload;
+        final devId = state['deviceId'] as String? ?? _activeDeviceId;
         if (state.containsKey('channels') && state['channels'] is Map) {
           final channels = state['channels'] as Map;
-          // ch1 → living room light
-          if (channels.containsKey('ch1')) {
-            final ch1 = channels['ch1'] as Map?;
-            final relay = ch1?['relay'] as bool?;
-            if (relay != null) {
-              _livingRoomLightOn = relay;
-              _lightConfidence = ActuatorConfidence.confirmed;
-              _lightCommandPending = false;
+          channels.forEach((key, val) {
+            if (val is Map && val.containsKey('relay')) {
+              final chIdx = int.tryParse(key.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
+              final relay = val['relay'] as bool?;
+              if (relay != null) {
+                if (devId != null) {
+                  _channelStates.putIfAbsent(devId, () => {})[chIdx] = relay;
+                }
+                if (chIdx == 1) {
+                  _livingRoomLightOn = relay;
+                  _lightConfidence = ActuatorConfidence.confirmed;
+                  _lightCommandPending = false;
+                }
+              }
             }
-          }
+          });
         }
+        debugPrint('[DEVICE] STATE_RECONCILED devId=$devId');
         notifyListeners();
         break;
 
@@ -241,11 +274,13 @@ class HomeController extends ChangeNotifier {
         if (cmdStatus == 'APPLIED' || cmdStatus == 'DELIVERED') {
           _lightConfidence = ActuatorConfidence.confirmed;
           _lightCommandPending = false;
+          debugPrint('[DEVICE] COMMAND_APPLIED');
         } else if (cmdStatus == 'FAILED' ||
             cmdStatus == 'TIMEOUT' ||
             cmdStatus == 'OVERRIDDEN') {
           _lightConfidence = ActuatorConfidence.failed;
           _lightCommandPending = false;
+          debugPrint('[DEVICE] COMMAND_FAILED status=$cmdStatus');
         }
         notifyListeners();
         break;
@@ -378,6 +413,47 @@ class HomeController extends ChangeNotifier {
       _lightCommandPending = false;
       notifyListeners();
     }
+  }
+
+  Future<void> setDeviceChannelPower({
+    required String deviceId,
+    required int channelIndex,
+    required bool value,
+  }) async {
+    _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
+    if (channelIndex == 1 &&
+        (deviceId == _activeDeviceId ||
+            (_devices.isNotEmpty && deviceId == _devices.first.id))) {
+      _livingRoomLightOn = value;
+    }
+    _deviceConfidences[deviceId] = ActuatorConfidence.pending;
+    debugPrint(
+      '[DEVICE] COMMAND_SENT deviceId=$deviceId channel=$channelIndex enabled=$value',
+    );
+    notifyListeners();
+
+    if (!_cloudEnabled) {
+      _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
+      notifyListeners();
+      return;
+    }
+
+    try {
+      final receipt = await _repository.sendCommand(
+        deviceId: deviceId,
+        action: 'set_power',
+        parameters: {'channel': channelIndex, 'enabled': value},
+        idempotencyKey:
+            'cmd-$deviceId-ch$channelIndex-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      if (receipt.state == CommandState.succeeded ||
+          receipt.state == CommandState.accepted) {
+        _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
+      }
+    } catch (_) {
+      _deviceConfidences[deviceId] = ActuatorConfidence.failed;
+    }
+    notifyListeners();
   }
 
   Future<void> setMisting(bool value) async {

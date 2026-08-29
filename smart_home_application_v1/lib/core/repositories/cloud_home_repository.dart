@@ -9,7 +9,6 @@ class CloudHomeRepository implements HomeRepository {
 
   @override
   Future<List<DeviceSnapshot>> getDevices() async {
-    // We fetch the first home id (assuming single home for now, as per backend defaults or we can fetch homes list first)
     final homesResponse = await _apiClient.get('/api/v1/homes');
     if (homesResponse == null || (homesResponse as List).isEmpty) {
       return [];
@@ -26,35 +25,125 @@ class CloudHomeRepository implements HomeRepository {
     for (var device in (devicesResponse as List)) {
       devices.add(
         DeviceSnapshot(
-          id: device['id'],
-          name: device['label'] ?? 'Unknown Device',
-          roomName:
-              'Home', // Could be fetched from room resolution if available
-          hardwareRevision: device['product_sku'] ?? 'unknown',
-          connection: _mapConnection(device['last_seen_at']),
+          id: device['deviceId'] ?? device['id'],
+          name: device['displayName'] ?? device['label'] ?? 'Unknown Device',
+          roomName: device['roomName'] ?? 'Home',
+          hardwareRevision: device['hardwareRevision'] ?? device['product_sku'] ?? 'unknown',
+          connection: _mapConnection(device['connectionState'] ?? device['last_seen_at']),
           capabilities: const [
             DeviceCapability(id: 'status', label: 'Home status'),
-            // Would map real capabilities from catalog here ideally
           ],
           reportedAt: device['last_seen_at'] != null
               ? DateTime.parse(device['last_seen_at'])
               : DateTime.now(),
-          firmwareVersion: device['firmware_version'] ?? '1.0.0',
+          firmwareVersion: device['firmwareVersion'] ?? device['firmware_version'] ?? '1.0.0',
         ),
       );
     }
     return devices;
   }
 
-  DeviceConnection _mapConnection(String? lastSeenAt) {
-    if (lastSeenAt == null) return DeviceConnection.offline;
-    final lastSeen = DateTime.parse(lastSeenAt);
-    final diff = DateTime.now().difference(lastSeen).inSeconds;
-    if (diff > 120) {
-      return DeviceConnection
-          .offline; // Stale logic should be driven by backend availability events ideally
+  DeviceConnection _mapConnection(dynamic connectionOrLastSeen) {
+    if (connectionOrLastSeen == null) return DeviceConnection.offline;
+    if (connectionOrLastSeen == 'ONLINE') return DeviceConnection.online;
+    if (connectionOrLastSeen == 'STALE') return DeviceConnection.stale;
+    if (connectionOrLastSeen == 'OFFLINE') return DeviceConnection.offline;
+
+    try {
+      final lastSeen = DateTime.parse(connectionOrLastSeen.toString());
+      final diff = DateTime.now().difference(lastSeen).inSeconds;
+      if (diff > 120) {
+        return DeviceConnection.offline;
+      }
+      return DeviceConnection.online;
+    } catch (_) {
+      return DeviceConnection.offline;
     }
-    return DeviceConnection.online;
+  }
+
+  @override
+  Future<void> registerDevice({
+    required String deviceId,
+    required String serialNumber,
+    required String productVariantId,
+    required String hardwareRevision,
+    required String firmwareFamily,
+    String firmwareVersion = '1.0.0',
+  }) async {
+    await _apiClient.post(
+      '/api/v1/devices/register',
+      body: {
+        'deviceId': deviceId,
+        'serialNumber': serialNumber,
+        'productVariantId': productVariantId,
+        'hardwareRevision': hardwareRevision,
+        'firmwareFamily': firmwareFamily,
+        'firmwareVersion': firmwareVersion,
+      },
+    );
+  }
+
+  @override
+  Future<void> claimDevice({
+    required String deviceId,
+    required String homeId,
+    String? roomId,
+    String? customName,
+    Map<String, String>? channelLabels,
+  }) async {
+    final body = <String, dynamic>{
+      'homeId': homeId,
+    };
+    if (roomId != null) body['roomId'] = roomId;
+    if (customName != null) body['customName'] = customName;
+    if (channelLabels != null) body['channelLabels'] = channelLabels;
+
+    await _apiClient.post(
+      '/api/v1/devices/$deviceId/claim',
+      body: body,
+    );
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getRooms({String? homeId}) async {
+    String resolvedHomeId = homeId ?? '';
+    if (resolvedHomeId.isEmpty) {
+      final homesResponse = await _apiClient.get('/api/v1/homes');
+      if (homesResponse != null && (homesResponse as List).isNotEmpty) {
+        resolvedHomeId = homesResponse[0]['id'] as String;
+      }
+    }
+    if (resolvedHomeId.isEmpty) return [];
+
+    final response = await _apiClient.get('/api/v1/homes/$resolvedHomeId/rooms');
+    if (response is List) {
+      return response.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+    }
+    return [];
+  }
+
+  @override
+  Future<Map<String, dynamic>> createRoom({
+    required String name,
+    String? homeId,
+    String? iconKey,
+  }) async {
+    String resolvedHomeId = homeId ?? '';
+    if (resolvedHomeId.isEmpty) {
+      final homesResponse = await _apiClient.get('/api/v1/homes');
+      if (homesResponse != null && (homesResponse as List).isNotEmpty) {
+        resolvedHomeId = homesResponse[0]['id'] as String;
+      }
+    }
+
+    final response = await _apiClient.post(
+      '/api/v1/homes/$resolvedHomeId/rooms',
+      body: {
+        'name': name,
+        'iconKey': iconKey ?? 'living',
+      },
+    );
+    return Map<String, dynamic>.from(response as Map);
   }
 
   @override
@@ -90,7 +179,6 @@ class CloudHomeRepository implements HomeRepository {
 
   @override
   Future<FirmwareRelease?> getAvailableRelease() async {
-    // Phase 7C doesn't focus on real OTA, mock for now
     return null;
   }
 
