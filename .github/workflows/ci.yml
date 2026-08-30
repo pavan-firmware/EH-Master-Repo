@@ -78,11 +78,11 @@ jobs:
       # 4. Generate ephemeral development TLS/mTLS certificates
       #    Output: .local-certs/  (git-ignored, never committed)
       # ----------------------------------------------------------
-      - name: Generate Development TLS/mTLS Certificates
-        run: node scripts/generate-dev-certs.js
+      - name: Generate Development TLS/mTLS Certificates & ACL
+        run: node scripts/setup-emqx-mtls.js
 
       # ----------------------------------------------------------
-      # 5. Start real EMQX 5.8.0 broker
+      # 5. Start real EMQX 5.8.0 broker with mTLS & ACL Pre-loaded
       # ----------------------------------------------------------
       - name: Start EMQX 5.8.0 Broker
         run: |
@@ -91,6 +91,14 @@ jobs:
             -p 1883:1883 \
             -p 8883:8883 \
             -p 18083:18083 \
+            -v ${{ github.workspace }}/.local-certs/ca.crt:/opt/emqx/etc/certs/cacert.pem \
+            -v ${{ github.workspace }}/.local-certs/server.crt:/opt/emqx/etc/certs/cert.pem \
+            -v ${{ github.workspace }}/.local-certs/server.key:/opt/emqx/etc/certs/key.pem \
+            -v ${{ github.workspace }}/.local-certs/acl.conf:/opt/emqx/etc/acl.conf \
+            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY=verify_peer \
+            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT=true \
+            -e EMQX_AUTHORIZATION__NO_MATCH=deny \
+            -e EMQX_AUTHORIZATION__CACHE__ENABLE=false \
             emqx/emqx:5.8.0
 
       # ----------------------------------------------------------
