@@ -44,14 +44,48 @@ jobs:
         run: npm ci
 
       # ----------------------------------------------------------
+      # 3b. Setup Python & Manufacturing PKI Dependencies
+      # ----------------------------------------------------------
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Cryptography
+        run: pip install cryptography
+
+      # ----------------------------------------------------------
+      # 3c. Setup Java & Flutter SDK for Monorepo Suite
+      # ----------------------------------------------------------
+      - name: Setup Java (Android toolchain)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter 3.44.9
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+
+      - name: Install Flutter Dependencies
+        working-directory: smart_home_application_v1
+        run: flutter pub get
+
+      # ----------------------------------------------------------
       # 4. Generate ephemeral development TLS/mTLS certificates
       #    Output: .local-certs/  (git-ignored, never committed)
       # ----------------------------------------------------------
-      - name: Generate Development TLS/mTLS Certificates
-        run: node scripts/generate-dev-certs.js
+      - name: Generate Development TLS/mTLS Certificates & ACL
+        run: |
+          node scripts/setup-emqx-mtls.js --generate-only
+          chmod -R 755 .local-certs
+          chmod 644 .local-certs/*
 
       # ----------------------------------------------------------
-      # 5. Start real EMQX 5.8.0 broker
+      # 5. Start real EMQX 5.8.0 broker with read-only certs directory
       # ----------------------------------------------------------
       - name: Start EMQX 5.8.0 Broker
         run: |
@@ -60,7 +94,19 @@ jobs:
             -p 1883:1883 \
             -p 8883:8883 \
             -p 18083:18083 \
+            -v ${{ github.workspace }}/.local-certs:/opt/emqx/etc/local-certs:ro \
+            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE=/opt/emqx/etc/local-certs/ca.crt \
+            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE=/opt/emqx/etc/local-certs/server.crt \
+            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE=/opt/emqx/etc/local-certs/server.key \
+            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY=verify_peer \
+            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT=true \
+            -e EMQX_LISTENERS__SSL__DEFAULT__PEER_CERT_AS_CLIENTID=cn \
+            -e EMQX_AUTHORIZATION__NO_MATCH=deny \
+            -e EMQX_AUTHORIZATION__CACHE__ENABLE=false \
+            -e EMQX_AUTHORIZATION__SOURCES__1__TYPE=file \
+            -e EMQX_AUTHORIZATION__SOURCES__1__PATH=/opt/emqx/etc/local-certs/acl.conf \
             emqx/emqx:5.8.0
+
 
       # ----------------------------------------------------------
       # 6. Wait until EMQX is ready to accept MQTT connections
@@ -92,7 +138,7 @@ jobs:
       # 7. Configure EMQX: verify_peer, CN→identity, per-device ACL
       # ----------------------------------------------------------
       - name: Configure EMQX mTLS and Per-Device ACL
-        run: node scripts/setup-emqx-mtls.js
+        run: node scripts/setup-emqx-mtls.js --configure-only
 
       # ----------------------------------------------------------
       # 8. Canonical contract tests
@@ -270,6 +316,36 @@ jobs:
       # ----------------------------------------------------------
       - name: Run Phase 7B Realtime SSE & Worker Integration Tests
         run: node backend/tests/phase7b-realtime.test.js
+
+      # ----------------------------------------------------------
+      # 19c. Phase 10 Automation, Scenes & Scheduler Engine Tests
+      # ----------------------------------------------------------
+      - name: Run Phase 10 Automation, Scenes & Scheduler Tests
+        run: node backend/tests/phase10-automation.test.js
+
+      # ----------------------------------------------------------
+      # 19d. Phase 11 Device Management, Health & Observability Tests
+      # ----------------------------------------------------------
+      - name: Run Phase 11 Device Management & Observability Tests
+        run: node backend/tests/phase11-device-management.test.js
+
+      # ----------------------------------------------------------
+      # 19e. Phase 12 Environment Configuration Validation
+      # ----------------------------------------------------------
+      - name: Run Phase 12 Environment Configuration Validation
+        run: node scripts/validate-environment.js
+
+      # ----------------------------------------------------------
+      # 19f. Phase 13 Production Deployment & Operational Security Tests
+      # ----------------------------------------------------------
+      - name: Run Phase 13 Production Deployment & Security Tests
+        run: node backend/tests/phase13-production-deployment.test.js
+
+      # ----------------------------------------------------------
+      # 19g. Complete Monorepo 24-Suite Regression Runner
+      # ----------------------------------------------------------
+      - name: Run Complete Monorepo 24-Suite Validation Runner
+        run: node scripts/validate-repo.js
 
       # ----------------------------------------------------------
       # 20. Phase 6 REAL EMQX 5.8.0 integration — HARD CI GATE

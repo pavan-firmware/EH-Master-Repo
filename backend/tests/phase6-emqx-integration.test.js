@@ -121,7 +121,7 @@ function checkEmqxReachable(url) {
   console.log('  [PASS] EMQX broker 5.8.0 is ONLINE and accepting connections.\n');
 
   console.log('Applying real EMQX mTLS (verify_peer) and per-device ACL configuration...');
-  setupEmqxMtls();
+  await setupEmqxMtls();
   console.log('  [PASS] EMQX 5.8.0 configured with verify_peer = true & per-device ACL.\n');
 
   // =====================================================================
@@ -504,6 +504,9 @@ function checkEmqxReachable(url) {
   // =====================================================================
 
   console.log('\n--- EQ13: TLS / mTLS & ACL Gate ---');
+
+  // Ensure EMQX mTLS and authoritative ACL configuration are active
+  await setupEmqxMtls({ configureOnly: true });
 
   const LOCAL_CERTS = path.join(__dirname, '..', '..', '.local-certs');
   const CA_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'ca.crt'));

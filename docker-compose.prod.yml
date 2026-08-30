@@ -1,0 +1,151 @@
+# ==============================================================================
+# EH Home — Production Multi-Service Deployment Compose (Phase 13)
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: eh-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-eh_home_prod}
+      POSTGRES_USER: ${POSTGRES_USER:-eh_app_user}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    secrets:
+      - db_password
+    networks:
+      - eh-backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis Cache & Distributed Lock
+  redis:
+    image: redis:7-alpine
+    container_name: eh-redis-prod
+    restart: unless-stopped
+    command: >
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - redisdata:/data
+    networks:
+      - eh-backend-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 3. EMQX 5.8 MQTT Broker with mTLS
+  emqx:
+    image: emqx/emqx:5.8.0
+    container_name: eh-emqx-prod
+    restart: unless-stopped
+    ports:
+      - "8883:8883"   # mTLS Port for ESP32 devices
+      - "18083:18083" # Admin Dashboard (Protected / Internal)
+    volumes:
+      - emqxdata:/opt/emqx/data
+      - ./certs/emqx:/opt/emqx/etc/certs:ro
+    environment:
+      EMQX_LISTENERS__SSL__DEFAULT__BIND: "8883"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE: "/opt/emqx/etc/certs/ca.crt"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: "/opt/emqx/etc/certs/server.crt"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: "/opt/emqx/etc/certs/server.key"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: "verify_peer"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
+    networks:
+      - eh-backend-net
+      - eh-edge-net
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # 4. EH Home Backend Microservice
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eh-backend-prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://${POSTGRES_USER:-eh_app_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-eh_home_prod}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MQTT_BROKER_URL: tls://emqx:8883
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public_key
+      MQTT_CA_PATH: /opt/certs/ca.crt
+    volumes:
+      - ./certs/ca.crt:/opt/certs/ca.crt:ro
+    secrets:
+      - jwt_private_key
+      - jwt_public_key
+      - db_password
+    networks:
+      - eh-backend-net
+      - eh-edge-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/api/v1/health/liveness', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # 5. Reverse Proxy & Edge TLS Gateway
+  nginx:
+    image: nginx:alpine
+    container_name: eh-nginx-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certs/web:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+    networks:
+      - eh-edge-net
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  jwt_private_key:
+    file: ./secrets/jwt_private.pem
+  jwt_public_key:
+    file: ./secrets/jwt_public.pem
+
+networks:
+  eh-backend-net:
+    driver: bridge
+    internal: true
+  eh-edge-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  emqxdata:
