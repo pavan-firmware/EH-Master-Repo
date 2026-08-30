@@ -505,6 +505,13 @@ function checkEmqxReachable(url) {
 
   console.log('\n--- EQ13: TLS / mTLS & ACL Gate ---');
 
+  // Ensure EMQX mTLS and authoritative ACL configuration are active
+  try {
+    setupEmqxMtls();
+  } catch (setupErr) {
+    console.log(`[EQ13 Setup Notice] setupEmqxMtls: ${setupErr.message}`);
+  }
+
   const LOCAL_CERTS = path.join(__dirname, '..', '..', '.local-certs');
   const CA_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'ca.crt'));
   const DEV_A_CRT = fs.readFileSync(path.join(LOCAL_CERTS, 'device_a.crt'));
