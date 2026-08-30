@@ -33,6 +33,13 @@ void app_lifecycle_register_listener(app_lifecycle_listener_t listener);
 bool app_lifecycle_is_secret_accessible(void);
 void app_lifecycle_mark_commissioned(void);
 
+/**
+ * Execute canonical safe selective factory reset:
+ * Clears runtime keys (Wi-Fi, lifecycle, session), preserves factory identity,
+ * handles development comm_cons semantics, verifies integrity, and reboots.
+ */
+bool app_lifecycle_factory_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

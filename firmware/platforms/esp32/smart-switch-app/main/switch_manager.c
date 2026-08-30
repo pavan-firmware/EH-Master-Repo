@@ -25,6 +25,9 @@ static const int s_switch_gpios[EH_SWITCH_CHANNEL_COUNT] = {
 
 static uint32_t s_last_trigger_ms[EH_SWITCH_CHANNEL_COUNT] = { 0, 0, 0 };
 static switch_toggle_cb_t s_toggle_cb = NULL;
+static switch_long_press_cb_t s_long_press_cb = NULL;
+static uint32_t s_press_start_ms[EH_SWITCH_CHANNEL_COUNT] = { 0, 0, 0 };
+static bool s_long_press_fired[EH_SWITCH_CHANNEL_COUNT] = { false, false, false };
 
 #ifdef ESP_PLATFORM
 static QueueHandle_t s_switch_evt_queue = NULL;
@@ -54,12 +57,30 @@ static void switch_task(void* arg)
 {
     switch_event_t evt;
     while (1) {
-        if (xQueueReceive(s_switch_evt_queue, &evt, portMAX_DELAY)) {
+        if (xQueueReceive(s_switch_evt_queue, &evt, pdMS_TO_TICKS(100))) {
             if (switch_manager_feed_event(evt.channel_index, evt.timestamp_ms)) {
                 if (s_toggle_cb) {
                     s_toggle_cb(evt.channel_index);
                 }
             }
+        }
+
+        // Check if Switch 1 is held down for long-press factory reset (> 5000 ms)
+        int level = gpio_get_level((gpio_num_t)s_switch_gpios[0]);
+        if (level == 0) { // Active low (pulled to GND)
+            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+            if (s_press_start_ms[0] == 0) {
+                s_press_start_ms[0] = now;
+            } else if (now - s_press_start_ms[0] >= 5000 && !s_long_press_fired[0]) {
+                s_long_press_fired[0] = true;
+                ESP_LOGW(TAG, "Physical Switch CH1 held > 5s -> Triggering Long-Press Action");
+                if (s_long_press_cb) {
+                    s_long_press_cb(1);
+                }
+            }
+        } else {
+            s_press_start_ms[0] = 0;
+            s_long_press_fired[0] = false;
         }
     }
 }
@@ -115,4 +136,9 @@ bool switch_manager_feed_event(uint8_t channel_index, uint32_t current_time_ms)
 void switch_manager_register_cb(switch_toggle_cb_t cb)
 {
     s_toggle_cb = cb;
+}
+
+void switch_manager_register_long_press_cb(switch_long_press_cb_t cb)
+{
+    s_long_press_cb = cb;
 }

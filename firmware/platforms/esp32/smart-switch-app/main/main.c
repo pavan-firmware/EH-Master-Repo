@@ -45,11 +45,40 @@
 // Forward declaration of MQTT command handler
 static void on_mqtt_command_received(const eh_mqtt_command_t* cmd);
 static void on_physical_switch_toggled(uint8_t channel_index);
+static void on_physical_switch_long_press(uint8_t channel_index);
 static void on_relay_state_changed(uint8_t channel_index, bool new_power, const char* source);
 static void on_wifi_connected(const char* ip_address);
 static void on_wifi_disconnected(void);
 static void on_telemetry_ready(const bl0942_data_t* data);
 static bool on_ble_wifi_provision(const char* ssid, const char* password);
+
+#ifdef ESP_PLATFORM
+static void uart_console_task(void *pvParameters)
+{
+    (void)pvParameters;
+    char rx_buf[64];
+    size_t rx_idx = 0;
+    while (1) {
+        int c = getchar();
+        if (c != EOF && c > 0) {
+            if (c == '\r' || c == '\n') {
+                if (rx_idx > 0) {
+                    rx_buf[rx_idx] = '\0';
+                    if (strcasecmp(rx_buf, "FACTORY_RESET") == 0 || strcasecmp(rx_buf, "RESET") == 0) {
+                        ESP_LOGI(TAG, "UART command received ('%s') -> Executing Safe Factory Reset", rx_buf);
+                        app_lifecycle_factory_reset();
+                    }
+                    rx_idx = 0;
+                }
+            } else if (rx_idx + 1 < sizeof(rx_buf)) {
+                rx_buf[rx_idx++] = (char)c;
+            }
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    }
+}
+#endif
 
 static void log_memory_diagnostics(void)
 {
@@ -81,6 +110,14 @@ static void on_physical_switch_toggled(uint8_t channel_index)
     ESP_LOGI(TAG, "Physical switch actuated on channel %d", channel_index);
     // Instant local hardware actuation
     relay_manager_toggle_power(channel_index, "PHYSICAL_SWITCH");
+}
+
+static void on_physical_switch_long_press(uint8_t channel_index)
+{
+    if (channel_index == 1) {
+        ESP_LOGW(TAG, "Physical switch 1 long-press confirmed -> Triggering Safe Factory Reset");
+        app_lifecycle_factory_reset();
+    }
 }
 
 static void on_relay_state_changed(uint8_t channel_index, bool new_power, const char* source)
@@ -161,6 +198,7 @@ void app_main(void)
 
     // 3. Wire Callbacks
     switch_manager_register_cb(on_physical_switch_toggled);
+    switch_manager_register_long_press_cb(on_physical_switch_long_press);
     relay_manager_register_change_cb(on_relay_state_changed);
     wifi_manager_register_callbacks(on_wifi_connected, on_wifi_disconnected);
     telemetry_manager_register_cb(on_telemetry_ready);
@@ -172,6 +210,9 @@ void app_main(void)
     const factory_identity_v2_t* id = factory_identity_v2_get();
     if (id && id->is_development) {
         ESP_LOGI(TAG, "Device Identity: ID=%s, Serial=%s (DEV MODE)", id->device_id, id->serial_number);
+#ifdef ESP_PLATFORM
+        xTaskCreate(uart_console_task, "uart_console", 3072, NULL, 5, NULL);
+#endif
     }
 
     // Check if Wi-Fi already provisioned in NVS

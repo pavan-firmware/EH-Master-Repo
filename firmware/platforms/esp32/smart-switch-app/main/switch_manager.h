@@ -41,6 +41,7 @@ typedef struct {
 } switch_event_t;
 
 typedef void (*switch_toggle_cb_t)(uint8_t channel_index);
+typedef void (*switch_long_press_cb_t)(uint8_t channel_index);
 
 /**
  * Initialize switch GPIOs as inputs with pull-ups and interrupt on both edges.
@@ -51,6 +52,11 @@ void switch_manager_init(void);
  * Register callback called immediately upon debounced switch toggle.
  */
 void switch_manager_register_cb(switch_toggle_cb_t cb);
+
+/**
+ * Register callback called when a switch channel is held continuously (> 5 seconds).
+ */
+void switch_manager_register_long_press_cb(switch_long_press_cb_t cb);
 
 /**
  * Process debounce logic (callable in test or FreeRTOS task loop).

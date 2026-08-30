@@ -1,9 +1,16 @@
 #include "app_lifecycle.h"
+#include "factory_identity_v2.h"
+#include "wifi_manager.h"
+#include "relay_manager.h"
+#include "eh_prov1.h"
 #include <stdio.h>
 #include <string.h>
 
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #define TAG "APP_LIFECYCLE"
 #else
 #define TAG "APP_LIFECYCLE"
@@ -120,4 +127,58 @@ void app_lifecycle_mark_commissioned(void)
 {
     s_commissioned = true;
     ESP_LOGI(TAG, "Device marked commissioned. Secret access locked.");
+}
+
+bool app_lifecycle_factory_reset(void)
+{
+    ESP_LOGI(TAG, "FACTORY_RESET_START");
+    ESP_LOGI(TAG, "RUNTIME_RESET_START");
+
+    // 1. Disconnect and stop Wi-Fi
+    wifi_manager_disconnect();
+
+    // 2. Clear Wi-Fi credentials key-by-key in NVS
+    ESP_LOGI(TAG, "WIFI_CREDENTIALS_CLEAR_START");
+    wifi_manager_clear_credentials();
+    ESP_LOGI(TAG, "WIFI_CREDENTIALS_CLEARED");
+
+    // 3. Clear consumed flag only if development device
+    const factory_identity_v2_t *id = factory_identity_v2_get();
+    if (id && id->is_development) {
+        factory_identity_v2_factory_reset();
+    }
+    ESP_LOGI(TAG, "PROVISIONED_STATE_CLEARED");
+
+    // 4. Reset runtime in-memory state
+    s_current_state = APP_STATE_FACTORY_NEW;
+    s_commissioned = false;
+    eh_prov1_init();
+
+    // Set relays to safe OFF
+    relay_manager_set_power(1, false, "FACTORY_RESET");
+    relay_manager_set_power(2, false, "FACTORY_RESET");
+    relay_manager_set_power(3, false, "FACTORY_RESET");
+    ESP_LOGI(TAG, "RUNTIME_STATE_CLEARED");
+
+    // 5. Verification
+    if (wifi_manager_has_credentials()) {
+        ESP_LOGE(TAG, "Verification failed: Wi-Fi credentials still present");
+        return false;
+    }
+
+    id = factory_identity_v2_get();
+    if (!id || strlen(id->device_id) == 0 || strlen(id->serial_number) == 0) {
+        ESP_LOGE(TAG, "Verification failed: Factory identity invalid");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "FACTORY_IDENTITY_VERIFIED");
+    ESP_LOGI(TAG, "FACTORY_RESET_COMPLETE");
+
+#ifdef ESP_PLATFORM
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_restart();
+#endif
+
+    return true;
 }

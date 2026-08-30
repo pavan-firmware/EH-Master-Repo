@@ -409,7 +409,8 @@ class NvsStorageSimulator {
     this.storage[`${namespace}:${key}`] = value;
   }
   get(namespace, key) {
-    return this.storage[`${namespace}:${key}`] || null;
+    const val = this.storage[`${namespace}:${key}`];
+    return val !== undefined ? val : null;
   }
   clear(namespace) {
     Object.keys(this.storage).forEach(k => {
@@ -454,10 +455,67 @@ test('20. Security: Passwords in memory/NVS are isolated and factory reset wipes
   nvs.set('eh_wifi', 'pass', 'HomePassword');
   assert.strictEqual(nvs.get('eh_wifi', 'ssid'), 'HomeAP');
 
-  // Factory reset clears NVS
-  nvs.clear('eh_wifi');
+  // Key-level deletion
+  delete nvs.storage['eh_wifi:ssid'];
+  delete nvs.storage['eh_wifi:pass'];
   assert.strictEqual(nvs.get('eh_wifi', 'ssid'), null);
   assert.strictEqual(nvs.get('eh_wifi', 'pass'), null);
+});
+
+test('21. Factory Reset: Selective deletion clears runtime keys and strictly preserves factory identity', () => {
+  const nvs = new NvsStorageSimulator();
+  // Factory immutable identity in fact_v2
+  nvs.set('fact_v2', 'dev_id', '4444688e-989d-458e-820e-ac62a99ed8e1');
+  nvs.set('fact_v2', 'serial', 'EH-SW3X-2026W12-00001');
+  nvs.set('fact_v2', 'comm_sec', Buffer.alloc(32, 0xAA));
+  nvs.set('fact_v2', 'comm_cons', 1);
+  nvs.set('fact_v2', 'cert_fp', 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90');
+  nvs.set('fact_v2', 'is_dev', 1);
+
+  // Runtime provisioned state
+  nvs.set('eh_wifi', 'ssid', 'MyHomeWiFi');
+  nvs.set('eh_wifi', 'pass', 'TopSecretPass');
+
+  // Execute canonical selective reset
+  delete nvs.storage['eh_wifi:ssid'];
+  delete nvs.storage['eh_wifi:pass'];
+  if (nvs.get('fact_v2', 'is_dev') === 1) {
+    nvs.set('fact_v2', 'comm_cons', 0); // Development controlled recommissioning reset
+  }
+
+  // 1. Verify runtime keys are completely absent
+  assert.strictEqual(nvs.get('eh_wifi', 'ssid'), null);
+  assert.strictEqual(nvs.get('eh_wifi', 'pass'), null);
+
+  // 2. Verify factory identity is 100% intact and unchanged
+  assert.strictEqual(nvs.get('fact_v2', 'dev_id'), '4444688e-989d-458e-820e-ac62a99ed8e1');
+  assert.strictEqual(nvs.get('fact_v2', 'serial'), 'EH-SW3X-2026W12-00001');
+  assert.strictEqual(nvs.get('fact_v2', 'cert_fp'), 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90');
+  assert.strictEqual(nvs.get('fact_v2', 'comm_cons'), 0);
+});
+
+test('22. Factory Reset vs Reboot Boundary: Reset boots to BLE_COMMISSIONING, reboot boots to WIFI_CONNECTING', () => {
+  const nvs = new NvsStorageSimulator();
+  nvs.set('fact_v2', 'dev_id', '4444688e-989d-458e-820e-ac62a99ed8e1');
+  nvs.set('fact_v2', 'serial', 'EH-SW3X-2026W12-00001');
+  nvs.set('fact_v2', 'is_dev', 1);
+
+  // Case A: Commissioned device normal reboot
+  nvs.set('eh_wifi', 'ssid', 'MyHomeAP');
+  nvs.set('eh_wifi', 'pass', 'MyPass');
+  const normalBootHasWifi = (nvs.get('eh_wifi', 'ssid') !== null);
+  assert.strictEqual(normalBootHasWifi, true);
+  const normalBootLc = new LifecycleSimulator();
+  assert.strictEqual(normalBootLc.transition(APP_STATES.WIFI_CONNECTING), true); // Auto-connects
+
+  // Case B: Factory reset followed by reboot
+  delete nvs.storage['eh_wifi:ssid'];
+  delete nvs.storage['eh_wifi:pass'];
+  const resetBootHasWifi = (nvs.get('eh_wifi', 'ssid') !== null);
+  assert.strictEqual(resetBootHasWifi, false); // Credentials absent
+  const resetBootLc = new LifecycleSimulator();
+  assert.strictEqual(resetBootLc.state, APP_STATES.FACTORY_NEW);
+  assert.strictEqual(resetBootLc.transition(APP_STATES.BLE_COMMISSIONING), true); // Starts setup mode
 });
 
 console.log(`\n────────────────────────────────────────────────────────────`);

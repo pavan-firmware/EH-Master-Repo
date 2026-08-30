@@ -139,10 +139,14 @@ void wifi_manager_clear_credentials(void)
 {
 #ifdef ESP_PLATFORM
     nvs_handle_t handle;
-    if (nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-        nvs_erase_all(handle);
+    esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        nvs_erase_key(handle, KEY_WIFI_SSID);
+        nvs_erase_key(handle, KEY_WIFI_PASS);
         nvs_commit(handle);
         nvs_close(handle);
+    } else {
+        ESP_LOGW(TAG, "Could not open NVS namespace %s to clear: %s", WIFI_NVS_NAMESPACE, esp_err_to_name(err));
     }
 #endif
     s_current_ssid[0] = '\0';
