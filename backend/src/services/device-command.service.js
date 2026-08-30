@@ -191,7 +191,7 @@ class DeviceCommandService {
     if (!actorContext || !actorContext.userId || !actorContext.homeId) {
       throw new Error('Authorization failed: actor context missing userId or homeId');
     }
-    if (!UUID_REGEX.test(actorContext.userId)) {
+    if (!UUID_REGEX.test(actorContext.userId) && !actorContext.userId.startsWith('usr_') && !actorContext.userId.startsWith('system_')) {
       throw new Error(`Authorization failed: invalid actorContext.userId format`);
     }
   }

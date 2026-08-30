@@ -5,7 +5,8 @@ console.log('=== VERIFYING FULL SQL MIGRATION LIFECYCLE ===\n');
 
 const migrations = [
   { up: '001_initial_schema.sql', down: '001_initial_schema.down.sql' },
-  { up: '002_capabilities_network_audit_outbox.sql', down: '002_capabilities_network_audit_outbox.down.sql' }
+  { up: '002_capabilities_network_audit_outbox.sql', down: '002_capabilities_network_audit_outbox.down.sql' },
+  { up: '006_automations_scenes_schedules.sql', down: '006_automations_scenes_schedules.down.sql' }
 ];
 
 let totalUpTables = [];

@@ -89,17 +89,7 @@ function setupEmqxMtls() {
   "eh/v1/devices/${DEVICE_B_ID}/availability"
 ]}.
 
-%% 4. Generic self-service rule using \${clientid} interpolation (EMQX 5.x syntax)
-{allow, all, subscribe, ["eh/v1/devices/\${clientid}/commands"]}.
-{allow, all, publish, [
-  "eh/v1/devices/\${clientid}/command-receipts",
-  "eh/v1/devices/\${clientid}/state",
-  "eh/v1/devices/\${clientid}/events",
-  "eh/v1/devices/\${clientid}/telemetry",
-  "eh/v1/devices/\${clientid}/availability"
-]}.
-
-%% 5. Final deny-all
+%% 4. Final deny-all
 {deny, all}.
 `;
 

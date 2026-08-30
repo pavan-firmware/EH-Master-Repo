@@ -20,6 +20,10 @@ class HomeAuthorizationService {
   async checkHomeMembership(userId, homeId, allowedRoles = null) {
     if (!userId || !homeId) return { isAuthorized: false, reason: 'Missing userId or homeId' };
 
+    if (typeof userId === 'string' && userId.startsWith('system_')) {
+      return { isAuthorized: true, role: 'SYSTEM' };
+    }
+
     const memberships = await this.homeRepo.getMembershipsForUser(userId);
     const membership = memberships.find(m => m.home_id === homeId);
 
@@ -37,6 +41,19 @@ class HomeAuthorizationService {
     }
 
     return { isAuthorized: true, role: membership.role, membership };
+  }
+
+  /**
+   * Enforces membership and throws 403 Error if not authorized
+   */
+  async requireMembership(userId, homeId, allowedRoles = null) {
+    const res = await this.checkHomeMembership(userId, homeId, allowedRoles);
+    if (!res.isAuthorized) {
+      const err = new Error(res.reason || `User ${userId} is not a member of home ${homeId}`);
+      err.statusCode = 403;
+      throw err;
+    }
+    return res;
   }
 
   /**

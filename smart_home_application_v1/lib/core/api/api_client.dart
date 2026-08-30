@@ -44,6 +44,14 @@ class ApiClient {
     return _request('POST', path, body: body);
   }
 
+  Future<dynamic> put(String path, {Map<String, dynamic>? body}) async {
+    return _request('PUT', path, body: body);
+  }
+
+  Future<dynamic> patch(String path, {Map<String, dynamic>? body}) async {
+    return _request('PATCH', path, body: body);
+  }
+
   Future<dynamic> delete(String path) async {
     return _request('DELETE', path);
   }
@@ -67,6 +75,22 @@ class ApiClient {
       if (method == 'POST') {
         response = await _client
             .post(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            )
+            .timeout(const Duration(seconds: 10));
+      } else if (method == 'PUT') {
+        response = await _client
+            .put(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            )
+            .timeout(const Duration(seconds: 10));
+      } else if (method == 'PATCH') {
+        response = await _client
+            .patch(
               uri,
               headers: headers,
               body: body != null ? jsonEncode(body) : null,

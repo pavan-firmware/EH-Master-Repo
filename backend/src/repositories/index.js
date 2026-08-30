@@ -604,6 +604,274 @@ class RefreshTokenRepository {
   }
 }
 
+/**
+ * SceneRepository — PHASE 10 PERSISTENCE
+ */
+class SceneRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createScene({ id, homeId, name, description = null, icon = 'scene_default', isActive = false, actions = [] }) {
+    const home = await this.db.findById('homes', homeId);
+    if (!home) throw new Error(`Home ${homeId} does not exist`);
+
+    return this.db.insert('scenes', id, {
+      home_id: homeId,
+      name,
+      description,
+      icon,
+      is_active: isActive,
+      actions: Array.isArray(actions) ? actions : []
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('scenes', id);
+  }
+
+  async findByHomeId(homeId) {
+    return this.db.find('scenes', s => s.home_id === homeId);
+  }
+
+  async findActive(homeId) {
+    return this.db.find('scenes', s => s.home_id === homeId && s.is_active === true);
+  }
+
+  async updateScene(id, updates) {
+    const cleanUpdates = {};
+    if (updates.name !== undefined) cleanUpdates.name = updates.name;
+    if (updates.description !== undefined) cleanUpdates.description = updates.description;
+    if (updates.icon !== undefined) cleanUpdates.icon = updates.icon;
+    if (updates.isActive !== undefined) cleanUpdates.is_active = updates.isActive;
+    if (updates.is_active !== undefined) cleanUpdates.is_active = updates.is_active;
+    if (updates.actions !== undefined) cleanUpdates.actions = updates.actions;
+    return this.db.update('scenes', id, cleanUpdates);
+  }
+
+  async deleteScene(id) {
+    return this.db.delete('scenes', id);
+  }
+}
+
+/**
+ * AutomationRepository — PHASE 10 PERSISTENCE
+ */
+class AutomationRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createAutomation({
+    id,
+    homeId,
+    name,
+    description = null,
+    isEnabled = true,
+    triggerType,
+    triggerConfig = {},
+    conditions = [],
+    actions = [],
+    timezone = 'UTC'
+  }) {
+    const home = await this.db.findById('homes', homeId);
+    if (!home) throw new Error(`Home ${homeId} does not exist`);
+
+    return this.db.insert('automations', id, {
+      home_id: homeId,
+      name,
+      description,
+      is_enabled: isEnabled,
+      trigger_type: triggerType,
+      trigger_config: triggerConfig || {},
+      conditions: Array.isArray(conditions) ? conditions : [],
+      actions: Array.isArray(actions) ? actions : [],
+      timezone: timezone || 'UTC'
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('automations', id);
+  }
+
+  async findByHomeId(homeId) {
+    return this.db.find('automations', a => a.home_id === homeId);
+  }
+
+  async findEnabled(homeId) {
+    return this.db.find('automations', a => a.home_id === homeId && a.is_enabled === true);
+  }
+
+  async findByTriggerType(triggerType) {
+    return this.db.find('automations', a => a.trigger_type === triggerType && a.is_enabled === true);
+  }
+
+  async updateAutomation(id, updates) {
+    const cleanUpdates = {};
+    if (updates.name !== undefined) cleanUpdates.name = updates.name;
+    if (updates.description !== undefined) cleanUpdates.description = updates.description;
+    if (updates.isEnabled !== undefined) cleanUpdates.is_enabled = updates.isEnabled;
+    if (updates.is_enabled !== undefined) cleanUpdates.is_enabled = updates.is_enabled;
+    if (updates.triggerType !== undefined) cleanUpdates.trigger_type = updates.triggerType;
+    if (updates.trigger_type !== undefined) cleanUpdates.trigger_type = updates.trigger_type;
+    if (updates.triggerConfig !== undefined) cleanUpdates.trigger_config = updates.triggerConfig;
+    if (updates.trigger_config !== undefined) cleanUpdates.trigger_config = updates.trigger_config;
+    if (updates.conditions !== undefined) cleanUpdates.conditions = updates.conditions;
+    if (updates.actions !== undefined) cleanUpdates.actions = updates.actions;
+    if (updates.timezone !== undefined) cleanUpdates.timezone = updates.timezone;
+    return this.db.update('automations', id, cleanUpdates);
+  }
+
+  async deleteAutomation(id) {
+    return this.db.delete('automations', id);
+  }
+}
+
+/**
+ * ScheduleRepository — PHASE 10 PERSISTENCE
+ */
+class ScheduleRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createSchedule({
+    id,
+    homeId,
+    automationId = null,
+    sceneId = null,
+    name,
+    scheduleType = 'daily',
+    cronExpression = null,
+    timeOfDay = null,
+    daysOfWeek = [],
+    timezone = 'UTC',
+    isEnabled = true,
+    nextRunAt = null,
+    lastRunAt = null
+  }) {
+    const home = await this.db.findById('homes', homeId);
+    if (!home) throw new Error(`Home ${homeId} does not exist`);
+
+    return this.db.insert('schedules', id, {
+      home_id: homeId,
+      automation_id: automationId,
+      scene_id: sceneId,
+      name,
+      schedule_type: scheduleType,
+      cron_expression: cronExpression,
+      time_of_day: timeOfDay,
+      days_of_week: Array.isArray(daysOfWeek) ? daysOfWeek : [],
+      timezone: timezone || 'UTC',
+      is_enabled: isEnabled,
+      next_run_at: nextRunAt ? new Date(nextRunAt).toISOString() : null,
+      last_run_at: lastRunAt ? new Date(lastRunAt).toISOString() : null
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('schedules', id);
+  }
+
+  async findByHomeId(homeId) {
+    return this.db.find('schedules', s => s.home_id === homeId);
+  }
+
+  async findDueSchedules(asOfTimestamp = new Date()) {
+    const asOfIso = new Date(asOfTimestamp).toISOString();
+    return this.db.find('schedules', s => s.is_enabled === true && s.next_run_at && s.next_run_at <= asOfIso);
+  }
+
+  async updateSchedule(id, updates) {
+    const cleanUpdates = {};
+    if (updates.name !== undefined) cleanUpdates.name = updates.name;
+    if (updates.scheduleType !== undefined) cleanUpdates.schedule_type = updates.scheduleType;
+    if (updates.schedule_type !== undefined) cleanUpdates.schedule_type = updates.schedule_type;
+    if (updates.cronExpression !== undefined) cleanUpdates.cron_expression = updates.cronExpression;
+    if (updates.cron_expression !== undefined) cleanUpdates.cron_expression = updates.cron_expression;
+    if (updates.timeOfDay !== undefined) cleanUpdates.time_of_day = updates.timeOfDay;
+    if (updates.time_of_day !== undefined) cleanUpdates.time_of_day = updates.time_of_day;
+    if (updates.daysOfWeek !== undefined) cleanUpdates.days_of_week = updates.daysOfWeek;
+    if (updates.days_of_week !== undefined) cleanUpdates.days_of_week = updates.days_of_week;
+    if (updates.timezone !== undefined) cleanUpdates.timezone = updates.timezone;
+    if (updates.isEnabled !== undefined) cleanUpdates.is_enabled = updates.isEnabled;
+    if (updates.is_enabled !== undefined) cleanUpdates.is_enabled = updates.is_enabled;
+    if (updates.nextRunAt !== undefined) cleanUpdates.next_run_at = updates.nextRunAt ? new Date(updates.nextRunAt).toISOString() : null;
+    if (updates.next_run_at !== undefined) cleanUpdates.next_run_at = updates.next_run_at ? new Date(updates.next_run_at).toISOString() : null;
+    if (updates.lastRunAt !== undefined) cleanUpdates.last_run_at = updates.lastRunAt ? new Date(updates.lastRunAt).toISOString() : null;
+    if (updates.last_run_at !== undefined) cleanUpdates.last_run_at = updates.last_run_at ? new Date(updates.last_run_at).toISOString() : null;
+    return this.db.update('schedules', id, cleanUpdates);
+  }
+
+  async updateRunTimestamp(id, { lastRunAt, nextRunAt }) {
+    const updates = {};
+    if (lastRunAt) updates.last_run_at = new Date(lastRunAt).toISOString();
+    if (nextRunAt) updates.next_run_at = new Date(nextRunAt).toISOString();
+    return this.db.update('schedules', id, updates);
+  }
+
+  async deleteSchedule(id) {
+    return this.db.delete('schedules', id);
+  }
+}
+
+/**
+ * AutomationExecutionLogRepository — PHASE 10 PERSISTENCE
+ */
+class AutomationExecutionLogRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createLog({
+    id,
+    homeId,
+    automationId = null,
+    sceneId = null,
+    scheduleId = null,
+    triggerSource,
+    status,
+    executionIdentity,
+    targetResults = [],
+    errorMessage = null,
+    durationMs = 0,
+    executedAt = new Date().toISOString()
+  }) {
+    return this.db.insert('automation_execution_logs', id, {
+      home_id: homeId,
+      automation_id: automationId,
+      scene_id: sceneId,
+      schedule_id: scheduleId,
+      trigger_source: triggerSource,
+      status,
+      execution_identity: executionIdentity,
+      target_results: Array.isArray(targetResults) ? targetResults : [],
+      error_message: errorMessage,
+      duration_ms: durationMs,
+      executed_at: executedAt
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('automation_execution_logs', id);
+  }
+
+  async findByAutomationId(automationId, limit = 50) {
+    const logs = await this.db.find('automation_execution_logs', l => l.automation_id === automationId);
+    return logs.sort((a, b) => new Date(b.executed_at) - new Date(a.executed_at)).slice(0, limit);
+  }
+
+  async findByHomeId(homeId, limit = 50) {
+    const logs = await this.db.find('automation_execution_logs', l => l.home_id === homeId);
+    return logs.sort((a, b) => new Date(b.executed_at) - new Date(a.executed_at)).slice(0, limit);
+  }
+
+  async findRecent(limit = 50) {
+    const logs = await this.db.find('automation_execution_logs', () => true);
+    return logs.sort((a, b) => new Date(b.executed_at) - new Date(a.executed_at)).slice(0, limit);
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -617,5 +885,9 @@ module.exports = {
   AuditRepository,
   OutboxRepository,
   ProvisioningSessionRepository,
-  RefreshTokenRepository
+  RefreshTokenRepository,
+  SceneRepository,
+  AutomationRepository,
+  ScheduleRepository,
+  AutomationExecutionLogRepository
 };
