@@ -96,8 +96,11 @@ runStep('19. Phase 8 Signed OTA & Compatibility Tests', `${nodeBin} backend/test
 // 20. Phase 8 Hardware Harness Self-Test
 runStep('20. Phase 8 Hardware Test Harness Self-Test', 'python tools/hardware-test-harness/test_esp32_lifecycle.py');
 
+// 21. Phase 10 Automation, Scenes & Scheduler Tests
+runStep('21. Phase 10 Automation, Scenes & Scheduler Engine Tests', `${nodeBin} backend/tests/phase10-automation.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  20 SUITES ATTEMPTED. ${failedSuites === 0 ? '20/20' : (20 - failedSuites) + '/20'} PASSED.`);
+console.log(`  21 SUITES ATTEMPTED. ${failedSuites === 0 ? '21/21' : (21 - failedSuites) + '/21'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

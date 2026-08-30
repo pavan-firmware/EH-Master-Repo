@@ -22,7 +22,11 @@ const {
   AuditRepository,
   OutboxRepository,
   ProvisioningSessionRepository,
-  RefreshTokenRepository
+  RefreshTokenRepository,
+  SceneRepository,
+  AutomationRepository,
+  ScheduleRepository,
+  AutomationExecutionLogRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -36,6 +40,9 @@ const { ProductCatalogService } = require('./services/product-catalog.service');
 const { DeviceCommandService } = require('./services/device-command.service');
 const { DeviceEventTelemetryIngestionService } = require('./services/device-event-telemetry-ingestion.service');
 const { OtaService } = require('./services/ota.service');
+const { SceneService } = require('./services/scene.service');
+const { AutomationService } = require('./services/automation.service');
+const { ScheduleService } = require('./services/schedule.service');
 
 const { AuthApiRouter } = require('./api/auth.router');
 const { HomeDeviceApiRouter } = require('./api/home-device.router');
@@ -43,6 +50,8 @@ const { ProvisioningClaimApiRouter } = require('./api/provisioning-claim.router'
 const { ApiRouter: ProductCatalogApiRouter } = require('./api/product-catalog.router');
 const { buildRouteHandlers: buildCommandRouteHandlers } = require('./api/device-command.router');
 const { OtaApiRouter } = require('./api/ota.router');
+const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
+const { AutomationSchedulerWorker } = require('./workers/automation-scheduler-worker');
 
 const { requireAuthentication } = require('./shared/auth-middleware');
 const { HomeAuthorizationService } = require('./shared/home-authorization');
@@ -137,6 +146,10 @@ function createApp(options = {}) {
   const outboxRepo = new OutboxRepository(db);
   const provisioningRepo = new ProvisioningSessionRepository(db);
   const refreshTokenRepo = new RefreshTokenRepository(db);
+  const sceneRepo = new SceneRepository(db);
+  const automationRepo = new AutomationRepository(db);
+  const scheduleRepo = new ScheduleRepository(db);
+  const logRepo = new AutomationExecutionLogRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -155,6 +168,7 @@ function createApp(options = {}) {
   const otaService = new OtaService();
 
   const mqttTransport = options.mqttTransport || null;
+  const eventBus = options.eventBus || null;
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo
   });
@@ -166,12 +180,29 @@ function createApp(options = {}) {
   const authMiddleware = requireAuthentication(authService);
   const homeAuthService = new HomeAuthorizationService({ homeRepo, deviceRepo, roomRepo });
 
+  const sceneService = options.sceneService || new SceneService({
+    sceneRepo, homeAuthService, deviceCommandService: commandService, eventBus, logRepo
+  });
+  const automationService = options.automationService || new AutomationService({
+    automationRepo, homeAuthService, deviceCommandService: commandService, deviceStateRepo, eventBus, logRepo
+  });
+  const scheduleService = options.scheduleService || new ScheduleService({
+    scheduleRepo, homeAuthService, automationService, sceneService
+  });
+  const schedulerWorker = options.schedulerWorker || new AutomationSchedulerWorker({
+    scheduleRepo, scheduleService
+  });
+  if (options.startWorkers) {
+    schedulerWorker.start();
+  }
+
   // 3. API Routers
   const authRouter = new AuthApiRouter({ authService, rateLimiter: options.rateLimiter });
   const homeDeviceRouter = new HomeDeviceApiRouter({ homeService, floorService, roomService, deviceService });
   const provisioningRouter = new ProvisioningClaimApiRouter({ provisioningService, deviceClaimService });
   const catalogRouter = new ProductCatalogApiRouter();
   const otaRouter = new OtaApiRouter({ otaService });
+  const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -309,6 +340,22 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.status, result.body);
     }
 
+    // 8.6. Route to Automation, Scene, and Schedule Router
+    if (
+      pathname.includes('/scenes') ||
+      pathname.includes('/automations') ||
+      pathname.includes('/schedules') ||
+      pathname.includes('/automation-history')
+    ) {
+      if (req.user) {
+        query.userId = req.user.id;
+      }
+      const result = await automationSceneRouter.handle(method, pathname, body, req.headers, query);
+      if (result) {
+        return sendJsonResponse(res, result.status, result.body);
+      }
+    }
+
     // 9. Route to Home & Device Domain Router
     if (pathname.startsWith('/api/v1/homes') || pathname.startsWith('/api/v1/devices')) {
       // In authenticated GET /api/v1/homes, filter by user membership
@@ -341,12 +388,17 @@ function createApp(options = {}) {
       catalogService,
       commandService,
       ingestionService,
-      otaService
+      otaService,
+      sceneService,
+      automationService,
+      scheduleService,
+      schedulerWorker
     },
     repositories: {
       userRepo, homeRepo, roomRepo, productRepo, capRepo, deviceRepo,
       deviceStateRepo, commandRepo, eventRepo, auditRepo, outboxRepo,
-      provisioningRepo, refreshTokenRepo
+      provisioningRepo, refreshTokenRepo, sceneRepo, automationRepo,
+      scheduleRepo, logRepo
     }
   };
 }
