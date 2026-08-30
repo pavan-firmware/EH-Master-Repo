@@ -265,7 +265,6 @@ async function setupEmqxMtls(options = {}) {
   console.log('[SetupEMQX] Applying mTLS settings via EMQX eval...');
   runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, verify], verify_peer).');
   runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true).');
-  runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, peer_cert_as_clientid], cn).');
   runEmqxEval('emqx:update_config([authorization, no_match], deny).');
   runEmqxEval('emqx:update_config([authorization, cache, enable], false).');
 

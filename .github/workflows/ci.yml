@@ -100,7 +100,7 @@ jobs:
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE=/opt/emqx/etc/local-certs/server.key \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY=verify_peer \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT=true \
-            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PEER_CERT_AS_CLIENTID=cn \
+            -e EMQX_LISTENERS__SSL__DEFAULT__PEER_CERT_AS_CLIENTID=cn \
             -e EMQX_AUTHORIZATION__NO_MATCH=deny \
             -e EMQX_AUTHORIZATION__CACHE__ENABLE=false \
             -e EMQX_AUTHORIZATION__SOURCES__1__TYPE=file \
