@@ -6,13 +6,14 @@
  * Configures the running EMQX 5.8.0 container (eh_emqx) to:
  *   1. Require valid client certificates signed by EH Dev Root CA (verify_peer)
  *   2. Extract CN from client cert and set as username & clientid (peer_cert_as_clientid = cn)
- *   3. Enforce per-device ACL isolation via acl.conf using EMQX 5.x ${clientid} interpolation
+ *   3. Enforce per-device ACL isolation via acl.conf using EMQX 5.x ${clientid} and ${username} matching
  *
  * Security & Reliability:
  *   - Uses native `emqx eval` and `emqx ctl` commands inside container (no external HTTP/wget dependencies)
  *   - `verify_peer = verify_peer`
  *   - `fail_if_no_peer_cert = true`
  *   - `authorization.no_match = deny`
+ *   - `authorization.sources = [{type = file, path = "etc/acl.conf", enable = true}]`
  */
 
 const { execSync } = require('child_process');
@@ -43,18 +44,18 @@ function setupEmqxMtls() {
 
   // ─── ACL Rules ─────────────────────────────────────────────────────────────
   //
-  // EMQX 5.x syntax: use ${clientid} for topic substitution.
+  // EMQX 5.x syntax: use {clientid, "..."} and {username, "..."} rules.
   // Processed top-to-bottom; first matching rule wins.
   //
   // 1. Dev/test harness clientIDs (backend*, eh_device_*, eh_test*, sub_test*):
   //    Allowed full access for EQ01-EQ12 non-mTLS integration tests.
   //
-  // 2. Production Device mTLS UUID clientIDs (CN = 0194fe23-7a1b-7890-...):
+  // 2. Production Device mTLS UUID identities (CN = 0194fe23-7a1b-7890-...):
   //    Strictly isolated to their own device topics.
   //    Device A cannot publish/subscribe to Device B topics.
   // ───────────────────────────────────────────────────────────────────────────
 
-  console.log('[SetupEMQX] Writing ACL rules to EMQX container (EMQX 5.x ${clientid} syntax)...');
+  console.log('[SetupEMQX] Writing ACL rules to EMQX container (EMQX 5.x syntax)...');
 
   const DEVICE_A_ID = '0194fe23-7a1b-7890-a123-456789abcdef';
   const DEVICE_B_ID = '0194fe23-7a1b-7890-b456-123456fedcba';
@@ -78,10 +79,26 @@ function setupEmqxMtls() {
   "eh/v1/devices/${DEVICE_A_ID}/telemetry",
   "eh/v1/devices/${DEVICE_A_ID}/availability"
 ]}.
+{allow, {username, "${DEVICE_A_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_A_ID}/commands"]}.
+{allow, {username, "${DEVICE_A_ID}"}, publish, [
+  "eh/v1/devices/${DEVICE_A_ID}/command-receipts",
+  "eh/v1/devices/${DEVICE_A_ID}/state",
+  "eh/v1/devices/${DEVICE_A_ID}/events",
+  "eh/v1/devices/${DEVICE_A_ID}/telemetry",
+  "eh/v1/devices/${DEVICE_A_ID}/availability"
+]}.
 
 %% 3. Device B — per-device topic isolation (mTLS CN identity = ${DEVICE_B_ID})
 {allow, {clientid, "${DEVICE_B_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_B_ID}/commands"]}.
 {allow, {clientid, "${DEVICE_B_ID}"}, publish, [
+  "eh/v1/devices/${DEVICE_B_ID}/command-receipts",
+  "eh/v1/devices/${DEVICE_B_ID}/state",
+  "eh/v1/devices/${DEVICE_B_ID}/events",
+  "eh/v1/devices/${DEVICE_B_ID}/telemetry",
+  "eh/v1/devices/${DEVICE_B_ID}/availability"
+]}.
+{allow, {username, "${DEVICE_B_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_B_ID}/commands"]}.
+{allow, {username, "${DEVICE_B_ID}"}, publish, [
   "eh/v1/devices/${DEVICE_B_ID}/command-receipts",
   "eh/v1/devices/${DEVICE_B_ID}/state",
   "eh/v1/devices/${DEVICE_B_ID}/events",
@@ -110,8 +127,17 @@ function setupEmqxMtls() {
   execSync(`docker exec eh_emqx emqx eval "emqx_config:put([listeners, ssl, default, peer_cert_as_clientid], cn)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx_config:put([authorization, no_match], deny)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx_config:put([authorization, cache, enable], false)."`, { stdio: 'inherit' });
+  try {
+    execSync(`docker exec eh_emqx emqx eval "emqx_config:put([authorization, sources], [#{type => file, enable => true, path => <<\\"etc/acl.conf\\">>}])."`, { stdio: 'inherit' });
+  } catch (_) {}
 
-  console.log('[SetupEMQX] Cleaning EMQX authorization cache...');
+  console.log('[SetupEMQX] Reloading EMQX authorization sources & cleaning cache...');
+  try {
+    execSync(`docker exec eh_emqx emqx eval "emqx_authz:reload_sources()."`, { stdio: 'inherit' });
+  } catch (_) {}
+  try {
+    execSync(`docker exec eh_emqx emqx ctl authz reload`, { stdio: 'inherit' });
+  } catch (_) {}
   try {
     execSync(`docker exec eh_emqx emqx ctl authz cache-clean all`, { stdio: 'inherit' });
   } catch (_) {}

@@ -44,6 +44,37 @@ jobs:
         run: npm ci
 
       # ----------------------------------------------------------
+      # 3b. Setup Python & Manufacturing PKI Dependencies
+      # ----------------------------------------------------------
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Cryptography
+        run: pip install cryptography
+
+      # ----------------------------------------------------------
+      # 3c. Setup Java & Flutter SDK for Monorepo Suite
+      # ----------------------------------------------------------
+      - name: Setup Java (Android toolchain)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter 3.44.9
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+
+      - name: Install Flutter Dependencies
+        working-directory: smart_home_application_v1
+        run: flutter pub get
+
+      # ----------------------------------------------------------
       # 4. Generate ephemeral development TLS/mTLS certificates
       #    Output: .local-certs/  (git-ignored, never committed)
       # ----------------------------------------------------------
