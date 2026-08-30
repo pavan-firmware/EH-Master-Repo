@@ -81,10 +81,8 @@ class _RoomsPageState extends State<RoomsPage> {
     Navigator.of(context)
         .push(
           MaterialPageRoute(
-            builder: (_) => RoomContextPage(
-              room: room,
-              onAddDevice: widget.onAddDevice,
-            ),
+            builder: (_) =>
+                RoomContextPage(room: room, onAddDevice: widget.onAddDevice),
           ),
         )
         .then((_) {

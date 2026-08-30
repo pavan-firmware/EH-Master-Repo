@@ -105,9 +105,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         }
       } catch (err) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to rename: $err')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Failed to rename: $err')));
         }
       } finally {
         if (mounted) setState(() => _isProcessing = false);
@@ -189,16 +189,31 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.error_outline_rounded, size: 48, color: Colors.red),
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      size: 48,
+                      color: Colors.red,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Failed to load device details',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: tokens.textPrimary),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: tokens.textPrimary,
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    Text('${snapshot.error}', textAlign: TextAlign.center, style: TextStyle(color: tokens.textSecondary)),
+                    Text(
+                      '${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
                     const SizedBox(height: 16),
-                    FilledButton(onPressed: _refresh, child: const Text('Retry')),
+                    FilledButton(
+                      onPressed: _refresh,
+                      child: const Text('Retry'),
+                    ),
                   ],
                 ),
               ),
@@ -214,7 +229,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               const SizedBox(height: 16),
 
               // 2. Health & Connection Details
-              _HealthOverviewCard(health: dev.health, connectionState: dev.connectionState),
+              _HealthOverviewCard(
+                health: dev.health,
+                connectionState: dev.connectionState,
+              ),
               const SizedBox(height: 16),
 
               // 3. Technical & Firmware Details
@@ -263,7 +281,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                   }
 
                   return Column(
-                    children: logs.map((log) => _ActivityLogRow(log: log)).toList(),
+                    children: logs
+                        .map((log) => _ActivityLogRow(log: log))
+                        .toList(),
                   );
                 },
               ),
@@ -294,7 +314,9 @@ class _HeaderBanner extends StatelessWidget {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: isOnline ? tokens.successContainer : tokens.warningContainer,
+                color: isOnline
+                    ? tokens.successContainer
+                    : tokens.warningContainer,
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Icon(
@@ -327,7 +349,9 @@ class _HeaderBanner extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: isOnline ? Colors.green.withValues(alpha: 0.12) : Colors.grey.withValues(alpha: 0.12),
+                color: isOnline
+                    ? Colors.green.withValues(alpha: 0.12)
+                    : Colors.grey.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -347,7 +371,10 @@ class _HeaderBanner extends StatelessWidget {
 }
 
 class _HealthOverviewCard extends StatelessWidget {
-  const _HealthOverviewCard({required this.health, required this.connectionState});
+  const _HealthOverviewCard({
+    required this.health,
+    required this.connectionState,
+  });
   final DeviceHealthMetricsModel health;
   final String connectionState;
 
@@ -380,7 +407,8 @@ class _HealthOverviewCard extends StatelessWidget {
             ),
             _InfoRow(
               label: 'Command Success Rate',
-              value: '${health.commandSuccessCount} ok / ${health.commandFailureCount} fail',
+              value:
+                  '${health.commandSuccessCount} ok / ${health.commandFailureCount} fail',
             ),
             if (health.degradationReason != null)
               _InfoRow(
@@ -420,7 +448,10 @@ class _TechnicalDetailsCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _InfoRow(label: 'Serial Number', value: device.serialNumber),
-            _InfoRow(label: 'Hardware Revision', value: device.hardwareRevision),
+            _InfoRow(
+              label: 'Hardware Revision',
+              value: device.hardwareRevision,
+            ),
             _InfoRow(label: 'Firmware Family', value: device.firmwareFamily),
             _InfoRow(label: 'Firmware Version', value: device.firmwareVersion),
             if (device.ota != null && device.ota!.updateAvailable)
@@ -428,12 +459,19 @@ class _TechnicalDetailsCard extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 8),
                 child: Row(
                   children: [
-                    const Icon(Icons.system_update_rounded, color: Colors.blue, size: 20),
+                    const Icon(
+                      Icons.system_update_rounded,
+                      color: Colors.blue,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Update available: ${device.ota!.latestVersion}',
-                        style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.blue,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -470,16 +508,29 @@ class _ManagementActionsCard extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.edit_rounded),
               title: const Text('Rename Device'),
-              subtitle: const Text('Change the friendly name displayed across the app'),
+              subtitle: const Text(
+                'Change the friendly name displayed across the app',
+              ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: isProcessing ? null : onRename,
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.delete_forever_rounded, color: Colors.red),
-              title: const Text('Remove from Home', style: TextStyle(color: Colors.red)),
-              subtitle: const Text('Unclaim device from home without erasing factory identity'),
-              trailing: const Icon(Icons.chevron_right_rounded, color: Colors.red),
+              leading: const Icon(
+                Icons.delete_forever_rounded,
+                color: Colors.red,
+              ),
+              title: const Text(
+                'Remove from Home',
+                style: TextStyle(color: Colors.red),
+              ),
+              subtitle: const Text(
+                'Unclaim device from home without erasing factory identity',
+              ),
+              trailing: const Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.red,
+              ),
               onTap: isProcessing ? null : onRemove,
             ),
           ],
@@ -508,10 +559,16 @@ class _ActivityLogRow extends StatelessWidget {
           color: log.severity == 'error'
               ? Colors.red
               : log.severity == 'warn'
-                  ? Colors.orange
-                  : tokens.bluePrimary,
+              ? Colors.orange
+              : tokens.bluePrimary,
         ),
-        title: Text(log.message, style: TextStyle(fontWeight: FontWeight.w600, color: tokens.textPrimary)),
+        title: Text(
+          log.message,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: tokens.textPrimary,
+          ),
+        ),
         subtitle: Text(
           '${log.eventType} • ${log.createdAt.toLocal()}',
           style: TextStyle(color: tokens.textSecondary, fontSize: 12),
@@ -534,7 +591,12 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: TextStyle(color: tokens.textSecondary, fontSize: 13))),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            ),
+          ),
           Text(
             value,
             style: TextStyle(

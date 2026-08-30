@@ -51,9 +51,7 @@ class FakeHomeRepository implements HomeRepository {
         roomName: 'Living Room',
         hardwareRevision: hardwareRevision,
         connection: DeviceConnection.online,
-        capabilities: const [
-          DeviceCapability(id: 'status', label: 'Status'),
-        ],
+        capabilities: const [DeviceCapability(id: 'status', label: 'Status')],
         reportedAt: DateTime.now(),
         firmwareVersion: firmwareVersion,
       ),

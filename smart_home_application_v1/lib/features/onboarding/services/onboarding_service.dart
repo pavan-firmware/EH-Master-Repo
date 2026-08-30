@@ -65,7 +65,9 @@ class DefaultOnboardingService implements OnboardingService {
 
   static Uint8List parseSecretKey(String? secret) {
     if (secret == null || secret.trim().isEmpty) {
-      throw ArgumentError('commissioningSecret is required and cannot be empty');
+      throw ArgumentError(
+        'commissioningSecret is required and cannot be empty',
+      );
     }
     final raw = secret.trim();
     if (raw.length == 64 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(raw)) {
@@ -247,10 +249,9 @@ class DefaultOnboardingService implements OnboardingService {
         : deviceChallenge;
 
     final secretKey = parseSecretKey(identity.commissioningSecret);
-    final secretFp = EhProv1Crypto.sha256(secretKey)
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join()
-        .substring(0, 8);
+    final secretFp = EhProv1Crypto.sha256(
+      secretKey,
+    ).map((b) => b.toRadixString(16).padLeft(2, '0')).join().substring(0, 8);
     debugPrint(
       '[PROV] APP_PROOF_SECRET_AVAILABLE=true APP_PROOF_DEVICE_ID=${identity.deviceId} APP_PROOF_SESSION_ID=$sessionId secret_fp=$secretFp',
     );
@@ -491,7 +492,9 @@ class DefaultOnboardingService implements OnboardingService {
     }
 
     if (_isWaitingForWifi) {
-      debugPrint('[PROV] WIFI_CONNECT_WAIT already in progress, skipping duplicate.');
+      debugPrint(
+        '[PROV] WIFI_CONNECT_WAIT already in progress, skipping duplicate.',
+      );
       return OnboardingProgress(
         stepState: OnboardingStepState.complete,
         sessionId: session?.sessionId ?? '',
@@ -512,7 +515,10 @@ class DefaultOnboardingService implements OnboardingService {
 
           debugPrint('[PROV] 6104_PARSED state=$stateStr wifi=$isWifi');
 
-          if (isWifi || stateStr == 'ACTIVE' || stateStr == 'MQTT_CONNECTING' || stateStr == 'WIFI_CONNECTED') {
+          if (isWifi ||
+              stateStr == 'ACTIVE' ||
+              stateStr == 'MQTT_CONNECTING' ||
+              stateStr == 'WIFI_CONNECTED') {
             debugPrint(
               '[PROV] WIFI_CONNECTED confirmed via status characteristic (state=$stateStr wifi=$isWifi)!',
             );

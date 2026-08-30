@@ -37,15 +37,21 @@ class CloudHomeRepository implements HomeRepository {
           id: device['deviceId'] ?? device['id'],
           name: device['displayName'] ?? device['label'] ?? 'Unknown Device',
           roomName: device['roomName'] ?? 'Home',
-          hardwareRevision: device['hardwareRevision'] ?? device['product_sku'] ?? 'unknown',
-          connection: _mapConnection(device['connectionState'] ?? device['last_seen_at']),
+          hardwareRevision:
+              device['hardwareRevision'] ?? device['product_sku'] ?? 'unknown',
+          connection: _mapConnection(
+            device['connectionState'] ?? device['last_seen_at'],
+          ),
           capabilities: const [
             DeviceCapability(id: 'status', label: 'Home status'),
           ],
           reportedAt: device['last_seen_at'] != null
               ? DateTime.parse(device['last_seen_at'])
               : DateTime.now(),
-          firmwareVersion: device['firmwareVersion'] ?? device['firmware_version'] ?? '1.0.0',
+          firmwareVersion:
+              device['firmwareVersion'] ??
+              device['firmware_version'] ??
+              '1.0.0',
         ),
       );
     }
@@ -100,17 +106,12 @@ class CloudHomeRepository implements HomeRepository {
     String? customName,
     Map<String, String>? channelLabels,
   }) async {
-    final body = <String, dynamic>{
-      'homeId': homeId,
-    };
+    final body = <String, dynamic>{'homeId': homeId};
     if (roomId != null) body['roomId'] = roomId;
     if (customName != null) body['customName'] = customName;
     if (channelLabels != null) body['channelLabels'] = channelLabels;
 
-    await _apiClient.post(
-      '/api/v1/devices/$deviceId/claim',
-      body: body,
-    );
+    await _apiClient.post('/api/v1/devices/$deviceId/claim', body: body);
   }
 
   @override
@@ -124,7 +125,9 @@ class CloudHomeRepository implements HomeRepository {
     }
     if (resolvedHomeId.isEmpty) return [];
 
-    final response = await _apiClient.get('/api/v1/homes/$resolvedHomeId/rooms');
+    final response = await _apiClient.get(
+      '/api/v1/homes/$resolvedHomeId/rooms',
+    );
     if (response is List) {
       return response.map((r) => Map<String, dynamic>.from(r as Map)).toList();
     }
@@ -147,10 +150,7 @@ class CloudHomeRepository implements HomeRepository {
 
     final response = await _apiClient.post(
       '/api/v1/homes/$resolvedHomeId/rooms',
-      body: {
-        'name': name,
-        'iconKey': iconKey ?? 'living',
-      },
+      body: {'name': name, 'iconKey': iconKey ?? 'living'},
     );
     return Map<String, dynamic>.from(response as Map);
   }

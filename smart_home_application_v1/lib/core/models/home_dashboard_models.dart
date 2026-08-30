@@ -428,7 +428,10 @@ class HomeDashboardData {
     final rooms = roomMap.entries.map((entry) {
       final roomName = entry.key;
       final roomDevices = entry.value;
-      final roomId = roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+      final roomId = roomName.toLowerCase().replaceAll(
+        RegExp(r'[^a-z0-9]'),
+        '_',
+      );
       return RoomPreview(
         id: roomId,
         name: roomName,
@@ -443,7 +446,9 @@ class HomeDashboardData {
 
     final controls = devices.map((d) {
       final rawName = d.name as String? ?? 'Smart Switch 3X';
-      final cleanName = rawName.startsWith('EH ') ? rawName.substring(3).trim() : rawName;
+      final cleanName = rawName.startsWith('EH ')
+          ? rawName.substring(3).trim()
+          : rawName;
       final roomName = d.roomName as String? ?? 'Room';
       return QuickControlPreview(
         id: d.id as String? ?? 'dev',
