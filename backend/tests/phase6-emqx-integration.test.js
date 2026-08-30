@@ -507,7 +507,7 @@ function checkEmqxReachable(url) {
 
   // Ensure EMQX mTLS and authoritative ACL configuration are active
   try {
-    setupEmqxMtls();
+    await setupEmqxMtls();
   } catch (setupErr) {
     console.log(`[EQ13 Setup Notice] setupEmqxMtls: ${setupErr.message}`);
   }

@@ -1,30 +1,56 @@
 'use strict';
 
 /**
- * EH Home — EMQX mTLS & ACL Setup Helper
+ * EH Home — EMQX mTLS & ACL Setup Helper (Phase 13 Hardened)
  *
  * Configures the running EMQX 5.8.0 container (eh_emqx) to:
  *   1. Require valid client certificates signed by EH Dev Root CA (verify_peer)
- *   2. Extract CN from client cert and set as username & clientid in ssl_options
- *   3. Enforce per-device ACL isolation via acl.conf using EMQX 5.x rules
+ *   2. Enforce per-device ACL isolation via acl.conf using EMQX 5.x cert_common_name, clientid & username matching
+ *   3. Configure authorization settings (no_match = deny, cache.enable = false) via EMQX 5.x REST API from host
  *
  * Security & Reliability:
- *   - Uses native `emqx eval` and REST API endpoints inside container
- *   - `listeners.ssl.default.ssl_options.verify = verify_peer`
- *   - `listeners.ssl.default.ssl_options.fail_if_no_peer_cert = true`
- *   - `listeners.ssl.default.ssl_options.peer_cert_as_username = cn`
- *   - `listeners.ssl.default.ssl_options.peer_cert_as_clientid = cn`
- *   - `authorization.no_match = deny`
- *   - `authorization.cache.enable = false`
- *   - `authorization.sources = [{type = file, path = "etc/acl.conf", enable = true}]`
+ *   - Uses host-side Node.js HTTP client to configure EMQX 5.8 REST API on port 18083 (zero wget container dependencies)
+ *   - Configures mTLS listener with verify_peer and fail_if_no_peer_cert = true
+ *   - Reloads authorization sources deterministically
  */
 
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const { generateCerts, LOCAL_CERTS_DIR } = require('./generate-dev-certs');
 
-function setupEmqxMtls() {
+function emqxApiRequest(method, apiPath, body = null) {
+  return new Promise((resolve) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: 18083,
+      path: apiPath,
+      method: method,
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64'),
+        'Content-Type': 'application/json',
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {})
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        resolve({ statusCode: res.statusCode, body: data });
+      });
+    });
+
+    req.on('error', (err) => {
+      resolve({ statusCode: 0, error: err.message });
+    });
+
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+async function setupEmqxMtlsAsync() {
   const certs = generateCerts();
 
   console.log('[SetupEMQX] Copying development certificates to EMQX container...');
@@ -47,15 +73,8 @@ function setupEmqxMtls() {
 
   // ─── ACL Rules ─────────────────────────────────────────────────────────────
   //
-  // EMQX 5.x syntax: use {clientid, "..."} and {username, "..."} rules.
+  // EMQX 5.x syntax: use {cert_common_name, "..."}, {clientid, "..."}, and {username, "..."}.
   // Processed top-to-bottom; first matching rule wins.
-  //
-  // 1. Dev/test harness clientIDs (backend*, eh_device_*, eh_test*, sub_test*):
-  //    Allowed full access for EQ01-EQ12 non-mTLS integration tests.
-  //
-  // 2. Production Device mTLS UUID identities (CN = 0194fe23-7a1b-7890-...):
-  //    Strictly isolated to their own device topics.
-  //    Device A cannot publish/subscribe to Device B topics.
   // ───────────────────────────────────────────────────────────────────────────
 
   console.log('[SetupEMQX] Writing ACL rules to EMQX container (EMQX 5.x syntax)...');
@@ -73,7 +92,15 @@ function setupEmqxMtls() {
 {allow, {clientid, {re, "^eh_test"}}, all, ["#"]}.
 {allow, {clientid, {re, "^sub_test"}}, all, ["#"]}.
 
-%% 2. Device A — per-device topic isolation (mTLS CN identity = ${DEVICE_A_ID})
+%% 2. Device A — per-device topic isolation (CN / ClientId / Username = ${DEVICE_A_ID})
+{allow, {cert_common_name, "${DEVICE_A_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_A_ID}/commands"]}.
+{allow, {cert_common_name, "${DEVICE_A_ID}"}, publish, [
+  "eh/v1/devices/${DEVICE_A_ID}/command-receipts",
+  "eh/v1/devices/${DEVICE_A_ID}/state",
+  "eh/v1/devices/${DEVICE_A_ID}/events",
+  "eh/v1/devices/${DEVICE_A_ID}/telemetry",
+  "eh/v1/devices/${DEVICE_A_ID}/availability"
+]}.
 {allow, {clientid, "${DEVICE_A_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_A_ID}/commands"]}.
 {allow, {clientid, "${DEVICE_A_ID}"}, publish, [
   "eh/v1/devices/${DEVICE_A_ID}/command-receipts",
@@ -91,7 +118,15 @@ function setupEmqxMtls() {
   "eh/v1/devices/${DEVICE_A_ID}/availability"
 ]}.
 
-%% 3. Device B — per-device topic isolation (mTLS CN identity = ${DEVICE_B_ID})
+%% 3. Device B — per-device topic isolation (CN / ClientId / Username = ${DEVICE_B_ID})
+{allow, {cert_common_name, "${DEVICE_B_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_B_ID}/commands"]}.
+{allow, {cert_common_name, "${DEVICE_B_ID}"}, publish, [
+  "eh/v1/devices/${DEVICE_B_ID}/command-receipts",
+  "eh/v1/devices/${DEVICE_B_ID}/state",
+  "eh/v1/devices/${DEVICE_B_ID}/events",
+  "eh/v1/devices/${DEVICE_B_ID}/telemetry",
+  "eh/v1/devices/${DEVICE_B_ID}/availability"
+]}.
 {allow, {clientid, "${DEVICE_B_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_B_ID}/commands"]}.
 {allow, {clientid, "${DEVICE_B_ID}"}, publish, [
   "eh/v1/devices/${DEVICE_B_ID}/command-receipts",
@@ -116,29 +151,32 @@ function setupEmqxMtls() {
   const tmpAcl = path.join(LOCAL_CERTS_DIR, 'acl.conf');
   fs.writeFileSync(tmpAcl, aclContent, 'utf8');
 
-  // Copy acl.conf to EMQX default location & managed location
+  // Copy acl.conf to EMQX default location
   execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/etc/acl.conf`, { stdio: 'inherit' });
-  try {
-    execSync(`docker exec -u 0 eh_emqx sh -c "mkdir -p /opt/emqx/data/authz"`, { stdio: 'ignore' });
-    execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/data/authz/acl.conf`, { stdio: 'ignore' });
-  } catch (_) {}
 
-  console.log('[SetupEMQX] Configuring EMQX mTLS and ACL settings via emqx eval and REST API...');
+  console.log('[SetupEMQX] Configuring EMQX mTLS listener via emqx eval...');
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, verify], verify_peer)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true)."`, { stdio: 'inherit' });
-  execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, peer_cert_as_username], cn)."`, { stdio: 'inherit' });
-  execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, peer_cert_as_clientid], cn)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([authorization, no_match], deny)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([authorization, cache, enable], false)."`, { stdio: 'inherit' });
 
-  // Update authorization sources via REST API to ensure file source is compiled and loaded
-  try {
-    execSync(`docker exec eh_emqx wget -q -O- --header="Authorization: Basic YWRtaW46cHVibGlj" --header="Content-Type: application/json" --post-data='[{"type":"file","enable":true,"path":"etc/acl.conf"}]' --method=PUT http://127.0.0.1:18083/api/v5/authorization/sources`, { stdio: 'inherit' });
-  } catch (_) {}
+  console.log('[SetupEMQX] Configuring EMQX Authorization via REST API from host...');
+  // Configure authorization settings: no_match: deny, cache: false
+  const settingsRes = await emqxApiRequest('PUT', '/api/v5/authorization/settings', {
+    no_match: 'deny',
+    deny_action: 'ignore',
+    cache: { enable: false }
+  });
+  console.log(`[SetupEMQX] Authorization settings update: status ${settingsRes.statusCode}`);
 
-  try {
-    execSync(`docker exec eh_emqx wget -q -O- --header="Authorization: Basic YWRtaW46cHVibGlj" --header="Content-Type: application/json" --post-data='{"no_match":"deny","deny_action":"ignore","cache":{"enable":false}}' --method=PUT http://127.0.0.1:18083/api/v5/authorization/settings`, { stdio: 'inherit' });
-  } catch (_) {}
+  // Configure authorization source: file /opt/emqx/etc/acl.conf
+  const sourcesRes = await emqxApiRequest('PUT', '/api/v5/authorization/sources', [
+    { type: 'file', enable: true, path: '/opt/emqx/etc/acl.conf' }
+  ]);
+  console.log(`[SetupEMQX] Authorization sources update: status ${sourcesRes.statusCode}`);
+
+  // Clear authorization cache
+  await emqxApiRequest('DELETE', '/api/v5/authorization/cache');
 
   console.log('[SetupEMQX] Purging Erlang SSL PEM cache & restarting SSL listener...');
   execSync(`docker exec eh_emqx emqx eval "ssl:clear_pem_cache()."`, { stdio: 'inherit' });
@@ -152,8 +190,19 @@ function setupEmqxMtls() {
   console.log('[SetupEMQX] EMQX mTLS and ACL configuration applied successfully.');
 }
 
-if (require.main === module) {
-  setupEmqxMtls();
+function setupEmqxMtls() {
+  const isAsync = setupEmqxMtlsAsync();
+  if (isAsync && typeof isAsync.then === 'function') {
+    // If called synchronously in CJS script
+    return isAsync;
+  }
 }
 
-module.exports = { setupEmqxMtls };
+if (require.main === module) {
+  setupEmqxMtlsAsync().catch((err) => {
+    console.error('[SetupEMQX] Error:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { setupEmqxMtls: setupEmqxMtlsAsync, setupEmqxMtlsAsync };
