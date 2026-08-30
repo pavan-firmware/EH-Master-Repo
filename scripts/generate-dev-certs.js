@@ -13,13 +13,8 @@ const { execSync } = require('child_process');
 
 const LOCAL_CERTS_DIR = path.join(__dirname, '..', '.local-certs');
 
-function generateCerts() {
-  // Always clean and recreate .local-certs to avoid stale certificate reuse
-  if (fs.existsSync(LOCAL_CERTS_DIR)) {
-    fs.rmSync(LOCAL_CERTS_DIR, { recursive: true, force: true });
-  }
-  fs.mkdirSync(LOCAL_CERTS_DIR, { recursive: true });
-
+function generateCerts(options = {}) {
+  const force = options.force === true;
   const caKey = path.join(LOCAL_CERTS_DIR, 'ca.key');
   const caCrt = path.join(LOCAL_CERTS_DIR, 'ca.crt');
   const caCnf = path.join(LOCAL_CERTS_DIR, 'ca.cnf');
@@ -38,6 +33,25 @@ function generateCerts() {
   const devBCsr = path.join(LOCAL_CERTS_DIR, 'device_b.csr');
   const devBCrt = path.join(LOCAL_CERTS_DIR, 'device_b.crt');
   const devBCnf = path.join(LOCAL_CERTS_DIR, 'device_b.cnf');
+
+  if (!force && fs.existsSync(caCrt) && fs.existsSync(serverCrt) && fs.existsSync(serverKey) && fs.existsSync(devACrt) && fs.existsSync(devBCrt)) {
+    console.log('[DevCerts] Using existing development certificates in .local-certs/...');
+    return {
+      caCrt,
+      serverCrt,
+      serverKey,
+      devACrt,
+      devAKey,
+      devBCrt,
+      devBKey
+    };
+  }
+
+  // Clean and recreate .local-certs when generating afresh
+  if (fs.existsSync(LOCAL_CERTS_DIR)) {
+    fs.rmSync(LOCAL_CERTS_DIR, { recursive: true, force: true });
+  }
+  fs.mkdirSync(LOCAL_CERTS_DIR, { recursive: true });
 
   const untrustedCaKey = path.join(LOCAL_CERTS_DIR, 'untrusted_ca.key');
   const untrustedCaCrt = path.join(LOCAL_CERTS_DIR, 'untrusted_ca.crt');

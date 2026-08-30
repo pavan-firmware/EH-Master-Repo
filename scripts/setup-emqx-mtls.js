@@ -3,12 +3,11 @@
 /**
  * EH Home — EMQX mTLS & Authoritative Device ACL Setup (Phase 13 Deterministic)
  *
- * Provisions development certificates and per-device ACL rules for EMQX 5.8:
- *   1. Writes local certificates (.local-certs/) and acl.conf
- *   2. Synchronizes certificates to /opt/emqx/etc/local-certs inside the container
- *   3. Enforces mTLS verification (verify_peer = true, fail_if_no_peer_cert = true)
- *   4. Enforces strict per-device isolation with fail-closed default policy (no_match = deny)
- *   5. Validates every command and throws immediately on any failure (no false success)
+ * Distinct lifecycle responsibilities:
+ *   1. Host Artifact Generation (--generate-only):
+ *      Generates ephemeral development certificates in .local-certs/ and writes acl.conf.
+ *   2. Container Runtime Configuration (--configure-only):
+ *      Inspects running EMQX broker, verifies mounted certificates, and activates mTLS + ACL.
  */
 
 const { execSync } = require('child_process');
@@ -26,9 +25,7 @@ function runEmqxEval(expr) {
   return out;
 }
 
-function setupEmqxMtls() {
-  const certs = generateCerts();
-
+function writeAclFile() {
   const DEVICE_A_ID = '0194fe23-7a1b-7890-a123-456789abcdef';
   const DEVICE_B_ID = '0194fe23-7a1b-7890-b456-123456fedcba';
 
@@ -85,8 +82,42 @@ function setupEmqxMtls() {
 
   const tmpAcl = path.join(LOCAL_CERTS_DIR, 'acl.conf');
   fs.writeFileSync(tmpAcl, aclContent, 'utf8');
+  return tmpAcl;
+}
 
-  // Check if Docker container eh_emqx is running
+function verifyHostFilesExist() {
+  const required = [
+    'ca.crt', 'server.crt', 'server.key',
+    'device_a.crt', 'device_a.key',
+    'device_b.crt', 'device_b.key',
+    'acl.conf'
+  ];
+
+  for (const file of required) {
+    const filePath = path.join(LOCAL_CERTS_DIR, file);
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Required local cert fixture missing: ${filePath}`);
+    }
+  }
+}
+
+function setupEmqxMtls(options = {}) {
+  const isGenerateOnly = options.generateOnly || process.argv.includes('--generate-only');
+  const isConfigureOnly = options.configureOnly || process.argv.includes('--configure-only');
+
+  // Step 1: Ensure certificates and ACL exist on host
+  if (isGenerateOnly || !fs.existsSync(path.join(LOCAL_CERTS_DIR, 'ca.crt'))) {
+    generateCerts({ force: isGenerateOnly });
+    writeAclFile();
+    verifyHostFilesExist();
+    console.log('[SetupEMQX] Host development certificates & ACL generated successfully.');
+    if (isGenerateOnly) return;
+  } else {
+    writeAclFile();
+    verifyHostFilesExist();
+  }
+
+  // Step 2: Configure running EMQX container if active
   let isRunning = false;
   try {
     const runningStatus = execSync('docker inspect -f "{{.State.Running}}" eh_emqx', { encoding: 'utf8' }).trim();
@@ -96,19 +127,31 @@ function setupEmqxMtls() {
   }
 
   if (isRunning) {
-    console.log('[SetupEMQX] Deploying certificates to /opt/emqx/etc/local-certs...');
-    execSync(`docker exec -u 0 eh_emqx mkdir -p /opt/emqx/etc/local-certs`, { stdio: 'inherit' });
-    execSync(`docker cp "${certs.caCrt}" eh_emqx:/opt/emqx/etc/local-certs/ca.crt`, { stdio: 'inherit' });
-    execSync(`docker cp "${certs.serverCrt}" eh_emqx:/opt/emqx/etc/local-certs/server.crt`, { stdio: 'inherit' });
-    execSync(`docker cp "${certs.serverKey}" eh_emqx:/opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
-    execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
+    console.log('[SetupEMQX] Verifying container certificate access at /opt/emqx/etc/local-certs/ca.crt...');
+    let hasMountedCerts = false;
     try {
-      execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/etc/acl.conf`, { stdio: 'inherit' });
-    } catch (_) {}
+      execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/ca.crt`, { stdio: 'ignore' });
+      hasMountedCerts = true;
+    } catch (_) {
+      hasMountedCerts = false;
+    }
 
-    execSync(`docker exec -u 0 eh_emqx chown -R emqx:emqx /opt/emqx/etc/local-certs`, { stdio: 'inherit' });
-    execSync(`docker exec -u 0 eh_emqx chmod 644 /opt/emqx/etc/local-certs/ca.crt /opt/emqx/etc/local-certs/server.crt /opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
-    execSync(`docker exec -u 0 eh_emqx chmod 640 /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
+    if (!hasMountedCerts) {
+      console.log('[SetupEMQX] Fallback copy into unmounted container directory...');
+      execSync(`docker exec -u 0 eh_emqx mkdir -p /opt/emqx/etc/local-certs`, { stdio: 'inherit' });
+      execSync(`docker cp "${path.join(LOCAL_CERTS_DIR, 'ca.crt')}" eh_emqx:/opt/emqx/etc/local-certs/ca.crt`, { stdio: 'inherit' });
+      execSync(`docker cp "${path.join(LOCAL_CERTS_DIR, 'server.crt')}" eh_emqx:/opt/emqx/etc/local-certs/server.crt`, { stdio: 'inherit' });
+      execSync(`docker cp "${path.join(LOCAL_CERTS_DIR, 'server.key')}" eh_emqx:/opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
+      execSync(`docker cp "${path.join(LOCAL_CERTS_DIR, 'acl.conf')}" eh_emqx:/opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
+      execSync(`docker exec -u 0 eh_emqx chown -R emqx:emqx /opt/emqx/etc/local-certs`, { stdio: 'inherit' });
+      execSync(`docker exec -u 0 eh_emqx chmod 644 /opt/emqx/etc/local-certs/ca.crt /opt/emqx/etc/local-certs/server.crt /opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
+      execSync(`docker exec -u 0 eh_emqx chmod 640 /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
+    }
+
+    // Verify container user can read required files
+    execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/ca.crt`, { stdio: 'inherit' });
+    execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/server.crt`, { stdio: 'inherit' });
+    execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
 
     console.log('[SetupEMQX] Applying mTLS & authorization settings in EMQX 5.8...');
     runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, cacertfile], <<"/opt/emqx/etc/local-certs/ca.crt">>).');

@@ -1,21 +1,37 @@
-# EH Home — Phase 13 Deterministic EMQX Test Provisioning & Security Resolution Report
+# EH Home — Phase 13 Definitive EMQX CI Lifecycle & Certificate Resolution Report
 
-**Baseline Commit**: `b441006`
+**Baseline Commit**: `7670866`
 **Feature Branch**: `feature/phase13-production-deployment`
 **Date**: 2026-08-30
 
 ---
 
-## 1. Root Cause & Mount Strategy Diagnosis
+## 1. Definitive Root Cause & Resolution
 
-### Why `unlinkat /opt/emqx/etc/certs/cacert.pem: device or resource busy` Occurred
-1. **Direct File Bind Mount Conflict**:
-   - Binding single files directly (`-v ca.crt:/opt/emqx/etc/certs/cacert.pem`) creates a kernel-level mountpoint on the specific file inode.
-   - When a script subsequently executes `docker cp` or file replacement against that exact path, Linux/Docker fails with `EBUSY` (`unlinkat ...: device or resource busy`).
-2. **Directory Mount & Clean Paths**:
-   - Switched in CI to mounting the entire `.local-certs` directory to `/opt/emqx/etc/local-certs`.
-   - Pointed EMQX listener configuration paths to `/opt/emqx/etc/local-certs/{ca.crt, server.crt, server.key}` at container boot.
-   - In [`scripts/setup-emqx-mtls.js`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/scripts/setup-emqx-mtls.js), commands use dedicated paths (`/opt/emqx/etc/local-certs/`) and fail fast if any step returns an error.
+### Root Cause
+1. **Container Bind-Mount Invalidation**:
+   - In previous CI runs, `setup-emqx-mtls.js` was invoked after container startup.
+   - Calling `generateCerts()` deleted (`fs.rmSync`) and recreated `.local-certs/` on the host while the running container was holding an active bind mount.
+   - This orphaned the container's mount at `/opt/emqx/etc/local-certs`, leading to `chmod ...: No such file or directory` and TLS handshake connection dropouts.
+2. **Redundant Container Copies**:
+   - Attempting `docker cp` into an already-mounted directory was unnecessary and unsafe.
+
+### Clean Lifecycle Architecture
+1. **Host Generation Once (`--generate-only`)**:
+   - `node scripts/setup-emqx-mtls.js --generate-only` creates ephemeral certificates (`ca.crt`, `server.crt`, `server.key`, `device_a.crt`, `device_a.key`, `device_b.crt`, `device_b.key`) and `acl.conf`.
+   - Checks that all 8 required files exist before launching the container.
+2. **Read-Only Container Mount (`:ro`)**:
+   - EMQX 5.8 is launched with `-v ${{ github.workspace }}/.local-certs:/opt/emqx/etc/local-certs:ro`.
+   - Environment variables map TLS options directly:
+     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE=/opt/emqx/etc/local-certs/ca.crt`
+     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE=/opt/emqx/etc/local-certs/server.crt`
+     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE=/opt/emqx/etc/local-certs/server.key`
+     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY=verify_peer`
+     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT=true`
+     - `EMQX_AUTHORIZATION__NO_MATCH=deny`
+     - `EMQX_AUTHORIZATION__CACHE__ENABLE=false`
+3. **Runtime Configuration Mode (`--configure-only`)**:
+   - `setup-emqx-mtls.js --configure-only` validates container file readability and configures runtime settings without regenerating host files.
 
 ---
 

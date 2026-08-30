@@ -79,10 +79,10 @@ jobs:
       #    Output: .local-certs/  (git-ignored, never committed)
       # ----------------------------------------------------------
       - name: Generate Development TLS/mTLS Certificates & ACL
-        run: node scripts/setup-emqx-mtls.js
+        run: node scripts/setup-emqx-mtls.js --generate-only
 
       # ----------------------------------------------------------
-      # 5. Start real EMQX 5.8.0 broker with custom certs directory
+      # 5. Start real EMQX 5.8.0 broker with read-only certs directory
       # ----------------------------------------------------------
       - name: Start EMQX 5.8.0 Broker
         run: |
@@ -91,7 +91,7 @@ jobs:
             -p 1883:1883 \
             -p 8883:8883 \
             -p 18083:18083 \
-            -v ${{ github.workspace }}/.local-certs:/opt/emqx/etc/local-certs \
+            -v ${{ github.workspace }}/.local-certs:/opt/emqx/etc/local-certs:ro \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE=/opt/emqx/etc/local-certs/ca.crt \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE=/opt/emqx/etc/local-certs/server.crt \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE=/opt/emqx/etc/local-certs/server.key \
@@ -131,7 +131,7 @@ jobs:
       # 7. Configure EMQX: verify_peer, CN→identity, per-device ACL
       # ----------------------------------------------------------
       - name: Configure EMQX mTLS and Per-Device ACL
-        run: node scripts/setup-emqx-mtls.js
+        run: node scripts/setup-emqx-mtls.js --configure-only
 
       # ----------------------------------------------------------
       # 8. Canonical contract tests
