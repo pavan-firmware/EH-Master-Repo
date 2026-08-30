@@ -17,7 +17,9 @@ const { generateCerts, LOCAL_CERTS_DIR } = require('./generate-dev-certs');
 
 function runEmqxEval(expr) {
   console.log(`[SetupEMQX] Eval: ${expr}`);
-  const out = execSync(`docker exec eh_emqx emqx eval "${expr}"`, { encoding: 'utf8' }).trim();
+  // Pass expression safely wrapped in single quotes
+  const cmd = `docker exec eh_emqx emqx eval '${expr}'`;
+  const out = execSync(cmd, { encoding: 'utf8' }).trim();
   console.log(`  -> ${out}`);
   if (out.startsWith('{error,') && !out.includes('already_exists')) {
     throw new Error(`EMQX config command rejected: ${out}`);
@@ -166,9 +168,6 @@ function setupEmqxMtls(options = {}) {
     execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
 
     console.log('[SetupEMQX] Applying mTLS & authorization settings in EMQX 5.8...');
-    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, cacertfile], <<"/opt/emqx/etc/local-certs/ca.crt">>).');
-    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, certfile], <<"/opt/emqx/etc/local-certs/server.crt">>).');
-    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, keyfile], <<"/opt/emqx/etc/local-certs/server.key">>).');
     runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, verify], verify_peer).');
     runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true).');
     runEmqxEval('emqx:update_config([authorization, no_match], deny).');

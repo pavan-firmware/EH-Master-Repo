@@ -1,20 +1,19 @@
-# EH Home — Phase 13 EMQX Permission & CI Lifecycle Resolution Report
+# EH Home — Phase 13 EMQX Eval & Execution Resolution Report
 
-**Baseline Commit**: `90164b0`
+**Baseline Commit**: `241cc99`
 **Feature Branch**: `feature/phase13-production-deployment`
 **Date**: 2026-08-30
 
 ---
 
-## 1. Root Cause & Permission Fix
+## 1. Root Cause Analysis & Resolution
 
-### Why `docker exec eh_emqx test -r /opt/emqx/etc/local-certs/server.key` Failed
-1. **Linux Runner File Mode & Non-Root Container User**:
-   - On Linux host runners (GitHub Actions UID 1001 `runner`), OpenSSL generates private keys with restrictive permissions (`0600`).
-   - When mounted into the EMQX container running as user `emqx` (UID 1000), `test -r server.key` returned status 1 because group/others had 0 read permissions.
-2. **Explicit World-Readable Permissions**:
-   - Updated [`scripts/generate-dev-certs.js`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/scripts/generate-dev-certs.js) and [`scripts/setup-emqx-mtls.js`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/scripts/setup-emqx-mtls.js) to set `0644` permissions on all generated `.local-certs/` files and `0755` on the directory.
-   - Updated [`.github/workflows/ci.yml`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/.github/workflows/ci.yml) to execute `chmod -R 755 .local-certs` and `chmod 644 .local-certs/*` immediately after generation and before broker startup.
+### Root Cause
+1. **Shell Expansion & Erlang Parse Error**:
+   - The command `emqx:update_config(..., <<"/opt/...">>)` failed in bash because unescaped double quotes inside `docker exec ... emqx eval "..."` caused bash to split the string, sending `/` directly to the Erlang parser and causing `syntax error before: '/'`.
+2. **Elimination of Redundant Path Overwrites**:
+   - The paths for `cacertfile`, `certfile`, `keyfile`, `verify`, and `fail_if_no_peer_cert` are already statically provided at boot time through environment variables (`EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__*`).
+   - `setup-emqx-mtls.js` now wraps Erlang evaluation strings safely in single quotes (`'...'`) and executes only clean runtime actions (`emqx_authz:reload().`, `ssl:clear_pem_cache().`, listener restart).
 
 ---
 
