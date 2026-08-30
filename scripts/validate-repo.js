@@ -99,8 +99,11 @@ runStep('20. Phase 8 Hardware Test Harness Self-Test', 'python tools/hardware-te
 // 21. Phase 10 Automation, Scenes & Scheduler Tests
 runStep('21. Phase 10 Automation, Scenes & Scheduler Engine Tests', `${nodeBin} backend/tests/phase10-automation.test.js`);
 
+// 22. Phase 11 Device Management, Health & Observability Tests
+runStep('22. Phase 11 Device Management, Health & Observability Tests', `${nodeBin} backend/tests/phase11-device-management.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  21 SUITES ATTEMPTED. ${failedSuites === 0 ? '21/21' : (21 - failedSuites) + '/21'} PASSED.`);
+console.log(`  22 SUITES ATTEMPTED. ${failedSuites === 0 ? '22/22' : (22 - failedSuites) + '/22'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

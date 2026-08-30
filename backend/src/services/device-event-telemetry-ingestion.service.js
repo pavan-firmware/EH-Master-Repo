@@ -39,12 +39,24 @@ class DeviceEventTelemetryIngestionService {
    * @param {Object}   opts.outboxRepo       - OutboxRepository instance (for event notifications)
    * @param {Object}   opts.auditRepo        - AuditRepository instance
    */
-  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo }) {
+  /**
+   * @param {Object} opts
+   * @param {Object}   opts.deviceStateRepo  - DeviceStateRepository instance
+   * @param {Object}   opts.eventRepo        - EventRepository instance
+   * @param {Object}   opts.commandRepo      - CommandRepository instance (for OVERRIDDEN receipts)
+   * @param {Object}   opts.outboxRepo       - OutboxRepository instance (for event notifications)
+   * @param {Object}   opts.auditRepo        - AuditRepository instance
+   * @param {Object}   [opts.activityLogRepo]- DeviceActivityLogRepository instance
+   * @param {Object}   [opts.healthRepo]     - DeviceHealthRepository instance
+   */
+  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null }) {
     this.deviceStateRepo = deviceStateRepo;
     this.eventRepo       = eventRepo;
     this.commandRepo     = commandRepo;
     this.outboxRepo      = outboxRepo;
     this.auditRepo       = auditRepo;
+    this.activityLogRepo = activityLogRepo;
+    this.healthRepo      = healthRepo;
     this._telemetryLastSeqByDevice = new Map(); // deviceId -> { channelIndex -> lastSeq }
   }
 
@@ -69,6 +81,25 @@ class DeviceEventTelemetryIngestionService {
 
     try {
       await this.deviceStateRepo.updateDeviceConnection(deviceId, connectionState);
+
+      if (this.healthRepo) {
+        await this.healthRepo.upsertMetrics({
+          deviceId,
+          healthStatus: connectionState,
+          lastSeenAt: new Date().toISOString()
+        });
+      }
+
+      if (this.activityLogRepo) {
+        await this.activityLogRepo.createLog({
+          id: `act_${require('crypto').randomUUID()}`,
+          deviceId,
+          eventType: connectionState === 'ONLINE' ? 'connected' : 'disconnected',
+          severity: connectionState === 'ONLINE' ? 'info' : 'warn',
+          message: `Device is now ${connectionState}`,
+          details: { availability }
+        });
+      }
     } catch (err) {
       console.warn(`[Ingestion] Cannot update availability for ${deviceId}:`, err.message);
     }

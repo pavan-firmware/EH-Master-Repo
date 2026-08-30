@@ -872,6 +872,144 @@ class AutomationExecutionLogRepository {
   }
 }
 
+// -----------------------------------------------------------------------------
+// 15. Device Activity Log Repository (Phase 11)
+// -----------------------------------------------------------------------------
+class DeviceActivityLogRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createLog({ id, homeId, deviceId, eventType, severity = 'info', message, correlationId = null, details = {}, createdAt = new Date().toISOString() }) {
+    if (!id || !deviceId || !eventType || !message) {
+      throw new Error('id, deviceId, eventType, and message are required for device activity log');
+    }
+    return this.db.insert('device_activity_logs', id, {
+      home_id: homeId,
+      device_id: deviceId,
+      event_type: eventType,
+      severity,
+      message,
+      correlation_id: correlationId,
+      details: typeof details === 'object' ? details : {},
+      created_at: createdAt
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('device_activity_logs', id);
+  }
+
+  async findByDeviceId(deviceId, limit = 50, eventType = null) {
+    const logs = await this.db.find('device_activity_logs', l => {
+      if (l.device_id !== deviceId) return false;
+      if (eventType && l.event_type !== eventType) return false;
+      return true;
+    });
+    return logs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+  }
+
+  async findByHomeId(homeId, limit = 50, eventType = null) {
+    const logs = await this.db.find('device_activity_logs', l => {
+      if (l.home_id !== homeId) return false;
+      if (eventType && l.event_type !== eventType) return false;
+      return true;
+    });
+    return logs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+  }
+
+  async findByCorrelationId(correlationId) {
+    return this.db.find('device_activity_logs', l => l.correlation_id === correlationId);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 16. Device Health Repository (Phase 11)
+// -----------------------------------------------------------------------------
+class DeviceHealthRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async upsertMetrics({
+    id,
+    deviceId,
+    homeId,
+    healthStatus = 'UNKNOWN',
+    lastSeenAt = new Date().toISOString(),
+    uptimeSeconds = 0,
+    rssi = null,
+    ipAddress = null,
+    commandSuccessCount = 0,
+    commandFailureCount = 0,
+    lastErrorMessage = null,
+    lastErrorAt = null
+  }) {
+    const existing = await this.findByDeviceId(deviceId);
+    if (existing) {
+      return this.db.update('device_health_metrics', existing.id, {
+        home_id: homeId || existing.home_id,
+        health_status: healthStatus || existing.health_status,
+        last_seen_at: lastSeenAt || existing.last_seen_at,
+        uptime_seconds: uptimeSeconds ?? existing.uptime_seconds,
+        rssi: rssi ?? existing.rssi,
+        ip_address: ipAddress || existing.ip_address,
+        command_success_count: commandSuccessCount ?? existing.command_success_count,
+        command_failure_count: commandFailureCount ?? existing.command_failure_count,
+        last_error_message: lastErrorMessage !== undefined ? lastErrorMessage : existing.last_error_message,
+        last_error_at: lastErrorAt !== undefined ? lastErrorAt : existing.last_error_at,
+        updated_at: new Date().toISOString()
+      });
+    }
+
+    const recordId = id || `health_${deviceId}`;
+    return this.db.insert('device_health_metrics', recordId, {
+      device_id: deviceId,
+      home_id: homeId,
+      health_status: healthStatus,
+      last_seen_at: lastSeenAt,
+      uptime_seconds: uptimeSeconds,
+      rssi,
+      ip_address: ipAddress,
+      command_success_count: commandSuccessCount,
+      command_failure_count: commandFailureCount,
+      last_error_message: lastErrorMessage,
+      last_error_at: lastErrorAt,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async findByDeviceId(deviceId) {
+    const records = await this.db.find('device_health_metrics', h => h.device_id === deviceId);
+    return records[0] || null;
+  }
+
+  async findByHomeId(homeId) {
+    return this.db.find('device_health_metrics', h => h.home_id === homeId);
+  }
+
+  async recordCommandOutcome(deviceId, isSuccess, errorMessage = null) {
+    const existing = await this.findByDeviceId(deviceId);
+    if (!existing) return null;
+
+    const updates = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (isSuccess) {
+      updates.command_success_count = (existing.command_success_count || 0) + 1;
+    } else {
+      updates.command_failure_count = (existing.command_failure_count || 0) + 1;
+      if (errorMessage) {
+        updates.last_error_message = errorMessage;
+        updates.last_error_at = new Date().toISOString();
+      }
+    }
+
+    return this.db.update('device_health_metrics', existing.id, updates);
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -889,5 +1027,7 @@ module.exports = {
   SceneRepository,
   AutomationRepository,
   ScheduleRepository,
-  AutomationExecutionLogRepository
+  AutomationExecutionLogRepository,
+  DeviceActivityLogRepository,
+  DeviceHealthRepository
 };
