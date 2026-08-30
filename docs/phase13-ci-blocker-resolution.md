@@ -1,6 +1,6 @@
-# EH Home — Phase 13 EMQX Eval & Execution Resolution Report
+# EH Home — Phase 13 EMQX Eval & CI Resolution Report
 
-**Baseline Commit**: `241cc99`
+**Baseline Commit**: `5710c3a`
 **Feature Branch**: `feature/phase13-production-deployment`
 **Date**: 2026-08-30
 
@@ -9,11 +9,12 @@
 ## 1. Root Cause Analysis & Resolution
 
 ### Root Cause
-1. **Shell Expansion & Erlang Parse Error**:
-   - The command `emqx:update_config(..., <<"/opt/...">>)` failed in bash because unescaped double quotes inside `docker exec ... emqx eval "..."` caused bash to split the string, sending `/` directly to the Erlang parser and causing `syntax error before: '/'`.
-2. **Elimination of Redundant Path Overwrites**:
-   - The paths for `cacertfile`, `certfile`, `keyfile`, `verify`, and `fail_if_no_peer_cert` are already statically provided at boot time through environment variables (`EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__*`).
-   - `setup-emqx-mtls.js` now wraps Erlang evaluation strings safely in single quotes (`'...'`) and executes only clean runtime actions (`emqx_authz:reload().`, `ssl:clear_pem_cache().`, listener restart).
+1. **Undefined Erlang Function Call (`emqx_authz:reload`)**:
+   - `emqx_authz:reload().` failed with `{error, undef}` because EMQX 5.8 does not export a zero-arity `reload/0` in the `emqx_authz` module.
+   - ACL rules in `/opt/emqx/etc/local-certs/acl.conf` are loaded at container startup via boot environment variables and volume mounts.
+2. **Clean Runtime Execution**:
+   - Removed the undefined `emqx_authz:reload().` call.
+   - Retained verified settings updates (`verify_peer`, `fail_if_no_peer_cert = true`, `no_match = deny`, `cache = false`, `ssl:clear_pem_cache().`, and listener restart).
 
 ---
 

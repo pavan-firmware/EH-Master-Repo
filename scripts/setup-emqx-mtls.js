@@ -172,7 +172,6 @@ function setupEmqxMtls(options = {}) {
     runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true).');
     runEmqxEval('emqx:update_config([authorization, no_match], deny).');
     runEmqxEval('emqx:update_config([authorization, cache, enable], false).');
-    runEmqxEval('emqx_authz:reload().');
 
     console.log('[SetupEMQX] Purging SSL PEM cache & restarting SSL listener...');
     runEmqxEval('ssl:clear_pem_cache().');
