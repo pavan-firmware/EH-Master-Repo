@@ -28,7 +28,8 @@ const {
   ScheduleRepository,
   AutomationExecutionLogRepository,
   DeviceActivityLogRepository,
-  DeviceHealthRepository
+  DeviceHealthRepository,
+  NotificationRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -46,6 +47,8 @@ const { SceneService } = require('./services/scene.service');
 const { AutomationService } = require('./services/automation.service');
 const { ScheduleService } = require('./services/schedule.service');
 const { DeviceManagementService } = require('./services/device-management.service');
+const { NotificationService } = require('./services/notification.service');
+const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
 const { HomeDeviceApiRouter } = require('./api/home-device.router');
@@ -55,7 +58,9 @@ const { buildRouteHandlers: buildCommandRouteHandlers } = require('./api/device-
 const { OtaApiRouter } = require('./api/ota.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
+const { NotificationApiRouter } = require('./api/notification.router');
 const { AutomationSchedulerWorker } = require('./workers/automation-scheduler-worker');
+const { NotificationDeliveryWorker } = require('./workers/notification-delivery-worker');
 
 const { requireAuthentication } = require('./shared/auth-middleware');
 const { HomeAuthorizationService } = require('./shared/home-authorization');
@@ -159,6 +164,7 @@ function createApp(options = {}) {
   const logRepo = new AutomationExecutionLogRepository(db);
   const activityLogRepo = new DeviceActivityLogRepository(db);
   const healthRepo = new DeviceHealthRepository(db);
+  const notificationRepo = new NotificationRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -178,6 +184,8 @@ function createApp(options = {}) {
 
   const mqttTransport = options.mqttTransport || null;
   const eventBus = options.eventBus || null;
+  const pushProvider = options.pushProvider || createPushProvider(options.pushProviderType || 'simulated');
+
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo
   });
@@ -213,11 +221,25 @@ function createApp(options = {}) {
     otaService
   });
 
+  const notificationService = options.notificationService || new NotificationService({
+    notificationRepository: notificationRepo,
+    homeRepository: homeRepo,
+    userRepository: userRepo,
+    realtimeEventBus: eventBus,
+    pushProvider
+  });
+
   const schedulerWorker = options.schedulerWorker || new AutomationSchedulerWorker({
     scheduleRepo, scheduleService
   });
+  const notificationDeliveryWorker = options.notificationDeliveryWorker || new NotificationDeliveryWorker({
+    notificationRepository: notificationRepo,
+    pushProvider
+  });
+
   if (options.startWorkers) {
     schedulerWorker.start();
+    notificationDeliveryWorker.start();
   }
 
   // 3. API Routers
@@ -231,7 +253,12 @@ function createApp(options = {}) {
     deviceManagementService,
     db,
     mqttTransport,
-    workers: { scheduler: schedulerWorker }
+    workers: { scheduler: schedulerWorker, notificationDelivery: notificationDeliveryWorker }
+  });
+  const notificationRouter = new NotificationApiRouter({
+    notificationRepository: notificationRepo,
+    notificationService,
+    homeAuthorizationService: homeAuthService
   });
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
@@ -405,6 +432,17 @@ function createApp(options = {}) {
       }
     }
 
+    // 8.8. Route to Notifications Router
+    if (pathname.startsWith('/api/v1/notifications')) {
+      if (req.user) {
+        query.userId = req.user.id;
+      }
+      const notifResult = await notificationRouter.handle(method, pathname, body, req.headers, query);
+      if (notifResult) {
+        return sendJsonResponse(res, notifResult.status, notifResult.body);
+      }
+    }
+
     // 9. Route to Home & Device Domain Router
     if (pathname.startsWith('/api/v1/homes') || pathname.startsWith('/api/v1/devices')) {
       // In authenticated GET /api/v1/homes, filter by user membership
@@ -441,13 +479,17 @@ function createApp(options = {}) {
       sceneService,
       automationService,
       scheduleService,
-      schedulerWorker
+      deviceManagementService,
+      notificationService,
+      pushProvider,
+      schedulerWorker,
+      notificationDeliveryWorker
     },
     repositories: {
       userRepo, homeRepo, roomRepo, productRepo, capRepo, deviceRepo,
       deviceStateRepo, commandRepo, eventRepo, auditRepo, outboxRepo,
       provisioningRepo, refreshTokenRepo, sceneRepo, automationRepo,
-      scheduleRepo, logRepo
+      scheduleRepo, logRepo, activityLogRepo, healthRepo, notificationRepo
     }
   };
 }

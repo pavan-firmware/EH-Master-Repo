@@ -7,7 +7,8 @@ const migrations = [
   { up: '001_initial_schema.sql', down: '001_initial_schema.down.sql' },
   { up: '002_capabilities_network_audit_outbox.sql', down: '002_capabilities_network_audit_outbox.down.sql' },
   { up: '006_automations_scenes_schedules.sql', down: '006_automations_scenes_schedules.down.sql' },
-  { up: '007_device_management_health_observability.sql', down: '007_device_management_health_observability.down.sql' }
+  { up: '007_device_management_health_observability.sql', down: '007_device_management_health_observability.down.sql' },
+  { up: '008_notifications_alerts.sql', down: '008_notifications_alerts.down.sql' }
 ];
 
 let totalUpTables = [];
