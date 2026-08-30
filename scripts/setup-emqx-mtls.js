@@ -5,7 +5,7 @@
  *
  * Distinct lifecycle responsibilities:
  *   1. Host Artifact Generation (--generate-only):
- *      Generates ephemeral development certificates in .local-certs/ and writes acl.conf.
+ *      Generates ephemeral development certificates in .local-certs/ and writes acl.conf with world-readable permissions.
  *   2. Container Runtime Configuration (--configure-only):
  *      Inspects running EMQX broker, verifies mounted certificates, and activates mTLS + ACL.
  */
@@ -82,6 +82,9 @@ function writeAclFile() {
 
   const tmpAcl = path.join(LOCAL_CERTS_DIR, 'acl.conf');
   fs.writeFileSync(tmpAcl, aclContent, 'utf8');
+  try {
+    fs.chmodSync(tmpAcl, 0o644);
+  } catch (_) {}
   return tmpAcl;
 }
 
@@ -117,6 +120,15 @@ function setupEmqxMtls(options = {}) {
     verifyHostFilesExist();
   }
 
+  // Ensure world-readable permissions on local certs before container use
+  try {
+    const files = fs.readdirSync(LOCAL_CERTS_DIR);
+    for (const f of files) {
+      fs.chmodSync(path.join(LOCAL_CERTS_DIR, f), 0o644);
+    }
+    fs.chmodSync(LOCAL_CERTS_DIR, 0o755);
+  } catch (_) {}
+
   // Step 2: Configure running EMQX container if active
   let isRunning = false;
   try {
@@ -145,7 +157,7 @@ function setupEmqxMtls(options = {}) {
       execSync(`docker cp "${path.join(LOCAL_CERTS_DIR, 'acl.conf')}" eh_emqx:/opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
       execSync(`docker exec -u 0 eh_emqx chown -R emqx:emqx /opt/emqx/etc/local-certs`, { stdio: 'inherit' });
       execSync(`docker exec -u 0 eh_emqx chmod 644 /opt/emqx/etc/local-certs/ca.crt /opt/emqx/etc/local-certs/server.crt /opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
-      execSync(`docker exec -u 0 eh_emqx chmod 640 /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
+      execSync(`docker exec -u 0 eh_emqx chmod 644 /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
     }
 
     // Verify container user can read required files

@@ -182,7 +182,16 @@ extendedKeyUsage = clientAuth
   // 6. Malformed / Invalid Cert
   fs.writeFileSync(invalidCrt, '-----BEGIN CERTIFICATE-----\nMALFORMED_DATA_INVALID\n-----END CERTIFICATE-----\n', 'utf8');
 
-  console.log('[DevCerts] Ephemeral development certificates generated successfully.');
+  // Ensure all generated files and directory are world-readable for Docker UID 1000 (emqx)
+  try {
+    const files = fs.readdirSync(LOCAL_CERTS_DIR);
+    for (const f of files) {
+      fs.chmodSync(path.join(LOCAL_CERTS_DIR, f), 0o644);
+    }
+    fs.chmodSync(LOCAL_CERTS_DIR, 0o755);
+  } catch (_) {}
+
+  console.log('[DevCerts] Ephemeral development certificates generated successfully with world-readable permissions.');
 
   return {
     dir: LOCAL_CERTS_DIR,

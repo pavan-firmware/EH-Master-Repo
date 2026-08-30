@@ -79,7 +79,10 @@ jobs:
       #    Output: .local-certs/  (git-ignored, never committed)
       # ----------------------------------------------------------
       - name: Generate Development TLS/mTLS Certificates & ACL
-        run: node scripts/setup-emqx-mtls.js --generate-only
+        run: |
+          node scripts/setup-emqx-mtls.js --generate-only
+          chmod -R 755 .local-certs
+          chmod 644 .local-certs/*
 
       # ----------------------------------------------------------
       # 5. Start real EMQX 5.8.0 broker with read-only certs directory

@@ -1,37 +1,20 @@
-# EH Home — Phase 13 Definitive EMQX CI Lifecycle & Certificate Resolution Report
+# EH Home — Phase 13 EMQX Permission & CI Lifecycle Resolution Report
 
-**Baseline Commit**: `7670866`
+**Baseline Commit**: `90164b0`
 **Feature Branch**: `feature/phase13-production-deployment`
 **Date**: 2026-08-30
 
 ---
 
-## 1. Definitive Root Cause & Resolution
+## 1. Root Cause & Permission Fix
 
-### Root Cause
-1. **Container Bind-Mount Invalidation**:
-   - In previous CI runs, `setup-emqx-mtls.js` was invoked after container startup.
-   - Calling `generateCerts()` deleted (`fs.rmSync`) and recreated `.local-certs/` on the host while the running container was holding an active bind mount.
-   - This orphaned the container's mount at `/opt/emqx/etc/local-certs`, leading to `chmod ...: No such file or directory` and TLS handshake connection dropouts.
-2. **Redundant Container Copies**:
-   - Attempting `docker cp` into an already-mounted directory was unnecessary and unsafe.
-
-### Clean Lifecycle Architecture
-1. **Host Generation Once (`--generate-only`)**:
-   - `node scripts/setup-emqx-mtls.js --generate-only` creates ephemeral certificates (`ca.crt`, `server.crt`, `server.key`, `device_a.crt`, `device_a.key`, `device_b.crt`, `device_b.key`) and `acl.conf`.
-   - Checks that all 8 required files exist before launching the container.
-2. **Read-Only Container Mount (`:ro`)**:
-   - EMQX 5.8 is launched with `-v ${{ github.workspace }}/.local-certs:/opt/emqx/etc/local-certs:ro`.
-   - Environment variables map TLS options directly:
-     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE=/opt/emqx/etc/local-certs/ca.crt`
-     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE=/opt/emqx/etc/local-certs/server.crt`
-     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE=/opt/emqx/etc/local-certs/server.key`
-     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY=verify_peer`
-     - `EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT=true`
-     - `EMQX_AUTHORIZATION__NO_MATCH=deny`
-     - `EMQX_AUTHORIZATION__CACHE__ENABLE=false`
-3. **Runtime Configuration Mode (`--configure-only`)**:
-   - `setup-emqx-mtls.js --configure-only` validates container file readability and configures runtime settings without regenerating host files.
+### Why `docker exec eh_emqx test -r /opt/emqx/etc/local-certs/server.key` Failed
+1. **Linux Runner File Mode & Non-Root Container User**:
+   - On Linux host runners (GitHub Actions UID 1001 `runner`), OpenSSL generates private keys with restrictive permissions (`0600`).
+   - When mounted into the EMQX container running as user `emqx` (UID 1000), `test -r server.key` returned status 1 because group/others had 0 read permissions.
+2. **Explicit World-Readable Permissions**:
+   - Updated [`scripts/generate-dev-certs.js`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/scripts/generate-dev-certs.js) and [`scripts/setup-emqx-mtls.js`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/scripts/setup-emqx-mtls.js) to set `0644` permissions on all generated `.local-certs/` files and `0755` on the directory.
+   - Updated [`.github/workflows/ci.yml`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/.github/workflows/ci.yml) to execute `chmod -R 755 .local-certs` and `chmod 644 .local-certs/*` immediately after generation and before broker startup.
 
 ---
 
