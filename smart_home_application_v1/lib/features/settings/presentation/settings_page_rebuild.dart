@@ -21,6 +21,7 @@ import 'factory_reset/factory_reset_page.dart';
 import 'help/help_support_page.dart';
 import 'home_details_page.dart';
 import 'home_profile_page.dart';
+import 'notification_preferences_page.dart';
 import 'people_page.dart';
 import 'privacy/privacy_page.dart';
 import 'settings_ui.dart';
@@ -318,6 +319,18 @@ class _SettingsContent extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) =>
                         HomeDetailsPage(home: home, repository: repository),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.notifications_none_rounded,
+                title: 'Notification preferences',
+                subtitle: 'Safety, offline, and update alerts',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationPreferencesPage(),
                   ),
                 ),
                 showDivider: true,

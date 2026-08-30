@@ -408,6 +408,8 @@ class HomeDashboardData {
     required List<dynamic> devices,
     required bool lightOn,
     required ActuatorConfidence lightConfidence,
+    List<String>? selectedControlIds,
+    Map<String, Map<int, bool>>? channelStates,
   }) {
     if (devices.isEmpty) {
       return HomeDashboardData.setup(
@@ -444,21 +446,55 @@ class HomeDashboardData {
       );
     }).toList();
 
-    final controls = devices.map((d) {
-      final rawName = d.name as String? ?? 'Smart Switch 3X';
-      final cleanName = rawName.startsWith('EH ')
-          ? rawName.substring(3).trim()
-          : rawName;
-      final roomName = d.roomName as String? ?? 'Room';
-      return QuickControlPreview(
-        id: d.id as String? ?? 'dev',
-        kind: QuickControlKind.light,
-        title: '$roomName\n$cleanName',
-        value: lightOn ? 'On' : 'Off',
-        confidence: lightConfidence,
-        isEnabled: true,
-      );
-    }).toList();
+    List<QuickControlPreview> controls = [];
+    if (selectedControlIds != null && selectedControlIds.isNotEmpty) {
+      for (final id in selectedControlIds) {
+        // ID format: either 'devId_chX' or 'devId'
+        final parts = id.split('_ch');
+        final devId = parts[0];
+        final chIdx = parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1;
+        final dev = devices.cast<dynamic>().firstWhere(
+          (d) => d.id == devId,
+          orElse: () => null,
+        );
+        if (dev != null) {
+          final rawName = dev.name as String? ?? 'Switch';
+          final cleanName = rawName.startsWith('EH ')
+              ? rawName.substring(3).trim()
+              : rawName;
+          final roomName = dev.roomName as String? ?? 'Room';
+          final isChOn = channelStates?[devId]?[chIdx] ?? (chIdx == 1 ? lightOn : false);
+          controls.add(
+            QuickControlPreview(
+              id: id,
+              kind: QuickControlKind.light,
+              title: '$roomName\n$cleanName Sw$chIdx',
+              value: isChOn ? 'On' : 'Off',
+              confidence: lightConfidence,
+              isEnabled: true,
+            ),
+          );
+        }
+      }
+    }
+
+    if (controls.isEmpty) {
+      controls = devices.map((d) {
+        final rawName = d.name as String? ?? 'Smart Switch 3X';
+        final cleanName = rawName.startsWith('EH ')
+            ? rawName.substring(3).trim()
+            : rawName;
+        final roomName = d.roomName as String? ?? 'Room';
+        return QuickControlPreview(
+          id: d.id as String? ?? 'dev',
+          kind: QuickControlKind.light,
+          title: '$roomName\n$cleanName',
+          value: lightOn ? 'On' : 'Off',
+          confidence: lightConfidence,
+          isEnabled: true,
+        );
+      }).toList();
+    }
 
     return HomeDashboardData(
       state: HomeDashboardState.ready,

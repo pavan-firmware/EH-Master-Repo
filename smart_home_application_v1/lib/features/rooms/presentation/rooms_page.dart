@@ -4,7 +4,6 @@ import '../../../app/home_controller.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
-import '../../onboarding/presentation/nearby_setup_page.dart';
 import 'room_context_page.dart';
 
 class RoomsPage extends StatefulWidget {
@@ -128,14 +127,57 @@ class _RoomsPageState extends State<RoomsPage> {
     }
   }
 
-  void _addRoom() {
+  Future<void> _addRoom() async {
     _dismissSearch();
-    if (widget.onAddDevice != null) {
-      widget.onAddDevice!();
-    } else {
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const NearbySetupPage()));
+    final nameController = TextEditingController();
+
+    final createdName = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Add room'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Room name',
+                hintText: 'e.g. Master Bedroom, Balcony',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              if (name.isNotEmpty) {
+                Navigator.of(dialogCtx).pop(name);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+
+    if (createdName != null && createdName.isNotEmpty) {
+      await widget.homeController?.addCustomRoom(createdName);
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Room "$createdName" created successfully.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 

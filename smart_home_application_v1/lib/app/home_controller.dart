@@ -69,6 +69,15 @@ class HomeController extends ChangeNotifier {
   DeviceConnection _cloudDeviceConnection = DeviceConnection.offline;
   ConnectedDeviceSummary? _connectedDeviceSummary;
   List<ConnectedDeviceSummary> _devices = [];
+  final List<Room> _customEmptyRooms = [];
+  List<String> _selectedQuickControlIds = [];
+  Map<String, bool> _notificationPrefs = {
+    'pushEnabled': true,
+    'criticalAlerts': true,
+    'deviceOffline': true,
+    'automationFailure': true,
+    'firmwareUpdates': true,
+  };
   String? _activeDeviceId;
   String? _activeDisplayName;
   String? _activeSerialNumber;
@@ -87,6 +96,8 @@ class HomeController extends ChangeNotifier {
   ActuatorConfidence get lightConfidence => _lightConfidence;
   ConnectedDeviceSummary? get connectedDeviceSummary => _connectedDeviceSummary;
   List<ConnectedDeviceSummary> get devices => List.unmodifiable(_devices);
+  List<String> get selectedQuickControlIds => List.unmodifiable(_selectedQuickControlIds);
+  Map<String, bool> get notificationPrefs => Map.unmodifiable(_notificationPrefs);
   String? get activeDeviceId => _activeDeviceId;
   String? get activeDisplayName => _activeDisplayName;
   String? get activeSerialNumber => _activeSerialNumber;
@@ -96,13 +107,14 @@ class HomeController extends ChangeNotifier {
   DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
 
   List<Room> get rooms {
+    final List<Room> result = [];
     if (_devices.isNotEmpty) {
       final Map<String, List<ConnectedDeviceSummary>> roomMap = {};
       for (final d in _devices) {
         final room = d.roomName.trim().isEmpty ? 'Living Room' : d.roomName;
         roomMap.putIfAbsent(room, () => []).add(d);
       }
-      return roomMap.entries.map((entry) {
+      result.addAll(roomMap.entries.map((entry) {
         final roomName = entry.key;
         final roomDevices = entry.value;
         final roomId = roomName.toLowerCase().replaceAll(
@@ -173,9 +185,17 @@ class HomeController extends ChangeNotifier {
             averageHumidity: '55%',
           ),
         );
-      }).toList();
+      }));
     }
-    return const [];
+
+    // Include custom rooms that don't have devices assigned yet
+    for (final emptyRoom in _customEmptyRooms) {
+      if (!result.any((r) => r.name.toLowerCase() == emptyRoom.name.toLowerCase())) {
+        result.add(emptyRoom);
+      }
+    }
+
+    return result;
   }
 
   HomeDashboardData get dashboard {
@@ -184,6 +204,8 @@ class HomeController extends ChangeNotifier {
         devices: _devices,
         lightOn: _livingRoomLightOn,
         lightConfidence: _lightConfidence,
+        selectedControlIds: _selectedQuickControlIds,
+        channelStates: _channelStates,
       );
     }
 
@@ -311,22 +333,32 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> _hydrateFromStorage() async {
-    final savedList = await _storageService.loadDevices();
-    if (savedList.isNotEmpty) {
-      _devices = List.from(savedList);
-      _connectedDeviceSummary = _devices.first;
-      _activeDeviceId = _devices.first.id;
-      _activeDisplayName = _devices.first.name;
-      _activeSerialNumber = _devices.first.model;
-      _connectionState = HomeConnectionState.connected;
-      _connectionMessage = '${_devices.first.name} is connected and online.';
-      debugPrint('[HOME] DEVICE_REGISTERED count=${_devices.length}');
-      debugPrint('[HOME] DEVICE_PERSISTED');
-      debugPrint('[HOME] HOME_STATE_REFRESH');
-      debugPrint('[HOME] REAL_DEVICE_COUNT=${_devices.length}');
-      debugPrint('[HOME] DEVICE_STATUS=ONLINE');
-      notifyListeners();
+    if (_devices.isEmpty) {
+      final savedList = await _storageService.loadDevices();
+      if (savedList.isNotEmpty) {
+        _devices = List.from(savedList);
+        _connectedDeviceSummary = _devices.first;
+        _activeDeviceId = _devices.first.id;
+        _activeDisplayName = _devices.first.name;
+        _activeSerialNumber = _devices.first.model;
+        _connectionState = HomeConnectionState.connected;
+        _connectionMessage = '${_devices.first.name} is connected and online.';
+        debugPrint('[HOME] DEVICE_REGISTERED count=${_devices.length}');
+        debugPrint('[HOME] DEVICE_PERSISTED');
+        debugPrint('[HOME] HOME_STATE_REFRESH');
+        debugPrint('[HOME] REAL_DEVICE_COUNT=${_devices.length}');
+        debugPrint('[HOME] DEVICE_STATUS=ONLINE');
+      }
     }
+    final qControls = await _storageService.loadQuickControls();
+    if (qControls.isNotEmpty) {
+      _selectedQuickControlIds = List.from(qControls);
+    }
+    final nPrefs = await _storageService.loadNotificationPrefs();
+    if (nPrefs.isNotEmpty) {
+      _notificationPrefs = Map.from(nPrefs);
+    }
+    notifyListeners();
   }
 
   Future<ConnectionResult> startConnectionSetup() async {
@@ -525,6 +557,74 @@ class HomeController extends ChangeNotifier {
 
   void acknowledgeAlert() {
     _alertAcknowledged = true;
+    notifyListeners();
+  }
+
+  Future<void> addCustomRoom(String roomName, {String iconKey = 'living'}) async {
+    final trimmed = roomName.trim();
+    if (trimmed.isEmpty) return;
+
+    await _storageService.addRoom(trimmed);
+    final roomId = trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+
+    final exists = rooms.any((r) => r.name.toLowerCase() == trimmed.toLowerCase());
+    if (!exists) {
+      _customEmptyRooms.add(
+        Room(
+          id: roomId,
+          name: trimmed,
+          iconKey: iconKey,
+          deviceCount: 0,
+          connectivity: ConnectivityCause.online,
+          telemetryFreshness: TelemetryFreshness.current,
+          summary: '0 devices · Configured',
+          status: RoomStatus.normal,
+          capabilities: const [],
+          devices: const [],
+          insights: const RoomInsights(
+            energyKwh: '0.0 kWh',
+            energyChange: '0.0 kWh',
+            activeWindow: 'Today',
+            averageTemperature: '24°C',
+            averageHumidity: '55%',
+          ),
+        ),
+      );
+      notifyListeners();
+    }
+  }
+
+  Future<void> moveDeviceToRoom(String deviceId, String newRoomName) async {
+    final trimmedRoom = newRoomName.trim().isEmpty ? 'Living Room' : newRoomName.trim();
+    final idx = _devices.indexWhere((d) => d.id == deviceId);
+    if (idx >= 0) {
+      final old = _devices[idx];
+      final updated = ConnectedDeviceSummary(
+        id: old.id,
+        name: old.name,
+        model: old.model,
+        firmware: old.firmware,
+        connectedVia: old.connectedVia,
+        signalLabel: old.signalLabel,
+        roomName: trimmedRoom,
+        online: old.online,
+      );
+      _devices[idx] = updated;
+      await _storageService.saveDevice(updated);
+      _customEmptyRooms.removeWhere((r) => r.name.toLowerCase() == trimmedRoom.toLowerCase());
+      notifyListeners();
+    }
+  }
+
+  Future<void> saveQuickControlSelection(List<String> controlIds) async {
+    _selectedQuickControlIds = List.from(controlIds);
+    await _storageService.saveQuickControls(_selectedQuickControlIds);
+    notifyListeners();
+  }
+
+  Future<void> updateNotificationPreference(String key, bool value) async {
+    _notificationPrefs[key] = value;
+    await _storageService.saveNotificationPrefs({key: value});
     notifyListeners();
   }
 

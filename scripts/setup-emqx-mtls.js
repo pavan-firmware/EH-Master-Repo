@@ -256,6 +256,12 @@ async function setupEmqxMtls(options = {}) {
     return;
   }
 
+  console.log('[SetupEMQX] Ensuring container certificate directory and files...');
+  try {
+    execSync(`docker exec eh_emqx mkdir -p /opt/emqx/etc/local-certs`, { stdio: 'pipe' });
+    execSync(`docker cp "${LOCAL_CERTS_DIR}/." eh_emqx:/opt/emqx/etc/local-certs/`, { stdio: 'pipe' });
+  } catch (_) {}
+
   console.log('[SetupEMQX] Verifying container certificate access...');
   execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/ca.crt`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/server.crt`, { stdio: 'inherit' });
