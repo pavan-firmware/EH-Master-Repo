@@ -34,7 +34,8 @@ class DeviceStorageService {
       final prefs = await SharedPreferences.getInstance();
       final jsonListStr = prefs.getString(_keyDevicesList);
       if (jsonListStr != null && jsonListStr.isNotEmpty) {
-        final List<dynamic> decodedList = jsonDecode(jsonListStr) as List<dynamic>;
+        final List<dynamic> decodedList =
+            jsonDecode(jsonListStr) as List<dynamic>;
         _cachedDevices.clear();
         for (final item in decodedList) {
           final data = item as Map<String, dynamic>;
@@ -44,14 +45,17 @@ class DeviceStorageService {
               name: data['name'] as String? ?? 'Smart Switch 3X',
               model: data['model'] as String? ?? 'eh-smart-switch-3x',
               firmware: data['firmware'] as String? ?? '1.0.0',
-              connectedVia: data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
+              connectedVia:
+                  data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
               signalLabel: data['signalLabel'] as String? ?? 'Strong',
               roomName: data['roomName'] as String? ?? 'Living Room',
               online: data['online'] as bool? ?? true,
             ),
           );
         }
-        debugPrint('[HOME] INIT_HYDRATED devices_count=${_cachedDevices.length}');
+        debugPrint(
+          '[HOME] INIT_HYDRATED devices_count=${_cachedDevices.length}',
+        );
       }
       final list = prefs.getStringList(_keyRooms);
       if (list != null && list.isNotEmpty) {
@@ -75,23 +79,29 @@ class DeviceStorageService {
       _cachedDevices.add(device);
     }
 
-    final jsonList = _cachedDevices.map((d) => {
-      'id': d.id,
-      'name': d.name,
-      'model': d.model,
-      'firmware': d.firmware,
-      'connectedVia': d.connectedVia,
-      'signalLabel': d.signalLabel,
-      'roomName': d.roomName,
-      'online': d.online,
-    }).toList();
+    final jsonList = _cachedDevices
+        .map(
+          (d) => {
+            'id': d.id,
+            'name': d.name,
+            'model': d.model,
+            'firmware': d.firmware,
+            'connectedVia': d.connectedVia,
+            'signalLabel': d.signalLabel,
+            'roomName': d.roomName,
+            'online': d.online,
+          },
+        )
+        .toList();
 
     final jsonStr = jsonEncode(jsonList);
 
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyDevicesList, jsonStr);
-      debugPrint('[HOME] DEVICE_PERSISTED id=${device.id} room=${device.roomName} total=${_cachedDevices.length}');
+      debugPrint(
+        '[HOME] DEVICE_PERSISTED id=${device.id} room=${device.roomName} total=${_cachedDevices.length}',
+      );
     } catch (e) {
       debugPrint('[HOME] SharedPreferences write warning: $e');
     }
@@ -107,7 +117,8 @@ class DeviceStorageService {
       final prefs = await SharedPreferences.getInstance();
       final jsonListStr = prefs.getString(_keyDevicesList);
       if (jsonListStr != null && jsonListStr.isNotEmpty) {
-        final List<dynamic> decodedList = jsonDecode(jsonListStr) as List<dynamic>;
+        final List<dynamic> decodedList =
+            jsonDecode(jsonListStr) as List<dynamic>;
         _cachedDevices.clear();
         for (final item in decodedList) {
           final data = item as Map<String, dynamic>;
@@ -117,7 +128,8 @@ class DeviceStorageService {
               name: data['name'] as String? ?? 'Smart Switch 3X',
               model: data['model'] as String? ?? 'eh-smart-switch-3x',
               firmware: data['firmware'] as String? ?? '1.0.0',
-              connectedVia: data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
+              connectedVia:
+                  data['connectedVia'] as String? ?? 'Wi-Fi (2.4 GHz)',
               signalLabel: data['signalLabel'] as String? ?? 'Strong',
               roomName: data['roomName'] as String? ?? 'Living Room',
               online: data['online'] as bool? ?? true,
@@ -138,16 +150,20 @@ class DeviceStorageService {
     _cachedDevices.removeWhere((d) => d.id == deviceId);
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonList = _cachedDevices.map((d) => {
-        'id': d.id,
-        'name': d.name,
-        'model': d.model,
-        'firmware': d.firmware,
-        'connectedVia': d.connectedVia,
-        'signalLabel': d.signalLabel,
-        'roomName': d.roomName,
-        'online': d.online,
-      }).toList();
+      final jsonList = _cachedDevices
+          .map(
+            (d) => {
+              'id': d.id,
+              'name': d.name,
+              'model': d.model,
+              'firmware': d.firmware,
+              'connectedVia': d.connectedVia,
+              'signalLabel': d.signalLabel,
+              'roomName': d.roomName,
+              'online': d.online,
+            },
+          )
+          .toList();
       await prefs.setString(_keyDevicesList, jsonEncode(jsonList));
     } catch (_) {}
     debugPrint('[HOME] DEVICE_REMOVED id=$deviceId');

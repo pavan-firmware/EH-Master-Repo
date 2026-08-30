@@ -238,10 +238,13 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
           final curState = (curStatus['state'] as String?)?.toUpperCase();
           final curWifi = curStatus['wifi'] == true;
           if (curState == 'ACTIVE' || curWifi) {
-            debugPrint('[PROV] DEVICE_ACTIVE (already confirmed on Wi-Fi). Moving to room assignment.');
+            debugPrint(
+              '[PROV] DEVICE_ACTIVE (already confirmed on Wi-Fi). Moving to room assignment.',
+            );
             setState(() {
               _stage = ProvisioningUiStage.roomAssignment;
-              _statusDetail = 'Choose a room for your ${baseIdentity.displayName}.';
+              _statusDetail =
+                  'Choose a room for your ${baseIdentity.displayName}.';
             });
             return;
           }
@@ -502,7 +505,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             SizedBox(
               height: 52,
               child: FilledButton.icon(
-                onPressed: _isProvisioningInProgress ? null : _startProvisioning,
+                onPressed: _isProvisioningInProgress
+                    ? null
+                    : _startProvisioning,
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.blueDarker,
                 ),
@@ -516,7 +521,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
               decoration: BoxDecoration(
                 color: tokens.blueDarker.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: tokens.bluePrimary.withValues(alpha: 0.2)),
+                border: Border.all(
+                  color: tokens.bluePrimary.withValues(alpha: 0.2),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -566,14 +573,19 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
                     width: double.infinity,
                     height: 50,
                     child: FilledButton.icon(
-                      onPressed: _isProvisioningInProgress ? null : _openQrScanner,
+                      onPressed: _isProvisioningInProgress
+                          ? null
+                          : _openQrScanner,
                       style: FilledButton.styleFrom(
                         backgroundColor: tokens.bluePrimary,
                       ),
                       icon: const Icon(Icons.camera_alt_rounded),
                       label: const Text(
                         'Scan QR Code',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
@@ -645,8 +657,8 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
                       _stage == ProvisioningUiStage.commissioningHandshake
                           ? 'Establishing Secure Session…'
                           : (_stage == ProvisioningUiStage.sendingWifi
-                              ? 'Sending Wi-Fi Credentials…'
-                              : 'Connecting Device to Wi-Fi…'),
+                                ? 'Sending Wi-Fi Credentials…'
+                                : 'Connecting Device to Wi-Fi…'),
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -679,7 +691,8 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
               spacing: 8,
               runSpacing: 8,
               children: _availableRooms.map((room) {
-                final isSelected = _selectedRoom == room && _customRoomController.text.isEmpty;
+                final isSelected =
+                    _selectedRoom == room && _customRoomController.text.isEmpty;
                 return ChoiceChip(
                   label: Text(room),
                   selected: isSelected,

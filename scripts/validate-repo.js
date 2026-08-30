@@ -102,8 +102,11 @@ runStep('21. Phase 10 Automation, Scenes & Scheduler Engine Tests', `${nodeBin} 
 // 22. Phase 11 Device Management, Health & Observability Tests
 runStep('22. Phase 11 Device Management, Health & Observability Tests', `${nodeBin} backend/tests/phase11-device-management.test.js`);
 
+// 23. Phase 12 Environment Configuration Validation
+runStep('23. Phase 12 Environment Configuration Validation', `${nodeBin} scripts/validate-environment.js`);
+
 console.log('\n===============================================================');
-console.log(`  22 SUITES ATTEMPTED. ${failedSuites === 0 ? '22/22' : (22 - failedSuites) + '/22'} PASSED.`);
+console.log(`  23 SUITES ATTEMPTED. ${failedSuites === 0 ? '23/23' : (23 - failedSuites) + '/23'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

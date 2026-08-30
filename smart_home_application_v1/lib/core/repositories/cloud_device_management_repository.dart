@@ -3,7 +3,10 @@ import '../models/device_management_models.dart';
 
 abstract class DeviceManagementRepository {
   Future<DeviceDetailsModel> getDeviceDetails(String homeId, String deviceId);
-  Future<DeviceHealthMetricsModel> getDeviceHealth(String homeId, String deviceId);
+  Future<DeviceHealthMetricsModel> getDeviceHealth(
+    String homeId,
+    String deviceId,
+  );
   Future<List<DeviceActivityLogItemModel>> getDeviceActivity(
     String homeId,
     String deviceId, {
@@ -20,7 +23,10 @@ class CloudDeviceManagementRepository implements DeviceManagementRepository {
   final ApiClient _apiClient;
 
   @override
-  Future<DeviceDetailsModel> getDeviceDetails(String homeId, String deviceId) async {
+  Future<DeviceDetailsModel> getDeviceDetails(
+    String homeId,
+    String deviceId,
+  ) async {
     final response = await _apiClient.get(
       '/api/v1/homes/$homeId/devices/$deviceId/details',
     );
@@ -29,7 +35,10 @@ class CloudDeviceManagementRepository implements DeviceManagementRepository {
   }
 
   @override
-  Future<DeviceHealthMetricsModel> getDeviceHealth(String homeId, String deviceId) async {
+  Future<DeviceHealthMetricsModel> getDeviceHealth(
+    String homeId,
+    String deviceId,
+  ) async {
     final response = await _apiClient.get(
       '/api/v1/homes/$homeId/devices/$deviceId/health',
     );
@@ -48,12 +57,18 @@ class CloudDeviceManagementRepository implements DeviceManagementRepository {
     );
     final list = response['data'] as List<dynamic>? ?? const [];
     return list
-        .map((e) => DeviceActivityLogItemModel.fromJson(e as Map<String, dynamic>))
+        .map(
+          (e) => DeviceActivityLogItemModel.fromJson(e as Map<String, dynamic>),
+        )
         .toList();
   }
 
   @override
-  Future<void> renameDevice(String homeId, String deviceId, String newName) async {
+  Future<void> renameDevice(
+    String homeId,
+    String deviceId,
+    String newName,
+  ) async {
     await _apiClient.patch(
       '/api/v1/homes/$homeId/devices/$deviceId/rename',
       body: {'name': newName},
@@ -61,7 +76,11 @@ class CloudDeviceManagementRepository implements DeviceManagementRepository {
   }
 
   @override
-  Future<void> moveDevice(String homeId, String deviceId, String? newRoomId) async {
+  Future<void> moveDevice(
+    String homeId,
+    String deviceId,
+    String? newRoomId,
+  ) async {
     await _apiClient.patch(
       '/api/v1/homes/$homeId/devices/$deviceId/move',
       body: {'roomId': newRoomId},
@@ -70,8 +89,6 @@ class CloudDeviceManagementRepository implements DeviceManagementRepository {
 
   @override
   Future<void> removeDevice(String homeId, String deviceId) async {
-    await _apiClient.delete(
-      '/api/v1/homes/$homeId/devices/$deviceId',
-    );
+    await _apiClient.delete('/api/v1/homes/$homeId/devices/$deviceId');
   }
 }

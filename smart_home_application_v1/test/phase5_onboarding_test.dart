@@ -176,7 +176,10 @@ void main() {
           'EH1:c0a80101-0000-4000-8000-000000000001:eh-smart-switch-3x:$testSecretHex:123456',
         );
         expect(qrResult.stepState, OnboardingStepState.secureCommissioning);
-        expect(qrResult.identity!.deviceId, 'c0a80101-0000-4000-8000-000000000001');
+        expect(
+          qrResult.identity!.deviceId,
+          'c0a80101-0000-4000-8000-000000000001',
+        );
         expect(qrResult.identity!.commissioningSecret, testSecretHex);
 
         final commResult = await service.startSecureCommissioning(
@@ -221,26 +224,32 @@ void main() {
       },
     );
 
-    test('Missing commissioningSecret rejects proveIdentity before AUTH', () async {
-      const service = DefaultOnboardingService();
-      const identityWithoutSecret = OnboardingDeviceIdentity(
-        deviceId: 'c0a80101-0000-4000-8000-000000000001',
-        serialNumber: 'SN-EH-3X-2026',
-        productVariantId: 'eh-smart-switch-3x',
-        hardwareRevision: 'HW_1_0',
-        firmwareFamily: 'esp32-switch-platform',
-        displayName: 'EH Smart Switch 3X',
-        commissioningSecret: null,
-      );
+    test(
+      'Missing commissioningSecret rejects proveIdentity before AUTH',
+      () async {
+        const service = DefaultOnboardingService();
+        const identityWithoutSecret = OnboardingDeviceIdentity(
+          deviceId: 'c0a80101-0000-4000-8000-000000000001',
+          serialNumber: 'SN-EH-3X-2026',
+          productVariantId: 'eh-smart-switch-3x',
+          hardwareRevision: 'HW_1_0',
+          firmwareFamily: 'esp32-switch-platform',
+          displayName: 'EH Smart Switch 3X',
+          commissioningSecret: null,
+        );
 
-      final proveResult = await service.proveIdentity(
-        sessionId: sessionId,
-        identity: identityWithoutSecret,
-        deviceChallenge: devChal,
-      );
-      expect(proveResult.hasFailed, isTrue);
-      expect(proveResult.errorMessage, contains('Commissioning secret is required'));
-    });
+        final proveResult = await service.proveIdentity(
+          sessionId: sessionId,
+          identity: identityWithoutSecret,
+          deviceChallenge: devChal,
+        );
+        expect(proveResult.hasFailed, isTrue);
+        expect(
+          proveResult.errorMessage,
+          contains('Commissioning secret is required'),
+        );
+      },
+    );
 
     test('Valid EH1 colon payload parses correctly', () async {
       const service = DefaultOnboardingService();
@@ -268,62 +277,73 @@ void main() {
 
       final res3 = await service.verifyQrCode('EH1:devId:variant:');
       expect(res3.hasFailed, isTrue);
-      expect(res3.errorMessage, contains('does not contain required device credentials'));
+      expect(
+        res3.errorMessage,
+        contains('does not contain required device credentials'),
+      );
     });
 
-    test('AUTH computes exact HMAC-SHA256 APP_PROOF using real credential', () async {
-      const service = DefaultOnboardingService();
-      const testSecretHex =
-          '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
-      final secretBytes = DefaultOnboardingService.parseSecretKey(testSecretHex);
+    test(
+      'AUTH computes exact HMAC-SHA256 APP_PROOF using real credential',
+      () async {
+        const service = DefaultOnboardingService();
+        const testSecretHex =
+            '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
+        final secretBytes = DefaultOnboardingService.parseSecretKey(
+          testSecretHex,
+        );
 
-      const identity = OnboardingDeviceIdentity(
-        deviceId: '4444688e-989d-458e-820e-ac62a99ed8e1',
-        serialNumber: 'EH-SW3X-2026W12-00001',
-        productVariantId: 'eh-smart-switch-3x',
-        hardwareRevision: 'HW_1_0',
-        firmwareFamily: 'esp32-switch-platform',
-        displayName: 'EH Smart Switch 3X',
-        commissioningSecret: testSecretHex,
-      );
+        const identity = OnboardingDeviceIdentity(
+          deviceId: '4444688e-989d-458e-820e-ac62a99ed8e1',
+          serialNumber: 'EH-SW3X-2026W12-00001',
+          productVariantId: 'eh-smart-switch-3x',
+          hardwareRevision: 'HW_1_0',
+          firmwareFamily: 'esp32-switch-platform',
+          displayName: 'EH Smart Switch 3X',
+          commissioningSecret: testSecretHex,
+        );
 
-      final transcript = EhProv1Crypto.encodeCanonicalTranscript(
-        messageType: 'APP_PROOF',
-        sessionId: sessionId,
-        deviceId: identity.deviceId,
-        appChallenge: appChal,
-        deviceChallenge: devChal,
-        sequenceNumber: 2,
-      );
-      final expectedProof = EhProv1Crypto.hmacSha256(secretBytes, transcript);
+        final transcript = EhProv1Crypto.encodeCanonicalTranscript(
+          messageType: 'APP_PROOF',
+          sessionId: sessionId,
+          deviceId: identity.deviceId,
+          appChallenge: appChal,
+          deviceChallenge: devChal,
+          sequenceNumber: 2,
+        );
+        final expectedProof = EhProv1Crypto.hmacSha256(secretBytes, transcript);
 
-      final session = EhProv1Session(
-        sessionId: sessionId,
-        appChallenge: appChal,
-        deviceChallenge: devChal,
-        identity: identity,
-      );
+        final session = EhProv1Session(
+          sessionId: sessionId,
+          appChallenge: appChal,
+          deviceChallenge: devChal,
+          identity: identity,
+        );
 
-      final proveResult = await service.proveIdentity(
-        sessionId: sessionId,
-        identity: identity,
-        deviceChallenge: devChal,
-        session: session,
-      );
+        final proveResult = await service.proveIdentity(
+          sessionId: sessionId,
+          identity: identity,
+          deviceChallenge: devChal,
+          session: session,
+        );
 
-      expect(proveResult.stepState, OnboardingStepState.wifiProvisioning);
-      expect(proveResult.session!.sessionKey, isNotNull);
-      expect(expectedProof.length, 32);
-    });
+        expect(proveResult.stepState, OnboardingStepState.wifiProvisioning);
+        expect(proveResult.session!.sessionKey, isNotNull);
+        expect(expectedProof.length, 32);
+      },
+    );
 
-    test('waitForWifiConnection completes when channel is null or inactive', () async {
-      const service = DefaultOnboardingService();
-      final res = await service.waitForWifiConnection(
-        deviceId: '4444688e-989d-458e-820e-ac62a99ed8e1',
-        session: null,
-      );
-      expect(res.stepState, OnboardingStepState.complete);
-    });
+    test(
+      'waitForWifiConnection completes when channel is null or inactive',
+      () async {
+        const service = DefaultOnboardingService();
+        final res = await service.waitForWifiConnection(
+          deviceId: '4444688e-989d-458e-820e-ac62a99ed8e1',
+          session: null,
+        );
+        expect(res.stepState, OnboardingStepState.complete);
+      },
+    );
 
     test('Strict constant-time comparison prevents timing discrepancies', () {
       final a = Uint8List.fromList([1, 2, 3, 4, 5]);

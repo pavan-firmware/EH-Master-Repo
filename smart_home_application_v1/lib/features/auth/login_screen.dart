@@ -118,7 +118,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: () {
                         Navigator.of(context).pushReplacement(
                           MaterialPageRoute(
-                            builder: (_) => SplashScreen(homeController: HomeController()),
+                            builder: (_) =>
+                                SplashScreen(homeController: HomeController()),
                           ),
                         );
                       },

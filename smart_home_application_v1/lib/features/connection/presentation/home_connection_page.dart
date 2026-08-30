@@ -134,22 +134,23 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
               channel: result.channel is BleCommissioningChannel
                   ? result.channel as BleCommissioningChannel
                   : null,
-              onDeviceProvisioned: ({
-                required String deviceId,
-                required String displayName,
-                required String serialNumber,
-                String? roomName,
-              }) {
-                widget.onDeviceProvisioned?.call(
-                  deviceId: deviceId,
-                  displayName: displayName,
-                  serialNumber: serialNumber,
-                  roomName: roomName,
-                );
-                if (mounted) {
-                  _load();
-                }
-              },
+              onDeviceProvisioned:
+                  ({
+                    required String deviceId,
+                    required String displayName,
+                    required String serialNumber,
+                    String? roomName,
+                  }) {
+                    widget.onDeviceProvisioned?.call(
+                      deviceId: deviceId,
+                      displayName: displayName,
+                      serialNumber: serialNumber,
+                      roomName: roomName,
+                    );
+                    if (mounted) {
+                      _load();
+                    }
+                  },
             ),
           ),
         );

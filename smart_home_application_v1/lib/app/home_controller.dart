@@ -105,7 +105,10 @@ class HomeController extends ChangeNotifier {
       return roomMap.entries.map((entry) {
         final roomName = entry.key;
         final roomDevices = entry.value;
-        final roomId = roomName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+        final roomId = roomName.toLowerCase().replaceAll(
+          RegExp(r'[^a-z0-9]'),
+          '_',
+        );
         return Room(
           id: roomId,
           name: roomName,
@@ -117,7 +120,11 @@ class HomeController extends ChangeNotifier {
           status: RoomStatus.normal,
           capabilities: roomDevices.expand((d) {
             final opName = formatOperatingName(d.name);
-            final ch1On = getDeviceChannelPower(d.id, 1, defaultValue: _livingRoomLightOn);
+            final ch1On = getDeviceChannelPower(
+              d.id,
+              1,
+              defaultValue: _livingRoomLightOn,
+            );
             final ch2On = getDeviceChannelPower(d.id, 2, defaultValue: false);
             final ch3On = getDeviceChannelPower(d.id, 3, defaultValue: false);
             return [
@@ -143,14 +150,19 @@ class HomeController extends ChangeNotifier {
           }).toList(),
           devices: roomDevices.map((d) {
             final opName = formatOperatingName(d.name);
-            final ch1On = getDeviceChannelPower(d.id, 1, defaultValue: _livingRoomLightOn);
+            final ch1On = getDeviceChannelPower(
+              d.id,
+              1,
+              defaultValue: _livingRoomLightOn,
+            );
             return RoomDevice(
               id: d.id,
               name: opName,
               type: 'Smart Switch 3X',
               value: ch1On ? 'On' : 'Off',
               kind: RoomCapabilityKind.light,
-              confidence: _deviceConfidences[d.id] ?? ActuatorConfidence.confirmed,
+              confidence:
+                  _deviceConfidences[d.id] ?? ActuatorConfidence.confirmed,
             );
           }).toList(),
           insights: const RoomInsights(
@@ -220,7 +232,11 @@ class HomeController extends ChangeNotifier {
   final Map<String, Map<int, bool>> _channelStates = {};
   final Map<String, ActuatorConfidence> _deviceConfidences = {};
 
-  bool getDeviceChannelPower(String deviceId, int channelIndex, {bool defaultValue = false}) {
+  bool getDeviceChannelPower(
+    String deviceId,
+    int channelIndex, {
+    bool defaultValue = false,
+  }) {
     return _channelStates[deviceId]?[channelIndex] ?? defaultValue;
   }
 
@@ -250,7 +266,11 @@ class HomeController extends ChangeNotifier {
           final channels = state['channels'] as Map;
           channels.forEach((key, val) {
             if (val is Map && val.containsKey('relay')) {
-              final chIdx = int.tryParse(key.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
+              final chIdx =
+                  int.tryParse(
+                    key.toString().replaceAll(RegExp(r'[^0-9]'), ''),
+                  ) ??
+                  1;
               final relay = val['relay'] as bool?;
               if (relay != null) {
                 if (devId != null) {
@@ -365,7 +385,9 @@ class HomeController extends ChangeNotifier {
     // Persist to local storage
     _storageService.saveDevice(summary);
 
-    debugPrint('[HOME] DEVICE_REGISTERED id=$deviceId name=$displayName room=${roomName ?? "Living Room"}');
+    debugPrint(
+      '[HOME] DEVICE_REGISTERED id=$deviceId name=$displayName room=${roomName ?? "Living Room"}',
+    );
     debugPrint('[HOME] DEVICE_PERSISTED');
     debugPrint('[HOME] HOME_STATE_REFRESH');
     debugPrint('[HOME] REAL_DEVICE_COUNT=${_devices.length}');
@@ -396,7 +418,8 @@ class HomeController extends ChangeNotifier {
     _lightConfidence = ActuatorConfidence.pending;
     notifyListeners();
 
-    final targetId = _activeDeviceId ??
+    final targetId =
+        _activeDeviceId ??
         (_devices.isNotEmpty ? _devices.first.id : 'living-room-light');
 
     try {
@@ -483,7 +506,8 @@ class HomeController extends ChangeNotifier {
     _mistingCommandPending = true;
     notifyListeners();
 
-    final targetId = _activeDeviceId ??
+    final targetId =
+        _activeDeviceId ??
         (_devices.isNotEmpty ? _devices.first.id : 'plant-mister');
 
     final receipt = await _repository.sendCommand(

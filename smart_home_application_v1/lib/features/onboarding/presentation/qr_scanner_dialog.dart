@@ -100,11 +100,18 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.error_outline, color: Colors.amber, size: 48),
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.amber,
+                          size: 48,
+                        ),
                         const SizedBox(height: 16),
                         Text(
                           'Camera Error: ${error.errorCode.name}',
-                          style: const TextStyle(color: Colors.white, fontSize: 16),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                          ),
                         ),
                       ],
                     ),
@@ -119,7 +126,11 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.videocam_off_rounded, color: Colors.white70, size: 56),
+                    const Icon(
+                      Icons.videocam_off_rounded,
+                      color: Colors.white70,
+                      size: 56,
+                    ),
                     const SizedBox(height: 20),
                     const Text(
                       'Camera Permission Required',
@@ -135,20 +146,27 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                       _permanentlyDenied
                           ? 'Camera access is permanently disabled. Please enable it in system settings to scan the device QR code.'
                           : 'Please grant camera permission to scan your EH Home device QR code.',
-                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 24),
                     if (_permanentlyDenied)
                       FilledButton(
                         onPressed: openAppSettings,
-                        style: FilledButton.styleFrom(backgroundColor: tokens.bluePrimary),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: tokens.bluePrimary,
+                        ),
                         child: const Text('Open App Settings'),
                       )
                     else
                       FilledButton(
                         onPressed: _checkPermission,
-                        style: FilledButton.styleFrom(backgroundColor: tokens.bluePrimary),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: tokens.bluePrimary,
+                        ),
                         child: const Text('Grant Permission'),
                       ),
                   ],
@@ -164,7 +182,11 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                 children: [
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
                   ),
                   const Expanded(
                     child: Text(
@@ -204,14 +226,21 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 40, left: 24, right: 24),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.65),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: const Text(
                     'Align the QR code on your EH Home device within the frame',
-                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
