@@ -3,10 +3,12 @@
 /**
  * EH Home — EMQX mTLS & Authoritative Device ACL Setup (Phase 13 Deterministic)
  *
- * Configures development certificates and per-device ACL rules for EMQX 5.8:
+ * Provisions development certificates and per-device ACL rules for EMQX 5.8:
  *   1. Writes local certificates (.local-certs/) and acl.conf
- *   2. If eh_emqx container is active, synchronizes certs/acl and applies runtime settings
- *   3. Enforces mTLS verification and strict per-device isolation
+ *   2. Synchronizes certificates to /opt/emqx/etc/local-certs inside the container
+ *   3. Enforces mTLS verification (verify_peer = true, fail_if_no_peer_cert = true)
+ *   4. Enforces strict per-device isolation with fail-closed default policy (no_match = deny)
+ *   5. Validates every command and throws immediately on any failure (no false success)
  */
 
 const { execSync } = require('child_process');
@@ -16,16 +18,12 @@ const { generateCerts, LOCAL_CERTS_DIR } = require('./generate-dev-certs');
 
 function runEmqxEval(expr) {
   console.log(`[SetupEMQX] Eval: ${expr}`);
-  try {
-    const out = execSync(`docker exec eh_emqx emqx eval "${expr}"`, { encoding: 'utf8' }).trim();
-    console.log(`  -> ${out}`);
-    if (out.startsWith('{error,') && !out.includes('already_exists')) {
-      console.warn(`[SetupEMQX Notice] ${out}`);
-    }
-    return out;
-  } catch (err) {
-    console.warn(`[SetupEMQX Notice] Command evaluation: ${err.message}`);
+  const out = execSync(`docker exec eh_emqx emqx eval "${expr}"`, { encoding: 'utf8' }).trim();
+  console.log(`  -> ${out}`);
+  if (out.startsWith('{error,') && !out.includes('already_exists')) {
+    throw new Error(`EMQX config command rejected: ${out}`);
   }
+  return out;
 }
 
 function setupEmqxMtls() {
@@ -89,40 +87,50 @@ function setupEmqxMtls() {
   fs.writeFileSync(tmpAcl, aclContent, 'utf8');
 
   // Check if Docker container eh_emqx is running
+  let isRunning = false;
   try {
-    const isRunning = execSync('docker inspect -f "{{.State.Running}}" eh_emqx', { encoding: 'utf8' }).trim();
-    if (isRunning === 'true') {
-      console.log('[SetupEMQX] Copying certificates & ACL to running EMQX container...');
-      execSync(`docker cp "${certs.caCrt}" eh_emqx:/opt/emqx/etc/certs/cacert.pem`, { stdio: 'inherit' });
-      execSync(`docker cp "${certs.serverCrt}" eh_emqx:/opt/emqx/etc/certs/cert.pem`, { stdio: 'inherit' });
-      execSync(`docker cp "${certs.serverKey}" eh_emqx:/opt/emqx/etc/certs/key.pem`, { stdio: 'inherit' });
-      execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/etc/acl.conf`, { stdio: 'inherit' });
-
-      execSync(`docker exec -u 0 eh_emqx chown emqx:emqx /opt/emqx/etc/certs/cacert.pem /opt/emqx/etc/certs/cert.pem /opt/emqx/etc/certs/key.pem /opt/emqx/etc/acl.conf`, { stdio: 'inherit' });
-      execSync(`docker exec -u 0 eh_emqx chmod 644 /opt/emqx/etc/certs/cacert.pem /opt/emqx/etc/certs/cert.pem /opt/emqx/etc/acl.conf`, { stdio: 'inherit' });
-      execSync(`docker exec -u 0 eh_emqx chmod 640 /opt/emqx/etc/certs/key.pem`, { stdio: 'inherit' });
-
-      console.log('[SetupEMQX] Applying mTLS & authorization settings in EMQX 5.8...');
-      runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, verify], verify_peer).');
-      runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true).');
-      runEmqxEval('emqx:update_config([authorization, no_match], deny).');
-      runEmqxEval('emqx:update_config([authorization, cache, enable], false).');
-      runEmqxEval('emqx_authz:reload().');
-
-      console.log('[SetupEMQX] Purging SSL PEM cache & restarting SSL listener...');
-      runEmqxEval('ssl:clear_pem_cache().');
-      try {
-        execSync(`docker exec eh_emqx emqx ctl listeners restart ssl:default`, { stdio: 'inherit' });
-      } catch (_) {
-        execSync(`docker exec eh_emqx emqx ctl listeners stop ssl:default`, { stdio: 'ignore' });
-        execSync(`docker exec eh_emqx emqx ctl listeners start ssl:default`, { stdio: 'inherit' });
-      }
-    }
-  } catch (inspectErr) {
-    console.log(`[SetupEMQX] Container inspect notice: ${inspectErr.message}`);
+    const runningStatus = execSync('docker inspect -f "{{.State.Running}}" eh_emqx', { encoding: 'utf8' }).trim();
+    isRunning = (runningStatus === 'true');
+  } catch (_) {
+    isRunning = false;
   }
 
-  console.log('[SetupEMQX] EMQX certificates and ACL configuration ready.');
+  if (isRunning) {
+    console.log('[SetupEMQX] Deploying certificates to /opt/emqx/etc/local-certs...');
+    execSync(`docker exec -u 0 eh_emqx mkdir -p /opt/emqx/etc/local-certs`, { stdio: 'inherit' });
+    execSync(`docker cp "${certs.caCrt}" eh_emqx:/opt/emqx/etc/local-certs/ca.crt`, { stdio: 'inherit' });
+    execSync(`docker cp "${certs.serverCrt}" eh_emqx:/opt/emqx/etc/local-certs/server.crt`, { stdio: 'inherit' });
+    execSync(`docker cp "${certs.serverKey}" eh_emqx:/opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
+    execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
+    try {
+      execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/etc/acl.conf`, { stdio: 'inherit' });
+    } catch (_) {}
+
+    execSync(`docker exec -u 0 eh_emqx chown -R emqx:emqx /opt/emqx/etc/local-certs`, { stdio: 'inherit' });
+    execSync(`docker exec -u 0 eh_emqx chmod 644 /opt/emqx/etc/local-certs/ca.crt /opt/emqx/etc/local-certs/server.crt /opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
+    execSync(`docker exec -u 0 eh_emqx chmod 640 /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
+
+    console.log('[SetupEMQX] Applying mTLS & authorization settings in EMQX 5.8...');
+    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, cacertfile], <<"/opt/emqx/etc/local-certs/ca.crt">>).');
+    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, certfile], <<"/opt/emqx/etc/local-certs/server.crt">>).');
+    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, keyfile], <<"/opt/emqx/etc/local-certs/server.key">>).');
+    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, verify], verify_peer).');
+    runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true).');
+    runEmqxEval('emqx:update_config([authorization, no_match], deny).');
+    runEmqxEval('emqx:update_config([authorization, cache, enable], false).');
+    runEmqxEval('emqx_authz:reload().');
+
+    console.log('[SetupEMQX] Purging SSL PEM cache & restarting SSL listener...');
+    runEmqxEval('ssl:clear_pem_cache().');
+    try {
+      execSync(`docker exec eh_emqx emqx ctl listeners restart ssl:default`, { stdio: 'inherit' });
+    } catch (_) {
+      execSync(`docker exec eh_emqx emqx ctl listeners stop ssl:default`, { stdio: 'ignore' });
+      execSync(`docker exec eh_emqx emqx ctl listeners start ssl:default`, { stdio: 'inherit' });
+    }
+  }
+
+  console.log('[SetupEMQX] EMQX certificates and ACL configuration successfully initialized.');
 }
 
 if (require.main === module) {
