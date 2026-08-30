@@ -176,6 +176,18 @@ async function test(name, fn) {
     checkDir(backendSrc);
   });
 
+  // Test 6: MQTT Certificate-Bound Authorization Matrix
+  await test('6. MQTT Certificate-Bound Authorization Matrix (A->A allow, A->B deny, spoof deny)', async () => {
+    const { evaluateMqttAuthorization } = require('../src/services/mqtt-http-authorizer.service');
+    const DEV_A = '0194fe23-7a1b-7890-a123-456789abcdef';
+    const DEV_B = '0194fe23-7a1b-7890-b456-123456fedcba';
+
+    assert.equal(evaluateMqttAuthorization({ cert_common_name: DEV_A, clientid: DEV_A, topic: `eh/v1/devices/${DEV_A}/state`, action: 'publish' }).result, 'allow');
+    assert.equal(evaluateMqttAuthorization({ cert_common_name: DEV_A, clientid: DEV_A, topic: `eh/v1/devices/${DEV_B}/state`, action: 'publish' }).result, 'deny');
+    assert.equal(evaluateMqttAuthorization({ cert_common_name: DEV_B, clientid: DEV_B, topic: `eh/v1/devices/${DEV_A}/state`, action: 'publish' }).result, 'deny');
+    assert.equal(evaluateMqttAuthorization({ cert_common_name: DEV_A, clientid: DEV_B, topic: `eh/v1/devices/${DEV_B}/state`, action: 'publish' }).result, 'deny');
+  });
+
   console.log('\n===============================================================');
   console.log(`  PHASE 13 TEST SUMMARY: ${passedTests} PASSED, ${totalTests - passedTests} FAILED`);
   console.log('===============================================================\n');
