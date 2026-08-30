@@ -23,6 +23,7 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/uart.h"
 #define TAG "MAIN_APP"
 #else
 #define TAG "MAIN_APP"
@@ -56,25 +57,57 @@ static bool on_ble_wifi_provision(const char* ssid, const char* password);
 static void uart_console_task(void *pvParameters)
 {
     (void)pvParameters;
-    char rx_buf[64];
-    size_t rx_idx = 0;
+    // Configure and install UART driver on UART_NUM_0 for reliable console input
+    const uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    uart_param_config(UART_NUM_0, &uart_config);
+    uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0);
+
+    char line_buf[64];
+    size_t line_idx = 0;
+
+    ESP_LOGI(TAG, "UART Console Task active. Type 'FACTORY_RESET' in serial monitor to reset device.");
+
     while (1) {
-        int c = getchar();
-        if (c != EOF && c > 0) {
-            if (c == '\r' || c == '\n') {
-                if (rx_idx > 0) {
-                    rx_buf[rx_idx] = '\0';
-                    if (strcasecmp(rx_buf, "FACTORY_RESET") == 0 || strcasecmp(rx_buf, "RESET") == 0) {
-                        ESP_LOGI(TAG, "UART command received ('%s') -> Executing Safe Factory Reset", rx_buf);
-                        app_lifecycle_factory_reset();
+        uint8_t byte = 0;
+        int len = uart_read_bytes(UART_NUM_0, &byte, 1, pdMS_TO_TICKS(100));
+        if (len > 0) {
+            if (byte == '\r' || byte == '\n') {
+                if (line_idx > 0) {
+                    line_buf[line_idx] = '\0';
+
+                    // Trim leading whitespace
+                    char *cmd = line_buf;
+                    while (*cmd == ' ' || *cmd == '\t') cmd++;
+
+                    // Trim trailing whitespace
+                    char *end = cmd + strlen(cmd) - 1;
+                    while (end > cmd && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) {
+                        *end = '\0';
+                        end--;
                     }
-                    rx_idx = 0;
+
+                    if (strcasecmp(cmd, "FACTORY_RESET") == 0 || strcasecmp(cmd, "RESET") == 0) {
+                        ESP_LOGI(TAG, "FACTORY_RESET_COMMAND_RECEIVED");
+                        app_lifecycle_factory_reset();
+                    } else if (strlen(cmd) > 0) {
+                        ESP_LOGW(TAG, "Unknown console command: '%s'. Valid command: FACTORY_RESET", cmd);
+                    }
+                    line_idx = 0;
                 }
-            } else if (rx_idx + 1 < sizeof(rx_buf)) {
-                rx_buf[rx_idx++] = (char)c;
+            } else if (line_idx + 1 < sizeof(line_buf)) {
+                if (byte == '\b' || byte == 0x7F) {
+                    if (line_idx > 0) line_idx--;
+                } else if (byte >= 32 && byte <= 126) {
+                    line_buf[line_idx++] = (char)byte;
+                }
             }
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(50));
         }
     }
 }
