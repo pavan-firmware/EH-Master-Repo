@@ -256,6 +256,32 @@ async function setupEmqxMtls(options = {}) {
     return;
   }
 
+  // Step 2.5: Write HOCON custom_ssl.conf
+  const hoconContent = `listeners.ssl.default {
+  ssl_options {
+    cacertfile = "/opt/emqx/etc/local-certs/ca.crt"
+    certfile = "/opt/emqx/etc/local-certs/server.crt"
+    keyfile = "/opt/emqx/etc/local-certs/server.key"
+    verify = "verify_peer"
+    fail_if_no_peer_cert = true
+  }
+}
+authorization {
+  no_match = "deny"
+  cache {
+    enable = false
+  }
+  sources = [
+    {
+      type = "file"
+      enable = true
+      path = "/opt/emqx/etc/local-certs/acl.conf"
+    }
+  ]
+}
+`;
+  fs.writeFileSync(path.join(LOCAL_CERTS_DIR, 'custom_ssl.conf'), hoconContent, 'utf8');
+
   console.log('[SetupEMQX] Ensuring container certificate directory and files...');
   try {
     execSync(`docker exec eh_emqx mkdir -p /opt/emqx/etc/local-certs`, { stdio: 'pipe' });
@@ -268,44 +294,10 @@ async function setupEmqxMtls(options = {}) {
   execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/server.key`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx test -r /opt/emqx/etc/local-certs/acl.conf`, { stdio: 'inherit' });
 
-  console.log('[SetupEMQX] Applying mTLS settings via EMQX eval...');
-  runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, verify], verify_peer).');
-  runEmqxEval('emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true).');
-  runEmqxEval('emqx:update_config([authorization, no_match], deny).');
-  runEmqxEval('emqx:update_config([authorization, cache, enable], false).');
+  console.log('[SetupEMQX] Applying mTLS and ACL settings via EMQX HOCON conf load...');
+  execSync(`docker exec eh_emqx emqx ctl conf load --merge /opt/emqx/etc/local-certs/custom_ssl.conf`, { stdio: 'inherit' });
 
-  // Step 3: Install file-based ACL as the sole authorization source via Management API
-  // This avoids all Erlang binary syntax quoting issues in shell.
-  console.log('[SetupEMQX] Installing file ACL source via EMQX Management API (port 18083)...');
-  try {
-    // Wipe all existing authorization sources first (delete each by type)
-    const sourcesResp = await emqxApiGet('/authorization/sources');
-    if (sourcesResp.status === 200) {
-      const sources = Array.isArray(sourcesResp.body) ? sourcesResp.body : (sourcesResp.body.data || []);
-      for (const src of sources) {
-        const srcType = src.type || src.Type;
-        if (srcType) {
-          console.log(`  [SetupEMQX] Deleting existing authorization source: ${srcType}`);
-          try { await emqxApiDel(`/authorization/sources/${srcType}`); } catch (_) {}
-        }
-      }
-    }
-
-    // Create the file-based ACL source
-    await emqxApiPost('/authorization/sources', {
-      type: 'file',
-      enable: true,
-      path: '/opt/emqx/etc/local-certs/acl.conf'
-    });
-    console.log('[SetupEMQX] File ACL source installed successfully.');
-  } catch (err) {
-    console.error(`[SetupEMQX] Management API failed: ${err.message}`);
-    console.log('[SetupEMQX] Falling back to Erlang eval for authorization sources...');
-    // Fallback: try emqx ctl authz cache-clean
-    try { execSync('docker exec eh_emqx emqx ctl authz cache-clean all', { stdio: 'inherit' }); } catch (_) {}
-  }
-
-  // Step 4: Purge SSL PEM cache and restart SSL listener
+  // Step 3: Purge SSL PEM cache and restart SSL listener
   console.log('[SetupEMQX] Purging SSL PEM cache & restarting SSL listener...');
   runEmqxEval('ssl:clear_pem_cache().');
   try {

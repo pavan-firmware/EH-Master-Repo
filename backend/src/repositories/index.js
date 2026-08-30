@@ -1010,6 +1010,217 @@ class DeviceHealthRepository {
   }
 }
 
+class NotificationRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createNotification({
+    id,
+    userId = null,
+    homeId = null,
+    type,
+    category = 'alert',
+    priority = 'NORMAL',
+    title,
+    body,
+    entityType = null,
+    entityId = null,
+    data = {},
+    deliveryStatus = 'PENDING',
+    idempotencyKey = null,
+    readAt = null
+  }) {
+    if (idempotencyKey) {
+      const existing = await this.db.find('notifications', n => n.idempotency_key === idempotencyKey);
+      if (existing.length > 0) {
+        return existing[0];
+      }
+    }
+
+    return this.db.insert('notifications', id, {
+      user_id: userId,
+      home_id: homeId,
+      type,
+      category,
+      priority,
+      title,
+      body,
+      entity_type: entityType,
+      entity_id: entityId,
+      data_json: data,
+      read_at: readAt,
+      delivery_status: deliveryStatus,
+      idempotency_key: idempotencyKey
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('notifications', id);
+  }
+
+  async findUserNotifications(userId, { homeId = null, category = null, limit = 50, offset = 0, unreadOnly = false } = {}) {
+    const list = await this.db.find('notifications', n => {
+      if (n.user_id && n.user_id !== userId) return false;
+      if (homeId && n.home_id && n.home_id !== homeId) return false;
+      if (category && n.category !== category) return false;
+      if (unreadOnly && n.read_at !== null) return false;
+      return true;
+    });
+
+    list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return list.slice(offset, offset + limit);
+  }
+
+  async findHomeNotifications(homeId, { limit = 50, offset = 0 } = {}) {
+    const list = await this.db.find('notifications', n => n.home_id === homeId);
+    list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return list.slice(offset, offset + limit);
+  }
+
+  async markRead(id, userId = null) {
+    const notification = await this.db.findById('notifications', id);
+    if (!notification) return null;
+    if (userId && notification.user_id && notification.user_id !== userId) {
+      throw new Error(`Notification ${id} does not belong to user ${userId}`);
+    }
+    return this.db.update('notifications', id, {
+      read_at: new Date().toISOString()
+    });
+  }
+
+  async markAllRead(userId, homeId = null) {
+    const unread = await this.db.find('notifications', n => {
+      if (n.user_id && n.user_id !== userId) return false;
+      if (homeId && n.home_id && n.home_id !== homeId) return false;
+      return n.read_at === null;
+    });
+
+    const now = new Date().toISOString();
+    const updated = [];
+    for (const item of unread) {
+      const u = await this.db.update('notifications', item.id, { read_at: now });
+      updated.push(u);
+    }
+    return updated;
+  }
+
+  async countUnread(userId, homeId = null) {
+    const unread = await this.db.find('notifications', n => {
+      if (n.user_id && n.user_id !== userId) return false;
+      if (homeId && n.home_id && n.home_id !== homeId) return false;
+      return n.read_at === null;
+    });
+    return unread.length;
+  }
+
+  async upsertDeviceToken({ id, userId, pushToken, platform = 'android', deviceName = null }) {
+    const existing = await this.db.find('push_device_tokens', t => t.push_token === pushToken);
+    if (existing.length > 0) {
+      return this.db.update('push_device_tokens', existing[0].id, {
+        user_id: userId,
+        platform,
+        device_name: deviceName,
+        is_active: true,
+        last_used_at: new Date().toISOString()
+      });
+    }
+
+    return this.db.insert('push_device_tokens', id, {
+      user_id: userId,
+      push_token: pushToken,
+      platform,
+      device_name: deviceName,
+      is_active: true,
+      last_used_at: new Date().toISOString()
+    });
+  }
+
+  async removeDeviceToken(pushToken, userId = null) {
+    const existing = await this.db.find('push_device_tokens', t => t.push_token === pushToken);
+    if (existing.length === 0) return false;
+    if (userId && existing[0].user_id !== userId) {
+      throw new Error('Unauthorized to remove device token');
+    }
+    await this.db.update('push_device_tokens', existing[0].id, {
+      is_active: false
+    });
+    return true;
+  }
+
+  async findActiveTokensForUser(userId) {
+    return this.db.find('push_device_tokens', t => t.user_id === userId && t.is_active);
+  }
+
+  async getPreferences(userId) {
+    const records = await this.db.find('user_notification_preferences', p => p.user_id === userId);
+    if (records.length > 0) {
+      return records[0];
+    }
+    return {
+      user_id: userId,
+      push_enabled: true,
+      critical_alerts: true,
+      device_offline: true,
+      automation_failure: true,
+      firmware_updates: true
+    };
+  }
+
+  async upsertPreferences(userId, prefs) {
+    const existing = await this.db.find('user_notification_preferences', p => p.user_id === userId);
+    const now = new Date().toISOString();
+    if (existing.length > 0) {
+      return this.db.update('user_notification_preferences', existing[0].id, {
+        ...prefs,
+        updated_at: now
+      });
+    }
+    const id = `pref_${userId}`;
+    return this.db.insert('user_notification_preferences', id, {
+      user_id: userId,
+      push_enabled: prefs.push_enabled !== undefined ? prefs.push_enabled : true,
+      critical_alerts: prefs.critical_alerts !== undefined ? prefs.critical_alerts : true,
+      device_offline: prefs.device_offline !== undefined ? prefs.device_offline : true,
+      automation_failure: prefs.automation_failure !== undefined ? prefs.automation_failure : true,
+      firmware_updates: prefs.firmware_updates !== undefined ? prefs.firmware_updates : true,
+      created_at: now,
+      updated_at: now
+    });
+  }
+
+  async enqueueDelivery({ id, notificationId, tokenId = null, status = 'PENDING', maxAttempts = 5 }) {
+    return this.db.insert('notification_delivery_queue', id, {
+      notification_id: notificationId,
+      token_id: tokenId,
+      status,
+      attempts: 0,
+      max_attempts: maxAttempts,
+      next_attempt_at: new Date().toISOString(),
+      last_error: null
+    });
+  }
+
+  async fetchPendingDeliveries(limit = 20) {
+    const now = new Date().toISOString();
+    const list = await this.db.find('notification_delivery_queue', q => {
+      if (q.status !== 'PENDING' && q.status !== 'RETRYING') return false;
+      if (new Date(q.next_attempt_at) > new Date(now)) return false;
+      return true;
+    });
+    return list.slice(0, limit);
+  }
+
+  async updateDeliveryStatus(id, { status, attempts, nextAttemptAt, lastError }) {
+    const updates = {};
+    if (status !== undefined) updates.status = status;
+    if (attempts !== undefined) updates.attempts = attempts;
+    if (nextAttemptAt !== undefined) updates.next_attempt_at = nextAttemptAt;
+    if (lastError !== undefined) updates.last_error = lastError;
+    return this.db.update('notification_delivery_queue', id, updates);
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -1029,5 +1240,6 @@ module.exports = {
   ScheduleRepository,
   AutomationExecutionLogRepository,
   DeviceActivityLogRepository,
-  DeviceHealthRepository
+  DeviceHealthRepository,
+  NotificationRepository
 };

@@ -380,3 +380,5 @@ export interface IDeviceTransport {
   subscribeEvents(deviceId: string, callback: (event: DeviceEvent) => void): () => void;
   probeAvailability(deviceId: string): Promise<ConnectionState>;
 }
+
+export * from './notification';

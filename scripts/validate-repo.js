@@ -108,8 +108,11 @@ runStep('23. Phase 12 Environment Configuration Validation', `${nodeBin} scripts
 // 24. Phase 13 Production Deployment & Operational Security Tests
 runStep('24. Phase 13 Production Deployment & Operational Security Tests', `${nodeBin} backend/tests/phase13-production-deployment.test.js`);
 
+// 25. Phase 15 Notifications & Alerts Platform Tests
+runStep('25. Phase 15 Notifications & Alerts Platform Tests', `${nodeBin} backend/tests/phase15-notifications.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  24 SUITES ATTEMPTED. ${failedSuites === 0 ? '24/24' : (24 - failedSuites) + '/24'} PASSED.`);
+console.log(`  25 SUITES ATTEMPTED. ${failedSuites === 0 ? '25/25' : (25 - failedSuites) + '/25'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');
