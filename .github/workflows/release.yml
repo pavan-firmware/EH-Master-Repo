@@ -1,0 +1,43 @@
+name: EH Home Release & Artifact Packaging
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-release-artifacts:
+    name: Build & Package Production Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Build Flutter Production Bundle
+        working-directory: smart_home_application_v1
+        run: |
+          flutter pub get
+          flutter build apk --release --split-per-abi
+
+      - name: Package Release Manifest & Checksums
+        run: |
+          mkdir -p release-dist
+          sha256sum smart_home_application_v1/build/app/outputs/flutter-apk/*.apk > release-dist/SHA256SUMS.txt || true
+          echo "Release packaged on $(date -u)" > release-dist/RELEASE_METADATA.txt
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-home-release-bundle
+          path: release-dist/
