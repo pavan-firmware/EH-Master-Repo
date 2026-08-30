@@ -8,6 +8,7 @@
 
 const http = require('http');
 const { createApp } = require('./app');
+const { config } = require('./shared/config');
 
 /**
  * Create an HTTP server instance around an application handler
@@ -25,12 +26,12 @@ function createServer(appInstance = null, options = {}) {
 
 // Start server automatically if executed directly (e.g., node backend/src/server.js)
 if (require.main === module) {
-  const port = process.env.PORT || 3000;
-  const host = process.env.HOST || '0.0.0.0';
+  const port = config.port;
+  const host = config.host;
 
   const server = createServer();
   server.listen(port, host, () => {
-    console.log(`[EH Home Backend] Server running at http://${host}:${port}/`);
+    console.log(`[EH Home Backend] (${config.env}) Server running at http://${host}:${port}/`);
     console.log(`[EH Home Backend] Health check available at http://${host}:${port}/health`);
   });
 }

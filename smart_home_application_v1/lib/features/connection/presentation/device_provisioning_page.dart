@@ -379,12 +379,18 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         ? _customRoomController.text.trim()
         : _selectedRoom;
 
-    final targetIdentity =
-        _activeIdentity ??
+    final resolvedDeviceId = widget.deviceId ??
+        _activeIdentity?.deviceId ??
+        widget.channel?.deviceIdentity?.deviceId;
+    final resolvedSerial = widget.serialNumber ??
+        _activeIdentity?.serialNumber ??
+        widget.channel?.deviceIdentity?.serialNumber;
+
+    final targetIdentity = _activeIdentity ??
         widget.channel?.deviceIdentity ??
         OnboardingDeviceIdentity(
-          deviceId: widget.deviceId ?? '4444688e-989d-458e-820e-ac62a99ed8e1',
-          serialNumber: widget.serialNumber ?? 'EH-SW3X-2026W12-00001',
+          deviceId: resolvedDeviceId ?? 'device-unassigned',
+          serialNumber: resolvedSerial ?? 'EH-DEV-UNASSIGNED',
           productVariantId: 'eh-smart-switch-3x',
           hardwareRevision: 'HW_1_0',
           firmwareFamily: 'esp32-switch-platform',

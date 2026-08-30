@@ -449,7 +449,13 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
 
     final targetId = _activeDeviceId ??
-        (_devices.isNotEmpty ? _devices.first.id : '4444688e-989d-458e-820e-ac62a99ed8e1');
+        (_devices.isNotEmpty ? _devices.first.id : null);
+    if (targetId == null) {
+      _lightCommandPending = false;
+      _lightConfidence = ActuatorConfidence.failed;
+      notifyListeners();
+      return;
+    }
 
     if (!_cloudEnabled) {
       try {
@@ -562,7 +568,12 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
 
     final targetId = _activeDeviceId ??
-        (_devices.isNotEmpty ? _devices.first.id : 'plant-mister');
+        (_devices.isNotEmpty ? _devices.first.id : null);
+    if (targetId == null) {
+      _mistingCommandPending = false;
+      notifyListeners();
+      return;
+    }
 
     final receipt = await _repository.sendCommand(
       deviceId: targetId,
