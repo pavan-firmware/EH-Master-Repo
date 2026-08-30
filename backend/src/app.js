@@ -26,7 +26,9 @@ const {
   SceneRepository,
   AutomationRepository,
   ScheduleRepository,
-  AutomationExecutionLogRepository
+  AutomationExecutionLogRepository,
+  DeviceActivityLogRepository,
+  DeviceHealthRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -43,6 +45,7 @@ const { OtaService } = require('./services/ota.service');
 const { SceneService } = require('./services/scene.service');
 const { AutomationService } = require('./services/automation.service');
 const { ScheduleService } = require('./services/schedule.service');
+const { DeviceManagementService } = require('./services/device-management.service');
 
 const { AuthApiRouter } = require('./api/auth.router');
 const { HomeDeviceApiRouter } = require('./api/home-device.router');
@@ -51,6 +54,7 @@ const { ApiRouter: ProductCatalogApiRouter } = require('./api/product-catalog.ro
 const { buildRouteHandlers: buildCommandRouteHandlers } = require('./api/device-command.router');
 const { OtaApiRouter } = require('./api/ota.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
+const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { AutomationSchedulerWorker } = require('./workers/automation-scheduler-worker');
 
 const { requireAuthentication } = require('./shared/auth-middleware');
@@ -62,6 +66,9 @@ const { HomeAuthorizationService } = require('./shared/home-authorization');
 const PUBLIC_ROUTES = [
   'GET /health',
   'GET /api/v1/health',
+  'GET /api/v1/health/liveness',
+  'GET /api/v1/health/readiness',
+  'GET /api/v1/health/diagnostics',
   'POST /api/v1/auth/register',
   'POST /api/v1/auth/login',
   'POST /api/v1/auth/refresh',
@@ -150,6 +157,8 @@ function createApp(options = {}) {
   const automationRepo = new AutomationRepository(db);
   const scheduleRepo = new ScheduleRepository(db);
   const logRepo = new AutomationExecutionLogRepository(db);
+  const activityLogRepo = new DeviceActivityLogRepository(db);
+  const healthRepo = new DeviceHealthRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -189,6 +198,21 @@ function createApp(options = {}) {
   const scheduleService = options.scheduleService || new ScheduleService({
     scheduleRepo, homeAuthService, automationService, sceneService
   });
+  const deviceManagementService = options.deviceManagementService || new DeviceManagementService({
+    deviceRepo,
+    deviceStateRepo,
+    homeRepo,
+    roomRepo,
+    auditRepo,
+    activityLogRepo,
+    healthRepo,
+    commandRepo,
+    homeAuthService,
+    realtimeEventBus: eventBus,
+    productCatalogService: catalogService,
+    otaService
+  });
+
   const schedulerWorker = options.schedulerWorker || new AutomationSchedulerWorker({
     scheduleRepo, scheduleService
   });
@@ -203,6 +227,12 @@ function createApp(options = {}) {
   const catalogRouter = new ProductCatalogApiRouter();
   const otaRouter = new OtaApiRouter({ otaService });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
+  const deviceManagementRouter = new DeviceManagementApiRouter({
+    deviceManagementService,
+    db,
+    mqttTransport,
+    workers: { scheduler: schedulerWorker }
+  });
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -353,6 +383,25 @@ function createApp(options = {}) {
       const result = await automationSceneRouter.handle(method, pathname, body, req.headers, query);
       if (result) {
         return sendJsonResponse(res, result.status, result.body);
+      }
+    }
+
+    // 8.7. Route to Device Management & Health Observability Router
+    if (
+      pathname.startsWith('/api/v1/health') ||
+      pathname.includes('/details') ||
+      pathname.includes('/diagnostics') ||
+      pathname.includes('/activity') ||
+      pathname.includes('/rename') ||
+      pathname.includes('/move') ||
+      (pathname.startsWith('/api/v1/homes/') && pathname.includes('/devices/') && method === 'DELETE')
+    ) {
+      if (req.user) {
+        query.userId = req.user.id;
+      }
+      const devMgmtResult = await deviceManagementRouter.handle(method, pathname, body, req.headers, query);
+      if (devMgmtResult) {
+        return sendJsonResponse(res, devMgmtResult.status, devMgmtResult.body);
       }
     }
 
