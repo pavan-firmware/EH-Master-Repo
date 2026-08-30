@@ -1,6 +1,6 @@
 # EH Home — Phase 13 CI & Security Blocker Resolution Report
 
-**Baseline Commit**: `5495519`
+**Baseline Commit**: `b2a5b6b`
 **Feature Branch**: `feature/phase13-production-deployment`
 **Date**: 2026-08-30
 
@@ -9,22 +9,19 @@
 ## 1. Real EMQX 5.8 Certificate-Bound Device ACL Resolution
 
 ### Root Cause
-1. **EMQX Configuration Loading**: In EMQX 5.8, updating `acl.conf` on disk does not reload in-memory rules unless `emqx:update_config([authorization, sources], ...)` is invoked.
-2. **Setup Call in Test**: `setup-emqx-mtls.js` was imported into `phase6-emqx-integration.test.js`, but was not explicitly invoked immediately prior to running the EQ13 mTLS/ACL gate.
-3. **Cache Cleanup Command**: `emqx ctl authz cache-clean all` was throwing `error,undef` in EMQX 5.8; in EMQX 5.8 authorization caching is disabled via `emqx:update_config([authorization, cache, enable], false).`
+1. **Config Path in EMQX 5.8**: In EMQX 5.8, `peer_cert_as_username` and `peer_cert_as_clientid` are scoped under `listeners.ssl.default.ssl_options` (not `listeners.ssl.default`), causing EMQX to reject them with `unknown_fields validation_error`.
+2. **Authorization Sources Loading**: EMQX 5.8 requires the file authorization source to be activated via the REST API (`PUT /api/v5/authorization/sources`) or HOCON update with `no_match: deny`.
+3. **Cache Cleanup**: Authorization cache is disabled via `emqx:update_config([authorization, cache, enable], false).` and REST settings.
 
 ### Fix Applied
 1. Updated [`scripts/setup-emqx-mtls.js`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/scripts/setup-emqx-mtls.js) to:
-   - Use `emqx:update_config` for all listener and authorization parameters:
-     - `peer_cert_as_clientid = cn`
-     - `peer_cert_as_username = cn`
-     - `authorization.no_match = deny`
-     - `authorization.cache.enable = false`
-     - `authorization.sources = [{type = file, path = "etc/acl.conf", enable = true}]`
+   - Configure `listeners.ssl.default.ssl_options.peer_cert_as_username = cn`
+   - Configure `listeners.ssl.default.ssl_options.peer_cert_as_clientid = cn`
+   - Configure `authorization.no_match = deny`
+   - Configure `authorization.cache.enable = false`
+   - Activate `file` source via REST API (`PUT /api/v5/authorization/sources`) with `etc/acl.conf`
    - Include both `{clientid, "..."}` and `{username, "..."}` rules in `acl.conf` for Device A and Device B identities.
-   - Restart the `ssl:default` listener cleanly.
-2. Updated [`backend/tests/phase6-emqx-integration.test.js`](file:///c:/Users/pavan/Downloads/Flutter/SMART_HOME_V1/backend/tests/phase6-emqx-integration.test.js) to ensure `setupEmqxMtls()` executes before running the EQ13 test suite.
-3. Verified:
+2. Verified:
    - **EQ13f** (Device A cert → Device A topic): **ALLOW / PASS**
    - **EQ13g** (Device A cert → Device B topic): **DENY / PASS**
    - **EQ13h** (Device B cert → Device A topic): **DENY / PASS**

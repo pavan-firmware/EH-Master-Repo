@@ -5,13 +5,15 @@
  *
  * Configures the running EMQX 5.8.0 container (eh_emqx) to:
  *   1. Require valid client certificates signed by EH Dev Root CA (verify_peer)
- *   2. Extract CN from client cert and set as username & clientid (peer_cert_as_clientid = cn)
- *   3. Enforce per-device ACL isolation via acl.conf using EMQX 5.x ${clientid} and ${username} matching
+ *   2. Extract CN from client cert and set as username & clientid in ssl_options
+ *   3. Enforce per-device ACL isolation via acl.conf using EMQX 5.x rules
  *
  * Security & Reliability:
- *   - Uses native `emqx eval` and `emqx ctl` commands inside container
- *   - `verify_peer = verify_peer`
- *   - `fail_if_no_peer_cert = true`
+ *   - Uses native `emqx eval` and REST API endpoints inside container
+ *   - `listeners.ssl.default.ssl_options.verify = verify_peer`
+ *   - `listeners.ssl.default.ssl_options.fail_if_no_peer_cert = true`
+ *   - `listeners.ssl.default.ssl_options.peer_cert_as_username = cn`
+ *   - `listeners.ssl.default.ssl_options.peer_cert_as_clientid = cn`
  *   - `authorization.no_match = deny`
  *   - `authorization.cache.enable = false`
  *   - `authorization.sources = [{type = file, path = "etc/acl.conf", enable = true}]`
@@ -121,15 +123,21 @@ function setupEmqxMtls() {
     execSync(`docker cp "${tmpAcl}" eh_emqx:/opt/emqx/data/authz/acl.conf`, { stdio: 'ignore' });
   } catch (_) {}
 
-  console.log('[SetupEMQX] Configuring EMQX mTLS and ACL settings via emqx eval...');
+  console.log('[SetupEMQX] Configuring EMQX mTLS and ACL settings via emqx eval and REST API...');
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, verify], verify_peer)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, fail_if_no_peer_cert], true)."`, { stdio: 'inherit' });
-  execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, peer_cert_as_username], cn)."`, { stdio: 'inherit' });
-  execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, peer_cert_as_clientid], cn)."`, { stdio: 'inherit' });
+  execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, peer_cert_as_username], cn)."`, { stdio: 'inherit' });
+  execSync(`docker exec eh_emqx emqx eval "emqx:update_config([listeners, ssl, default, ssl_options, peer_cert_as_clientid], cn)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([authorization, no_match], deny)."`, { stdio: 'inherit' });
   execSync(`docker exec eh_emqx emqx eval "emqx:update_config([authorization, cache, enable], false)."`, { stdio: 'inherit' });
+
+  // Update authorization sources via REST API to ensure file source is compiled and loaded
   try {
-    execSync(`docker exec eh_emqx emqx eval "emqx:update_config([authorization, sources], [#{type => file, enable => true, path => <<\\"etc/acl.conf\\">>}])."`, { stdio: 'inherit' });
+    execSync(`docker exec eh_emqx wget -q -O- --header="Authorization: Basic YWRtaW46cHVibGlj" --header="Content-Type: application/json" --post-data='[{"type":"file","enable":true,"path":"etc/acl.conf"}]' --method=PUT http://127.0.0.1:18083/api/v5/authorization/sources`, { stdio: 'inherit' });
+  } catch (_) {}
+
+  try {
+    execSync(`docker exec eh_emqx wget -q -O- --header="Authorization: Basic YWRtaW46cHVibGlj" --header="Content-Type: application/json" --post-data='{"no_match":"deny","deny_action":"ignore","cache":{"enable":false}}' --method=PUT http://127.0.0.1:18083/api/v5/authorization/settings`, { stdio: 'inherit' });
   } catch (_) {}
 
   console.log('[SetupEMQX] Purging Erlang SSL PEM cache & restarting SSL listener...');
