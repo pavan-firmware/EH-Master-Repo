@@ -1043,7 +1043,11 @@ class SettingsSurface extends StatelessWidget {
                 ),
               ],
       ),
-      child: child,
+      child: Material(
+        type: MaterialType.transparency,
+        borderRadius: BorderRadius.circular(18),
+        child: child,
+      ),
     );
   }
 }

@@ -111,31 +111,122 @@ class _HomeShellState extends State<HomeShell> {
 
   void _showControlCustomization() {
     final tokens = context.ehColors;
+    final devices = _homeController.devices;
+
+    // Build all candidate controls across commissioned devices
+    final candidateControls = <({String id, String label, String room})>[];
+    for (final d in devices) {
+      final room = d.roomName.trim().isEmpty ? 'Living Room' : d.roomName;
+      candidateControls.add((
+        id: '${d.id}_ch1',
+        label: '${d.name} Switch 1',
+        room: room,
+      ));
+      candidateControls.add((
+        id: '${d.id}_ch2',
+        label: '${d.name} Switch 2',
+        room: room,
+      ));
+      candidateControls.add((
+        id: '${d.id}_ch3',
+        label: '${d.name} Switch 3',
+        room: room,
+      ));
+    }
+
+    final selected = List<String>.from(_homeController.selectedQuickControlIds);
+    if (selected.isEmpty && candidateControls.isNotEmpty) {
+      selected.addAll(candidateControls.take(4).map((c) => c.id));
+    }
+
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       backgroundColor: tokens.surfaceCard,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Quick controls',
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
-                  color: tokens.textPrimary,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setModalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Quick controls',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    color: tokens.textPrimary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Choose up to four confirmed, secure device controls. This will be available after device commissioning.',
-                style: TextStyle(color: tokens.textSecondary),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  candidateControls.isEmpty
+                      ? 'No confirmed devices found. Add a device to customize quick controls.'
+                      : 'Choose up to four confirmed device controls for your home dashboard.',
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                if (candidateControls.isNotEmpty)
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: candidateControls.length,
+                      itemBuilder: (context, index) {
+                        final item = candidateControls[index];
+                        final isChecked = selected.contains(item.id);
+                        return CheckboxListTile(
+                          dense: true,
+                          activeColor: tokens.bluePrimary,
+                          title: Text(
+                            item.label,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            item.room,
+                            style: TextStyle(color: tokens.textSecondary),
+                          ),
+                          value: isChecked,
+                          onChanged: (bool? val) {
+                            setModalState(() {
+                              if (val == true) {
+                                if (selected.length < 4) {
+                                  selected.add(item.id);
+                                }
+                              } else {
+                                selected.remove(item.id);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton(
+                    onPressed: candidateControls.isEmpty
+                        ? () => Navigator.of(sheetCtx).pop()
+                        : () async {
+                            await _homeController.saveQuickControlSelection(selected);
+                            if (sheetCtx.mounted) {
+                              Navigator.of(sheetCtx).pop();
+                            }
+                            _showMessage('Quick controls saved.');
+                          },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: tokens.blueDarker,
+                    ),
+                    child: const Text('Save quick controls'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

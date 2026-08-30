@@ -10,9 +10,19 @@ class DeviceStorageService {
 
   static const String _keyDevicesList = 'eh_devices_list_v4';
   static const String _keyRooms = 'eh_custom_rooms_v4';
+  static const String _keyQuickControls = 'eh_quick_controls_v4';
+  static const String _keyNotificationPrefs = 'eh_notification_prefs_v1';
 
   // In-memory cache for synchronous reads and instant startup
   static final List<ConnectedDeviceSummary> _cachedDevices = [];
+  static final List<String> _cachedQuickControls = [];
+  static final Map<String, bool> _cachedNotificationPrefs = {
+    'pushEnabled': true,
+    'criticalAlerts': true,
+    'deviceOffline': true,
+    'automationFailure': true,
+    'firmwareUpdates': true,
+  };
   static final List<String> _cachedRooms = [
     'Living Room',
     'Bedroom',
@@ -27,6 +37,12 @@ class DeviceStorageService {
 
   static List<ConnectedDeviceSummary> get cachedDevices =>
       List<ConnectedDeviceSummary>.unmodifiable(_cachedDevices);
+
+  static List<String> get cachedQuickControls =>
+      List<String>.unmodifiable(_cachedQuickControls);
+
+  static Map<String, bool> get cachedNotificationPrefs =>
+      Map<String, bool>.unmodifiable(_cachedNotificationPrefs);
 
   /// Global upfront initialization called from main() before runApp().
   static Future<void> init() async {
@@ -64,6 +80,18 @@ class DeviceStorageService {
             _cachedRooms.add(r);
           }
         }
+      }
+      final qList = prefs.getStringList(_keyQuickControls);
+      if (qList != null && qList.isNotEmpty) {
+        _cachedQuickControls.clear();
+        _cachedQuickControls.addAll(qList);
+      }
+      final nStr = prefs.getString(_keyNotificationPrefs);
+      if (nStr != null && nStr.isNotEmpty) {
+        final Map<String, dynamic> decoded = jsonDecode(nStr);
+        decoded.forEach((k, v) {
+          if (v is bool) _cachedNotificationPrefs[k] = v;
+        });
       }
     } catch (e) {
       debugPrint('[HOME] DeviceStorageService.init warning: $e');
@@ -205,5 +233,54 @@ class DeviceStorageService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(_keyRooms, _cachedRooms);
     } catch (_) {}
+  }
+
+  /// Load selected quick control IDs (e.g. ['${devId}_ch1', ...]).
+  Future<List<String>> loadQuickControls() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_keyQuickControls);
+      if (list != null) {
+        _cachedQuickControls.clear();
+        _cachedQuickControls.addAll(list);
+      }
+    } catch (_) {}
+    return List<String>.unmodifiable(_cachedQuickControls);
+  }
+
+  /// Save selected quick control IDs.
+  Future<void> saveQuickControls(List<String> controlIds) async {
+    _cachedQuickControls.clear();
+    _cachedQuickControls.addAll(controlIds);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_keyQuickControls, _cachedQuickControls);
+    } catch (_) {}
+    debugPrint('[HOME] QUICK_CONTROLS_SAVED count=${_cachedQuickControls.length}');
+  }
+
+  /// Load notification preferences.
+  Future<Map<String, bool>> loadNotificationPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final nStr = prefs.getString(_keyNotificationPrefs);
+      if (nStr != null && nStr.isNotEmpty) {
+        final Map<String, dynamic> decoded = jsonDecode(nStr);
+        decoded.forEach((k, v) {
+          if (v is bool) _cachedNotificationPrefs[k] = v;
+        });
+      }
+    } catch (_) {}
+    return Map<String, bool>.unmodifiable(_cachedNotificationPrefs);
+  }
+
+  /// Save notification preferences.
+  Future<void> saveNotificationPrefs(Map<String, bool> prefsMap) async {
+    _cachedNotificationPrefs.addAll(prefsMap);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyNotificationPrefs, jsonEncode(_cachedNotificationPrefs));
+    } catch (_) {}
+    debugPrint('[HOME] NOTIFICATION_PREFS_SAVED');
   }
 }
