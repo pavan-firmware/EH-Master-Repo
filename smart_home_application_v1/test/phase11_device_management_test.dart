@@ -44,7 +44,7 @@ class MockApiClient implements ApiClient {
   }
 
   @override
-  Future<dynamic> delete(String path) async {
+  Future<dynamic> delete(String path, {Map<String, dynamic>? body}) async {
     recordedCalls.add('DELETE $path');
     return {'success': true, 'data': {}};
   }

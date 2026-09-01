@@ -29,7 +29,8 @@ const {
   AutomationExecutionLogRepository,
   DeviceActivityLogRepository,
   DeviceHealthRepository,
-  NotificationRepository
+  NotificationRepository,
+  InvitationRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -48,9 +49,12 @@ const { AutomationService } = require('./services/automation.service');
 const { ScheduleService } = require('./services/schedule.service');
 const { DeviceManagementService } = require('./services/device-management.service');
 const { NotificationService } = require('./services/notification.service');
+const { InvitationService } = require('./services/invitation.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
+const { AccountApiRouter } = require('./api/account.router');
+const { InvitationApiRouter } = require('./api/invitation.router');
 const { HomeDeviceApiRouter } = require('./api/home-device.router');
 const { ProvisioningClaimApiRouter } = require('./api/provisioning-claim.router');
 const { ApiRouter: ProductCatalogApiRouter } = require('./api/product-catalog.router');
@@ -165,6 +169,7 @@ function createApp(options = {}) {
   const activityLogRepo = new DeviceActivityLogRepository(db);
   const healthRepo = new DeviceHealthRepository(db);
   const notificationRepo = new NotificationRepository(db);
+  const invitationRepo = new InvitationRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -229,6 +234,14 @@ function createApp(options = {}) {
     pushProvider
   });
 
+  const invitationService = options.invitationService || new InvitationService({
+    invitationRepo,
+    homeRepo,
+    userRepo,
+    auditRepo,
+    notificationService
+  });
+
   const schedulerWorker = options.schedulerWorker || new AutomationSchedulerWorker({
     scheduleRepo, scheduleService
   });
@@ -244,7 +257,16 @@ function createApp(options = {}) {
 
   // 3. API Routers
   const authRouter = new AuthApiRouter({ authService, rateLimiter: options.rateLimiter });
-  const homeDeviceRouter = new HomeDeviceApiRouter({ homeService, floorService, roomService, deviceService });
+  const accountRouter = new AccountApiRouter({ authService, homeRepo });
+  const invitationRouter = new InvitationApiRouter({ invitationService, userRepo });
+  const homeDeviceRouter = new HomeDeviceApiRouter({
+    homeService,
+    floorService,
+    roomService,
+    deviceService,
+    invitationService,
+    homeAuthService
+  });
   const provisioningRouter = new ProvisioningClaimApiRouter({ provisioningService, deviceClaimService });
   const catalogRouter = new ProductCatalogApiRouter();
   const otaRouter = new OtaApiRouter({ otaService });
@@ -307,7 +329,21 @@ function createApp(options = {}) {
       }
     }
 
-    // 5. Membership Authorization for Home/Device/Command routes
+    // 4.5. Route to Account Router (requires auth)
+    if (pathname.startsWith('/api/v1/account')) {
+      const actorContext = { userId: req.user ? req.user.id : null };
+      const result = await accountRouter.handle(method, pathname, body, req.headers, actorContext);
+      return sendJsonResponse(res, result.status, result.body);
+    }
+
+    // 4.6. Route to Invitations Router (requires auth)
+    if (pathname.startsWith('/api/v1/invitations')) {
+      const actorContext = { userId: req.user ? req.user.id : null };
+      const result = await invitationRouter.handle(method, pathname, body, req.headers, actorContext);
+      return sendJsonResponse(res, result.status, result.body);
+    }
+
+    // 5. Membership Authorization & Capability Enforcement for Home/Device/Command routes
     if (req.user) {
       const userId = req.user.id;
       let homeIdParam = null;
@@ -331,10 +367,26 @@ function createApp(options = {}) {
 
       // If accessing a specific home or device, enforce membership authorization
       if (homeIdParam || deviceIdParam) {
+        let requiredCapability = null;
+        if (pathname === '/api/v1/commands/send' && method === 'POST') {
+          requiredCapability = 'canControlDevices';
+        } else if (pathname.includes('/scenes') && method === 'POST' && pathname.endsWith('/execute')) {
+          requiredCapability = 'canExecuteAutomations';
+        } else if (pathname.startsWith('/api/v1/homes/') && !pathname.includes('/', 15) && method === 'DELETE') {
+          requiredCapability = 'canDeleteHome';
+        } else if (pathname.startsWith('/api/v1/homes/') && !pathname.includes('/', 15) && method === 'PATCH') {
+          requiredCapability = 'canManageHome';
+        } else if (pathname.includes('/members') && (method === 'POST' || method === 'PATCH' || method === 'DELETE')) {
+          requiredCapability = 'canManageMembers';
+        } else if (pathname.includes('/invitations') && (method === 'POST' || method === 'DELETE')) {
+          requiredCapability = 'canManageMembers';
+        }
+
         const authCheck = await homeAuthService.authorizeRequest({
           userId,
           homeId: homeIdParam,
-          deviceId: deviceIdParam
+          deviceId: deviceIdParam,
+          requiredCapability
         });
 
         if (!authCheck.isAuthorized) {
@@ -349,7 +401,8 @@ function createApp(options = {}) {
         req.actorContext = {
           userId,
           homeId: authCheck.homeId,
-          role: authCheck.role
+          role: authCheck.role,
+          permissions: authCheck.permissions
         };
       }
     }
@@ -445,9 +498,9 @@ function createApp(options = {}) {
 
     // 9. Route to Home & Device Domain Router
     if (pathname.startsWith('/api/v1/homes') || pathname.startsWith('/api/v1/devices')) {
-      // In authenticated GET /api/v1/homes, filter by user membership
-      if (method === 'GET' && pathname === '/api/v1/homes' && req.user) {
+      if (req.user) {
         query.userId = req.user.id;
+        query.actorContext = req.actorContext || { userId: req.user.id };
       }
       const result = await homeDeviceRouter.handle(method, pathname, body, query);
       return sendJsonResponse(res, result.status, result.body);
@@ -481,6 +534,7 @@ function createApp(options = {}) {
       scheduleService,
       deviceManagementService,
       notificationService,
+      invitationService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -489,7 +543,8 @@ function createApp(options = {}) {
       userRepo, homeRepo, roomRepo, productRepo, capRepo, deviceRepo,
       deviceStateRepo, commandRepo, eventRepo, auditRepo, outboxRepo,
       provisioningRepo, refreshTokenRepo, sceneRepo, automationRepo,
-      scheduleRepo, logRepo, activityLogRepo, healthRepo, notificationRepo
+      scheduleRepo, logRepo, activityLogRepo, healthRepo, notificationRepo,
+      invitationRepo
     }
   };
 }

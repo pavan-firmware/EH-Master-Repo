@@ -332,6 +332,95 @@ class AuthService {
     }
     return true;
   }
+
+  async getProfile(userId) {
+    const profile = await this.userRepo.getProfile(userId);
+    if (!profile) {
+      const err = new Error(`User ${userId} not found`);
+      err.code = 'USER_NOT_FOUND';
+      throw err;
+    }
+    return profile;
+  }
+
+  async updateProfile(userId, { fullName, phoneNumber, avatarUrl, timezone }) {
+    await this.userRepo.upsertProfile(userId, { fullName, phoneNumber, avatarUrl, timezone });
+    return this.getProfile(userId);
+  }
+
+  async changePassword(userId, { oldPassword, newPassword }) {
+    if (!oldPassword || !newPassword) {
+      throw new Error('Old password and new password are required');
+    }
+    if (newPassword.length < 8) {
+      throw new Error('New password must be at least 8 characters long');
+    }
+
+    const user = await this.userRepo.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const isValid = this.verifyPassword(oldPassword, user.password_hash);
+    if (!isValid) {
+      const err = new Error('Invalid existing password');
+      err.code = 'INVALID_PASSWORD';
+      throw err;
+    }
+
+    const newPasswordHash = this.hashPassword(newPassword);
+    await this.userRepo.updatePassword(userId, newPasswordHash);
+
+    // Invalidate other refresh tokens for security
+    await this.refreshTokenRepo.revokeAllExcept(userId, null);
+
+    return { success: true, message: 'Password updated successfully' };
+  }
+
+  async listSessions(userId) {
+    return this.refreshTokenRepo.listActiveSessions(userId);
+  }
+
+  async revokeSession(userId, sessionId) {
+    return this.refreshTokenRepo.revokeSession(sessionId, userId);
+  }
+
+  async deleteAccount(userId, { password, homeRepo = null }) {
+    if (!password) {
+      throw new Error('Password confirmation is required to delete account');
+    }
+
+    const user = await this.userRepo.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const isValid = this.verifyPassword(password, user.password_hash);
+    if (!isValid) {
+      const err = new Error('Invalid password confirmation');
+      err.code = 'INVALID_PASSWORD';
+      throw err;
+    }
+
+    if (homeRepo) {
+      const memberships = await homeRepo.getMembershipsForUser(userId);
+      for (const m of memberships) {
+        if (m.role === 'OWNER') {
+          const homeMembers = await homeRepo.getMembershipsForHome(m.home_id);
+          const otherMembers = homeMembers.filter(hm => hm.user_id !== userId);
+          if (otherMembers.length > 0) {
+            throw new Error(`Cannot delete account: you are the sole owner of home with other members. Please transfer ownership or remove home first.`);
+          }
+          await homeRepo.deleteHome(m.home_id);
+        } else {
+          await homeRepo.removeMembership(m.home_id, userId);
+        }
+      }
+    }
+
+    await this.userRepo.deleteUser(userId);
+    return { success: true, message: 'Account deleted successfully' };
+  }
 }
 
 module.exports = { AuthService };

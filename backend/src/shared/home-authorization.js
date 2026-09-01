@@ -1,11 +1,72 @@
 'use strict';
 
 /**
- * EH Home — Home Membership Authorization Middleware (Phase 7A)
+ * EH Home — Home Membership & Capability-Aware Authorization Service (Phase 16)
  *
- * Enforces membership scoping across all Home-related resources (homes, floors, rooms, members, devices, state, commands).
- * Ensures a user belonging to Home A CANNOT access resources in Home B.
+ * Enforces membership scoping and fine-grained permissions across all Home resources:
+ *   - Homes, Settings, Memberships, Invitations, Ownership
+ *   - Floors, Rooms, Devices, State, Commands
+ *   - Scenes, Automations, Schedules, Execution
+ *   - Notifications, History, Realtime SSE
  */
+
+const ROLE_PERMISSIONS = {
+  OWNER: {
+    canManageHome: true,
+    canDeleteHome: true,
+    canManageMembers: true,
+    canTransferOwnership: true,
+    canManageDevices: true,
+    canControlDevices: true,
+    canManageAutomations: true,
+    canExecuteAutomations: true,
+    canViewHome: true
+  },
+  ADMIN: {
+    canManageHome: true,
+    canDeleteHome: false,
+    canManageMembers: true,
+    canTransferOwnership: false,
+    canManageDevices: true,
+    canControlDevices: true,
+    canManageAutomations: true,
+    canExecuteAutomations: true,
+    canViewHome: true
+  },
+  MEMBER: {
+    canManageHome: false,
+    canDeleteHome: false,
+    canManageMembers: false,
+    canTransferOwnership: false,
+    canManageDevices: false,
+    canControlDevices: true,
+    canManageAutomations: false,
+    canExecuteAutomations: true,
+    canViewHome: true
+  },
+  GUEST: {
+    canManageHome: false,
+    canDeleteHome: false,
+    canManageMembers: false,
+    canTransferOwnership: false,
+    canManageDevices: false,
+    canControlDevices: false,
+    canManageAutomations: false,
+    canExecuteAutomations: false,
+    canViewHome: true
+  },
+  VIEWER: {
+    canManageHome: false,
+    canDeleteHome: false,
+    canManageMembers: false,
+    canTransferOwnership: false,
+    canManageDevices: false,
+    canControlDevices: false,
+    canManageAutomations: false,
+    canExecuteAutomations: false,
+    canViewHome: true
+  }
+};
 
 class HomeAuthorizationService {
   constructor({ homeRepo, deviceRepo, roomRepo }) {
@@ -14,14 +75,23 @@ class HomeAuthorizationService {
     this.roomRepo = roomRepo;
   }
 
+  getPermissionsForRole(role) {
+    const normalized = (role || 'VIEWER').toUpperCase();
+    return ROLE_PERMISSIONS[normalized] || ROLE_PERMISSIONS.VIEWER;
+  }
+
   /**
-   * Check if a user is a member of the specified home with optional role restriction.
+   * Check if a user is a member of the specified home with optional role or capability restriction.
    */
-  async checkHomeMembership(userId, homeId, allowedRoles = null) {
+  async checkHomeMembership(userId, homeId, allowedRoles = null, requiredCapability = null) {
     if (!userId || !homeId) return { isAuthorized: false, reason: 'Missing userId or homeId' };
 
     if (typeof userId === 'string' && userId.startsWith('system_')) {
-      return { isAuthorized: true, role: 'SYSTEM' };
+      return {
+        isAuthorized: true,
+        role: 'SYSTEM',
+        permissions: this.getPermissionsForRole('OWNER')
+      };
     }
 
     const memberships = await this.homeRepo.getMembershipsForUser(userId);
@@ -31,25 +101,40 @@ class HomeAuthorizationService {
       return { isAuthorized: false, reason: `User ${userId} is not a member of home ${homeId}` };
     }
 
+    const role = (membership.role || 'MEMBER').toUpperCase();
+    const permissions = this.getPermissionsForRole(role);
+
     if (allowedRoles && Array.isArray(allowedRoles) && allowedRoles.length > 0) {
-      if (!allowedRoles.includes(membership.role)) {
+      const normalizedAllowed = allowedRoles.map(r => r.toUpperCase());
+      if (!normalizedAllowed.includes(role)) {
         return {
           isAuthorized: false,
-          reason: `User ${userId} role '${membership.role}' is not allowed (required: ${allowedRoles.join(', ')})`
+          reason: `User ${userId} role '${role}' is not allowed (required: ${allowedRoles.join(', ')})`,
+          role,
+          permissions
         };
       }
     }
 
-    return { isAuthorized: true, role: membership.role, membership };
+    if (requiredCapability && !permissions[requiredCapability]) {
+      return {
+        isAuthorized: false,
+        reason: `User ${userId} with role '${role}' lacks required capability '${requiredCapability}'`,
+        role,
+        permissions
+      };
+    }
+
+    return { isAuthorized: true, role, membership, permissions };
   }
 
   /**
    * Enforces membership and throws 403 Error if not authorized
    */
-  async requireMembership(userId, homeId, allowedRoles = null) {
-    const res = await this.checkHomeMembership(userId, homeId, allowedRoles);
+  async requireMembership(userId, homeId, allowedRoles = null, requiredCapability = null) {
+    const res = await this.checkHomeMembership(userId, homeId, allowedRoles, requiredCapability);
     if (!res.isAuthorized) {
-      const err = new Error(res.reason || `User ${userId} is not a member of home ${homeId}`);
+      const err = new Error(res.reason || `User ${userId} is not authorized for home ${homeId}`);
       err.statusCode = 403;
       throw err;
     }
@@ -85,9 +170,9 @@ class HomeAuthorizationService {
   }
 
   /**
-   * Middleware / guard function to authorize a request against a homeId or deviceId.
+   * Middleware / guard function to authorize a request against a homeId, deviceId, roomId, or floorId.
    */
-  async authorizeRequest({ userId, homeId = null, deviceId = null, roomId = null, floorId = null, allowedRoles = null }) {
+  async authorizeRequest({ userId, homeId = null, deviceId = null, roomId = null, floorId = null, allowedRoles = null, requiredCapability = null }) {
     let targetHomeId = homeId;
 
     if (!targetHomeId && deviceId) {
@@ -115,13 +200,24 @@ class HomeAuthorizationService {
       return { isAuthorized: false, statusCode: 400, message: 'Target home context could not be determined' };
     }
 
-    const check = await this.checkHomeMembership(userId, targetHomeId, allowedRoles);
+    const check = await this.checkHomeMembership(userId, targetHomeId, allowedRoles, requiredCapability);
     if (!check.isAuthorized) {
-      return { isAuthorized: false, statusCode: 403, message: check.reason, homeId: targetHomeId };
+      return {
+        isAuthorized: false,
+        statusCode: 403,
+        message: check.reason,
+        homeId: targetHomeId,
+        role: check.role
+      };
     }
 
-    return { isAuthorized: true, homeId: targetHomeId, role: check.role };
+    return {
+      isAuthorized: true,
+      homeId: targetHomeId,
+      role: check.role,
+      permissions: check.permissions
+    };
   }
 }
 
-module.exports = { HomeAuthorizationService };
+module.exports = { HomeAuthorizationService, ROLE_PERMISSIONS };
