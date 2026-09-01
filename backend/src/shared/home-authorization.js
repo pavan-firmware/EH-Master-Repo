@@ -80,6 +80,30 @@ class HomeAuthorizationService {
     return ROLE_PERMISSIONS[normalized] || ROLE_PERMISSIONS.VIEWER;
   }
 
+  canManageHome(role) {
+    return Boolean(this.getPermissionsForRole(role).canManageHome);
+  }
+
+  canManageDevices(role) {
+    return Boolean(this.getPermissionsForRole(role).canManageDevices);
+  }
+
+  canControlDevices(role) {
+    return Boolean(this.getPermissionsForRole(role).canControlDevices);
+  }
+
+  canManageAutomations(role) {
+    return Boolean(this.getPermissionsForRole(role).canManageAutomations);
+  }
+
+  canManageMembers(role) {
+    return Boolean(this.getPermissionsForRole(role).canManageMembers);
+  }
+
+  canDeleteHome(role) {
+    return Boolean(this.getPermissionsForRole(role).canDeleteHome);
+  }
+
   /**
    * Check if a user is a member of the specified home with optional role or capability restriction.
    */

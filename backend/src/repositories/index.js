@@ -105,11 +105,12 @@ class HomeRepository {
   }
 
   async createHome({ id, name, timezone = 'UTC', address = null, ownerId }) {
+    const homeId = id || require('crypto').randomUUID();
     // Verify owner exists
     const owner = await this.db.findById('users', ownerId);
     if (!owner) throw new Error(`Owner user ${ownerId} does not exist`);
 
-    const home = await this.db.insert('homes', id, {
+    const home = await this.db.insert('homes', homeId, {
       name,
       timezone,
       address,
@@ -118,8 +119,8 @@ class HomeRepository {
 
     // Auto-create owner membership
     await this.addMembership({
-      id: `${id}_${ownerId}`,
-      homeId: id,
+      id: `${homeId}_${ownerId}`,
+      homeId: homeId,
       userId: ownerId,
       role: 'OWNER',
       acceptedAt: new Date().toISOString()
@@ -244,9 +245,10 @@ class RoomRepository {
   }
 
   async createFloor({ id, homeId, name, level = 0 }) {
+    const floorId = id || require('crypto').randomUUID();
     const home = await this.db.findById('homes', homeId);
     if (!home) throw new Error(`Home ${homeId} does not exist`);
-    return this.db.insert('floors', id, { home_id: homeId, name, level });
+    return this.db.insert('floors', floorId, { home_id: homeId, name, level });
   }
 
   async getFloor(floorId) {
@@ -271,6 +273,7 @@ class RoomRepository {
   }
 
   async createRoom({ id, homeId, floorId = null, name, iconKey = 'default', sortOrder = 0 }) {
+    const roomId = id || require('crypto').randomUUID();
     const home = await this.db.findById('homes', homeId);
     if (!home) throw new Error(`Home ${homeId} does not exist`);
     if (floorId) {
@@ -280,7 +283,7 @@ class RoomRepository {
         throw new Error(`Floor ${floorId} belongs to home ${floor.home_id}, not home ${homeId}`);
       }
     }
-    return this.db.insert('rooms', id, {
+    return this.db.insert('rooms', roomId, {
       home_id: homeId,
       floor_id: floorId,
       name,
@@ -314,6 +317,21 @@ class RoomRepository {
       }
     }
     return this.db.update('rooms', roomId, { floor_id: floorId });
+  }
+
+  async updateRoom(roomId, updates = {}) {
+    const room = await this.db.findById('rooms', roomId);
+    if (!room) throw new Error(`Room ${roomId} does not exist`);
+    const cleanUpdates = {};
+    if (updates.name !== undefined) cleanUpdates.name = updates.name;
+    if (updates.floorId !== undefined) cleanUpdates.floor_id = updates.floorId;
+    if (updates.floor_id !== undefined) cleanUpdates.floor_id = updates.floor_id;
+    if (updates.iconKey !== undefined) cleanUpdates.icon_key = updates.iconKey;
+    if (updates.icon_key !== undefined) cleanUpdates.icon_key = updates.icon_key;
+    if (updates.sortOrder !== undefined) cleanUpdates.sort_order = updates.sortOrder;
+    if (updates.displayOrder !== undefined) cleanUpdates.sort_order = updates.displayOrder;
+    if (updates.sort_order !== undefined) cleanUpdates.sort_order = updates.sort_order;
+    return this.db.update('rooms', roomId, cleanUpdates);
   }
 
   async deleteRoom(roomId) {
@@ -463,18 +481,23 @@ class DeviceRepository {
     });
   }
 
-  async updateDeviceAuthorization(deviceId, { homeId, roomId, customName, channelLabels, channelConfigs }) {
+  async updateDeviceAuthorization(deviceId, updates = {}) {
     const existing = await this.db.findById('device_authorizations', deviceId);
     if (!existing) throw new Error(`Device authorization for ${deviceId} not found`);
 
-    const updates = {};
-    if (homeId !== undefined) updates.home_id = homeId;
-    if (roomId !== undefined) updates.room_id = roomId;
-    if (customName !== undefined) updates.custom_name = customName;
-    if (channelLabels !== undefined) updates.channel_labels = channelLabels;
-    if (channelConfigs !== undefined) updates.channel_configs = channelConfigs;
+    const cleanUpdates = {};
+    if (updates.homeId !== undefined) cleanUpdates.home_id = updates.homeId;
+    if (updates.home_id !== undefined) cleanUpdates.home_id = updates.home_id;
+    if (updates.roomId !== undefined) cleanUpdates.room_id = updates.roomId;
+    if (updates.room_id !== undefined) cleanUpdates.room_id = updates.room_id;
+    if (updates.customName !== undefined) cleanUpdates.custom_name = updates.customName;
+    if (updates.custom_name !== undefined) cleanUpdates.custom_name = updates.custom_name;
+    if (updates.channelLabels !== undefined) cleanUpdates.channel_labels = updates.channelLabels;
+    if (updates.channel_labels !== undefined) cleanUpdates.channel_labels = updates.channel_labels;
+    if (updates.channelConfigs !== undefined) cleanUpdates.channel_configs = updates.channelConfigs;
+    if (updates.channel_configs !== undefined) cleanUpdates.channel_configs = updates.channel_configs;
 
-    return this.db.update('device_authorizations', deviceId, updates);
+    return this.db.update('device_authorizations', deviceId, cleanUpdates);
   }
 
   async removeDeviceAuthorization(deviceId) {
@@ -1425,6 +1448,88 @@ class NotificationRepository {
   }
 }
 
+class SyncRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordCheckpoint({ userId, homeId, clientDeviceId, lastSyncSeq = 0, schemaVersion = 1 }) {
+    const id = `chk_${userId}_${homeId}_${clientDeviceId}`;
+    const existing = await this.db.findById('sync_checkpoints', id);
+    const now = new Date().toISOString();
+    if (existing) {
+      return this.db.update('sync_checkpoints', id, {
+        last_sync_seq: lastSyncSeq,
+        schema_version: schemaVersion,
+        synced_at: now,
+        updated_at: now
+      });
+    }
+    return this.db.insert('sync_checkpoints', id, {
+      user_id: userId,
+      home_id: homeId,
+      client_device_id: clientDeviceId,
+      last_sync_seq: lastSyncSeq,
+      schema_version: schemaVersion,
+      synced_at: now,
+      updated_at: now
+    });
+  }
+
+  async getCheckpoint(userId, homeId, clientDeviceId) {
+    const id = `chk_${userId}_${homeId}_${clientDeviceId}`;
+    return this.db.findById('sync_checkpoints', id);
+  }
+
+  async recordPendingAudit({ userId, homeId, clientMutationId, entityType, entityId = null, mutationType, payload = {}, status = 'ACCEPTED', rejectionReason = null }) {
+    const id = `aud_${homeId}_${clientMutationId}`;
+    return this.db.insert('pending_change_audits', id, {
+      user_id: userId,
+      home_id: homeId,
+      client_mutation_id: clientMutationId,
+      entity_type: entityType,
+      entity_id: entityId,
+      mutation_type: mutationType,
+      payload,
+      status,
+      rejection_reason: rejectionReason,
+      applied_at: new Date().toISOString()
+    });
+  }
+
+  async listPendingAudits(homeId, limit = 50) {
+    const list = await this.db.find('pending_change_audits', a => a.home_id === homeId);
+    return list.sort((a, b) => new Date(b.applied_at) - new Date(a.applied_at)).slice(0, limit);
+  }
+}
+
+class ExportRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordExport({ id, userId, homeId = null, exportScope, sanitizedSummary, expiresAt = null }) {
+    return this.db.insert('data_export_records', id, {
+      user_id: userId,
+      home_id: homeId,
+      export_scope: exportScope,
+      status: 'COMPLETED',
+      sanitized_summary: sanitizedSummary,
+      expires_at: expiresAt,
+      created_at: new Date().toISOString()
+    });
+  }
+
+  async getExport(id) {
+    return this.db.findById('data_export_records', id);
+  }
+
+  async listExportsForUser(userId) {
+    const list = await this.db.find('data_export_records', e => e.user_id === userId);
+    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -1446,5 +1551,7 @@ module.exports = {
   DeviceActivityLogRepository,
   DeviceHealthRepository,
   NotificationRepository,
-  InvitationRepository
+  InvitationRepository,
+  SyncRepository,
+  ExportRepository
 };
