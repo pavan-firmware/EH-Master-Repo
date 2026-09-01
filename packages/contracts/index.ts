@@ -383,3 +383,4 @@ export interface IDeviceTransport {
 
 export * from './notification';
 export * from './authorization';
+export * from './sync';

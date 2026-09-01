@@ -9,7 +9,8 @@ const migrations = [
   { up: '006_automations_scenes_schedules.sql', down: '006_automations_scenes_schedules.down.sql' },
   { up: '007_device_management_health_observability.sql', down: '007_device_management_health_observability.down.sql' },
   { up: '008_notifications_alerts.sql', down: '008_notifications_alerts.down.sql' },
-  { up: '009_account_home_access_control.sql', down: '009_account_home_access_control.down.sql' }
+  { up: '009_account_home_access_control.sql', down: '009_account_home_access_control.down.sql' },
+  { up: '010_cloud_sync_data_lifecycle.sql', down: '010_cloud_sync_data_lifecycle.down.sql' }
 ];
 
 let totalUpTables = [];

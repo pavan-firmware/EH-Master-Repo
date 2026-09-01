@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SyncBootstrapBundle",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "syncedAt",
+    "user",
+    "homes",
+    "rooms",
+    "devices",
+    "automations",
+    "scenes",
+    "schedules"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "syncedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "user": {
+      "type": "object",
+      "required": ["id", "email"],
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": ["string", "null"] },
+        "timezone": { "type": "string" }
+      }
+    },
+    "homes": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "rooms": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "devices": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "automations": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "scenes": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "schedules": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "notificationPreferences": {
+      "type": ["object", "null"]
+    }
+  },
+  "additionalProperties": true
+}

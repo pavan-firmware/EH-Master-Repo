@@ -26,11 +26,11 @@ class FloorService {
 
     if (this.auditRepo) {
       await this.auditRepo.log({
-        id: `audit_floor_create_${id}`,
+        id: `audit_floor_create_${floor.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         actorUserId,
         homeId,
         action: 'FLOOR_CREATED',
-        payload: { floorId: id, name, level }
+        payload: { floorId: floor.id, name, level }
       });
     }
 

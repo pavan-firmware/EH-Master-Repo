@@ -30,7 +30,9 @@ const {
   DeviceActivityLogRepository,
   DeviceHealthRepository,
   NotificationRepository,
-  InvitationRepository
+  InvitationRepository,
+  SyncRepository,
+  ExportRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -50,11 +52,15 @@ const { ScheduleService } = require('./services/schedule.service');
 const { DeviceManagementService } = require('./services/device-management.service');
 const { NotificationService } = require('./services/notification.service');
 const { InvitationService } = require('./services/invitation.service');
+const { SyncService } = require('./services/sync.service');
+const { DataExportService } = require('./services/data-export.service');
+const { DataRetentionService } = require('./services/data-retention.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
 const { AccountApiRouter } = require('./api/account.router');
 const { InvitationApiRouter } = require('./api/invitation.router');
+const { SyncApiRouter } = require('./api/sync.router');
 const { HomeDeviceApiRouter } = require('./api/home-device.router');
 const { ProvisioningClaimApiRouter } = require('./api/provisioning-claim.router');
 const { ApiRouter: ProductCatalogApiRouter } = require('./api/product-catalog.router');
@@ -170,6 +176,8 @@ function createApp(options = {}) {
   const healthRepo = new DeviceHealthRepository(db);
   const notificationRepo = new NotificationRepository(db);
   const invitationRepo = new InvitationRepository(db);
+  const syncRepo = new SyncRepository(db);
+  const exportRepo = new ExportRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -242,6 +250,35 @@ function createApp(options = {}) {
     notificationService
   });
 
+  const syncService = options.syncService || new SyncService({
+    db,
+    userRepo,
+    homeRepo,
+    roomRepo,
+    deviceRepo,
+    deviceStateRepo,
+    sceneRepo,
+    automationRepo,
+    scheduleRepo,
+    notificationRepo,
+    syncRepo,
+    homeAuthService
+  });
+
+  const dataExportService = options.dataExportService || new DataExportService({
+    userRepo,
+    homeRepo,
+    roomRepo,
+    deviceRepo,
+    sceneRepo,
+    automationRepo,
+    scheduleRepo,
+    notificationRepo,
+    exportRepo
+  });
+
+  const dataRetentionService = options.dataRetentionService || new DataRetentionService({ db });
+
   const schedulerWorker = options.schedulerWorker || new AutomationSchedulerWorker({
     scheduleRepo, scheduleService
   });
@@ -259,6 +296,7 @@ function createApp(options = {}) {
   const authRouter = new AuthApiRouter({ authService, rateLimiter: options.rateLimiter });
   const accountRouter = new AccountApiRouter({ authService, homeRepo });
   const invitationRouter = new InvitationApiRouter({ invitationService, userRepo });
+  const syncRouter = new SyncApiRouter({ syncService, dataExportService, dataRetentionService });
   const homeDeviceRouter = new HomeDeviceApiRouter({
     homeService,
     floorService,
@@ -496,6 +534,22 @@ function createApp(options = {}) {
       }
     }
 
+    // 8.9. Route to Sync & Data Export Router
+    if (pathname.startsWith('/api/v1/sync')) {
+      const responseWrapper = createResponseWrapper(res);
+      req.body = body;
+      req.query = query;
+      if (pathname === '/api/v1/sync/bootstrap' && method === 'GET') {
+        return syncRouter.handleBootstrap(req, responseWrapper);
+      }
+      if (pathname === '/api/v1/sync/reconcile' && method === 'POST') {
+        return syncRouter.handleReconcile(req, responseWrapper);
+      }
+      if (pathname === '/api/v1/sync/export' && method === 'GET') {
+        return syncRouter.handleExport(req, responseWrapper);
+      }
+    }
+
     // 9. Route to Home & Device Domain Router
     if (pathname.startsWith('/api/v1/homes') || pathname.startsWith('/api/v1/devices')) {
       if (req.user) {
@@ -535,6 +589,9 @@ function createApp(options = {}) {
       deviceManagementService,
       notificationService,
       invitationService,
+      syncService,
+      dataExportService,
+      dataRetentionService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -544,7 +601,7 @@ function createApp(options = {}) {
       deviceStateRepo, commandRepo, eventRepo, auditRepo, outboxRepo,
       provisioningRepo, refreshTokenRepo, sceneRepo, automationRepo,
       scheduleRepo, logRepo, activityLogRepo, healthRepo, notificationRepo,
-      invitationRepo
+      invitationRepo, syncRepo, exportRepo
     }
   };
 }

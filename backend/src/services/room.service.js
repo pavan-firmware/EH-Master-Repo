@@ -35,11 +35,11 @@ class RoomService {
 
     if (this.auditRepo) {
       await this.auditRepo.log({
-        id: `audit_room_create_${id}`,
+        id: `audit_room_create_${room.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         actorUserId,
         homeId,
         action: 'ROOM_CREATED',
-        payload: { roomId: id, floorId, name, iconKey }
+        payload: { roomId: room.id, floorId, name, iconKey }
       });
     }
 
