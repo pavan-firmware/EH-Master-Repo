@@ -47,6 +47,56 @@ class UserRepository {
     const res = await this.db.find('users', u => u.email.toLowerCase() === email.toLowerCase());
     return res[0] || null;
   }
+
+  async updatePassword(userId, passwordHash) {
+    const user = await this.db.findById('users', userId);
+    if (!user) throw new Error(`User ${userId} not found`);
+    return this.db.update('users', userId, { password_hash: passwordHash });
+  }
+
+  async getProfile(userId) {
+    const user = await this.db.findById('users', userId);
+    if (!user) return null;
+    const profile = await this.db.findById('user_profiles', userId);
+    return {
+      id: user.id,
+      email: user.email,
+      emailVerified: user.email_verified || false,
+      fullName: profile ? profile.full_name : null,
+      phoneNumber: profile ? profile.phone_number : null,
+      avatarUrl: profile ? profile.avatar_url : null,
+      timezone: profile ? profile.timezone : 'UTC',
+      createdAt: user.created_at,
+      updatedAt: profile ? profile.updated_at : user.updated_at
+    };
+  }
+
+  async upsertProfile(userId, { fullName, phoneNumber, avatarUrl, timezone }) {
+    const user = await this.db.findById('users', userId);
+    if (!user) throw new Error(`User ${userId} not found`);
+    const existing = await this.db.findById('user_profiles', userId);
+    if (existing) {
+      return this.db.update('user_profiles', userId, {
+        full_name: fullName !== undefined ? fullName : existing.full_name,
+        phone_number: phoneNumber !== undefined ? phoneNumber : existing.phone_number,
+        avatar_url: avatarUrl !== undefined ? avatarUrl : existing.avatar_url,
+        timezone: timezone !== undefined ? timezone : existing.timezone
+      });
+    }
+    return this.db.insert('user_profiles', userId, {
+      full_name: fullName || null,
+      phone_number: phoneNumber || null,
+      avatar_url: avatarUrl || null,
+      timezone: timezone || 'UTC'
+    });
+  }
+
+  async deleteUser(userId) {
+    try { await this.db.delete('user_profiles', userId); } catch (_) {}
+    const tokens = await this.db.find('refresh_tokens', t => t.user_id === userId);
+    for (const t of tokens) await this.db.delete('refresh_tokens', t.id);
+    return this.db.delete('users', userId);
+  }
 }
 
 class HomeRepository {
@@ -76,6 +126,67 @@ class HomeRepository {
     });
 
     return home;
+  }
+
+  async updateHome(homeId, { name, timezone, address }) {
+    const home = await this.db.findById('homes', homeId);
+    if (!home) throw new Error(`Home ${homeId} not found`);
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (timezone !== undefined) updates.timezone = timezone;
+    if (address !== undefined) updates.address = address;
+    return this.db.update('homes', homeId, updates);
+  }
+
+  async transferOwnership(homeId, currentOwnerId, newOwnerId) {
+    const home = await this.db.findById('homes', homeId);
+    if (!home) throw new Error(`Home ${homeId} not found`);
+    if (home.owner_id !== currentOwnerId) {
+      throw new Error(`User ${currentOwnerId} is not the current owner of home ${homeId}`);
+    }
+
+    const memberships = await this.getMembershipsForHome(homeId);
+    const newOwnerMembership = memberships.find(m => m.user_id === newOwnerId);
+    if (!newOwnerMembership) {
+      throw new Error(`Target user ${newOwnerId} is not a member of home ${homeId}`);
+    }
+
+    await this.db.update('homes', homeId, { owner_id: newOwnerId });
+    await this.updateMembershipRole(homeId, newOwnerId, 'OWNER');
+    await this.updateMembershipRole(homeId, currentOwnerId, 'ADMIN');
+
+    return this.getHome(homeId);
+  }
+
+  async deleteHome(homeId) {
+    const home = await this.db.findById('homes', homeId);
+    if (!home) throw new Error(`Home ${homeId} not found`);
+
+    const memberships = await this.getMembershipsForHome(homeId);
+    for (const m of memberships) await this.db.delete('home_memberships', m.id);
+
+    const invites = await this.db.find('home_invitations', i => i.home_id === homeId);
+    for (const i of invites) await this.db.delete('home_invitations', i.id);
+
+    const auths = await this.db.find('device_authorizations', a => a.home_id === homeId);
+    for (const a of auths) await this.db.delete('device_authorizations', a.id);
+
+    const rooms = await this.db.find('rooms', r => r.home_id === homeId);
+    for (const r of rooms) await this.db.delete('rooms', r.id);
+
+    const floors = await this.db.find('floors', f => f.home_id === homeId);
+    for (const f of floors) await this.db.delete('floors', f.id);
+
+    const scenes = await this.db.find('scenes', s => s.home_id === homeId);
+    for (const s of scenes) await this.db.delete('scenes', s.id);
+
+    const automations = await this.db.find('automations', a => a.home_id === homeId);
+    for (const a of automations) await this.db.delete('automations', a.id);
+
+    const schedules = await this.db.find('schedules', s => s.home_id === homeId);
+    for (const s of schedules) await this.db.delete('schedules', s.id);
+
+    return this.db.delete('homes', homeId);
   }
 
   async addMembership({ id, homeId, userId, role, acceptedAt = null }) {
@@ -579,17 +690,24 @@ class RefreshTokenRepository {
     this.db = db;
   }
 
-  async createToken({ id, userId, tokenHash, expiresAt }) {
+  async createToken({ id, userId, tokenHash, expiresAt, deviceName = null, ipAddress = null, userAgent = null }) {
     return this.db.insert('refresh_tokens', id, {
       user_id: userId,
       token_hash: tokenHash,
-      expires_at: expiresAt
+      expires_at: expiresAt,
+      device_name: deviceName,
+      ip_address: ipAddress,
+      user_agent: userAgent
     });
   }
 
   async findByTokenHash(tokenHash) {
     const tokens = await this.db.find('refresh_tokens', t => t.token_hash === tokenHash);
     return tokens.length > 0 ? tokens[0] : null;
+  }
+
+  async findById(id) {
+    return this.db.findById('refresh_tokens', id);
   }
 
   async deleteToken(id) {
@@ -601,6 +719,92 @@ class RefreshTokenRepository {
     for (const t of userTokens) {
       await this.db.delete('refresh_tokens', t.id);
     }
+  }
+
+  async listActiveSessions(userId) {
+    const now = new Date().toISOString();
+    const tokens = await this.db.find('refresh_tokens', t => t.user_id === userId && t.expires_at > now);
+    return tokens.map(t => ({
+      id: t.id,
+      userId: t.user_id,
+      deviceName: t.device_name || 'Mobile App',
+      ipAddress: t.ip_address || '127.0.0.1',
+      userAgent: t.user_agent || 'Flutter / EH Home Client',
+      createdAt: t.created_at,
+      expiresAt: t.expires_at
+    }));
+  }
+
+  async revokeSession(sessionId, userId) {
+    const token = await this.db.findById('refresh_tokens', sessionId);
+    if (!token || token.user_id !== userId) return false;
+    return this.db.delete('refresh_tokens', sessionId);
+  }
+
+  async revokeAllExcept(userId, keepSessionId = null) {
+    const tokens = await this.db.find('refresh_tokens', t => t.user_id === userId);
+    for (const t of tokens) {
+      if (t.id !== keepSessionId) {
+        await this.db.delete('refresh_tokens', t.id);
+      }
+    }
+  }
+}
+
+class InvitationRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createInvitation({ id, homeId, inviterUserId, inviteeEmail, role = 'MEMBER', inviteCode, expiresAt }) {
+    const existing = await this.db.find('home_invitations', i =>
+      i.home_id === homeId &&
+      i.invitee_email.toLowerCase() === inviteeEmail.toLowerCase() &&
+      i.status === 'PENDING'
+    );
+    if (existing.length > 0) {
+      throw new Error(`Pending invitation for ${inviteeEmail} already exists for this home`);
+    }
+
+    return this.db.insert('home_invitations', id, {
+      home_id: homeId,
+      inviter_user_id: inviterUserId,
+      invitee_email: inviteeEmail.toLowerCase(),
+      role: role.toUpperCase(),
+      invite_code: inviteCode,
+      status: 'PENDING',
+      expires_at: expiresAt,
+      accepted_at: null
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('home_invitations', id);
+  }
+
+  async findByCode(inviteCode) {
+    const invites = await this.db.find('home_invitations', i => i.invite_code === inviteCode);
+    return invites[0] || null;
+  }
+
+  async findPendingByHome(homeId) {
+    const now = new Date().toISOString();
+    return this.db.find('home_invitations', i => i.home_id === homeId && i.status === 'PENDING' && i.expires_at > now);
+  }
+
+  async findPendingByEmail(email) {
+    const now = new Date().toISOString();
+    return this.db.find('home_invitations', i => i.invitee_email.toLowerCase() === email.toLowerCase() && i.status === 'PENDING' && i.expires_at > now);
+  }
+
+  async updateStatus(id, status, acceptedAt = null) {
+    const updates = { status };
+    if (acceptedAt) updates.accepted_at = acceptedAt;
+    return this.db.update('home_invitations', id, updates);
+  }
+
+  async delete(id) {
+    return this.db.delete('home_invitations', id);
   }
 }
 
@@ -1241,5 +1445,6 @@ module.exports = {
   AutomationExecutionLogRepository,
   DeviceActivityLogRepository,
   DeviceHealthRepository,
-  NotificationRepository
+  NotificationRepository,
+  InvitationRepository
 };

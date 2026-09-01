@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/authorization/home-invitation.schema.json",
+  "title": "HomeInvitation",
+  "description": "Invitation for a user to join a Home with a specific role.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "homeId",
+    "inviterUserId",
+    "inviteeEmail",
+    "role",
+    "inviteCode",
+    "status",
+    "expiresAt",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "homeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "inviterUserId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "inviteeEmail": {
+      "type": "string",
+      "format": "email"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "ADMIN",
+        "MEMBER",
+        "GUEST",
+        "VIEWER"
+      ]
+    },
+    "inviteCode": {
+      "type": "string",
+      "minLength": 8
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "ACCEPTED",
+        "REJECTED",
+        "REVOKED",
+        "EXPIRED"
+      ]
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "acceptedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "id": "22222222-3333-4444-5555-666666666666",
+      "homeId": "11111111-2222-3333-4444-555555555555",
+      "inviterUserId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "inviteeEmail": "family@example.com",
+      "role": "MEMBER",
+      "inviteCode": "inv_abc123xyz456",
+      "status": "PENDING",
+      "expiresAt": "2026-03-08T10:00:00Z",
+      "acceptedAt": null,
+      "createdAt": "2026-03-01T10:00:00Z"
+    }
+  ]
+}

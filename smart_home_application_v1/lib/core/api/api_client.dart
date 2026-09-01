@@ -52,8 +52,8 @@ class ApiClient {
     return _request('PATCH', path, body: body);
   }
 
-  Future<dynamic> delete(String path) async {
-    return _request('DELETE', path);
+  Future<dynamic> delete(String path, {Map<String, dynamic>? body}) async {
+    return _request('DELETE', path, body: body);
   }
 
   Future<dynamic> _request(

@@ -17,7 +17,8 @@ class DatabaseClient {
       'device_commands', 'device_events', 'audit_logs', 'outbox', 'provisioning_sessions',
       'scenes', 'automations', 'schedules', 'automation_execution_logs',
       'device_activity_logs', 'device_health_metrics',
-      'notifications', 'push_device_tokens', 'user_notification_preferences', 'notification_delivery_queue'
+      'notifications', 'push_device_tokens', 'user_notification_preferences', 'notification_delivery_queue',
+      'user_profiles', 'home_invitations'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

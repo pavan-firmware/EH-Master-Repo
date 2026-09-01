@@ -161,6 +161,86 @@ class HomeService {
 
     return res;
   }
+
+  async updateHome({ homeId, name, timezone, address, actorUserId = null }) {
+    const updated = await this.homeRepo.updateHome(homeId, { name, timezone, address });
+
+    if (this.auditRepo) {
+      await this.auditRepo.log({
+        id: `audit_home_update_${homeId}_${Date.now()}`,
+        actorUserId,
+        homeId,
+        action: 'HOME_UPDATED',
+        payload: { name, timezone, address }
+      });
+    }
+
+    return updated;
+  }
+
+  async deleteHome({ homeId, actorUserId = null }) {
+    const home = await this.homeRepo.getHome(homeId);
+    if (!home) throw new Error(`Home ${homeId} does not exist`);
+
+    const res = await this.homeRepo.deleteHome(homeId);
+
+    if (this.auditRepo) {
+      await this.auditRepo.log({
+        id: `audit_home_delete_${homeId}_${Date.now()}`,
+        actorUserId,
+        homeId,
+        action: 'HOME_DELETED',
+        payload: { name: home.name }
+      });
+    }
+
+    return res;
+  }
+
+  async transferOwnership({ homeId, newOwnerId, actorUserId = null }) {
+    const updated = await this.homeRepo.transferOwnership(homeId, actorUserId, newOwnerId);
+
+    if (this.auditRepo) {
+      await this.auditRepo.log({
+        id: `audit_home_transfer_${homeId}_${Date.now()}`,
+        actorUserId,
+        homeId,
+        action: 'HOME_OWNERSHIP_TRANSFERRED',
+        payload: { oldOwnerId: actorUserId, newOwnerId }
+      });
+    }
+
+    return updated;
+  }
+
+  async leaveHome({ homeId, userId }) {
+    const currentMemberships = await this.homeRepo.getMembershipsForHome(homeId);
+    const targetMembership = currentMemberships.find(m => m.user_id === userId);
+    if (!targetMembership) {
+      throw new Error(`User ${userId} is not a member of home ${homeId}`);
+    }
+
+    if (targetMembership.role === 'OWNER') {
+      const ownerCount = currentMemberships.filter(m => m.role === 'OWNER').length;
+      if (ownerCount <= 1) {
+        throw new Error('Sole owner cannot leave home without deleting or transferring ownership first');
+      }
+    }
+
+    const res = await this.homeRepo.removeMembership(homeId, userId);
+
+    if (this.auditRepo) {
+      await this.auditRepo.log({
+        id: `audit_member_left_${homeId}_${userId}`,
+        actorUserId: userId,
+        homeId,
+        action: 'HOME_MEMBER_LEFT',
+        payload: { userId }
+      });
+    }
+
+    return res;
+  }
 }
 
 module.exports = { HomeService };
