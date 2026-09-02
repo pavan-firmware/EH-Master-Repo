@@ -20,6 +20,7 @@ const schemaFiles = [
   '../command/command-receipt.schema.json',
   '../events/device-event.schema.json',
   '../energy/energy-telemetry.schema.json',
+  '../energy/energy.schema.json',
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
@@ -258,6 +259,29 @@ assert('Flags > 255 fails uint8 constraint', !validator.validate('EnergyTelemetr
 // Large cumulative energy (uint64 support)
 const largeCumulativeEnergy = { ...validEnergy, e_tot_wh: 9007199254740991 }; // Max safe integer
 assert('Large cumulative energy value passes', validator.validate('EnergyTelemetry', largeCumulativeEnergy).valid);
+
+// 7. EnergyUsageSummary:
+console.log('\n7. EnergyUsageSummary:');
+const validSummary = {
+  schemaVersion: 1,
+  entityType: 'home',
+  entityId: '0194fe23-7a1b-7890-a123-111111111111',
+  period: 'today',
+  currentPowerW: 450.5,
+  totalEnergyKwh: 3.82,
+  peakPowerW: 1850.0,
+  avgPowerW: 320.2,
+  minPowerW: 45.0,
+  costEstimate: 0.57,
+  currency: 'USD',
+  dataQuality: 'GOOD',
+  sampleCount: 120,
+  lastUpdated: '2026-09-02T12:00:00Z'
+};
+assert('Valid EnergyUsageSummary passes', validator.validate('EnergyUsageSummary', validSummary).valid);
+assert('Invalid entityType fails', !validator.validate('EnergyUsageSummary', { ...validSummary, entityType: 'invalid' }).valid);
+assert('Negative power fails', !validator.validate('EnergyUsageSummary', { ...validSummary, currentPowerW: -10 }).valid);
+assert('Invalid period fails', !validator.validate('EnergyUsageSummary', { ...validSummary, period: 'invalid_period' }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);
