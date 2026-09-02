@@ -19,7 +19,8 @@ class DatabaseClient {
       'device_activity_logs', 'device_health_metrics',
       'notifications', 'push_device_tokens', 'user_notification_preferences', 'notification_delivery_queue',
       'user_profiles', 'home_invitations',
-      'sync_checkpoints', 'pending_change_audits', 'data_export_records'
+      'sync_checkpoints', 'pending_change_audits', 'data_export_records',
+      'firmware_releases', 'ota_rollouts', 'ota_operations', 'device_maintenance_logs'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }
@@ -35,7 +36,7 @@ class DatabaseClient {
     if (tbl.has(id)) {
       throw new Error(`Unique constraint violation: ${table} with id ${id} already exists`);
     }
-    const record = { created_at: new Date().toISOString(), ...data, id };
+    const record = { ...data, created_at: data.created_at || new Date().toISOString(), id };
     tbl.set(id, record);
     return record;
   }

@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FleetStatus",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "totalDevices",
+    "onlineDevices",
+    "offlineDevices",
+    "staleDevices",
+    "degradedDevices",
+    "otaUpdateAvailableCount",
+    "otaInProgressCount",
+    "otaFailedCount",
+    "devices"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "homeId": {
+      "type": ["string", "null"]
+    },
+    "totalDevices": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "onlineDevices": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "offlineDevices": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "staleDevices": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "degradedDevices": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "otaUpdateAvailableCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "otaInProgressCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "otaFailedCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "productVariantId",
+          "firmwareVersion",
+          "healthStatus",
+          "connectionState"
+        ],
+        "properties": {
+          "deviceId": { "type": "string" },
+          "serialNumber": { "type": ["string", "null"] },
+          "productVariantId": { "type": "string" },
+          "hardwareRevision": { "type": ["string", "null"] },
+          "firmwareFamily": { "type": ["string", "null"] },
+          "firmwareVersion": { "type": "string" },
+          "customName": { "type": ["string", "null"] },
+          "homeId": { "type": ["string", "null"] },
+          "roomId": { "type": ["string", "null"] },
+          "healthStatus": { "type": "string" },
+          "connectionState": { "type": "string" },
+          "lastSeenAt": { "type": ["string", "null"] },
+          "otaStatus": { "type": ["string", "null"] },
+          "availableUpdate": {
+            "type": ["object", "null"],
+            "properties": {
+              "releaseId": { "type": "string" },
+              "version": { "type": "string" },
+              "releaseChannel": { "type": "string" },
+              "releaseNotes": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

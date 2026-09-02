@@ -32,7 +32,11 @@ const {
   NotificationRepository,
   InvitationRepository,
   SyncRepository,
-  ExportRepository
+  ExportRepository,
+  FirmwareReleaseRepository,
+  OtaOperationRepository,
+  OtaRolloutRepository,
+  DeviceMaintenanceRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -178,6 +182,10 @@ function createApp(options = {}) {
   const invitationRepo = new InvitationRepository(db);
   const syncRepo = new SyncRepository(db);
   const exportRepo = new ExportRepository(db);
+  const firmwareRepo = new FirmwareReleaseRepository(db);
+  const operationRepo = new OtaOperationRepository(db);
+  const rolloutRepo = new OtaRolloutRepository(db);
+  const maintenanceRepo = new DeviceMaintenanceRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -193,7 +201,6 @@ function createApp(options = {}) {
   const provisioningService = new ProvisioningService({ provisioningRepo, deviceRepo, auditRepo });
   const deviceClaimService = new DeviceClaimService({ deviceRepo, homeRepo, provisioningRepo, auditRepo });
   const catalogService = new ProductCatalogService();
-  const otaService = new OtaService();
 
   const mqttTransport = options.mqttTransport || null;
   const eventBus = options.eventBus || null;
@@ -209,6 +216,30 @@ function createApp(options = {}) {
 
   const authMiddleware = requireAuthentication(authService);
   const homeAuthService = new HomeAuthorizationService({ homeRepo, deviceRepo, roomRepo });
+
+  const notificationService = options.notificationService || new NotificationService({
+    notificationRepository: notificationRepo,
+    homeRepository: homeRepo,
+    userRepository: userRepo,
+    realtimeEventBus: eventBus,
+    pushProvider
+  });
+
+  const otaService = options.otaService || new OtaService({
+    firmwareRepo,
+    operationRepo,
+    rolloutRepo,
+    maintenanceRepo,
+    deviceRepo,
+    deviceStateRepo,
+    homeRepo,
+    roomRepo,
+    homeAuthService,
+    commandService,
+    realtimeEventBus: eventBus,
+    notificationService,
+    productCatalogService: catalogService
+  });
 
   const sceneService = options.sceneService || new SceneService({
     sceneRepo, homeAuthService, deviceCommandService: commandService, eventBus, logRepo
@@ -234,13 +265,7 @@ function createApp(options = {}) {
     otaService
   });
 
-  const notificationService = options.notificationService || new NotificationService({
-    notificationRepository: notificationRepo,
-    homeRepository: homeRepo,
-    userRepository: userRepo,
-    realtimeEventBus: eventBus,
-    pushProvider
-  });
+
 
   const invitationService = options.invitationService || new InvitationService({
     invitationRepo,
@@ -482,9 +507,9 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.status, result.body);
     }
 
-    // 8.5. Route to OTA Router
-    if (pathname.startsWith('/api/v1/ota')) {
-      const result = await otaRouter.handle(method, pathname, body, query);
+    // 8.5. Route to OTA & Fleet Router
+    if (pathname.startsWith('/api/v1/ota') || pathname.startsWith('/api/v1/fleet')) {
+      const result = await otaRouter.handle(method, pathname, body, query, req.user);
       return sendJsonResponse(res, result.status, result.body);
     }
 
@@ -601,7 +626,8 @@ function createApp(options = {}) {
       deviceStateRepo, commandRepo, eventRepo, auditRepo, outboxRepo,
       provisioningRepo, refreshTokenRepo, sceneRepo, automationRepo,
       scheduleRepo, logRepo, activityLogRepo, healthRepo, notificationRepo,
-      invitationRepo, syncRepo, exportRepo
+      invitationRepo, syncRepo, exportRepo,
+      firmwareRepo, operationRepo, rolloutRepo, maintenanceRepo
     }
   };
 }

@@ -217,6 +217,38 @@ class NotificationService {
     });
   }
 
+  async notifyOtaStarted({ homeId, deviceId, version }) {
+    return this.dispatchNotification({
+      homeId,
+      type: 'OTA_STARTED',
+      category: 'update',
+      priority: 'NORMAL',
+      title: 'Firmware Update Started',
+      body: `Firmware update to v${version} started.`,
+      entityType: 'device',
+      entityId: deviceId,
+      data: { version },
+      preferenceKey: 'firmware_updates',
+      dedupWindowSeconds: 60
+    });
+  }
+
+  async notifyOtaSuccess({ homeId, deviceId, version }) {
+    return this.dispatchNotification({
+      homeId,
+      type: 'OTA_SUCCESS',
+      category: 'update',
+      priority: 'NORMAL',
+      title: 'Firmware Update Succeeded',
+      body: `Device successfully updated to firmware v${version}.`,
+      entityType: 'device',
+      entityId: deviceId,
+      data: { version },
+      preferenceKey: 'firmware_updates',
+      dedupWindowSeconds: 60
+    });
+  }
+
   async notifyOtaFailed({ homeId, deviceId, error }) {
     return this.dispatchNotification({
       homeId,
@@ -231,6 +263,26 @@ class NotificationService {
       preferenceKey: 'firmware_updates',
       dedupWindowSeconds: 60
     });
+  }
+
+  async notifyOtaRolledBack({ homeId, deviceId, error }) {
+    return this.dispatchNotification({
+      homeId,
+      type: 'OTA_ROLLED_BACK',
+      category: 'update',
+      priority: 'HIGH',
+      title: 'Firmware Rollback Detected',
+      body: `Device firmware update rolled back to previous partition: ${error || 'Boot verification failed'}`,
+      entityType: 'device',
+      entityId: deviceId,
+      data: { error },
+      preferenceKey: 'firmware_updates',
+      dedupWindowSeconds: 60
+    });
+  }
+
+  async createNotification(params) {
+    return this.dispatchNotification(params);
   }
 
   async notifySecurityEvent({ homeId, userId = null, title, message, severity = 'HIGH', data = {} }) {
