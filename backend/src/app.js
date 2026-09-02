@@ -36,7 +36,11 @@ const {
   FirmwareReleaseRepository,
   OtaOperationRepository,
   OtaRolloutRepository,
-  DeviceMaintenanceRepository
+  DeviceMaintenanceRepository,
+  DeviceTelemetryRepository,
+  TelemetryAggregateRepository,
+  EnergyThresholdRepository,
+  EnergyEventRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -50,6 +54,7 @@ const { ProductCatalogService } = require('./services/product-catalog.service');
 const { DeviceCommandService } = require('./services/device-command.service');
 const { DeviceEventTelemetryIngestionService } = require('./services/device-event-telemetry-ingestion.service');
 const { OtaService } = require('./services/ota.service');
+const { EnergyService } = require('./services/energy.service');
 const { SceneService } = require('./services/scene.service');
 const { AutomationService } = require('./services/automation.service');
 const { ScheduleService } = require('./services/schedule.service');
@@ -70,6 +75,7 @@ const { ProvisioningClaimApiRouter } = require('./api/provisioning-claim.router'
 const { ApiRouter: ProductCatalogApiRouter } = require('./api/product-catalog.router');
 const { buildRouteHandlers: buildCommandRouteHandlers } = require('./api/device-command.router');
 const { OtaApiRouter } = require('./api/ota.router');
+const { EnergyApiRouter } = require('./api/energy.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
@@ -186,6 +192,10 @@ function createApp(options = {}) {
   const operationRepo = new OtaOperationRepository(db);
   const rolloutRepo = new OtaRolloutRepository(db);
   const maintenanceRepo = new DeviceMaintenanceRepository(db);
+  const telemetryRepo = options.telemetryRepo || new DeviceTelemetryRepository(db);
+  const aggregateRepo = options.aggregateRepo || new TelemetryAggregateRepository(db);
+  const thresholdRepo = options.thresholdRepo || new EnergyThresholdRepository(db);
+  const energyEventRepo = options.energyEventRepo || new EnergyEventRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -206,14 +216,6 @@ function createApp(options = {}) {
   const eventBus = options.eventBus || null;
   const pushProvider = options.pushProvider || createPushProvider(options.pushProviderType || 'simulated');
 
-  const ingestionService = new DeviceEventTelemetryIngestionService({
-    deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo
-  });
-  const commandService = new DeviceCommandService({
-    commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo,
-    mqttTransport
-  });
-
   const authMiddleware = requireAuthentication(authService);
   const homeAuthService = new HomeAuthorizationService({ homeRepo, deviceRepo, roomRepo });
 
@@ -223,6 +225,33 @@ function createApp(options = {}) {
     userRepository: userRepo,
     realtimeEventBus: eventBus,
     pushProvider
+  });
+
+  const energyService = options.energyService || new EnergyService({
+    telemetryRepo,
+    aggregateRepo,
+    thresholdRepo,
+    eventRepo: energyEventRepo,
+    deviceRepo,
+    roomRepo,
+    homeRepo,
+    notificationService,
+    realtimeEventBus: eventBus
+  });
+
+  const ingestionService = new DeviceEventTelemetryIngestionService({
+    deviceStateRepo,
+    eventRepo,
+    commandRepo,
+    outboxRepo,
+    auditRepo,
+    activityLogRepo,
+    healthRepo,
+    energyService
+  });
+  const commandService = new DeviceCommandService({
+    commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo,
+    mqttTransport
   });
 
   const otaService = options.otaService || new OtaService({
@@ -333,6 +362,7 @@ function createApp(options = {}) {
   const provisioningRouter = new ProvisioningClaimApiRouter({ provisioningService, deviceClaimService });
   const catalogRouter = new ProductCatalogApiRouter();
   const otaRouter = new OtaApiRouter({ otaService });
+  const energyRouter = new EnergyApiRouter({ energyService, homeAuthService, telemetryRepo, thresholdRepo, eventRepo });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const deviceManagementRouter = new DeviceManagementApiRouter({
     deviceManagementService,
@@ -513,6 +543,13 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.status, result.body);
     }
 
+    // 8.55. Route to Energy Intelligence & Telemetry Router (Phase 19)
+    if (pathname.startsWith('/api/v1/energy')) {
+      const actorContext = req.user ? { userId: req.user.id } : (req.actorContext || null);
+      const result = await energyRouter.handleRequest({ method, path: pathname, query, body }, actorContext);
+      return sendJsonResponse(res, result.statusCode, result.body);
+    }
+
     // 8.6. Route to Automation, Scene, and Schedule Router
     if (
       pathname.includes('/scenes') ||
@@ -617,6 +654,7 @@ function createApp(options = {}) {
       syncService,
       dataExportService,
       dataRetentionService,
+      energyService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -627,7 +665,8 @@ function createApp(options = {}) {
       provisioningRepo, refreshTokenRepo, sceneRepo, automationRepo,
       scheduleRepo, logRepo, activityLogRepo, healthRepo, notificationRepo,
       invitationRepo, syncRepo, exportRepo,
-      firmwareRepo, operationRepo, rolloutRepo, maintenanceRepo
+      firmwareRepo, operationRepo, rolloutRepo, maintenanceRepo,
+      telemetryRepo, aggregateRepo, thresholdRepo, energyEventRepo
     }
   };
 }

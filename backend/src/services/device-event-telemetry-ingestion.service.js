@@ -48,8 +48,9 @@ class DeviceEventTelemetryIngestionService {
    * @param {Object}   opts.auditRepo        - AuditRepository instance
    * @param {Object}   [opts.activityLogRepo]- DeviceActivityLogRepository instance
    * @param {Object}   [opts.healthRepo]     - DeviceHealthRepository instance
+   * @param {Object}   [opts.energyService]  - EnergyService instance
    */
-  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null }) {
+  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null, energyService = null }) {
     this.deviceStateRepo = deviceStateRepo;
     this.eventRepo       = eventRepo;
     this.commandRepo     = commandRepo;
@@ -57,6 +58,7 @@ class DeviceEventTelemetryIngestionService {
     this.auditRepo       = auditRepo;
     this.activityLogRepo = activityLogRepo;
     this.healthRepo      = healthRepo;
+    this.energyService   = energyService;
     this._telemetryLastSeqByDevice = new Map(); // deviceId -> { channelIndex -> lastSeq }
   }
 
@@ -304,8 +306,14 @@ class DeviceEventTelemetryIngestionService {
       console.warn(`[Ingestion] Cannot update connection state for ${deviceId}:`, err.message);
     }
 
-    // Telemetry records are not persisted to DB in this phase (would require telemetry table).
-    // Future phases will add time-series storage. For now, log and route to outbox for consumers.
+    // Delegate to EnergyService for persistence, aggregation and threshold analysis (Phase 19)
+    if (this.energyService) {
+      try {
+        await this.energyService.ingestTelemetry(telemetryMsg);
+      } catch (err) {
+        console.warn(`[Ingestion] EnergyService ingestion failed for ${deviceId}:`, err.message);
+      }
+    }
     try {
       await this.outboxRepo.enqueue({
         id: `outbox_telem_${deviceId}_${ch}_${newSeq}_${Date.now()}`,

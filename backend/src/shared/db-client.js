@@ -20,7 +20,8 @@ class DatabaseClient {
       'notifications', 'push_device_tokens', 'user_notification_preferences', 'notification_delivery_queue',
       'user_profiles', 'home_invitations',
       'sync_checkpoints', 'pending_change_audits', 'data_export_records',
-      'firmware_releases', 'ota_rollouts', 'ota_operations', 'device_maintenance_logs'
+      'firmware_releases', 'ota_rollouts', 'ota_operations', 'device_maintenance_logs',
+      'device_telemetry_measurements', 'telemetry_aggregates', 'energy_threshold_configs', 'energy_events'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

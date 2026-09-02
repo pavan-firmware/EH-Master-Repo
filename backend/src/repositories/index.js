@@ -520,6 +520,26 @@ class DeviceRepository {
     return this.db.find('device_authorizations', a => a.home_id === homeId);
   }
 
+  async getDevicesByHome(homeId) {
+    const auths = await this.getAuthorizationsByHome(homeId);
+    const devices = [];
+    for (const a of auths) {
+      const dev = await this.db.findById('devices', a.device_id);
+      if (dev) devices.push({ ...dev, ...a });
+    }
+    return devices;
+  }
+
+  async getDevicesByRoom(roomId) {
+    const auths = await this.db.find('device_authorizations', a => a.room_id === roomId);
+    const devices = [];
+    for (const a of auths) {
+      const dev = await this.db.findById('devices', a.device_id);
+      if (dev) devices.push({ ...dev, ...a });
+    }
+    return devices;
+  }
+
   async getDevice(deviceId) {
     return this.db.findById('devices', deviceId);
   }
@@ -1766,6 +1786,242 @@ class DeviceMaintenanceRepository {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Phase 19: Energy Intelligence & Telemetry Repositories
+// -----------------------------------------------------------------------------
+
+class DeviceTelemetryRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordMeasurement(m) {
+    const id = m.id || `telem_${m.deviceId || m.device_id}_${m.channelIndex || m.channel_index || 1}_${m.sequenceNumber || m.sequence_number || 0}_${Date.now()}`;
+    const record = {
+      device_id: m.deviceId || m.device_id,
+      channel_index: m.channelIndex !== undefined ? m.channelIndex : (m.channel_index !== undefined ? m.channel_index : 1),
+      v_mv: m.v_mv,
+      i_ma: m.i_ma,
+      p_mw: m.p_mw,
+      e_tot_wh: m.e_tot_wh,
+      e_int_mwh: m.e_int_mwh,
+      freq_mhz: m.freq_mhz,
+      pf_x1000: m.pf_x1000,
+      flags: m.flags !== undefined ? m.flags : 0,
+      sequence_number: m.sequenceNumber !== undefined ? m.sequenceNumber : (m.sequence_number !== undefined ? m.sequence_number : 0),
+      device_timestamp: m.timestamp || m.device_timestamp || new Date().toISOString(),
+      ingested_at: m.ingested_at || new Date().toISOString()
+    };
+    return this.db.insert('device_telemetry_measurements', id, record);
+  }
+
+  async getLatestMeasurement(deviceId, channelIndex = 1) {
+    const list = await this.db.find('device_telemetry_measurements', m =>
+      m.device_id === deviceId && m.channel_index === channelIndex
+    );
+    if (!list || list.length === 0) return null;
+    list.sort((a, b) => new Date(b.device_timestamp) - new Date(a.device_timestamp));
+    return list[0];
+  }
+
+  async getMeasurements(deviceId, { channelIndex = null, from = null, to = null, limit = 100, offset = 0 } = {}) {
+    let list = await this.db.find('device_telemetry_measurements', m => {
+      if (m.device_id !== deviceId) return false;
+      if (channelIndex !== null && m.channel_index !== channelIndex) return false;
+      if (from && new Date(m.device_timestamp) < new Date(from)) return false;
+      if (to && new Date(m.device_timestamp) > new Date(to)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.device_timestamp) - new Date(a.device_timestamp));
+    return list.slice(offset, offset + limit);
+  }
+
+  async purgeOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('device_telemetry_measurements', m => new Date(m.device_timestamp) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('device_telemetry_measurements', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class TelemetryAggregateRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async upsertAggregate({
+    deviceId,
+    channelIndex = 1,
+    bucketType, // 'MINUTE', 'HOUR', 'DAY'
+    bucketStart,
+    bucketEnd,
+    totalEnergyWh,
+    avgPowerW,
+    peakPowerW,
+    minPowerW = 0,
+    sampleCount = 1,
+    dataQuality = 'GOOD'
+  }) {
+    const id = `agg_${deviceId}_${channelIndex}_${bucketType}_${bucketStart}`;
+    const existing = await this.db.findById('telemetry_aggregates', id);
+    if (existing) {
+      return this.db.update('telemetry_aggregates', id, {
+        total_energy_wh: totalEnergyWh,
+        avg_power_w: avgPowerW,
+        peak_power_w: peakPowerW,
+        min_power_w: minPowerW,
+        sample_count: sampleCount,
+        data_quality: dataQuality,
+        updated_at: new Date().toISOString()
+      });
+    }
+
+    return this.db.insert('telemetry_aggregates', id, {
+      device_id: deviceId,
+      channel_index: channelIndex,
+      bucket_type: bucketType,
+      bucket_start: bucketStart,
+      bucket_end: bucketEnd,
+      total_energy_wh: totalEnergyWh,
+      avg_power_w: avgPowerW,
+      peak_power_w: peakPowerW,
+      min_power_w: minPowerW,
+      sample_count: sampleCount,
+      data_quality: dataQuality,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async getAggregates(deviceId, { bucketType, from = null, to = null, limit = 500 } = {}) {
+    const list = await this.db.find('telemetry_aggregates', a => {
+      if (a.device_id !== deviceId) return false;
+      if (bucketType && a.bucket_type !== bucketType) return false;
+      if (from && new Date(a.bucket_start) < new Date(from)) return false;
+      if (to && new Date(a.bucket_start) > new Date(to)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(a.bucket_start) - new Date(b.bucket_start));
+    return list.slice(0, limit);
+  }
+
+  async getHomeAggregates(deviceIds = [], { bucketType, from = null, to = null } = {}) {
+    if (!deviceIds || deviceIds.length === 0) return [];
+    const devSet = new Set(deviceIds);
+    const list = await this.db.find('telemetry_aggregates', a => {
+      if (!devSet.has(a.device_id)) return false;
+      if (bucketType && a.bucket_type !== bucketType) return false;
+      if (from && new Date(a.bucket_start) < new Date(from)) return false;
+      if (to && new Date(a.bucket_start) > new Date(to)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(a.bucket_start) - new Date(b.bucket_start));
+    return list;
+  }
+}
+
+class EnergyThresholdRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async getThresholdsForHome(homeId) {
+    return this.db.find('energy_threshold_configs', t => t.home_id === homeId && t.is_enabled === 1);
+  }
+
+  async getThreshold(homeId, deviceId = null) {
+    const list = await this.db.find('energy_threshold_configs', t =>
+      t.home_id === homeId && (deviceId ? t.device_id === deviceId : (!t.device_id || t.device_id === null))
+    );
+    return list[0] || null;
+  }
+
+  async upsertThreshold({
+    homeId,
+    deviceId = null,
+    highPowerW = null,
+    dailyEnergyKwh = null,
+    monthlyEnergyKwh = null,
+    costPerKwh = 0.15,
+    currency = 'USD',
+    isEnabled = 1
+  }) {
+    const existing = await this.getThreshold(homeId, deviceId);
+    if (existing) {
+      return this.db.update('energy_threshold_configs', existing.id, {
+        high_power_w: highPowerW,
+        daily_energy_kwh: dailyEnergyKwh,
+        monthly_energy_kwh: monthlyEnergyKwh,
+        cost_per_kwh: costPerKwh,
+        currency,
+        is_enabled: isEnabled ? 1 : 0,
+        updated_at: new Date().toISOString()
+      });
+    }
+
+    const id = `ethr_${homeId}_${deviceId || 'home'}`;
+    return this.db.insert('energy_threshold_configs', id, {
+      home_id: homeId,
+      device_id: deviceId,
+      high_power_w: highPowerW,
+      daily_energy_kwh: dailyEnergyKwh,
+      monthly_energy_kwh: monthlyEnergyKwh,
+      cost_per_kwh: costPerKwh,
+      currency,
+      is_enabled: isEnabled ? 1 : 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async deleteThreshold(id) {
+    return this.db.delete('energy_threshold_configs', id);
+  }
+}
+
+class EnergyEventRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordEvent({
+    id = null,
+    homeId,
+    deviceId = null,
+    eventType,
+    severity = 'WARN',
+    valueRecorded,
+    thresholdValue,
+    message,
+    details = {}
+  }) {
+    const eventId = id || `enevt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return this.db.insert('energy_events', eventId, {
+      home_id: homeId,
+      device_id: deviceId,
+      event_type: eventType,
+      severity,
+      value_recorded: valueRecorded,
+      threshold_value: thresholdValue,
+      message,
+      details_json: JSON.stringify(details),
+      created_at: new Date().toISOString()
+    });
+  }
+
+  async getEventsForHome(homeId, { limit = 50, from = null } = {}) {
+    let list = await this.db.find('energy_events', e => {
+      if (e.home_id !== homeId) return false;
+      if (from && new Date(e.created_at) < new Date(from)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -1793,5 +2049,9 @@ module.exports = {
   FirmwareReleaseRepository,
   OtaOperationRepository,
   OtaRolloutRepository,
-  DeviceMaintenanceRepository
+  DeviceMaintenanceRepository,
+  DeviceTelemetryRepository,
+  TelemetryAggregateRepository,
+  EnergyThresholdRepository,
+  EnergyEventRepository
 };

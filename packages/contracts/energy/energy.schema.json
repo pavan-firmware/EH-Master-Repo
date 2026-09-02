@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/energy/energy.schema.json",
+  "title": "EnergyUsageSummary",
+  "description": "Authoritative energy usage summary for a device, room, or entire home.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "entityType",
+    "entityId",
+    "period",
+    "currentPowerW",
+    "totalEnergyKwh",
+    "peakPowerW",
+    "avgPowerW",
+    "lastUpdated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "entityType": {
+      "type": "string",
+      "enum": ["device", "room", "home"]
+    },
+    "entityId": {
+      "type": "string"
+    },
+    "period": {
+      "type": "string",
+      "enum": ["today", "week", "month", "year", "custom"]
+    },
+    "currentPowerW": {
+      "type": "number",
+      "minimum": 0
+    },
+    "totalEnergyKwh": {
+      "type": "number",
+      "minimum": 0
+    },
+    "peakPowerW": {
+      "type": "number",
+      "minimum": 0
+    },
+    "avgPowerW": {
+      "type": "number",
+      "minimum": 0
+    },
+    "minPowerW": {
+      "type": "number",
+      "minimum": 0
+    },
+    "costEstimate": {
+      "type": "number",
+      "minimum": 0
+    },
+    "currency": {
+      "type": "string"
+    },
+    "dataQuality": {
+      "type": "string",
+      "enum": ["GOOD", "PARTIAL", "INTERPOLATED", "DEGRADED"]
+    },
+    "sampleCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
