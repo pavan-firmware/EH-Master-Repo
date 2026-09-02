@@ -25,7 +25,7 @@
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const VALID_ACTIONS = Object.freeze(['setPower', 'setLevel', 'setColorTemp', 'identifyDevice']);
+const VALID_ACTIONS = Object.freeze(['setPower', 'setLevel', 'setColorTemp', 'identifyDevice', 'otaUpdate']);
 
 class DeviceCommandService {
   /**

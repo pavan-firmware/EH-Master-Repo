@@ -104,24 +104,25 @@ class HomeRepository {
     this.db = db;
   }
 
-  async createHome({ id, name, timezone = 'UTC', address = null, ownerId }) {
+  async createHome({ id, name, timezone = 'UTC', address = null, ownerId, owner_id }) {
+    const targetOwnerId = ownerId || owner_id;
     const homeId = id || require('crypto').randomUUID();
     // Verify owner exists
-    const owner = await this.db.findById('users', ownerId);
-    if (!owner) throw new Error(`Owner user ${ownerId} does not exist`);
+    const owner = await this.db.findById('users', targetOwnerId);
+    if (!owner) throw new Error(`Owner user ${targetOwnerId} does not exist`);
 
     const home = await this.db.insert('homes', homeId, {
       name,
       timezone,
       address,
-      owner_id: ownerId
+      owner_id: targetOwnerId
     });
 
     // Auto-create owner membership
     await this.addMembership({
-      id: `${homeId}_${ownerId}`,
+      id: `${homeId}_${targetOwnerId}`,
       homeId: homeId,
-      userId: ownerId,
+      userId: targetOwnerId,
       role: 'OWNER',
       acceptedAt: new Date().toISOString()
     });
@@ -190,20 +191,23 @@ class HomeRepository {
     return this.db.delete('homes', homeId);
   }
 
-  async addMembership({ id, homeId, userId, role, acceptedAt = null }) {
-    const user = await this.db.findById('users', userId);
-    if (!user) throw new Error(`User ${userId} does not exist`);
-    const home = await this.db.findById('homes', homeId);
-    if (!home) throw new Error(`Home ${homeId} does not exist`);
+  async addMembership({ id, homeId, home_id, userId, user_id, role, acceptedAt = null }) {
+    const targetUserId = userId || user_id;
+    const targetHomeId = homeId || home_id;
+    const membershipId = id || `${targetHomeId}_${targetUserId}`;
+    const user = await this.db.findById('users', targetUserId);
+    if (!user) throw new Error(`User ${targetUserId} does not exist`);
+    const home = await this.db.findById('homes', targetHomeId);
+    if (!home) throw new Error(`Home ${targetHomeId} does not exist`);
 
-    const existing = await this.db.find('home_memberships', m => m.home_id === homeId && m.user_id === userId);
+    const existing = await this.db.find('home_memberships', m => m.home_id === targetHomeId && m.user_id === targetUserId);
     if (existing.length > 0) {
-      throw new Error(`Membership for user ${userId} in home ${homeId} already exists`);
+      throw new Error(`Membership for user ${targetUserId} in home ${targetHomeId} already exists`);
     }
 
-    return this.db.insert('home_memberships', id, {
-      home_id: homeId,
-      user_id: userId,
+    return this.db.insert('home_memberships', membershipId, {
+      home_id: targetHomeId,
+      user_id: targetUserId,
       role,
       invited_at: new Date().toISOString(),
       accepted_at: acceptedAt
@@ -272,23 +276,25 @@ class RoomRepository {
     return this.db.delete('floors', floorId);
   }
 
-  async createRoom({ id, homeId, floorId = null, name, iconKey = 'default', sortOrder = 0 }) {
+  async createRoom({ id, homeId, home_id, floorId = null, floor_id = null, name, iconKey = 'default', icon_key = 'default', sortOrder = 0, sort_order = 0 }) {
+    const targetHomeId = homeId || home_id;
+    const targetFloorId = floorId || floor_id;
     const roomId = id || require('crypto').randomUUID();
-    const home = await this.db.findById('homes', homeId);
-    if (!home) throw new Error(`Home ${homeId} does not exist`);
-    if (floorId) {
-      const floor = await this.db.findById('floors', floorId);
-      if (!floor) throw new Error(`Floor ${floorId} does not exist`);
-      if (floor.home_id !== homeId) {
-        throw new Error(`Floor ${floorId} belongs to home ${floor.home_id}, not home ${homeId}`);
+    const home = await this.db.findById('homes', targetHomeId);
+    if (!home) throw new Error(`Home ${targetHomeId} does not exist`);
+    if (targetFloorId) {
+      const floor = await this.db.findById('floors', targetFloorId);
+      if (!floor) throw new Error(`Floor ${targetFloorId} does not exist`);
+      if (floor.home_id !== targetHomeId) {
+        throw new Error(`Floor ${targetFloorId} belongs to home ${floor.home_id}, not home ${targetHomeId}`);
       }
     }
     return this.db.insert('rooms', roomId, {
-      home_id: homeId,
-      floor_id: floorId,
+      home_id: targetHomeId,
+      floor_id: targetFloorId,
       name,
-      icon_key: iconKey,
-      sort_order: sortOrder
+      icon_key: iconKey || icon_key,
+      sort_order: sortOrder || sort_order
     });
   }
 
@@ -453,31 +459,35 @@ class DeviceRepository {
     return dev;
   }
 
-  async claimDevice({ deviceId, homeId, roomId = null, customName, channelLabels = {}, claimedByUserId }) {
-    const dev = await this.db.findById('devices', deviceId);
-    if (!dev) throw new Error(`Device ${deviceId} does not exist`);
-    const home = await this.db.findById('homes', homeId);
-    if (!home) throw new Error(`Home ${homeId} does not exist`);
+  async claimDevice({ deviceId, device_id, homeId, home_id, roomId = null, room_id = null, customName, custom_name, channelLabels = {}, channel_labels = {}, claimedByUserId, claimed_by_user_id }) {
+    const targetDevId = deviceId || device_id;
+    const targetHomeId = homeId || home_id;
+    const targetRoomId = roomId || room_id;
+    const dev = await this.db.findById('devices', targetDevId);
+    if (!dev) throw new Error(`Device ${targetDevId} does not exist`);
+    const home = await this.db.findById('homes', targetHomeId);
+    if (!home) throw new Error(`Home ${targetHomeId} does not exist`);
 
-    if (roomId) {
-      const room = await this.db.findById('rooms', roomId);
-      if (!room) throw new Error(`Room ${roomId} does not exist`);
-      if (room.home_id !== homeId) {
-        throw new Error(`Room ${roomId} belongs to home ${room.home_id}, not home ${homeId}`);
+    if (targetRoomId) {
+      const room = await this.db.findById('rooms', targetRoomId);
+      if (!room) throw new Error(`Room ${targetRoomId} does not exist`);
+      if (room.home_id !== targetHomeId) {
+        throw new Error(`Room ${targetRoomId} belongs to home ${room.home_id}, not home ${targetHomeId}`);
       }
     }
 
-    const existingAuth = await this.db.findById('device_authorizations', deviceId);
-    if (existingAuth) throw new Error(`Device ${deviceId} is already claimed by home ${existingAuth.home_id}`);
+    const existingAuth = await this.db.findById('device_authorizations', targetDevId);
+    if (existingAuth) throw new Error(`Device ${targetDevId} is already claimed by home ${existingAuth.home_id}`);
 
-    return this.db.insert('device_authorizations', deviceId, {
-      device_id: deviceId,
-      home_id: homeId,
-      room_id: roomId,
-      custom_name: customName,
-      channel_labels: channelLabels,
-      claimed_by_user_id: claimedByUserId,
-      claimed_at: new Date().toISOString()
+    return this.db.insert('device_authorizations', targetDevId, {
+      device_id: targetDevId,
+      home_id: targetHomeId,
+      room_id: targetRoomId,
+      custom_name: customName || custom_name || dev.serial_number,
+      channel_labels: channelLabels || channel_labels,
+      claimed_by_user_id: claimedByUserId || claimed_by_user_id || null,
+      claimed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     });
   }
 
@@ -512,6 +522,21 @@ class DeviceRepository {
 
   async getDevice(deviceId) {
     return this.db.findById('devices', deviceId);
+  }
+
+  async updateDeviceFirmwareVersion(deviceId, version) {
+    return this.db.update('devices', deviceId, { firmware_version: version });
+  }
+
+  async createDevice(params) {
+    return this.registerDevice({
+      deviceId: params.id || params.deviceId || require('crypto').randomUUID(),
+      serialNumber: params.serial_number || params.serialNumber,
+      productVariantId: params.product_variant_id || params.productVariantId,
+      hardwareRevision: params.hardware_revision || params.hardwareRevision,
+      firmwareFamily: params.firmware_family || params.firmwareFamily,
+      firmwareVersion: params.firmware_version || params.firmwareVersion || '1.0.0'
+    });
   }
 
   async getDeviceAuthorization(deviceId) {
@@ -1530,6 +1555,217 @@ class ExportRepository {
   }
 }
 
+class FirmwareReleaseRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createRelease(manifest) {
+    const id = manifest.id || manifest.releaseId || `rel_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return this.db.insert('firmware_releases', id, {
+      product_variant_id: manifest.productVariantId,
+      hardware_revision: manifest.hardwareRevision || null,
+      firmware_family: manifest.firmwareFamily || 'esp32-switch-platform',
+      version: manifest.version,
+      min_firmware_version: manifest.minFirmwareVersion || null,
+      release_channel: manifest.releaseChannel || 'production',
+      binary_size_bytes: manifest.binarySizeBytes || 0,
+      sha256: manifest.sha256,
+      ed25519_signature: manifest.ed25519Signature,
+      download_url: manifest.downloadUrl,
+      release_notes: manifest.releaseNotes || null,
+      status: manifest.status || 'PUBLISHED',
+      released_at: manifest.releasedAt || new Date().toISOString()
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('firmware_releases', id);
+  }
+
+  async findByVariant(productVariantId, releaseChannel = null) {
+    return this.db.find('firmware_releases', r => {
+      if (r.product_variant_id !== productVariantId) return false;
+      if (releaseChannel && r.release_channel !== releaseChannel) return false;
+      return r.status === 'PUBLISHED';
+    });
+  }
+
+  async listReleases(filters = {}) {
+    return this.db.find('firmware_releases', r => {
+      if (filters.productVariantId && r.product_variant_id !== filters.productVariantId) return false;
+      if (filters.releaseChannel && r.release_channel !== filters.releaseChannel) return false;
+      if (filters.status && r.status !== filters.status) return false;
+      return true;
+    });
+  }
+
+  async updateStatus(id, status) {
+    return this.db.update('firmware_releases', id, { status });
+  }
+}
+
+class OtaOperationRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createOperation({
+    id,
+    deviceId,
+    homeId,
+    releaseId,
+    rolloutId = null,
+    fromVersion,
+    targetVersion,
+    status = 'QUEUED',
+    progressPercent = 0,
+    initiatedByUserId = null
+  }) {
+    const opId = id || `ota_op_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
+    return this.db.insert('ota_operations', opId, {
+      device_id: deviceId,
+      home_id: homeId,
+      release_id: releaseId,
+      rollout_id: rolloutId,
+      from_version: fromVersion,
+      target_version: targetVersion,
+      status,
+      progress_percent: progressPercent,
+      error_code: null,
+      error_message: null,
+      initiated_by_user_id: initiatedByUserId,
+      started_at: now,
+      completed_at: null,
+      updated_at: now
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('ota_operations', id);
+  }
+
+  async findByDeviceId(deviceId) {
+    const ops = await this.db.find('ota_operations', o => o.device_id === deviceId);
+    return ops.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  }
+
+  async findActiveByDeviceId(deviceId) {
+    const active = await this.db.find('ota_operations', o =>
+      o.device_id === deviceId &&
+      !['SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(o.status)
+    );
+    return active[0] || null;
+  }
+
+  async findByHomeId(homeId) {
+    const ops = await this.db.find('ota_operations', o => o.home_id === homeId);
+    return ops.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  }
+
+  async updateProgress(id, updates = {}) {
+    const cleanUpdates = { updated_at: new Date().toISOString() };
+    if (updates.status !== undefined) cleanUpdates.status = updates.status;
+    if (updates.progressPercent !== undefined) cleanUpdates.progress_percent = updates.progressPercent;
+    if (updates.errorCode !== undefined) cleanUpdates.error_code = updates.errorCode;
+    if (updates.errorMessage !== undefined) cleanUpdates.error_message = updates.errorMessage;
+    if (updates.completedAt !== undefined) cleanUpdates.completed_at = updates.completedAt;
+    if (['SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(updates.status) && !cleanUpdates.completed_at) {
+      cleanUpdates.completed_at = new Date().toISOString();
+    }
+    return this.db.update('ota_operations', id, cleanUpdates);
+  }
+}
+
+class OtaRolloutRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createRollout({
+    id,
+    releaseId,
+    homeId = null,
+    rolloutStage = 'CANARY',
+    status = 'ACTIVE',
+    targetFilters = {}
+  }) {
+    const rolloutId = id || `rollout_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
+    return this.db.insert('ota_rollouts', rolloutId, {
+      release_id: releaseId,
+      home_id: homeId,
+      rollout_stage: rolloutStage,
+      status,
+      target_filters_json: JSON.stringify(targetFilters),
+      created_at: now,
+      updated_at: now
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('ota_rollouts', id);
+  }
+
+  async findByReleaseId(releaseId) {
+    return this.db.find('ota_rollouts', r => r.release_id === releaseId);
+  }
+
+  async listActive() {
+    return this.db.find('ota_rollouts', r => r.status === 'ACTIVE');
+  }
+
+  async updateRollout(id, updates = {}) {
+    const cleanUpdates = { updated_at: new Date().toISOString() };
+    if (updates.rolloutStage !== undefined) cleanUpdates.rollout_stage = updates.rolloutStage;
+    if (updates.status !== undefined) cleanUpdates.status = updates.status;
+    if (updates.targetFilters !== undefined) cleanUpdates.target_filters_json = JSON.stringify(updates.targetFilters);
+    return this.db.update('ota_rollouts', id, cleanUpdates);
+  }
+}
+
+class DeviceMaintenanceRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async logMaintenance({
+    id,
+    deviceId,
+    homeId,
+    operationType,
+    releaseId = null,
+    fromVersion = null,
+    toVersion = null,
+    status,
+    details = {}
+  }) {
+    const logId = id || `maint_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return this.db.insert('device_maintenance_logs', logId, {
+      device_id: deviceId,
+      home_id: homeId,
+      operation_type: operationType,
+      release_id: releaseId,
+      from_version: fromVersion,
+      to_version: toVersion,
+      status,
+      details_json: JSON.stringify(details),
+      created_at: new Date().toISOString()
+    });
+  }
+
+  async findByDeviceId(deviceId, limit = 50) {
+    const logs = await this.db.find('device_maintenance_logs', l => l.device_id === deviceId);
+    return logs.reverse().slice(0, limit);
+  }
+
+  async findByHomeId(homeId, limit = 50) {
+    const logs = await this.db.find('device_maintenance_logs', l => l.home_id === homeId);
+    return logs.reverse().slice(0, limit);
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -1553,5 +1789,9 @@ module.exports = {
   NotificationRepository,
   InvitationRepository,
   SyncRepository,
-  ExportRepository
+  ExportRepository,
+  FirmwareReleaseRepository,
+  OtaOperationRepository,
+  OtaRolloutRepository,
+  DeviceMaintenanceRepository
 };

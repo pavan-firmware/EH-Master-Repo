@@ -117,8 +117,11 @@ runStep('26. Phase 16 Account, Home & Access Control Platform Tests', `${nodeBin
 // 27. Phase 17 Cloud Sync & Data Lifecycle Tests
 runStep('27. Phase 17 Cloud Sync & Data Lifecycle Platform Tests', `${nodeBin} backend/tests/phase17-cloud-sync.test.js`);
 
+// 28. Phase 18 Device Fleet Management & OTA Lifecycle Tests
+runStep('28. Phase 18 Device Fleet Management & OTA Lifecycle Tests', `${nodeBin} backend/tests/phase18-fleet-ota.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  27 SUITES ATTEMPTED. ${failedSuites === 0 ? '27/27' : (27 - failedSuites) + '/27'} PASSED.`);
+console.log(`  28 SUITES ATTEMPTED. ${failedSuites === 0 ? '28/28' : (28 - failedSuites) + '/28'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');
