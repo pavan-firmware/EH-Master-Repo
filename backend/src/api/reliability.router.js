@@ -35,10 +35,10 @@ class ReliabilityApiRouter {
     const userId = actorContext && actorContext.userId;
 
     try {
-      // ── Fleet Health ──────────────────────────────────────────────────────
       let m;
 
-      m = path.match(/^\/api\/v1\/reliability\/homes\/([^/]+)\/fleet$/);
+      // ── Fleet Health / Summary ───────────────────────────────────────────
+      m = path.match(/^\/api\/v1\/reliability\/homes\/([^/]+)\/(?:fleet|summary|fleet-health)$/);
       if (m && method === 'GET') {
         const homeId = m[1];
         await this._authorizeHome(userId, homeId);
@@ -56,7 +56,7 @@ class ReliabilityApiRouter {
       }
 
       // ── Maintenance Recommendations for Home ──────────────────────────────
-      m = path.match(/^\/api\/v1\/reliability\/homes\/([^/]+)\/maintenance$/);
+      m = path.match(/^\/api\/v1\/reliability\/homes\/([^/]+)\/(?:maintenance|maintenance-recommendations)$/);
       if (m && method === 'GET') {
         const homeId = m[1];
         await this._authorizeHome(userId, homeId);
@@ -65,7 +65,7 @@ class ReliabilityApiRouter {
       }
 
       // ── Device Health Snapshot ────────────────────────────────────────────
-      m = path.match(/^\/api\/v1\/reliability\/devices\/([^/]+)\/health$/);
+      m = path.match(/^\/api\/v1\/reliability\/devices\/([^/]+)(?:\/health)?$/);
       if (m && method === 'GET') {
         const deviceId = m[1];
         const homeId = await this._homeIdForDevice(deviceId);
@@ -120,14 +120,14 @@ class ReliabilityApiRouter {
         return ok(diagnosis, 201);
       }
 
-      // ── Initiate Recovery ─────────────────────────────────────────────────
-      m = path.match(/^\/api\/v1\/reliability\/incidents\/([^/]+)\/recover$/);
+      // ── Initiate Recovery / Retry Incident ────────────────────────────────
+      m = path.match(/^\/api\/v1\/reliability\/incidents\/([^/]+)\/(?:recover|retry)$/);
       if (m && method === 'POST') {
         const incidentId = m[1];
         const incident = await this.svc.incidentRepo.findById(incidentId);
         if (!incident) return err('NOT_FOUND', 'Incident not found', 404);
         await this._authorizeHome(userId, incident.home_id);
-        const { actionType } = body;
+        const actionType = body.actionType || (path.endsWith('/retry') ? 'REFRESH_STATE' : null);
         if (!actionType) return err('VALIDATION_ERROR', 'actionType is required');
         const result = await this.svc.initiateRecovery(incidentId, actionType, actorContext);
         return ok(result, 201);
@@ -142,6 +142,28 @@ class ReliabilityApiRouter {
         await this._authorizeHome(userId, attempt.home_id);
         const result = await this.svc.verifyRecovery(attemptId);
         return ok(result);
+      }
+
+      // ── Approve Maintenance / Recovery ────────────────────────────────────
+      m = path.match(/^\/api\/v1\/reliability\/(?:recovery|maintenance)\/([^/]+)\/approve$/);
+      if (m && method === 'POST') {
+        const id = m[1];
+        const rec = await this.svc.maintenanceRepo.findById(id);
+        if (!rec) return err('NOT_FOUND', 'Record not found', 404);
+        await this._authorizeHome(userId, rec.home_id);
+        const updated = await this.svc.approveMaintenanceRecommendation(id, userId);
+        return ok(updated);
+      }
+
+      // ── Reject Maintenance / Recovery ────────────────────────────────────
+      m = path.match(/^\/api\/v1\/reliability\/(?:recovery|maintenance)\/([^/]+)\/reject$/);
+      if (m && method === 'POST') {
+        const id = m[1];
+        const rec = await this.svc.maintenanceRepo.findById(id);
+        if (!rec) return err('NOT_FOUND', 'Record not found', 404);
+        await this._authorizeHome(userId, rec.home_id);
+        const updated = await this.svc.rejectMaintenanceRecommendation(id, userId);
+        return ok(updated);
       }
 
       return err('NOT_FOUND', `Route ${method} ${path} not found`, 404);

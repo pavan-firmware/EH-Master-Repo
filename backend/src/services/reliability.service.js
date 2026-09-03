@@ -616,6 +616,37 @@ class ReliabilityService {
     });
   }
 
+  async rejectMaintenanceRecommendation(recId, rejectedBy = null) {
+    return this.maintenanceRepo.update(recId, {
+      status: 'REJECTED',
+      approved_by: rejectedBy,
+      completed_at: new Date().toISOString()
+    });
+  }
+
+  // ─── Room-Level Health Aggregation ─────────────────────────────────────────
+
+  async getRoomHealth(roomId, homeId) {
+    const devices = this.deviceRepo ? await this.deviceRepo.getDevicesByRoom(roomId) : [];
+    const stateDistribution = { HEALTHY: 0, DEGRADED: 0, UNSTABLE: 0, UNAVAILABLE: 0, UNKNOWN: 0 };
+    let totalScore = 0;
+
+    for (const device of devices) {
+      const health = await this.computeDeviceHealth(device.id, homeId);
+      stateDistribution[health.healthState]++;
+      totalScore += health.healthScore;
+    }
+
+    return {
+      roomId,
+      homeId,
+      totalDevices: devices.length,
+      stateDistribution,
+      roomHealthScore: devices.length > 0 ? Math.round(totalScore / devices.length) : 100,
+      generatedAt: new Date().toISOString()
+    };
+  }
+
   // ─── Query helpers ────────────────────────────────────────────────────────
 
   async getIncidentsForDevice(deviceId, { status, limit = 20 } = {}) {
