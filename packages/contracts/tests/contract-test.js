@@ -26,6 +26,7 @@ const schemaFiles = [
   '../energy/energy-forecasting.schema.json',
   '../context/presence-context.schema.json',
   '../intelligence/home-intelligence.schema.json',
+  '../reliability/device-reliability.schema.json',
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
@@ -696,6 +697,86 @@ const validOutcome = {
 
 assert('Valid DecisionOutcome passes', validator.validate('DecisionOutcome', validOutcome).valid);
 assert('Missing decisionId in DecisionOutcome fails', !validator.validate('DecisionOutcome', { ...validOutcome, decisionId: undefined }).valid);
+
+// ── Phase 25 — Device Reliability Contract Tests ──────────────────────────
+console.log('\n14. DeviceReliabilitySnapshot:');
+const validReliabilitySnapshot = {
+  id: 'snap_01',
+  homeId: 'home_01',
+  deviceId: 'dev_01',
+  healthState: 'HEALTHY',
+  healthScore: 95.0,
+  activeIncidents: 0,
+  snapshottedAt: '2026-09-03T12:00:00Z',
+  createdAt: '2026-09-03T12:00:00Z'
+};
+assert('Valid DeviceReliabilitySnapshot passes', validator.validate('DeviceReliabilitySnapshot', validReliabilitySnapshot).valid);
+assert('Invalid healthState fails', !validator.validate('DeviceReliabilitySnapshot', { ...validReliabilitySnapshot, healthState: 'GREAT' }).valid);
+assert('healthScore > 100 fails', !validator.validate('DeviceReliabilitySnapshot', { ...validReliabilitySnapshot, healthScore: 150 }).valid);
+
+console.log('\n15. ReliabilityIncident:');
+const validIncident = {
+  id: 'inc_01',
+  homeId: 'home_01',
+  deviceId: 'dev_01',
+  incidentType: 'DEVICE_OFFLINE',
+  severity: 'HIGH',
+  status: 'OPEN',
+  title: 'Device went offline',
+  signalCount: 3,
+  firstObservedAt: '2026-09-03T10:00:00Z',
+  lastObservedAt: '2026-09-03T11:00:00Z',
+  createdAt: '2026-09-03T10:00:00Z'
+};
+assert('Valid ReliabilityIncident passes', validator.validate('ReliabilityIncident', validIncident).valid);
+assert('Invalid incidentType fails', !validator.validate('ReliabilityIncident', { ...validIncident, incidentType: 'EXPLODED' }).valid);
+assert('Invalid severity fails', !validator.validate('ReliabilityIncident', { ...validIncident, severity: 'EXTREME' }).valid);
+assert('Invalid status fails', !validator.validate('ReliabilityIncident', { ...validIncident, status: 'DONE' }).valid);
+
+console.log('\n16. RecoveryAttempt:');
+const validRecovery = {
+  id: 'rec_01',
+  incidentId: 'inc_01',
+  homeId: 'home_01',
+  deviceId: 'dev_01',
+  actionType: 'REFRESH_STATE',
+  status: 'RECOVERED',
+  commandAccepted: true,
+  initiatedAt: '2026-09-03T12:00:00Z'
+};
+assert('Valid RecoveryAttempt passes', validator.validate('RecoveryAttempt', validRecovery).valid);
+assert('Invalid actionType fails', !validator.validate('RecoveryAttempt', { ...validRecovery, actionType: 'FACTORY_RESET' }).valid);
+assert('Invalid status fails', !validator.validate('RecoveryAttempt', { ...validRecovery, status: 'DONE' }).valid);
+
+console.log('\n17. MaintenanceRecommendation:');
+const validMaintenance = {
+  id: 'maint_01',
+  homeId: 'home_01',
+  deviceId: 'dev_01',
+  recommendationType: 'NETWORK_CHECK_REQUIRED',
+  priority: 'MEDIUM',
+  title: 'Check Wi-Fi',
+  description: 'Device disconnects frequently',
+  status: 'PENDING',
+  createdAt: '2026-09-03T08:00:00Z'
+};
+assert('Valid MaintenanceRecommendation passes', validator.validate('MaintenanceRecommendation', validMaintenance).valid);
+assert('Invalid recommendationType fails', !validator.validate('MaintenanceRecommendation', { ...validMaintenance, recommendationType: 'DETONATE' }).valid);
+assert('Invalid status fails', !validator.validate('MaintenanceRecommendation', { ...validMaintenance, status: 'IGNORED' }).valid);
+
+console.log('\n18. FleetHealthSummary:');
+const validFleet = {
+  homeId: 'home_01',
+  totalDevices: 5,
+  stateDistribution: { HEALTHY: 3, DEGRADED: 1, UNSTABLE: 0, UNAVAILABLE: 1, UNKNOWN: 0 },
+  fleetHealthScore: 68.0,
+  activeIncidents: 2,
+  criticalIncidents: 0,
+  pendingRecoveries: 1,
+  generatedAt: '2026-09-03T15:00:00Z'
+};
+assert('Valid FleetHealthSummary passes', validator.validate('FleetHealthSummary', validFleet).valid);
+assert('fleetHealthScore > 100 fails', !validator.validate('FleetHealthSummary', { ...validFleet, fleetHealthScore: 150 }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

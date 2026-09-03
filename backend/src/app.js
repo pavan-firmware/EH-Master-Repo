@@ -59,7 +59,12 @@ const {
   ContextTransitionRepository,
   IntelligenceDecisionRepository,
   IntelligenceRecommendationRepository,
-  IntelligenceOutcomeRepository
+  IntelligenceOutcomeRepository,
+  ReliabilityIncidentRepository,
+  ReliabilityDiagnosticRepository,
+  ReliabilityRecoveryRepository,
+  ReliabilityHealthSnapshotRepository,
+  MaintenanceRecommendationRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -85,6 +90,7 @@ const { DataExportService } = require('./services/data-export.service');
 const { DataRetentionService } = require('./services/data-retention.service');
 const { ContextService } = require('./services/context.service');
 const { IntelligenceService } = require('./services/intelligence.service');
+const { ReliabilityService } = require('./services/reliability.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
@@ -99,6 +105,7 @@ const { OtaApiRouter } = require('./api/ota.router');
 const { EnergyApiRouter } = require('./api/energy.router');
 const { ContextApiRouter } = require('./api/context.router');
 const { IntelligenceApiRouter } = require('./api/intelligence.router');
+const { ReliabilityApiRouter } = require('./api/reliability.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
@@ -238,6 +245,12 @@ function createApp(options = {}) {
   const decisionRepo = options.decisionRepo || new IntelligenceDecisionRepository(db);
   const recommendationRepo = options.recommendationRepo || new IntelligenceRecommendationRepository(db);
   const outcomeRepo = options.outcomeRepo || new IntelligenceOutcomeRepository(db);
+  // Phase 25 — Reliability repos
+  const reliabilityIncidentRepo = options.reliabilityIncidentRepo || new ReliabilityIncidentRepository(db);
+  const reliabilityDiagnosticRepo = options.reliabilityDiagnosticRepo || new ReliabilityDiagnosticRepository(db);
+  const reliabilityRecoveryRepo = options.reliabilityRecoveryRepo || new ReliabilityRecoveryRepository(db);
+  const reliabilitySnapshotRepo = options.reliabilitySnapshotRepo || new ReliabilityHealthSnapshotRepository(db);
+  const maintenanceRecRepo = options.maintenanceRecRepo || new MaintenanceRecommendationRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -346,6 +359,24 @@ function createApp(options = {}) {
     automationService,
     sceneService,
     commandService,
+    notificationService,
+    realtimeEventBus: eventBus,
+    homeAuthService
+  });
+
+  // Phase 25 — Reliability Service
+  const reliabilityService = options.reliabilityService || new ReliabilityService({
+    incidentRepo: reliabilityIncidentRepo,
+    diagnosticRepo: reliabilityDiagnosticRepo,
+    recoveryRepo: reliabilityRecoveryRepo,
+    snapshotRepo: reliabilitySnapshotRepo,
+    maintenanceRepo: maintenanceRecRepo,
+    deviceRepo,
+    deviceStateRepo,
+    healthRepo,
+    commandService,
+    intelligenceService,
+    contextService,
     notificationService,
     realtimeEventBus: eventBus,
     homeAuthService
@@ -476,6 +507,7 @@ function createApp(options = {}) {
   });
   const contextRouter = new ContextApiRouter({ contextService, homeAuthService });
   const intelligenceRouter = new IntelligenceApiRouter({ intelligenceService, homeAuthService });
+  const reliabilityRouter = new ReliabilityApiRouter({ reliabilityService, homeAuthService });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const deviceManagementRouter = new DeviceManagementApiRouter({
     deviceManagementService,
@@ -677,6 +709,13 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.statusCode, result.body);
     }
 
+    // 8.58. Route to Reliability & Self-Healing Router (Phase 25)
+    if (pathname.startsWith('/api/v1/reliability')) {
+      const actorContext = req.user ? { userId: req.user.id } : (req.actorContext || null);
+      const result = await reliabilityRouter.handleRequest({ method, path: pathname, query, body }, actorContext);
+      return sendJsonResponse(res, result.statusCode, result.body);
+    }
+
     // 8.6. Route to Automation, Scene, and Schedule Router
     if (
       pathname.includes('/scenes') ||
@@ -784,6 +823,7 @@ function createApp(options = {}) {
       energyService,
       contextService,
       intelligenceService,
+      reliabilityService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -800,7 +840,9 @@ function createApp(options = {}) {
       tariffRepo, tariffPeriodRepo, budgetRepo, costOptimizationRepo,
       forecastRepo, anomalyRepo, baselineRepo, accuracyRepo, efficiencyRepo,
       signalRepo, presenceStateRepo, contextRepo, overrideRepo, transitionRepo,
-      decisionRepo, recommendationRepo, outcomeRepo
+      decisionRepo, recommendationRepo, outcomeRepo,
+      reliabilityIncidentRepo, reliabilityDiagnosticRepo, reliabilityRecoveryRepo,
+      reliabilitySnapshotRepo, maintenanceRecRepo
     },
     contextApiRouter: contextRouter,
     energyApiRouter: energyRouter,

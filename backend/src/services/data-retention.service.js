@@ -147,6 +147,49 @@ class DataRetentionService {
     return { pruned: stale.length, cutoff };
   }
 
+  // Phase 25 — Reliability & Self-Healing Retention
+
+  async pruneReliabilityIncidents(days = 90) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('reliability_incidents', i =>
+      i.created_at < cutoff && ['RESOLVED', 'AUTO_RESOLVED'].includes(i.status)
+    );
+    for (const i of stale) await this.db.delete('reliability_incidents', i.id);
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneReliabilityDiagnostics(days = 90) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('reliability_diagnostics', d => d.created_at < cutoff);
+    for (const d of stale) await this.db.delete('reliability_diagnostics', d.id);
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneReliabilityRecoveryAttempts(days = 60) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('reliability_recovery_attempts', r =>
+      r.created_at < cutoff && ['RECOVERED', 'PARTIALLY_RECOVERED', 'FAILED'].includes(r.status)
+    );
+    for (const r of stale) await this.db.delete('reliability_recovery_attempts', r.id);
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneReliabilitySnapshots(days = 30) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('reliability_health_snapshots', s => s.created_at < cutoff);
+    for (const s of stale) await this.db.delete('reliability_health_snapshots', s.id);
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneMaintenanceRecommendations(days = 180) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('maintenance_recommendations', r =>
+      r.created_at < cutoff && ['COMPLETED', 'REJECTED'].includes(r.status)
+    );
+    for (const r of stale) await this.db.delete('maintenance_recommendations', r.id);
+    return { pruned: stale.length, cutoff };
+  }
+
   async runRetentionCycle(policies = {}) {
     const notif = await this.pruneNotifications(policies.notificationDays || 30);
     const audit = await this.pruneAuditLogs(policies.auditLogDays || 90);
@@ -163,6 +206,11 @@ class DataRetentionService {
     const intelDecisions = await this.pruneIntelligenceDecisions(policies.intelDecisionDays || 60);
     const intelRecs = await this.pruneIntelligenceRecommendations(policies.intelRecDays || 30);
     const intelOutcomes = await this.pruneIntelligenceOutcomes(policies.intelOutcomeDays || 90);
+    const reliabilityInc = await this.pruneReliabilityIncidents(policies.reliabilityIncidentDays || 90);
+    const reliabilityDiag = await this.pruneReliabilityDiagnostics(policies.reliabilityDiagDays || 90);
+    const reliabilityRec = await this.pruneReliabilityRecoveryAttempts(policies.reliabilityRecoveryDays || 60);
+    const reliabilitySnap = await this.pruneReliabilitySnapshots(policies.reliabilitySnapshotDays || 30);
+    const maintRecs = await this.pruneMaintenanceRecommendations(policies.maintenanceRecDays || 180);
 
     return {
       executedAt: new Date().toISOString(),
@@ -180,7 +228,12 @@ class DataRetentionService {
       contextTransitionsPruned: contextTransitions.pruned,
       intelDecisionsPruned: intelDecisions.pruned,
       intelRecsPruned: intelRecs.pruned,
-      intelOutcomesPruned: intelOutcomes.pruned
+      intelOutcomesPruned: intelOutcomes.pruned,
+      reliabilityIncidentsPruned: reliabilityInc.pruned,
+      reliabilityDiagnosticsPruned: reliabilityDiag.pruned,
+      reliabilityRecoveryAttemptsPruned: reliabilityRec.pruned,
+      reliabilitySnapshotsPruned: reliabilitySnap.pruned,
+      maintenanceRecommendationsPruned: maintRecs.pruned
     };
   }
 }

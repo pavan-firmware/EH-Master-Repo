@@ -1,0 +1,180 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "DeviceHealthState": {
+      "type": "string",
+      "enum": ["HEALTHY", "DEGRADED", "UNSTABLE", "UNAVAILABLE", "UNKNOWN"]
+    },
+    "ReliabilityIncidentType": {
+      "type": "string",
+      "enum": [
+        "DEVICE_OFFLINE", "TELEMETRY_STALE", "COMMAND_FAILURE",
+        "COMMAND_LATENCY", "MQTT_INSTABILITY", "OTA_FAILURE",
+        "REPEATED_RECONNECT", "RELIABILITY_DEGRADATION"
+      ]
+    },
+    "ReliabilitySeverity": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "ReliabilityDiagnosisType": {
+      "type": "string",
+      "enum": [
+        "NETWORK_INSTABILITY", "DEVICE_UNREACHABLE",
+        "TELEMETRY_PIPELINE_ISSUE", "COMMAND_EXECUTION_ISSUE",
+        "FIRMWARE_ISSUE", "OTA_ISSUE", "UNKNOWN"
+      ]
+    },
+    "RecoveryActionType": {
+      "type": "string",
+      "enum": [
+        "RETRY_COMMAND", "REFRESH_STATE", "REQUEST_TELEMETRY_REFRESH",
+        "RETRY_FAILED_OPERATION", "RE_EVALUATE_OTA_ELIGIBILITY",
+        "MARK_DEGRADED", "CREATE_MAINTENANCE_RECOMMENDATION"
+      ]
+    },
+    "RecoveryResultStatus": {
+      "type": "string",
+      "enum": ["RECOVERED", "PARTIALLY_RECOVERED", "FAILED"]
+    },
+    "MaintenanceRecommendationType": {
+      "type": "string",
+      "enum": [
+        "FIRMWARE_UPDATE_REQUIRED", "DEVICE_REPLACEMENT_ADVISED",
+        "NETWORK_CHECK_REQUIRED", "POWER_CYCLE_ADVISED",
+        "PROFESSIONAL_SERVICE_REQUIRED", "MONITOR_CLOSELY", "OTHER"
+      ]
+    },
+    "DeviceReliabilitySnapshot": {
+      "type": "object",
+      "title": "DeviceReliabilitySnapshot",
+      "required": ["id", "homeId", "deviceId", "healthState", "healthScore", "snapshottedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "healthState": { "$ref": "#/definitions/DeviceHealthState" },
+        "healthScore": { "type": "number", "minimum": 0, "maximum": 100 },
+        "connectivityScore": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "telemetryScore": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "commandScore": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "uptimeScore": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "factors": { "type": ["object", "null"] },
+        "activeIncidents": { "type": "integer", "minimum": 0 },
+        "snapshottedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "ReliabilityIncident": {
+      "type": "object",
+      "title": "ReliabilityIncident",
+      "required": ["id", "homeId", "deviceId", "incidentType", "severity", "status", "title", "firstObservedAt", "lastObservedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "incidentType": { "$ref": "#/definitions/ReliabilityIncidentType" },
+        "severity": { "$ref": "#/definitions/ReliabilitySeverity" },
+        "status": { "type": "string", "enum": ["OPEN", "INVESTIGATING", "RESOLVED", "AUTO_RESOLVED"] },
+        "title": { "type": "string" },
+        "description": { "type": ["string", "null"] },
+        "evidence": { "type": ["object", "null"] },
+        "signalCount": { "type": "integer", "minimum": 1 },
+        "firstObservedAt": { "type": "string", "format": "date-time" },
+        "lastObservedAt": { "type": "string", "format": "date-time" },
+        "resolvedAt": { "type": ["string", "null"], "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "ReliabilityDiagnosis": {
+      "type": "object",
+      "title": "ReliabilityDiagnosis",
+      "required": ["id", "incidentId", "homeId", "deviceId", "diagnosisType", "confidence", "rootCause"],
+      "properties": {
+        "id": { "type": "string" },
+        "incidentId": { "type": "string" },
+        "homeId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "diagnosisType": { "$ref": "#/definitions/ReliabilityDiagnosisType" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rootCause": { "type": "string" },
+        "evidence": { "type": ["object", "null"] },
+        "recommendedActions": { "type": ["array", "null"], "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "RecoveryAttempt": {
+      "type": "object",
+      "title": "RecoveryAttempt",
+      "required": ["id", "incidentId", "homeId", "deviceId", "actionType", "status", "initiatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "incidentId": { "type": "string" },
+        "homeId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "actionType": { "$ref": "#/definitions/RecoveryActionType" },
+        "status": { "type": "string", "enum": ["PENDING","EXECUTING","VERIFYING","RECOVERED","PARTIALLY_RECOVERED","FAILED"] },
+        "commandAccepted": { "type": "boolean" },
+        "preActionState": { "type": ["object", "null"] },
+        "postActionState": { "type": ["object", "null"] },
+        "verificationEvidence": { "type": ["object", "null"] },
+        "failureReason": { "type": ["string", "null"] },
+        "initiatedAt": { "type": "string", "format": "date-time" },
+        "commandAcceptedAt": { "type": ["string", "null"], "format": "date-time" },
+        "verificationStartedAt": { "type": ["string", "null"], "format": "date-time" },
+        "completedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "MaintenanceRecommendation": {
+      "type": "object",
+      "title": "MaintenanceRecommendation",
+      "required": ["id", "homeId", "deviceId", "recommendationType", "priority", "title", "description", "status"],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "incidentId": { "type": ["string", "null"] },
+        "recommendationType": { "$ref": "#/definitions/MaintenanceRecommendationType" },
+        "priority": { "$ref": "#/definitions/ReliabilitySeverity" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "actionSteps": { "type": ["array", "null"], "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["PENDING","APPROVED","REJECTED","IN_PROGRESS","COMPLETED"] },
+        "approvedBy": { "type": ["string", "null"] },
+        "approvedAt": { "type": ["string", "null"] },
+        "completedAt": { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "FleetHealthSummary": {
+      "type": "object",
+      "title": "FleetHealthSummary",
+      "required": ["homeId", "totalDevices", "stateDistribution", "fleetHealthScore", "generatedAt"],
+      "properties": {
+        "homeId": { "type": "string" },
+        "totalDevices": { "type": "integer", "minimum": 0 },
+        "stateDistribution": {
+          "type": "object",
+          "properties": {
+            "HEALTHY": { "type": "integer" },
+            "DEGRADED": { "type": "integer" },
+            "UNSTABLE": { "type": "integer" },
+            "UNAVAILABLE": { "type": "integer" },
+            "UNKNOWN": { "type": "integer" }
+          }
+        },
+        "fleetHealthScore": { "type": "number", "minimum": 0, "maximum": 100 },
+        "activeIncidents": { "type": "integer" },
+        "criticalIncidents": { "type": "integer" },
+        "pendingRecoveries": { "type": "integer" },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

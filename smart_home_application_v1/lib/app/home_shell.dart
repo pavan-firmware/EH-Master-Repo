@@ -28,6 +28,12 @@ class _HomeShellState extends State<HomeShell> {
   int _selectedIndex = 0;
   late final HomeController _homeController;
 
+  // One navigator key per tab so each tab keeps its own back-stack.
+  final List<GlobalKey<NavigatorState>> _navigatorKeys = List.generate(
+    5,
+    (_) => GlobalKey<NavigatorState>(),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -50,29 +56,28 @@ class _HomeShellState extends State<HomeShell> {
 
   void _selectTab(int index) => setState(() => _selectedIndex = index);
 
-  void _openConnection() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ConnectionPage(
-          onStart: _homeController.startConnectionSetup,
-          connectionState: _homeController.connectionState,
-          connectionMessage: _homeController.connectionMessage,
-          repository: RealHomeConnectionRepository(
-            primaryDevice: _homeController.connectedDeviceSummary,
-            onRefresh: _homeController.startConnectionSetup,
-          ),
-          onDeviceProvisioned: _homeController.markDeviceProvisioned,
-        ),
-      ),
+  /// Push a route inside the currently active tab's navigator.
+  void _pushInCurrentTab(Widget page) {
+    _navigatorKeys[_selectedIndex].currentState?.push(
+      MaterialPageRoute(builder: (_) => page),
     );
   }
 
-  void _openInsights() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => HomeInsightsPage(data: _homeController.dashboard),
+  void _openConnection() {
+    _pushInCurrentTab(ConnectionPage(
+      onStart: _homeController.startConnectionSetup,
+      connectionState: _homeController.connectionState,
+      connectionMessage: _homeController.connectionMessage,
+      repository: RealHomeConnectionRepository(
+        primaryDevice: _homeController.connectedDeviceSummary,
+        onRefresh: _homeController.startConnectionSetup,
       ),
-    );
+      onDeviceProvisioned: _homeController.markDeviceProvisioned,
+    ));
+  }
+
+  void _openInsights() {
+    _pushInCurrentTab(HomeInsightsPage(data: _homeController.dashboard));
   }
 
   void _openRoomContext(RoomPreview room) {
@@ -101,12 +106,8 @@ class _HomeShellState extends State<HomeShell> {
               ),
             ),
     );
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            RoomContextPage(room: typedRoom, onAddDevice: _openConnection),
-      ),
-    );
+    _pushInCurrentTab(
+        RoomContextPage(room: typedRoom, onAddDevice: _openConnection));
   }
 
   void _showControlCustomization() {
@@ -236,77 +237,145 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    return AnimatedBuilder(
-      animation: _homeController,
-      builder: (context, _) {
-        final pages = <Widget>[
-          HomePage(
-            dashboard: _homeController.dashboard,
-            lightOn: _homeController.livingRoomLightOn,
-            alertAcknowledged: _homeController.alertAcknowledged,
-            lightCommandPending: _homeController.lightCommandPending,
-            onLightChanged: (value) async {
-              await _homeController.setLivingRoomLight(value);
-              _showMessage(
-                _homeController.lightConfidence.name == 'confirmed'
-                    ? (value
-                          ? 'Living room light confirmed on.'
-                          : 'Living room light confirmed off.')
-                    : 'The light did not confirm the command. Try again.',
-              );
-            },
-            onAlertTap: () async {
-              final acknowledged = await Navigator.of(context).push<bool>(
-                MaterialPageRoute(builder: (_) => const SafetyAlertPage()),
-              );
-              if (acknowledged == true) {
-                _homeController.acknowledgeAlert();
-                _showMessage(
-                  'Alert acknowledged. Safety monitoring remains active.',
-                );
-              }
-            },
-            onConnectHome: _openConnection,
-            onShowRooms: () => _selectTab(1),
-            onOpenRoom: _openRoomContext,
-            onShowRoutines: () => _selectTab(2),
-            onShowActivity: () => _selectTab(3),
-            onShowSettings: () => _selectTab(4),
-            onShowInsights: _openInsights,
-            onCustomizeControls: _showControlCustomization,
-            onUnavailableControl: () => _showMessage(
-              'This control stays unavailable until secure device acknowledgement is implemented.',
-            ),
-          ),
-          RoomsPage(
-            homeController: _homeController,
-            onAddDevice: _openConnection,
-          ),
-          AutomationsPage(onConnectHome: _openConnection),
-          const ActivityPage(),
-          SettingsPage(
-            onConnectHome: _homeController.startConnectionSetup,
-            connectionState: _homeController.connectionState,
-            connectionMessage: _homeController.connectionMessage,
-            connectionRepository: RealHomeConnectionRepository(
-              primaryDevice: _homeController.connectedDeviceSummary,
-              onRefresh: _homeController.startConnectionSetup,
-            ),
-          ),
-        ];
-        return Scaffold(
-          extendBody: false,
-          backgroundColor: tokens.bgApp,
-          body: IndexedStack(index: _selectedIndex, children: pages),
-          bottomNavigationBar: _HavenFloatingNavigation(
-            selectedIndex: _selectedIndex,
-            onSelected: _selectTab,
-          ),
-        );
+
+    return PopScope(
+      // Never let the system handle the back gesture itself — we decide.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+
+        // 1. If the active tab's navigator can go back — do it.
+        final navState = _navigatorKeys[_selectedIndex].currentState;
+        if (navState != null && navState.canPop()) {
+          navState.pop();
+          return;
+        }
+
+        // 2. If we're on a non-home tab at its root — jump to Home tab.
+        if (_selectedIndex != 0) {
+          setState(() => _selectedIndex = 0);
+          return;
+        }
+
+        // 3. We're on the Home tab at its root — allow the app to exit.
+        // Use the system navigator to actually pop/exit.
+        if (context.mounted) {
+          Navigator.of(context).pop();
+        }
       },
+      child: AnimatedBuilder(
+        animation: _homeController,
+        builder: (context, _) {
+          return Scaffold(
+            extendBody: false,
+            backgroundColor: tokens.bgApp,
+            body: IndexedStack(
+              index: _selectedIndex,
+              children: [
+                // Tab 0 — Home
+                Navigator(
+                  key: _navigatorKeys[0],
+                  onGenerateRoute: (_) => MaterialPageRoute(
+                    builder: (_) => HomePage(
+                      dashboard: _homeController.dashboard,
+                      lightOn: _homeController.livingRoomLightOn,
+                      alertAcknowledged: _homeController.alertAcknowledged,
+                      lightCommandPending: _homeController.lightCommandPending,
+                      onLightChanged: (value) async {
+                        await _homeController.setLivingRoomLight(value);
+                        _showMessage(
+                          _homeController.lightConfidence.name == 'confirmed'
+                              ? (value
+                                    ? 'Living room light confirmed on.'
+                                    : 'Living room light confirmed off.')
+                              : 'The light did not confirm the command. Try again.',
+                        );
+                      },
+                      onAlertTap: () async {
+                        final acknowledged = await _navigatorKeys[0]
+                            .currentState
+                            ?.push<bool>(
+                          MaterialPageRoute(
+                              builder: (_) => const SafetyAlertPage()),
+                        );
+                        if (acknowledged == true) {
+                          _homeController.acknowledgeAlert();
+                          _showMessage(
+                            'Alert acknowledged. Safety monitoring remains active.',
+                          );
+                        }
+                      },
+                      onConnectHome: _openConnection,
+                      onShowRooms: () => _selectTab(1),
+                      onOpenRoom: _openRoomContext,
+                      onShowRoutines: () => _selectTab(2),
+                      onShowActivity: () => _selectTab(3),
+                      onShowSettings: () => _selectTab(4),
+                      onShowInsights: _openInsights,
+                      onCustomizeControls: _showControlCustomization,
+                      onUnavailableControl: () => _showMessage(
+                        'This control stays unavailable until secure device acknowledgement is implemented.',
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Tab 1 — Rooms
+                Navigator(
+                  key: _navigatorKeys[1],
+                  onGenerateRoute: (_) => MaterialPageRoute(
+                    builder: (_) => RoomsPage(
+                      homeController: _homeController,
+                      onAddDevice: _openConnection,
+                    ),
+                  ),
+                ),
+
+                // Tab 2 — Routines
+                Navigator(
+                  key: _navigatorKeys[2],
+                  onGenerateRoute: (_) => MaterialPageRoute(
+                    builder: (_) =>
+                        AutomationsPage(onConnectHome: _openConnection),
+                  ),
+                ),
+
+                // Tab 3 — Activity
+                Navigator(
+                  key: _navigatorKeys[3],
+                  onGenerateRoute: (_) => MaterialPageRoute(
+                    builder: (_) => const ActivityPage(),
+                  ),
+                ),
+
+                // Tab 4 — Settings
+                Navigator(
+                  key: _navigatorKeys[4],
+                  onGenerateRoute: (_) => MaterialPageRoute(
+                    builder: (_) => SettingsPage(
+                      onConnectHome: _homeController.startConnectionSetup,
+                      connectionState: _homeController.connectionState,
+                      connectionMessage: _homeController.connectionMessage,
+                      connectionRepository: RealHomeConnectionRepository(
+                        primaryDevice: _homeController.connectedDeviceSummary,
+                        onRefresh: _homeController.startConnectionSetup,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            bottomNavigationBar: _HavenFloatingNavigation(
+              selectedIndex: _selectedIndex,
+              onSelected: _selectTab,
+            ),
+          );
+        },
+      ),
     );
   }
 }
+
 
 class _HavenFloatingNavigation extends StatelessWidget {
   const _HavenFloatingNavigation({
