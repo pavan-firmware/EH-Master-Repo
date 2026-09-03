@@ -378,11 +378,41 @@ class AutomationService {
         const costData = await this.energyService.calculateEnergyCost(homeId, { period: 'today', asOfDate: context.asOfTime || context.timestamp });
         actualValue = costData.totalCost;
       }
-    } else if (metric === 'estimated_monthly_cost' || metric === 'cost_forecast') {
+    } else if (metric === 'estimated_monthly_cost' || metric === 'cost_forecast' || metric === 'forecast_monthly_cost') {
       const homeId = context.homeId || cond.homeId;
       if (this.energyService && homeId) {
         const forecast = await this.energyService.getCostForecast(homeId, { period: 'monthly', asOfDate: context.asOfTime || context.timestamp });
         actualValue = forecast.projectedTotalCost;
+      }
+    } else if (metric === 'forecast_daily_energy') {
+      const homeId = context.homeId || cond.homeId;
+      if (this.energyService && homeId) {
+        const forecast = await this.energyService.getDailyForecast(homeId, { asOfDate: context.asOfTime || context.timestamp });
+        actualValue = forecast.predictedKwh;
+      }
+    } else if (metric === 'predicted_peak_power') {
+      const homeId = context.homeId || cond.homeId;
+      if (this.energyService && homeId) {
+        const peakFc = await this.energyService.getPeakDemandForecast(homeId, { asOfDate: context.asOfTime || context.timestamp });
+        actualValue = peakFc.predictedPeakLoadW;
+      }
+    } else if (metric === 'efficiency_score') {
+      const homeId = context.homeId || cond.homeId;
+      if (this.energyService && homeId) {
+        const eff = await this.energyService.getEfficiencyScore(homeId, { asOfDate: context.asOfTime || context.timestamp, persist: false });
+        actualValue = eff.score;
+      }
+    } else if (metric === 'forecast_budget_overrun') {
+      const homeId = context.homeId || cond.homeId;
+      if (this.energyService && homeId) {
+        const budgetFc = await this.energyService.getBudgetForecast(homeId, { asOfDate: context.asOfTime || context.timestamp });
+        actualValue = budgetFc.isOverrunPredicted ? (budgetFc.predictedOverrun || 1) : 0;
+      }
+    } else if (metric === 'anomaly_detected') {
+      const homeId = context.homeId || cond.homeId;
+      if (this.energyService && homeId) {
+        const anoms = await this.energyService.getAnomalies(homeId, { limit: 10 });
+        actualValue = anoms.length;
       }
     } else if (telemetry) {
       if (metric === 'instantaneous_power' || metric === 'sustained_power' || metric === 'power' || metric === 'energy_threshold') {

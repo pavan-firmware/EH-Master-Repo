@@ -44,7 +44,12 @@ class EnergyService {
     tariffRepo = null,
     tariffPeriodRepo = null,
     budgetRepo = null,
-    costOptimizationRepo = null
+    costOptimizationRepo = null,
+    forecastRepo = null,
+    anomalyRepo = null,
+    baselineRepo = null,
+    accuracyRepo = null,
+    efficiencyRepo = null
   }) {
     this.telemetryRepo = telemetryRepo;
     this.aggregateRepo = aggregateRepo;
@@ -61,6 +66,11 @@ class EnergyService {
     this.tariffPeriodRepo = tariffPeriodRepo;
     this.budgetRepo = budgetRepo;
     this.costOptimizationRepo = costOptimizationRepo;
+    this.forecastRepo = forecastRepo;
+    this.anomalyRepo = anomalyRepo;
+    this.baselineRepo = baselineRepo;
+    this.accuracyRepo = accuracyRepo;
+    this.efficiencyRepo = efficiencyRepo;
 
     this._deviceStateCache = new Map(); // deviceId -> { lastSeq, lastEnergyWh, lastTimestamp }
     this._alertCooldownMap = new Map(); // alertKey -> lastSentTimestamp
@@ -1897,6 +1907,734 @@ class EnergyService {
   async dismissCostOptimization(id) {
     if (!this.costOptimizationRepo) return false;
     return this.costOptimizationRepo.dismissOptimization(id);
+  }
+
+  // ===========================================================================
+  // PHASE 22: FORECASTING & PREDICTIVE INTELLIGENCE
+  // ===========================================================================
+
+  /**
+   * Deterministic, explainable multi-horizon energy forecasting engine.
+   * Leverages historical hourly profiles, day-of-week patterns, and tariff rates.
+   */
+  async getForecast({
+    homeId,
+    scopeType = 'home',
+    scopeId = null,
+    horizon = 'next_24_hours',
+    asOfDate = null,
+    persist = true
+  }) {
+    if (!homeId) throw new Error('homeId is required');
+    const targetScopeId = scopeId || homeId;
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+
+    // Query historical aggregates (past 30 days) to construct profile
+    let aggregates = [];
+    if (this.aggregateRepo) {
+      const historyStart = new Date(baseDate.getTime() - 30 * 24 * 3600 * 1000).toISOString();
+      const historyEnd = baseDate.toISOString();
+      const rawAggs = await this.aggregateRepo.findByPeriod(homeId, {
+        bucket: 'hour',
+        startTime: historyStart,
+        endTime: historyEnd
+      });
+
+      aggregates = rawAggs.filter(a => {
+        if (scopeType === 'device' && a.device_id !== targetScopeId) return false;
+        if (scopeType === 'room' && a.room_id !== targetScopeId) return false;
+        return true;
+      });
+    }
+
+    const sampleCount = aggregates.length;
+    const hasSufficientData = sampleCount >= 3;
+    const dataCoverage = sampleCount >= 24 ? 'FULL' : (sampleCount >= 3 ? 'PARTIAL' : 'INSUFFICIENT');
+    const baseConfidence = hasSufficientData ? Math.min(0.95, 0.5 + (sampleCount / 100.0)) : 0.20;
+
+    // Construct 24-hour baseline profile by hour-of-day
+    const hourlyBucketEnergy = Array(24).fill(0);
+    const hourlyBucketPower = Array(24).fill(0);
+    const hourlyBucketCounts = Array(24).fill(0);
+
+    for (const a of aggregates) {
+      const aDate = new Date(a.bucket_start || a.start_time || a.created_at);
+      const h = aDate.getUTCHours();
+      const energyWh = Number(a.energy_delta_wh || a.total_energy_wh || 0);
+      const powerW = Number(a.avg_power_w || 0);
+      hourlyBucketEnergy[h] += energyWh;
+      hourlyBucketPower[h] += powerW;
+      hourlyBucketCounts[h] += 1;
+    }
+
+    const profileAvgWh = hourlyBucketEnergy.map((sum, h) =>
+      hourlyBucketCounts[h] > 0 ? sum / hourlyBucketCounts[h] : 150.0 // 150Wh default fallback
+    );
+    const profileAvgW = hourlyBucketPower.map((sum, h) =>
+      hourlyBucketCounts[h] > 0 ? sum / hourlyBucketCounts[h] : 150.0
+    );
+
+    // Determine horizon bounds & points
+    let pointsCount = 24;
+    let stepMs = 3600 * 1000;
+    let startTime = new Date(baseDate.getTime());
+    let endTime = new Date(baseDate.getTime() + 24 * 3600 * 1000);
+
+    if (horizon === 'next_hour') {
+      pointsCount = 4; // 15-min intervals
+      stepMs = 15 * 60 * 1000;
+      endTime = new Date(baseDate.getTime() + 3600 * 1000);
+    } else if (horizon === 'next_7_days') {
+      pointsCount = 7 * 24; // Hourly over 7 days
+      stepMs = 3600 * 1000;
+      endTime = new Date(baseDate.getTime() + 7 * 24 * 3600 * 1000);
+    } else if (horizon === 'current_month') {
+      const year = baseDate.getUTCFullYear();
+      const month = baseDate.getUTCMonth();
+      const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+      const currentDay = Math.max(1, baseDate.getUTCDate());
+      const remainingHours = Math.max(1, (daysInMonth - currentDay + 1) * 24);
+      pointsCount = remainingHours;
+      stepMs = 3600 * 1000;
+      endTime = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0));
+    }
+
+    const points = [];
+    let totalPredictedWh = 0;
+    let totalPredictedCost = 0;
+    let activeCurrency = 'USD';
+
+    for (let i = 0; i < pointsCount; i++) {
+      const ptTime = new Date(startTime.getTime() + i * stepMs);
+      const h = ptTime.getUTCHours();
+      const isWeekend = ptTime.getUTCDay() === 0 || ptTime.getUTCDay() === 6;
+      const dayFactor = isWeekend ? 1.15 : 1.0; // Weekend activity weight
+
+      const fractionOfHour = stepMs / (3600 * 1000);
+      const predEnergyWh = profileAvgWh[h] * fractionOfHour * dayFactor;
+      const predPowerW = profileAvgW[h] * dayFactor;
+
+      // Rate resolution for point
+      const rate = await this.resolveCurrentRate(homeId, ptTime);
+      activeCurrency = rate.currency || 'USD';
+      const ptCost = (predEnergyWh / 1000.0) * rate.pricePerKwh;
+
+      totalPredictedWh += predEnergyWh;
+      totalPredictedCost += ptCost;
+
+      points.push({
+        timestamp: ptTime.toISOString(),
+        predictedPowerW: Math.round(predPowerW * 10) / 10,
+        predictedEnergyWh: Math.round(predEnergyWh * 10) / 10,
+        predictedCost: Math.round(ptCost * 1000) / 1000,
+        confidenceScore: Math.round(baseConfidence * 100) / 100
+      });
+    }
+
+    const predictedKwh = Math.round((totalPredictedWh / 1000.0) * 100) / 100;
+    const predictedCost = Math.round(totalPredictedCost * 100) / 100;
+
+    const forecast = {
+      homeId,
+      scopeType,
+      scopeId: targetScopeId,
+      horizon,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      predictedKwh,
+      predictedCost,
+      currency: activeCurrency,
+      confidenceScore: Math.round(baseConfidence * 100) / 100,
+      methodology: 'HISTORICAL_HOURLY_PROFILE_DAY_OF_WEEK',
+      dataCoverage,
+      isEstimate: true,
+      generatedAt: new Date().toISOString(),
+      points
+    };
+
+    if (persist && this.forecastRepo) {
+      await this.forecastRepo.saveForecast(forecast);
+    }
+
+    if (this.realtimeEventBus) {
+      this.realtimeEventBus.publish({
+        type: 'energy.forecast_updated',
+        homeId,
+        payload: {
+          scopeType,
+          scopeId: targetScopeId,
+          horizon,
+          predictedKwh,
+          predictedCost,
+          currency: activeCurrency,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    return forecast;
+  }
+
+  async getDailyForecast(homeId, { asOfDate = null } = {}) {
+    return this.getForecast({ homeId, horizon: 'next_24_hours', asOfDate });
+  }
+
+  async getMonthlyForecast(homeId, { asOfDate = null } = {}) {
+    return this.getForecast({ homeId, horizon: 'current_month', asOfDate });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Baselines Calculation & Aggregation
+  // ---------------------------------------------------------------------------
+
+  async getDeviceBaseline(homeId, deviceId, { asOfDate = null, persist = true } = {}) {
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+    let typicalPowerW = 0;
+    let typicalDailyEnergyKwh = 0;
+    let typicalOvernightWh = 0;
+    const operatingHourCounts = Array(24).fill(0);
+    let sampleCount = 0;
+
+    if (this.aggregateRepo) {
+      const historyStart = new Date(baseDate.getTime() - 30 * 24 * 3600 * 1000).toISOString();
+      const aggregates = await this.aggregateRepo.findByPeriod(homeId, {
+        bucket: 'hour',
+        startTime: historyStart,
+        endTime: baseDate.toISOString()
+      });
+
+      const devAggs = aggregates.filter(a => a.device_id === deviceId);
+      sampleCount = devAggs.length;
+
+      if (sampleCount > 0) {
+        let totalPower = 0;
+        let totalEnergy = 0;
+        let overnightEnergy = 0;
+
+        for (const a of devAggs) {
+          const power = Number(a.avg_power_w || 0);
+          const energy = Number(a.energy_delta_wh || a.total_energy_wh || 0);
+          totalPower += power;
+          totalEnergy += energy;
+
+          const aDate = new Date(a.bucket_start || a.start_time || a.created_at);
+          const h = aDate.getUTCHours();
+          if (h >= 0 && h < 6) {
+            overnightEnergy += energy;
+          }
+          if (power > 25) { // Active operation threshold
+            operatingHourCounts[h]++;
+          }
+        }
+
+        typicalPowerW = Math.round((totalPower / sampleCount) * 10) / 10;
+        const days = Math.max(1, sampleCount / 24.0);
+        typicalDailyEnergyKwh = Math.round((totalEnergy / 1000.0 / days) * 1000) / 1000;
+        typicalOvernightWh = Math.round((overnightEnergy / days) * 10) / 10;
+      }
+    }
+
+    const typicalOperatingHours = [];
+    const observedDays = Math.max(1, sampleCount / 24.0);
+    for (let h = 0; h < 24; h++) {
+      if (operatingHourCounts[h] >= Math.max(1, observedDays * 0.4)) {
+        typicalOperatingHours.push(h);
+      }
+    }
+
+    const confidence = sampleCount >= 24 ? 0.90 : (sampleCount >= 5 ? 0.65 : 0.25);
+    const baseline = {
+      homeId,
+      scopeType: 'device',
+      scopeId: deviceId,
+      typicalPowerW,
+      typicalDailyEnergyKwh,
+      typicalOvernightWh,
+      typicalOperatingHours,
+      sampleCount,
+      confidence,
+      calculatedAt: new Date().toISOString()
+    };
+
+    if (persist && this.baselineRepo) {
+      await this.baselineRepo.upsertBaseline(baseline);
+    }
+    return baseline;
+  }
+
+  async getRoomBaseline(homeId, roomId, { asOfDate = null, persist = true } = {}) {
+    const devices = this.deviceRepo ? await this.deviceRepo.getDevicesByRoom(roomId) : [];
+    let typicalPowerW = 0;
+    let typicalDailyEnergyKwh = 0;
+    let typicalOvernightWh = 0;
+    const opHoursSet = new Set();
+    let totalSamples = 0;
+
+    for (const dev of devices) {
+      const devBase = await this.getDeviceBaseline(homeId, dev.id || dev.device_id, { asOfDate, persist: false });
+      typicalPowerW += devBase.typicalPowerW;
+      typicalDailyEnergyKwh += devBase.typicalDailyEnergyKwh;
+      typicalOvernightWh += devBase.typicalOvernightWh;
+      (devBase.typicalOperatingHours || []).forEach(h => opHoursSet.add(h));
+      totalSamples += devBase.sampleCount;
+    }
+
+    const baseline = {
+      homeId,
+      scopeType: 'room',
+      scopeId: roomId,
+      typicalPowerW: Math.round(typicalPowerW * 10) / 10,
+      typicalDailyEnergyKwh: Math.round(typicalDailyEnergyKwh * 1000) / 1000,
+      typicalOvernightWh: Math.round(typicalOvernightWh * 10) / 10,
+      typicalOperatingHours: Array.from(opHoursSet).sort((a, b) => a - b),
+      sampleCount: totalSamples,
+      confidence: totalSamples >= 24 ? 0.90 : 0.50,
+      calculatedAt: new Date().toISOString()
+    };
+
+    if (persist && this.baselineRepo) {
+      await this.baselineRepo.upsertBaseline(baseline);
+    }
+    return baseline;
+  }
+
+  async getHomeBaseline(homeId, { asOfDate = null, persist = true } = {}) {
+    const devices = this.deviceRepo ? await this.deviceRepo.findByHomeId(homeId) : [];
+    let typicalPowerW = 0;
+    let typicalDailyEnergyKwh = 0;
+    let typicalOvernightWh = 0;
+    const opHoursSet = new Set();
+    let totalSamples = 0;
+
+    for (const dev of devices) {
+      const devBase = await this.getDeviceBaseline(homeId, dev.id || dev.device_id, { asOfDate, persist: false });
+      typicalPowerW += devBase.typicalPowerW;
+      typicalDailyEnergyKwh += devBase.typicalDailyEnergyKwh;
+      typicalOvernightWh += devBase.typicalOvernightWh;
+      (devBase.typicalOperatingHours || []).forEach(h => opHoursSet.add(h));
+      totalSamples += devBase.sampleCount;
+    }
+
+    const baseline = {
+      homeId,
+      scopeType: 'home',
+      scopeId: homeId,
+      typicalPowerW: Math.round(typicalPowerW * 10) / 10,
+      typicalDailyEnergyKwh: Math.round(typicalDailyEnergyKwh * 1000) / 1000,
+      typicalOvernightWh: Math.round(typicalOvernightWh * 10) / 10,
+      typicalOperatingHours: Array.from(opHoursSet).sort((a, b) => a - b),
+      sampleCount: totalSamples,
+      confidence: totalSamples >= 24 ? 0.90 : 0.50,
+      calculatedAt: new Date().toISOString()
+    };
+
+    if (persist && this.baselineRepo) {
+      await this.baselineRepo.upsertBaseline(baseline);
+    }
+    return baseline;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Explainable Anomaly Detection Engine
+  // ---------------------------------------------------------------------------
+
+  async detectAnomalies(homeId, { asOfDate = null, persist = true } = {}) {
+    if (!homeId) throw new Error('homeId is required');
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+    const detected = [];
+
+    const devices = this.deviceRepo ? await this.deviceRepo.findByHomeId(homeId) : [];
+    for (const dev of devices) {
+      const devId = dev.id || dev.device_id;
+      const baseline = await this.getDeviceBaseline(homeId, devId, { asOfDate: baseDate, persist: false });
+      if (baseline.sampleCount < 2) continue; // Minimum observation guard
+
+      // Query latest 24h aggregates for this device
+      const recentStart = new Date(baseDate.getTime() - 24 * 3600 * 1000).toISOString();
+      const aggs = this.aggregateRepo
+        ? await this.aggregateRepo.findByPeriod(homeId, { bucket: 'hour', startTime: recentStart, endTime: baseDate.toISOString() })
+        : [];
+      const devAggs = aggs.filter(a => a.device_id === devId);
+
+      // Check 1: Unusual Power Spike (> 2.0x baseline power)
+      const maxPower = devAggs.reduce((max, a) => Math.max(max, Number(a.peak_power_w || a.avg_power_w || 0)), 0);
+      if (baseline.typicalPowerW > 10 && maxPower > baseline.typicalPowerW * 2.0) {
+        const devPct = Math.round(((maxPower - baseline.typicalPowerW) / baseline.typicalPowerW) * 100);
+        let severity = 'LOW';
+        if (devPct > 300) severity = 'CRITICAL';
+        else if (devPct > 100) severity = 'HIGH';
+        else if (devPct > 50) severity = 'MEDIUM';
+
+        const anom = {
+          homeId,
+          scopeType: 'device',
+          scopeId: devId,
+          anomalyType: 'UNUSUAL_POWER_SPIKE',
+          severity,
+          observedValue: maxPower,
+          baselineValue: baseline.typicalPowerW,
+          deviationPercentage: devPct,
+          isConfirmed: devAggs.length >= 2,
+          confirmationCount: devAggs.length,
+          evidence: { maxObservedPowerW: maxPower, typicalPowerW: baseline.typicalPowerW, deviceName: dev.custom_name },
+          detectedAt: baseDate.toISOString()
+        };
+        detected.push(anom);
+      }
+
+      // Check 2: Unexpected Overnight Load
+      const overnightEnergy = devAggs
+        .filter(a => {
+          const h = new Date(a.bucket_start || a.start_time).getUTCHours();
+          return h >= 0 && h < 6;
+        })
+        .reduce((sum, a) => sum + Number(a.energy_delta_wh || a.total_energy_wh || 0), 0);
+
+      if (baseline.typicalOvernightWh > 0 && overnightEnergy > baseline.typicalOvernightWh * 2.5) {
+        const devPct = Math.round(((overnightEnergy - baseline.typicalOvernightWh) / baseline.typicalOvernightWh) * 100);
+        const anom = {
+          homeId,
+          scopeType: 'device',
+          scopeId: devId,
+          anomalyType: 'UNEXPECTED_OVERNIGHT_LOAD',
+          severity: devPct > 200 ? 'HIGH' : 'MEDIUM',
+          observedValue: overnightEnergy,
+          baselineValue: baseline.typicalOvernightWh,
+          deviationPercentage: devPct,
+          isConfirmed: true,
+          confirmationCount: 2,
+          evidence: { overnightEnergyWh: overnightEnergy, baselineOvernightWh: baseline.typicalOvernightWh, deviceName: dev.custom_name },
+          detectedAt: baseDate.toISOString()
+        };
+        detected.push(anom);
+      }
+    }
+
+    // Persist anomalies and publish events
+    const results = [];
+    for (const item of detected) {
+      let saved = item;
+      if (persist && this.anomalyRepo) {
+        saved = await this.anomalyRepo.createAnomaly(item);
+      }
+      results.push(saved);
+
+      if (this.realtimeEventBus) {
+        this.realtimeEventBus.publish({
+          type: 'energy.anomaly_detected',
+          homeId,
+          payload: {
+            anomalyId: saved.id,
+            scopeType: saved.scope_type,
+            scopeId: saved.scope_id,
+            anomalyType: saved.anomaly_type,
+            severity: saved.severity,
+            deviationPercentage: saved.deviation_percentage,
+            timestamp: saved.detected_at
+          }
+        });
+      }
+
+      // Proactive Notification for HIGH/CRITICAL anomalies
+      if (this.notificationService && (saved.severity === 'HIGH' || saved.severity === 'CRITICAL')) {
+        const cooldownKey = `anom_${homeId}_${saved.scope_id}_${saved.anomaly_type}`;
+        const lastSent = this._alertCooldownMap.get(cooldownKey) || 0;
+        if (Date.now() - lastSent > 6 * 3600 * 1000) { // 6-hour cooldown
+          this._alertCooldownMap.set(cooldownKey, Date.now());
+          try {
+            await this.notificationService.notifyHome({
+              homeId,
+              category: 'energy_anomaly',
+              title: `High Energy Anomaly Detected (${saved.severity})`,
+              body: `Unusual consumption detected for ${saved.scope_type} (${saved.deviation_percentage}% above normal baseline).`,
+              metadata: { severity: saved.severity, anomalyType: saved.anomaly_type }
+            });
+          } catch (_) {}
+        }
+      }
+    }
+
+    return results;
+  }
+
+  async getAnomalies(homeId, { scopeType = null, scopeId = null, severity = null, limit = 100 } = {}) {
+    if (!this.anomalyRepo) return [];
+    return this.anomalyRepo.findByHomeId(homeId, { scopeType, scopeId, severity, limit });
+  }
+
+  async confirmAnomaly(id) {
+    if (!this.anomalyRepo) return null;
+    return this.anomalyRepo.confirmAnomaly(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Budget & Peak Demand Forecasting
+  // ---------------------------------------------------------------------------
+
+  async getBudgetForecast(homeId, { periodType = 'monthly', asOfDate = null } = {}) {
+    const budgetStatus = await this.getBudgetStatus(homeId, periodType, { asOfDate });
+    if (!budgetStatus.configured) {
+      return { configured: false, homeId, periodType };
+    }
+
+    const forecast = await this.getForecast({ homeId, horizon: 'current_month', asOfDate, persist: false });
+    const budgetAmount = budgetStatus.budgetAmount;
+    const actualCostToDate = budgetStatus.actualCostToDate;
+    const predictedTotalCost = forecast.predictedCost ? actualCostToDate + forecast.predictedCost : budgetStatus.projectedTotalCost;
+    const predictedOverrun = Math.max(0, Math.round((predictedTotalCost - budgetAmount) * 100) / 100);
+    const isOverrunPredicted = predictedTotalCost > budgetAmount;
+
+    // Estimate date when budget is crossed
+    let expectedOverrunDate = null;
+    if (isOverrunPredicted && forecast.points && forecast.points.length > 0) {
+      let cumulative = actualCostToDate;
+      for (const pt of forecast.points) {
+        cumulative += (pt.predictedCost || 0);
+        if (cumulative >= budgetAmount) {
+          expectedOverrunDate = pt.timestamp;
+          break;
+        }
+      }
+    }
+
+    const result = {
+      configured: true,
+      homeId,
+      periodType,
+      budgetAmount,
+      currency: budgetStatus.currency,
+      actualCostToDate,
+      predictedBudgetUsage: Math.round(predictedTotalCost * 100) / 100,
+      predictedOverrun,
+      isOverrunPredicted,
+      expectedOverrunDate,
+      confidenceScore: forecast.confidenceScore,
+      isEstimate: true,
+      evaluatedAt: new Date().toISOString()
+    };
+
+    if (isOverrunPredicted && this.realtimeEventBus) {
+      this.realtimeEventBus.publish({
+        type: 'energy.budget_overrun_predicted',
+        homeId,
+        payload: {
+          periodType,
+          budgetAmount,
+          predictedTotalCost,
+          predictedOverrun,
+          expectedOverrunDate,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    return result;
+  }
+
+  async getPeakDemandForecast(homeId, { horizon = 'next_24_hours', asOfDate = null } = {}) {
+    const forecast = await this.getForecast({ homeId, horizon, asOfDate, persist: false });
+    let maxPowerW = 0;
+    let peakTimestamp = forecast.startTime;
+
+    for (const pt of (forecast.points || [])) {
+      if (pt.predictedPowerW > maxPowerW) {
+        maxPowerW = pt.predictedPowerW;
+        peakTimestamp = pt.timestamp;
+      }
+    }
+
+    const result = {
+      homeId,
+      horizon,
+      predictedPeakLoadW: Math.round(maxPowerW * 10) / 10,
+      expectedPeakTime: peakTimestamp,
+      confidence: forecast.confidenceScore,
+      supportingEvidence: {
+        methodology: forecast.methodology,
+        dataCoverage: forecast.dataCoverage,
+        pointsAnalyzed: (forecast.points || []).length
+      },
+      isEstimate: true,
+      evaluatedAt: new Date().toISOString()
+    };
+
+    if (this.realtimeEventBus) {
+      this.realtimeEventBus.publish({
+        type: 'energy.peak_demand_predicted',
+        homeId,
+        payload: result
+      });
+    }
+
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Explainable Energy Efficiency Scoring
+  // ---------------------------------------------------------------------------
+
+  async getEfficiencyScore(homeId, { asOfDate = null, persist = true } = {}) {
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+
+    // 1. Standby Loss Sub-score (0-100)
+    const homeBaseline = await this.getHomeBaseline(homeId, { asOfDate: baseDate, persist: false });
+    const dailyKwh = homeBaseline.typicalDailyEnergyKwh || 10.0;
+    const overnightKwh = (homeBaseline.typicalOvernightWh * 4) / 1000.0; // extrapolated overnight ratio
+    const standbyRatio = dailyKwh > 0 ? (overnightKwh / dailyKwh) : 0.15;
+    const standbyLossScore = Math.max(0, Math.min(100, Math.round(100 - (standbyRatio * 150))));
+
+    // 2. Peak Demand Sub-score (0-100)
+    const peakAnalysis = await this.getPeakDemandAnalysis(homeId, { asOfDate: baseDate });
+    const peakDemandScore = peakAnalysis.highestHistoricalPeakW > 4000 ? 65 : (peakAnalysis.highestHistoricalPeakW > 2500 ? 80 : 95);
+
+    // 3. Threshold Violation Sub-score (0-100)
+    const anomalies = await this.getAnomalies(homeId, { limit: 20 });
+    const violationPenalty = Math.min(40, anomalies.length * 5);
+    const thresholdViolationScore = 100 - violationPenalty;
+
+    // 4. Tariff Efficiency Sub-score (0-100)
+    const cheapest = await this.getCheapestPeriods(homeId, { durationHours: 2, asOfTime: baseDate });
+    const tariffEfficiencyScore = cheapest.potentialSavingsPercent > 50 ? 88 : 75;
+
+    // 5. Trend Score (0-100)
+    const trendScore = 80;
+
+    // Weighted Overall Score
+    const rawScore = (
+      0.25 * standbyLossScore +
+      0.25 * peakDemandScore +
+      0.20 * thresholdViolationScore +
+      0.15 * tariffEfficiencyScore +
+      0.15 * trendScore
+    );
+    const score = Math.round(rawScore * 10) / 10;
+
+    let grade = 'F';
+    if (score >= 90) grade = 'A+';
+    else if (score >= 80) grade = 'A';
+    else if (score >= 70) grade = 'B';
+    else if (score >= 60) grade = 'C';
+    else if (score >= 50) grade = 'D';
+
+    const efficiencyData = {
+      homeId,
+      score,
+      grade,
+      factors: {
+        standbyLossScore,
+        peakDemandScore,
+        thresholdViolationScore,
+        tariffEfficiencyScore,
+        trendScore
+      },
+      evidence: {
+        typicalDailyKwh: dailyKwh,
+        typicalOvernightWh: homeBaseline.typicalOvernightWh,
+        historicalPeakW: peakAnalysis.highestHistoricalPeakW,
+        activeAnomaliesCount: anomalies.length
+      },
+      calculatedAt: new Date().toISOString()
+    };
+
+    if (persist && this.efficiencyRepo) {
+      await this.efficiencyRepo.saveScore(efficiencyData);
+    }
+    return efficiencyData;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Predictive Optimization Recommendations
+  // ---------------------------------------------------------------------------
+
+  async getPredictiveOptimizations(homeId, { asOfDate = null, persist = true } = {}) {
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+    const recommendations = [];
+
+    // 1. Peak Demand Shift Recommendation
+    const peakForecast = await this.getPeakDemandForecast(homeId, { horizon: 'next_24_hours', asOfDate: baseDate });
+    const cheapest = await this.getCheapestPeriods(homeId, { durationHours: 2, asOfTime: baseDate });
+
+    if (peakForecast.predictedPeakLoadW > 2000) {
+      const shiftKwh = Math.round((peakForecast.predictedPeakLoadW / 1000.0) * 2 * 10) / 10;
+      const savingsVal = Math.round(shiftKwh * (cheapest.peakWindow.avgPricePerKwh - cheapest.cheapestWindow.avgPricePerKwh) * 100) / 100;
+
+      recommendations.push({
+        id: `rec_peak_shift_${homeId}_${Date.now()}`,
+        homeId,
+        category: 'PEAK_AVOIDANCE',
+        priority: savingsVal > 1.0 ? 'HIGH' : 'MEDIUM',
+        title: 'Shift heavy loads away from forecasted peak window',
+        description: `Predicted peak of ${peakForecast.predictedPeakLoadW} W expected at ${new Date(peakForecast.expectedPeakTime).toLocaleTimeString()}. Shift flexible operations to off-peak (${cheapest.cheapestWindow.periodType}).`,
+        reason: `Avoid high tariff rate during peak demand window (${cheapest.peakWindow.periodType})`,
+        evidence: {
+          predictedPeakW: peakForecast.predictedPeakLoadW,
+          expectedTime: peakForecast.expectedPeakTime,
+          cheapestRate: cheapest.cheapestWindow.avgPricePerKwh
+        },
+        estimatedKwhSavings: shiftKwh,
+        estimatedCostSavings: savingsVal,
+        currency: cheapest.currency,
+        confidence: peakForecast.confidence,
+        isEstimate: true,
+        generatedAt: new Date().toISOString(),
+        isDismissed: false
+      });
+    }
+
+    // 2. Anomaly Inspection Recommendation
+    const anomalies = await this.getAnomalies(homeId, { severity: 'HIGH', limit: 5 });
+    for (const anom of anomalies) {
+      recommendations.push({
+        id: `rec_anom_${anom.id}`,
+        homeId,
+        deviceId: anom.scope_id,
+        category: 'ANOMALY_INSPECTION',
+        priority: 'HIGH',
+        title: `Inspect ${anom.scope_type} for persistent abnormal consumption`,
+        description: `Persistent anomaly detected: ${anom.anomaly_type} (${anom.deviation_percentage}% above baseline).`,
+        reason: 'Prevent unintended power draw and hardware wear',
+        evidence: anom.evidence_json || {},
+        estimatedKwhSavings: 2.0,
+        estimatedCostSavings: 0.40,
+        currency: 'USD',
+        confidence: 0.90,
+        isEstimate: true,
+        generatedAt: new Date().toISOString(),
+        isDismissed: false
+      });
+    }
+
+    return recommendations;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Forecast Accuracy Tracking
+  // ---------------------------------------------------------------------------
+
+  async recordForecastAccuracy({
+    homeId,
+    forecastId = null,
+    horizon,
+    predictedValue,
+    actualValue,
+    calculatedAt = null
+  }) {
+    if (!this.accuracyRepo) return null;
+    return this.accuracyRepo.recordAccuracy({
+      homeId,
+      forecastId,
+      horizon,
+      predictedValue,
+      actualValue,
+      calculatedAt
+    });
+  }
+
+  async getForecastAccuracy(homeId, { horizon = null } = {}) {
+    if (!this.accuracyRepo) {
+      return { sampleCount: 0, mae: 0, mape: 0, hasSufficientData: false };
+    }
+    return this.accuracyRepo.getAggregateMetrics(homeId, horizon);
   }
 }
 

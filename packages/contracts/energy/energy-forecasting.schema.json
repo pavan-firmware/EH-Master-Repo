@@ -1,0 +1,189 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EnergyForecastingSchema",
+  "description": "Canonical schema definitions for EH Home Phase 22 Energy Forecasting, Predictive Intelligence, Baselines, Anomalies, and Efficiency Scoring",
+  "definitions": {
+    "ForecastPoint": {
+      "type": "object",
+      "required": ["timestamp", "predictedPowerW", "predictedEnergyWh", "confidenceScore"],
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "predictedPowerW": { "type": "number", "minimum": 0 },
+        "predictedEnergyWh": { "type": "number", "minimum": 0 },
+        "predictedCost": { "type": "number", "minimum": 0 },
+        "confidenceScore": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "EnergyForecast": {
+      "type": "object",
+      "required": [
+        "homeId",
+        "scopeType",
+        "scopeId",
+        "horizon",
+        "startTime",
+        "endTime",
+        "predictedKwh",
+        "confidenceScore",
+        "methodology",
+        "isEstimate"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "scopeType": { "type": "string", "enum": ["home", "room", "device"] },
+        "scopeId": { "type": "string" },
+        "horizon": { "type": "string", "enum": ["next_hour", "next_24_hours", "next_7_days", "current_month"] },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "predictedKwh": { "type": "number", "minimum": 0 },
+        "predictedCost": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+        "confidenceScore": { "type": "number", "minimum": 0, "maximum": 1 },
+        "methodology": { "type": "string" },
+        "dataCoverage": { "type": "string", "enum": ["FULL", "PARTIAL", "INSUFFICIENT"] },
+        "isEstimate": { "type": "boolean", "enum": [true] },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "points": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ForecastPoint" }
+        }
+      }
+    },
+    "EnergyBaseline": {
+      "type": "object",
+      "required": [
+        "homeId",
+        "scopeType",
+        "scopeId",
+        "typicalPowerW",
+        "typicalDailyEnergyKwh",
+        "typicalOvernightWh",
+        "sampleCount",
+        "confidence"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "scopeType": { "type": "string", "enum": ["home", "room", "device"] },
+        "scopeId": { "type": "string" },
+        "typicalPowerW": { "type": "number", "minimum": 0 },
+        "typicalDailyEnergyKwh": { "type": "number", "minimum": 0 },
+        "typicalOvernightWh": { "type": "number", "minimum": 0 },
+        "typicalOperatingHours": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 23 }
+        },
+        "sampleCount": { "type": "integer", "minimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "calculatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "EnergyAnomaly": {
+      "type": "object",
+      "required": [
+        "id",
+        "homeId",
+        "scopeType",
+        "scopeId",
+        "anomalyType",
+        "severity",
+        "observedValue",
+        "baselineValue",
+        "deviationPercentage",
+        "detectedAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "scopeType": { "type": "string", "enum": ["home", "room", "device"] },
+        "scopeId": { "type": "string" },
+        "anomalyType": {
+          "type": "string",
+          "enum": [
+            "UNUSUAL_POWER_SPIKE",
+            "UNEXPECTED_OVERNIGHT_LOAD",
+            "UNEXPECTED_OPERATING_DURATION",
+            "ABNORMAL_ROOM_LOAD",
+            "ABNORMAL_TOTAL_CONSUMPTION"
+          ]
+        },
+        "severity": { "type": "string", "enum": ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "observedValue": { "type": "number" },
+        "baselineValue": { "type": "number" },
+        "deviationPercentage": { "type": "number" },
+        "isConfirmed": { "type": "boolean" },
+        "confirmationCount": { "type": "integer", "minimum": 1 },
+        "evidence": { "type": "object" },
+        "detectedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "EnergyEfficiencyScore": {
+      "type": "object",
+      "required": ["homeId", "score", "grade", "factors", "calculatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "grade": { "type": "string", "enum": ["A+", "A", "B", "C", "D", "F"] },
+        "factors": {
+          "type": "object",
+          "required": ["standbyLossScore", "peakDemandScore", "thresholdViolationScore", "tariffEfficiencyScore", "trendScore"],
+          "properties": {
+            "standbyLossScore": { "type": "number", "minimum": 0, "maximum": 100 },
+            "peakDemandScore": { "type": "number", "minimum": 0, "maximum": 100 },
+            "thresholdViolationScore": { "type": "number", "minimum": 0, "maximum": 100 },
+            "tariffEfficiencyScore": { "type": "number", "minimum": 0, "maximum": 100 },
+            "trendScore": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "evidence": { "type": "object" },
+        "calculatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "PredictiveOptimizationRecommendation": {
+      "type": "object",
+      "required": [
+        "id",
+        "homeId",
+        "category",
+        "priority",
+        "title",
+        "description",
+        "reason",
+        "confidence",
+        "isEstimate"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "homeId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "category": { "type": "string", "enum": ["LOAD_SHIFTING", "PEAK_AVOIDANCE", "ANOMALY_INSPECTION", "BUDGET_PROTECTION", "OVERNIGHT_OPTIMIZATION"] },
+        "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "reason": { "type": "string" },
+        "evidence": { "type": "object" },
+        "estimatedKwhSavings": { "type": "number", "minimum": 0 },
+        "estimatedCostSavings": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "isEstimate": { "type": "boolean", "enum": [true] },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "isDismissed": { "type": "boolean" }
+      }
+    },
+    "ForecastAccuracy": {
+      "type": "object",
+      "required": ["homeId", "horizon", "sampleCount", "mae", "mape", "evaluatedAt"],
+      "properties": {
+        "homeId": { "type": "string" },
+        "horizon": { "type": "string" },
+        "sampleCount": { "type": "integer", "minimum": 0 },
+        "mae": { "type": "number", "minimum": 0 },
+        "mape": { "type": "number", "minimum": 0 },
+        "evaluatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

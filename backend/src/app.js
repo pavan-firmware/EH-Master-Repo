@@ -46,7 +46,12 @@ const {
   EnergyTariffRepository,
   TariffPeriodRepository,
   EnergyBudgetRepository,
-  CostOptimizationRepository
+  CostOptimizationRepository,
+  EnergyForecastRepository,
+  EnergyAnomalyRepository,
+  EnergyBaselineRepository,
+  ForecastAccuracyRepository,
+  EnergyEfficiencyScoreRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -208,6 +213,11 @@ function createApp(options = {}) {
   const tariffPeriodRepo = options.tariffPeriodRepo || new TariffPeriodRepository(db);
   const budgetRepo = options.budgetRepo || new EnergyBudgetRepository(db);
   const costOptimizationRepo = options.costOptimizationRepo || new CostOptimizationRepository(db);
+  const forecastRepo = options.forecastRepo || new EnergyForecastRepository(db);
+  const anomalyRepo = options.anomalyRepo || new EnergyAnomalyRepository(db);
+  const baselineRepo = options.baselineRepo || new EnergyBaselineRepository(db);
+  const accuracyRepo = options.accuracyRepo || new ForecastAccuracyRepository(db);
+  const efficiencyRepo = options.efficiencyRepo || new EnergyEfficiencyScoreRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -277,7 +287,12 @@ function createApp(options = {}) {
     tariffRepo,
     tariffPeriodRepo,
     budgetRepo,
-    costOptimizationRepo
+    costOptimizationRepo,
+    forecastRepo,
+    anomalyRepo,
+    baselineRepo,
+    accuracyRepo,
+    efficiencyRepo
   });
 
   automationService.setEnergyService(energyService);
