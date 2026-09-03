@@ -3278,6 +3278,104 @@ class IntelligenceOutcomeRepository {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 25 — Proactive Device Reliability + Self-Healing Repositories
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ReliabilityIncidentRepository {
+  constructor(db) { this.db = db; }
+
+  async create(data) { return this.db.insert('reliability_incidents', data.id, data); }
+  async findById(id) { return this.db.findById('reliability_incidents', id); }
+  async update(id, updates) { return this.db.update('reliability_incidents', id, updates); }
+
+  async findForDevice(deviceId) {
+    return this.db.find('reliability_incidents', r => r.device_id === deviceId);
+  }
+  async findActiveForDevice(deviceId) {
+    return this.db.find('reliability_incidents', r =>
+      r.device_id === deviceId && ['OPEN', 'INVESTIGATING'].includes(r.status)
+    );
+  }
+  async findActiveForHome(homeId) {
+    return this.db.find('reliability_incidents', r =>
+      r.home_id === homeId && ['OPEN', 'INVESTIGATING'].includes(r.status)
+    );
+  }
+  async findOpenByTypeAndDevice(deviceId, incidentType) {
+    const res = await this.db.find('reliability_incidents', r =>
+      r.device_id === deviceId && r.incident_type === incidentType && r.status === 'OPEN'
+    );
+    return res[0] || null;
+  }
+  async incrementSignal(id, updates) {
+    const existing = await this.db.findById('reliability_incidents', id);
+    if (!existing) return null;
+    return this.db.update('reliability_incidents', id, {
+      signal_count: (existing.signal_count || 1) + 1,
+      ...updates
+    });
+  }
+}
+
+class ReliabilityDiagnosticRepository {
+  constructor(db) { this.db = db; }
+  async create(data) { return this.db.insert('reliability_diagnostics', data.id, data); }
+  async findById(id) { return this.db.findById('reliability_diagnostics', id); }
+  async findForIncident(incidentId) {
+    return this.db.find('reliability_diagnostics', d => d.incident_id === incidentId);
+  }
+  async findForDevice(deviceId) {
+    return this.db.find('reliability_diagnostics', d => d.device_id === deviceId);
+  }
+}
+
+class ReliabilityRecoveryRepository {
+  constructor(db) { this.db = db; }
+  async create(data) { return this.db.insert('reliability_recovery_attempts', data.id, data); }
+  async findById(id) { return this.db.findById('reliability_recovery_attempts', id); }
+  async update(id, updates) { return this.db.update('reliability_recovery_attempts', id, updates); }
+
+  async findForIncident(incidentId) {
+    return this.db.find('reliability_recovery_attempts', r => r.incident_id === incidentId);
+  }
+  async findForDevice(deviceId, limit = 20) {
+    const all = await this.db.find('reliability_recovery_attempts', r => r.device_id === deviceId);
+    return all.sort((a, b) => new Date(b.initiated_at) - new Date(a.initiated_at)).slice(0, limit);
+  }
+  async findPendingForHome(homeId) {
+    return this.db.find('reliability_recovery_attempts', r =>
+      r.home_id === homeId && ['PENDING', 'EXECUTING', 'VERIFYING'].includes(r.status)
+    );
+  }
+}
+
+class ReliabilityHealthSnapshotRepository {
+  constructor(db) { this.db = db; }
+  async create(data) { return this.db.insert('reliability_health_snapshots', data.id, data); }
+  async findById(id) { return this.db.findById('reliability_health_snapshots', id); }
+  async findLatestForDevice(deviceId) {
+    const all = await this.db.find('reliability_health_snapshots', s => s.device_id === deviceId);
+    return all.sort((a, b) => new Date(b.snapshotted_at) - new Date(a.snapshotted_at))[0] || null;
+  }
+  async findForHome(homeId) {
+    return this.db.find('reliability_health_snapshots', s => s.home_id === homeId);
+  }
+}
+
+class MaintenanceRecommendationRepository {
+  constructor(db) { this.db = db; }
+  async create(data) { return this.db.insert('maintenance_recommendations', data.id, data); }
+  async findById(id) { return this.db.findById('maintenance_recommendations', id); }
+  async update(id, updates) { return this.db.update('maintenance_recommendations', id, updates); }
+  async findForHome(homeId) {
+    return this.db.find('maintenance_recommendations', r => r.home_id === homeId);
+  }
+  async findForDevice(deviceId) {
+    return this.db.find('maintenance_recommendations', r => r.device_id === deviceId);
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -3328,5 +3426,12 @@ module.exports = {
   ContextTransitionRepository,
   IntelligenceDecisionRepository,
   IntelligenceRecommendationRepository,
-  IntelligenceOutcomeRepository
+  IntelligenceOutcomeRepository,
+  // Phase 25 — Reliability
+  ReliabilityIncidentRepository,
+  ReliabilityDiagnosticRepository,
+  ReliabilityRecoveryRepository,
+  ReliabilityHealthSnapshotRepository,
+  MaintenanceRecommendationRepository
 };
+

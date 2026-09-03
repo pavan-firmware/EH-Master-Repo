@@ -386,3 +386,4 @@ export * from './authorization';
 export * from './sync';
 export * from './fleet';
 export * from './energy';
+export * from './reliability';
