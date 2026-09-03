@@ -64,7 +64,12 @@ const {
   ReliabilityDiagnosticRepository,
   ReliabilityRecoveryRepository,
   ReliabilityHealthSnapshotRepository,
-  MaintenanceRecommendationRepository
+  MaintenanceRecommendationRepository,
+  // Phase 26 — Multi-Protocol Connectivity
+  DeviceTransportRepository,
+  DeviceConnectionStateRepository,
+  CommissioningSessionRepository,
+  TransportHealthSnapshotRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -91,6 +96,7 @@ const { DataRetentionService } = require('./services/data-retention.service');
 const { ContextService } = require('./services/context.service');
 const { IntelligenceService } = require('./services/intelligence.service');
 const { ReliabilityService } = require('./services/reliability.service');
+const { ConnectivityService } = require('./services/connectivity.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
@@ -106,6 +112,7 @@ const { EnergyApiRouter } = require('./api/energy.router');
 const { ContextApiRouter } = require('./api/context.router');
 const { IntelligenceApiRouter } = require('./api/intelligence.router');
 const { ReliabilityApiRouter } = require('./api/reliability.router');
+const { ConnectivityApiRouter } = require('./api/connectivity.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
@@ -251,6 +258,11 @@ function createApp(options = {}) {
   const reliabilityRecoveryRepo = options.reliabilityRecoveryRepo || new ReliabilityRecoveryRepository(db);
   const reliabilitySnapshotRepo = options.reliabilitySnapshotRepo || new ReliabilityHealthSnapshotRepository(db);
   const maintenanceRecRepo = options.maintenanceRecRepo || new MaintenanceRecommendationRepository(db);
+  // Phase 26 Repositories
+  const deviceTransportRepo = options.deviceTransportRepo || new DeviceTransportRepository(db);
+  const deviceConnectionStateRepo = options.deviceConnectionStateRepo || new DeviceConnectionStateRepository(db);
+  const commissioningSessionRepo = options.commissioningSessionRepo || new CommissioningSessionRepository(db);
+  const transportHealthSnapshotRepo = options.transportHealthSnapshotRepo || new TransportHealthSnapshotRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -382,6 +394,19 @@ function createApp(options = {}) {
     homeAuthService
   });
 
+  // Phase 26 — Multi-Protocol Connectivity Service
+  const connectivityService = options.connectivityService || new ConnectivityService({
+    transportRepo: deviceTransportRepo,
+    connectionStateRepo: deviceConnectionStateRepo,
+    commissioningRepo: commissioningSessionRepo,
+    healthSnapshotRepo: transportHealthSnapshotRepo,
+    deviceRepo,
+    deviceStateRepo,
+    reliabilityService,
+    commandService,
+    eventBus
+  });
+
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,
     eventRepo,
@@ -508,6 +533,7 @@ function createApp(options = {}) {
   const contextRouter = new ContextApiRouter({ contextService, homeAuthService });
   const intelligenceRouter = new IntelligenceApiRouter({ intelligenceService, homeAuthService });
   const reliabilityRouter = new ReliabilityApiRouter({ reliabilityService, homeAuthService });
+  const connectivityRouter = new ConnectivityApiRouter({ connectivityService, homeAuthService });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const deviceManagementRouter = new DeviceManagementApiRouter({
     deviceManagementService,
@@ -716,6 +742,13 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.statusCode, result.body);
     }
 
+    // 8.59. Route to Multi-Protocol Connectivity Router (Phase 26)
+    if (pathname.startsWith('/api/v1/connectivity')) {
+      const actorContext = req.user ? { userId: req.user.id } : (req.actorContext || null);
+      const result = await connectivityRouter.handleRequest({ method, path: pathname, query, body }, actorContext);
+      return sendJsonResponse(res, result.statusCode, result.body);
+    }
+
     // 8.6. Route to Automation, Scene, and Schedule Router
     if (
       pathname.includes('/scenes') ||
@@ -824,6 +857,7 @@ function createApp(options = {}) {
       contextService,
       intelligenceService,
       reliabilityService,
+      connectivityService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -842,11 +876,16 @@ function createApp(options = {}) {
       signalRepo, presenceStateRepo, contextRepo, overrideRepo, transitionRepo,
       decisionRepo, recommendationRepo, outcomeRepo,
       reliabilityIncidentRepo, reliabilityDiagnosticRepo, reliabilityRecoveryRepo,
-      reliabilitySnapshotRepo, maintenanceRecRepo
+      reliabilitySnapshotRepo, maintenanceRecRepo,
+      // Phase 26 Repositories
+      deviceTransportRepo, deviceConnectionStateRepo, commissioningSessionRepo,
+      transportHealthSnapshotRepo
     },
     contextApiRouter: contextRouter,
-    energyApiRouter: energyRouter,
-    intelligenceApiRouter: intelligenceRouter
+    intelligenceApiRouter: intelligenceRouter,
+    reliabilityApiRouter: reliabilityRouter,
+    connectivityApiRouter: connectivityRouter,
+    energyApiRouter: energyRouter
   };
 }
 

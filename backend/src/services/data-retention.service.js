@@ -190,6 +190,24 @@ class DataRetentionService {
     return { pruned: stale.length, cutoff };
   }
 
+  // Phase 26 — Multi-Protocol Connectivity Retention
+
+  async pruneTransportHealthSnapshots(days = 30) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('transport_health_snapshots', s => s.snapshotted_at < cutoff || s.created_at < cutoff);
+    for (const s of stale) await this.db.delete('transport_health_snapshots', s.id);
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneCommissioningSessions(days = 60) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('commissioning_sessions', s =>
+      s.created_at < cutoff && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(s.stage)
+    );
+    for (const s of stale) await this.db.delete('commissioning_sessions', s.id);
+    return { pruned: stale.length, cutoff };
+  }
+
   async runRetentionCycle(policies = {}) {
     const notif = await this.pruneNotifications(policies.notificationDays || 30);
     const audit = await this.pruneAuditLogs(policies.auditLogDays || 90);
@@ -211,6 +229,8 @@ class DataRetentionService {
     const reliabilityRec = await this.pruneReliabilityRecoveryAttempts(policies.reliabilityRecoveryDays || 60);
     const reliabilitySnap = await this.pruneReliabilitySnapshots(policies.reliabilitySnapshotDays || 30);
     const maintRecs = await this.pruneMaintenanceRecommendations(policies.maintenanceRecDays || 180);
+    const transportHealth = await this.pruneTransportHealthSnapshots(policies.transportHealthDays || 30);
+    const commissioning = await this.pruneCommissioningSessions(policies.commissioningDays || 60);
 
     return {
       executedAt: new Date().toISOString(),
@@ -233,7 +253,9 @@ class DataRetentionService {
       reliabilityDiagnosticsPruned: reliabilityDiag.pruned,
       reliabilityRecoveryAttemptsPruned: reliabilityRec.pruned,
       reliabilitySnapshotsPruned: reliabilitySnap.pruned,
-      maintenanceRecommendationsPruned: maintRecs.pruned
+      maintenanceRecommendationsPruned: maintRecs.pruned,
+      transportHealthSnapshotsPruned: transportHealth.pruned,
+      commissioningSessionsPruned: commissioning.pruned
     };
   }
 }

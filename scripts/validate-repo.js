@@ -141,8 +141,11 @@ runStep('34. Phase 24 Smart Home Intelligence & Decision Engine Tests', `${nodeB
 // 35. Phase 25 Proactive Device Reliability + Self-Healing Tests
 runStep('35. Phase 25 Proactive Device Reliability & Self-Healing Tests', `${nodeBin} backend/tests/phase25-proactive-reliability.test.js`);
 
+// 36. Phase 26 Multi-Protocol Device Connectivity & Interoperability Tests
+runStep('36. Phase 26 Multi-Protocol Device Connectivity Tests', `${nodeBin} backend/tests/phase26-multi-protocol-connectivity.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  35 SUITES ATTEMPTED. ${failedSuites === 0 ? '35/35' : (35 - failedSuites) + '/35'} PASSED.`);
+console.log(`  36 SUITES ATTEMPTED. ${failedSuites === 0 ? '36/36' : (36 - failedSuites) + '/36'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

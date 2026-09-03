@@ -3376,6 +3376,250 @@ class MaintenanceRecommendationRepository {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 26 — Multi-Protocol Device Connectivity & Interoperability Repositories
+// ═══════════════════════════════════════════════════════════════════════════
+
+class DeviceTransportRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async create({
+    id,
+    home_id,
+    device_id,
+    transport_type,
+    is_active = 0,
+    is_supported = 1,
+    priority_rank = 1,
+    config = '{}'
+  }) {
+    return this.db.insert('device_transports', id, {
+      home_id,
+      device_id,
+      transport_type,
+      is_active,
+      is_supported,
+      priority_rank,
+      config,
+      created_at: new Date().toISOString()
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('device_transports', id);
+  }
+
+  async findByDevice(deviceId) {
+    const records = await this.db.find('device_transports', t => t.device_id === deviceId);
+    return records.sort((a, b) => a.priority_rank - b.priority_rank);
+  }
+
+  async findByHome(homeId) {
+    return this.db.find('device_transports', t => t.home_id === homeId);
+  }
+
+  async findActiveForDevice(deviceId) {
+    const records = await this.db.find('device_transports', t => t.device_id === deviceId && t.is_active === 1);
+    return records[0] || null;
+  }
+
+  async update(id, updates) {
+    return this.db.update('device_transports', id, {
+      ...updates,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async setActiveTransport(deviceId, transportType) {
+    const transports = await this.findByDevice(deviceId);
+    for (const t of transports) {
+      const isActive = t.transport_type === transportType ? 1 : 0;
+      if (t.is_active !== isActive) {
+        await this.update(t.id, { is_active: isActive });
+      }
+    }
+  }
+}
+
+class DeviceConnectionStateRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async create({
+    id,
+    home_id,
+    device_id,
+    active_transport,
+    connection_state = 'DISCONNECTED',
+    last_connected_at = null,
+    last_disconnected_at = null,
+    reconnect_count = 0,
+    last_error = null
+  }) {
+    return this.db.insert('device_connection_states', id, {
+      home_id,
+      device_id,
+      active_transport,
+      connection_state,
+      last_connected_at,
+      last_disconnected_at,
+      reconnect_count,
+      last_error,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('device_connection_states', id);
+  }
+
+  async findByDeviceId(deviceId) {
+    const records = await this.db.find('device_connection_states', s => s.device_id === deviceId);
+    return records[0] || null;
+  }
+
+  async findByHome(homeId) {
+    return this.db.find('device_connection_states', s => s.home_id === homeId);
+  }
+
+  async update(id, updates) {
+    return this.db.update('device_connection_states', id, {
+      ...updates,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async upsertState(deviceId, homeId, updates) {
+    const existing = await this.findByDeviceId(deviceId);
+    if (existing) {
+      return this.update(existing.id, updates);
+    }
+    const id = `conn_${deviceId}`;
+    return this.create({
+      id,
+      home_id: homeId,
+      device_id: deviceId,
+      active_transport: updates.active_transport || 'WIFI_MQTT',
+      connection_state: updates.connection_state || 'DISCONNECTED',
+      last_connected_at: updates.last_connected_at || null,
+      last_disconnected_at: updates.last_disconnected_at || null,
+      reconnect_count: updates.reconnect_count || 0,
+      last_error: updates.last_error || null
+    });
+  }
+}
+
+class CommissioningSessionRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async create({
+    id,
+    home_id,
+    device_id,
+    transport_type,
+    stage = 'DISCOVERED',
+    auth_method = null,
+    error_details = null,
+    started_at = new Date().toISOString()
+  }) {
+    return this.db.insert('commissioning_sessions', id, {
+      home_id,
+      device_id,
+      transport_type,
+      stage,
+      auth_method,
+      error_details,
+      started_at,
+      completed_at: null,
+      created_at: new Date().toISOString()
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('commissioning_sessions', id);
+  }
+
+  async findByDevice(deviceId) {
+    const records = await this.db.find('commissioning_sessions', s => s.device_id === deviceId);
+    return records.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  }
+
+  async findByHome(homeId) {
+    const records = await this.db.find('commissioning_sessions', s => s.home_id === homeId);
+    return records.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  }
+
+  async findActiveForDevice(deviceId) {
+    const records = await this.db.find('commissioning_sessions', s =>
+      s.device_id === deviceId && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(s.stage)
+    );
+    return records[0] || null;
+  }
+
+  async update(id, updates) {
+    return this.db.update('commissioning_sessions', id, {
+      ...updates,
+      updated_at: new Date().toISOString()
+    });
+  }
+}
+
+class TransportHealthSnapshotRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async create({
+    id,
+    home_id,
+    device_id,
+    transport_type,
+    latency_ms = 0.0,
+    error_rate = 0.0,
+    availability = 'ONLINE',
+    metrics = '{}',
+    snapshotted_at = new Date().toISOString()
+  }) {
+    return this.db.insert('transport_health_snapshots', id, {
+      home_id,
+      device_id,
+      transport_type,
+      latency_ms,
+      error_rate,
+      availability,
+      metrics,
+      snapshotted_at,
+      created_at: new Date().toISOString()
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('transport_health_snapshots', id);
+  }
+
+  async findLatestForDevice(deviceId, transportType = null) {
+    const records = await this.db.find('transport_health_snapshots', s =>
+      s.device_id === deviceId && (!transportType || s.transport_type === transportType)
+    );
+    return records.sort((a, b) => new Date(b.snapshotted_at) - new Date(a.snapshotted_at))[0] || null;
+  }
+
+  async findForDevice(deviceId, limit = 50) {
+    const records = await this.db.find('transport_health_snapshots', s => s.device_id === deviceId);
+    return records.sort((a, b) => new Date(b.snapshotted_at) - new Date(a.snapshotted_at)).slice(0, limit);
+  }
+
+  async findByHome(homeId, limit = 100) {
+    const records = await this.db.find('transport_health_snapshots', s => s.home_id === homeId);
+    return records.sort((a, b) => new Date(b.snapshotted_at) - new Date(a.snapshotted_at)).slice(0, limit);
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -3432,6 +3676,10 @@ module.exports = {
   ReliabilityDiagnosticRepository,
   ReliabilityRecoveryRepository,
   ReliabilityHealthSnapshotRepository,
-  MaintenanceRecommendationRepository
+  MaintenanceRecommendationRepository,
+  // Phase 26 — Multi-Protocol Connectivity
+  DeviceTransportRepository,
+  DeviceConnectionStateRepository,
+  CommissioningSessionRepository,
+  TransportHealthSnapshotRepository
 };
-

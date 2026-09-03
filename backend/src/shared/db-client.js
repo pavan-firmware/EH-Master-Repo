@@ -29,7 +29,10 @@ class DatabaseClient {
       'intelligence_decisions', 'intelligence_recommendations', 'intelligence_decision_outcomes',
       // Phase 25 — Proactive Device Reliability + Self-Healing
       'reliability_incidents', 'reliability_diagnostics', 'reliability_recovery_attempts',
-      'reliability_health_snapshots', 'maintenance_recommendations'
+      'reliability_health_snapshots', 'maintenance_recommendations',
+      // Phase 26 — Multi-Protocol Device Connectivity & Interoperability
+      'device_transports', 'device_connection_states', 'commissioning_sessions',
+      'transport_health_snapshots'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }
