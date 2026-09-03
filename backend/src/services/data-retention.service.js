@@ -48,18 +48,40 @@ class DataRetentionService {
     return { pruned: stale.length, cutoff };
   }
 
+  async pruneEnergyExecutions(olderThanDays = 30) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('energy_automation_executions', e => e.created_at < cutoff);
+    for (const e of stale) {
+      await this.db.delete('energy_automation_executions', e.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneEnergyOptimizations(olderThanDays = 60) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('energy_optimizations', e => e.updated_at < cutoff && (e.is_dismissed === 1 || e.is_dismissed === true));
+    for (const e of stale) {
+      await this.db.delete('energy_optimizations', e.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
   async runRetentionCycle(policies = {}) {
     const notif = await this.pruneNotifications(policies.notificationDays || 30);
     const audit = await this.pruneAuditLogs(policies.auditLogDays || 90);
     const syncAudit = await this.prunePendingAudits(policies.syncAuditDays || 14);
     const exportRec = await this.pruneExportRecords(policies.exportDays || 7);
+    const energyExec = await this.pruneEnergyExecutions(policies.energyExecutionDays || 30);
+    const energyOpt = await this.pruneEnergyOptimizations(policies.energyOptimizationDays || 60);
 
     return {
       executedAt: new Date().toISOString(),
       notificationsPruned: notif.pruned,
       auditLogsPruned: audit.pruned,
       syncAuditsPruned: syncAudit.pruned,
-      exportsPruned: exportRec.pruned
+      exportsPruned: exportRec.pruned,
+      energyExecutionsPruned: energyExec.pruned,
+      energyOptimizationsPruned: energyOpt.pruned
     };
   }
 }

@@ -40,7 +40,9 @@ const {
   DeviceTelemetryRepository,
   TelemetryAggregateRepository,
   EnergyThresholdRepository,
-  EnergyEventRepository
+  EnergyEventRepository,
+  EnergyAutomationExecutionRepository,
+  EnergyOptimizationRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -196,6 +198,8 @@ function createApp(options = {}) {
   const aggregateRepo = options.aggregateRepo || new TelemetryAggregateRepository(db);
   const thresholdRepo = options.thresholdRepo || new EnergyThresholdRepository(db);
   const energyEventRepo = options.energyEventRepo || new EnergyEventRepository(db);
+  const executionRepo = options.executionRepo || new EnergyAutomationExecutionRepository(db);
+  const optimizationRepo = options.optimizationRepo || new EnergyOptimizationRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -227,6 +231,29 @@ function createApp(options = {}) {
     pushProvider
   });
 
+  const commandService = new DeviceCommandService({
+    commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo,
+    mqttTransport
+  });
+
+  const sceneService = options.sceneService || new SceneService({
+    sceneRepo, homeAuthService, deviceCommandService: commandService, eventBus, logRepo
+  });
+
+  const automationService = options.automationService || new AutomationService({
+    automationRepo,
+    homeAuthService,
+    deviceCommandService: commandService,
+    deviceStateRepo,
+    eventBus,
+    logRepo,
+    telemetryRepo,
+    aggregateRepo,
+    energyExecutionRepo: executionRepo,
+    notificationService,
+    sceneService
+  });
+
   const energyService = options.energyService || new EnergyService({
     telemetryRepo,
     aggregateRepo,
@@ -236,7 +263,9 @@ function createApp(options = {}) {
     roomRepo,
     homeRepo,
     notificationService,
-    realtimeEventBus: eventBus
+    realtimeEventBus: eventBus,
+    automationService,
+    optimizationRepo
   });
 
   const ingestionService = new DeviceEventTelemetryIngestionService({
@@ -248,10 +277,6 @@ function createApp(options = {}) {
     activityLogRepo,
     healthRepo,
     energyService
-  });
-  const commandService = new DeviceCommandService({
-    commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo,
-    mqttTransport
   });
 
   const otaService = options.otaService || new OtaService({
@@ -270,12 +295,6 @@ function createApp(options = {}) {
     productCatalogService: catalogService
   });
 
-  const sceneService = options.sceneService || new SceneService({
-    sceneRepo, homeAuthService, deviceCommandService: commandService, eventBus, logRepo
-  });
-  const automationService = options.automationService || new AutomationService({
-    automationRepo, homeAuthService, deviceCommandService: commandService, deviceStateRepo, eventBus, logRepo
-  });
   const scheduleService = options.scheduleService || new ScheduleService({
     scheduleRepo, homeAuthService, automationService, sceneService
   });
@@ -362,7 +381,16 @@ function createApp(options = {}) {
   const provisioningRouter = new ProvisioningClaimApiRouter({ provisioningService, deviceClaimService });
   const catalogRouter = new ProductCatalogApiRouter();
   const otaRouter = new OtaApiRouter({ otaService });
-  const energyRouter = new EnergyApiRouter({ energyService, homeAuthService, telemetryRepo, thresholdRepo, eventRepo });
+  const energyRouter = new EnergyApiRouter({
+    energyService,
+    homeAuthService,
+    telemetryRepo,
+    thresholdRepo,
+    eventRepo: energyEventRepo,
+    automationService,
+    executionRepo,
+    optimizationRepo
+  });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const deviceManagementRouter = new DeviceManagementApiRouter({
     deviceManagementService,
@@ -666,7 +694,8 @@ function createApp(options = {}) {
       scheduleRepo, logRepo, activityLogRepo, healthRepo, notificationRepo,
       invitationRepo, syncRepo, exportRepo,
       firmwareRepo, operationRepo, rolloutRepo, maintenanceRepo,
-      telemetryRepo, aggregateRepo, thresholdRepo, energyEventRepo
+      telemetryRepo, aggregateRepo, thresholdRepo, energyEventRepo,
+      executionRepo, optimizationRepo
     }
   };
 }

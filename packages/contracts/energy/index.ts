@@ -119,3 +119,136 @@ export interface TopEnergyConsumer {
   currentPowerW: number;
   percentageOfTotal: number;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 20: Smart Energy Automation & Optimization Contracts
+// ---------------------------------------------------------------------------
+
+export type EnergyConditionMetric =
+  | 'instantaneous_power'
+  | 'cumulative_energy'
+  | 'daily_energy'
+  | 'monthly_energy'
+  | 'sustained_power';
+
+export type EnergyComparisonOperator = 'GT' | 'GTE' | 'LT' | 'LTE' | 'EQ';
+export type EnergyScopeType = 'device' | 'room' | 'home';
+
+export interface EnergyTimeWindow {
+  startTime?: string; // 'HH:mm'
+  endTime?: string;   // 'HH:mm'
+  daysOfWeek?: number[]; // [1..7]
+}
+
+export interface EnergyCondition {
+  metric: EnergyConditionMetric;
+  operator: EnergyComparisonOperator;
+  threshold: number;
+  durationSeconds?: number;
+  timeWindow?: EnergyTimeWindow;
+}
+
+export interface EnergyHysteresisConfig {
+  recoveryThreshold?: number;
+  cooldownSeconds?: number;
+  minimumDurationSeconds?: number;
+}
+
+export interface EnergyAction {
+  actionType: 'device_command' | 'scene_execution';
+  deviceId?: string;
+  channelIndex?: number;
+  command?: string;
+  params?: Record<string, any>;
+  sceneId?: string;
+}
+
+export interface EnergyAutomationRule {
+  schemaVersion: 1;
+  id: string;
+  homeId: string;
+  name: string;
+  description?: string | null;
+  isEnabled: boolean;
+  scopeType?: EnergyScopeType;
+  scopeId?: string | null;
+  triggerCondition: EnergyCondition;
+  hysteresis?: EnergyHysteresisConfig;
+  actions: EnergyAction[];
+  cooldownSeconds?: number;
+}
+
+export type EnergyExecutionStatus = 'succeeded' | 'failed' | 'partial' | 'skipped';
+export type EnergySkipReason =
+  | 'in_cooldown'
+  | 'hysteresis_active'
+  | 'conditions_not_met'
+  | 'loop_detected'
+  | 'disabled'
+  | 'missing_telemetry'
+  | 'stale_telemetry';
+
+export interface EnergyAutomationExecution {
+  id: string;
+  homeId: string;
+  automationId: string;
+  scopeType?: EnergyScopeType;
+  scopeId?: string | null;
+  triggerType: string;
+  triggerReason: string;
+  telemetryContext?: Record<string, any>;
+  previousState?: Record<string, any>;
+  requestedAction?: Record<string, any>;
+  resultingState?: Record<string, any>;
+  status: EnergyExecutionStatus;
+  skipReason?: EnergySkipReason | null;
+  errorMessage?: string | null;
+  durationMs: number;
+  createdAt: string;
+}
+
+export type OptimizationCategory =
+  | 'VAMPIRE_STANDBY_POWER'
+  | 'OVERNIGHT_CONSUMPTION'
+  | 'HIGH_PEAK_DEMAND'
+  | 'THRESHOLD_FREQUENT_EXCEED';
+
+export type OptimizationSeverity = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export interface EstimatedSavings {
+  dailyKwh: number;
+  monthlyKwh: number;
+  annualKwh: number;
+  monthlyCost: number;
+  annualCost: number;
+  currency: string;
+  tariffPerKwh: number;
+  isEstimate: true;
+}
+
+export interface EnergyOptimizationRecommendation {
+  id: string;
+  homeId: string;
+  deviceId?: string | null;
+  deviceName?: string | null;
+  roomName?: string | null;
+  category: OptimizationCategory;
+  severity: OptimizationSeverity;
+  title: string;
+  description: string;
+  estimatedSavings: EstimatedSavings;
+  calculationBasis: {
+    observedAvgPowerW?: number;
+    baselineStandbyW?: number;
+    activeHoursPerDay?: number;
+    sampleCount?: number;
+    confidenceScore?: number;
+  };
+  suggestedAction: {
+    actionType: 'create_automation' | 'schedule_off' | 'power_cap';
+    automationTemplate?: Partial<EnergyAutomationRule>;
+  };
+  isDismissed: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -1931,6 +1931,10 @@ class EnergyThresholdRepository {
     return this.db.find('energy_threshold_configs', t => t.home_id === homeId && t.is_enabled === 1);
   }
 
+  async getThresholdForHome(homeId) {
+    return this.getThreshold(homeId, null);
+  }
+
   async getThreshold(homeId, deviceId = null) {
     const list = await this.db.find('energy_threshold_configs', t =>
       t.home_id === homeId && (deviceId ? t.device_id === deviceId : (!t.device_id || t.device_id === null))
@@ -2022,6 +2026,173 @@ class EnergyEventRepository {
   }
 }
 
+// -----------------------------------------------------------------------------
+// 26. Energy Automation Execution Repository (Phase 20)
+// -----------------------------------------------------------------------------
+class EnergyAutomationExecutionRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createExecution({
+    id,
+    homeId,
+    automationId = null,
+    scopeType = 'device',
+    scopeId = null,
+    triggerType,
+    triggerReason,
+    telemetryContext = {},
+    previousState = null,
+    requestedAction = null,
+    resultingState = null,
+    status,
+    skipReason = null,
+    errorMessage = null,
+    durationMs = 0,
+    createdAt = new Date().toISOString()
+  }) {
+    const execId = id || `enexec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return this.db.insert('energy_automation_executions', execId, {
+      home_id: homeId,
+      automation_id: automationId,
+      scope_type: scopeType,
+      scope_id: scopeId,
+      trigger_type: triggerType,
+      trigger_reason: triggerReason,
+      telemetry_context: typeof telemetryContext === 'object' ? JSON.stringify(telemetryContext) : telemetryContext,
+      previous_state: typeof previousState === 'object' && previousState !== null ? JSON.stringify(previousState) : previousState,
+      requested_action: typeof requestedAction === 'object' && requestedAction !== null ? JSON.stringify(requestedAction) : requestedAction,
+      resulting_state: typeof resultingState === 'object' && resultingState !== null ? JSON.stringify(resultingState) : resultingState,
+      status,
+      skip_reason: skipReason,
+      error_message: errorMessage,
+      duration_ms: durationMs,
+      created_at: createdAt
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('energy_automation_executions', id);
+  }
+
+  async findByAutomationId(automationId, limit = 50) {
+    const list = await this.db.find('energy_automation_executions', e => e.automation_id === automationId);
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async findByHomeId(homeId, { limit = 50, from = null } = {}) {
+    let list = await this.db.find('energy_automation_executions', e => {
+      if (e.home_id !== homeId) return false;
+      if (from && new Date(e.created_at) < new Date(from)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async deleteOlderThan(cutoffIso) {
+    const stale = await this.db.find('energy_automation_executions', e => e.created_at < cutoffIso);
+    for (const item of stale) {
+      await this.db.delete('energy_automation_executions', item.id);
+    }
+    return stale.length;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 27. Energy Optimization Repository (Phase 20)
+// -----------------------------------------------------------------------------
+class EnergyOptimizationRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async upsertOptimization({
+    id,
+    homeId,
+    deviceId = null,
+    category,
+    severity = 'MEDIUM',
+    title,
+    description,
+    estimatedDailySavingsKwh = 0,
+    estimatedMonthlySavingsKwh = 0,
+    estimatedMonthlyCostSavings = 0,
+    currency = 'USD',
+    calculationBasis = {},
+    suggestedAction = {},
+    isDismissed = false
+  }) {
+    const existing = await this.db.find('energy_optimizations', opt =>
+      opt.home_id === homeId && opt.device_id === deviceId && opt.category === category
+    );
+
+    const now = new Date().toISOString();
+    const payload = {
+      home_id: homeId,
+      device_id: deviceId,
+      category,
+      severity,
+      title,
+      description,
+      estimated_daily_savings_kwh: Number(estimatedDailySavingsKwh) || 0,
+      estimated_monthly_savings_kwh: Number(estimatedMonthlySavingsKwh) || 0,
+      estimated_monthly_cost_savings: Number(estimatedMonthlyCostSavings) || 0,
+      currency: currency || 'USD',
+      calculation_basis: typeof calculationBasis === 'object' ? JSON.stringify(calculationBasis) : calculationBasis,
+      suggested_action: typeof suggestedAction === 'object' ? JSON.stringify(suggestedAction) : suggestedAction,
+      is_dismissed: isDismissed ? 1 : 0,
+      updated_at: now
+    };
+
+    if (existing.length > 0) {
+      const record = existing[0];
+      return this.db.update('energy_optimizations', record.id, payload);
+    }
+
+    const optId = id || `enopt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return this.db.insert('energy_optimizations', optId, {
+      ...payload,
+      created_at: now
+    });
+  }
+
+  async findById(id) {
+    return this.db.findById('energy_optimizations', id);
+  }
+
+  async findByHomeId(homeId, { includeDismissed = false } = {}) {
+    let list = await this.db.find('energy_optimizations', opt => {
+      if (opt.home_id !== homeId) return false;
+      if (!includeDismissed && (opt.is_dismissed === 1 || opt.is_dismissed === true)) return false;
+      return true;
+    });
+    list.sort((a, b) => (b.estimated_monthly_cost_savings || 0) - (a.estimated_monthly_cost_savings || 0));
+    return list;
+  }
+
+  async findByDeviceId(deviceId) {
+    return this.db.find('energy_optimizations', opt => opt.device_id === deviceId);
+  }
+
+  async dismissOptimization(id) {
+    return this.db.update('energy_optimizations', id, {
+      is_dismissed: 1,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async deleteOlderThan(cutoffIso) {
+    const stale = await this.db.find('energy_optimizations', opt => opt.updated_at < cutoffIso);
+    for (const item of stale) {
+      await this.db.delete('energy_optimizations', item.id);
+    }
+    return stale.length;
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -2053,5 +2224,7 @@ module.exports = {
   DeviceTelemetryRepository,
   TelemetryAggregateRepository,
   EnergyThresholdRepository,
-  EnergyEventRepository
+  EnergyEventRepository,
+  EnergyAutomationExecutionRepository,
+  EnergyOptimizationRepository
 };

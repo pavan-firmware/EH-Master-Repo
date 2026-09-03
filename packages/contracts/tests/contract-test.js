@@ -21,6 +21,7 @@ const schemaFiles = [
   '../events/device-event.schema.json',
   '../energy/energy-telemetry.schema.json',
   '../energy/energy.schema.json',
+  '../energy/energy-automation.schema.json',
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
@@ -282,6 +283,58 @@ assert('Valid EnergyUsageSummary passes', validator.validate('EnergyUsageSummary
 assert('Invalid entityType fails', !validator.validate('EnergyUsageSummary', { ...validSummary, entityType: 'invalid' }).valid);
 assert('Negative power fails', !validator.validate('EnergyUsageSummary', { ...validSummary, currentPowerW: -10 }).valid);
 assert('Invalid period fails', !validator.validate('EnergyUsageSummary', { ...validSummary, period: 'invalid_period' }).valid);
+
+// 8. EnergyAutomationRule:
+console.log('\n8. EnergyAutomationRule:');
+const validEnergyRule = {
+  schemaVersion: 1,
+  id: 'auto_energy_01',
+  homeId: '0194fe23-7a1b-7890-a123-111111111111',
+  name: 'Oven High Power Auto-Off',
+  description: 'Turn off switch when sustained power > 2000W for 60s',
+  isEnabled: true,
+  scopeType: 'device',
+  scopeId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  triggerCondition: {
+    metric: 'sustained_power',
+    operator: 'GT',
+    threshold: 2000.0,
+    durationSeconds: 60,
+    timeWindow: {
+      startTime: '22:00',
+      endTime: '06:00',
+      daysOfWeek: [1, 2, 3, 4, 5, 6, 7]
+    }
+  },
+  hysteresis: {
+    recoveryThreshold: 1500.0,
+    cooldownSeconds: 300,
+    minimumDurationSeconds: 60
+  },
+  actions: [
+    {
+      actionType: 'device_command',
+      deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
+      channelIndex: 1,
+      command: 'setPower',
+      params: { value: false }
+    }
+  ],
+  cooldownSeconds: 300
+};
+
+assert('Valid EnergyAutomationRule passes', validator.validate('EnergyAutomationRule', validEnergyRule).valid);
+assert('Missing triggerCondition fails', !validator.validate('EnergyAutomationRule', { ...validEnergyRule, triggerCondition: undefined }).valid);
+assert('Invalid metric enum fails', !validator.validate('EnergyAutomationRule', {
+  ...validEnergyRule,
+  triggerCondition: { ...validEnergyRule.triggerCondition, metric: 'invalid_metric' }
+}).valid);
+assert('Invalid operator enum fails', !validator.validate('EnergyAutomationRule', {
+  ...validEnergyRule,
+  triggerCondition: { ...validEnergyRule.triggerCondition, operator: 'INVALID' }
+}).valid);
+assert('Empty actions fails minItems', !validator.validate('EnergyAutomationRule', { ...validEnergyRule, actions: [] }).valid);
+
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);
