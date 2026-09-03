@@ -22,6 +22,7 @@ const schemaFiles = [
   '../energy/energy-telemetry.schema.json',
   '../energy/energy.schema.json',
   '../energy/energy-automation.schema.json',
+  '../energy/energy-cost.schema.json',
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
@@ -335,6 +336,62 @@ assert('Invalid operator enum fails', !validator.validate('EnergyAutomationRule'
 }).valid);
 assert('Empty actions fails minItems', !validator.validate('EnergyAutomationRule', { ...validEnergyRule, actions: [] }).valid);
 
+// 9. ElectricityTariff:
+console.log('\n9. ElectricityTariff:');
+const validTariff = {
+  schemaVersion: 1,
+  id: 'tariff_tou_01',
+  homeId: '0194fe23-7a1b-7890-a123-111111111111',
+  name: 'Standard Time-Of-Use Tariff',
+  tariffType: 'TIME_OF_USE',
+  currency: 'USD',
+  flatRatePerKwh: null,
+  fixedDailyCharge: 0.50,
+  effectiveFrom: '2026-01-01T00:00:00Z',
+  effectiveTo: null,
+  carbonIntensityGPerKwh: 420.0,
+  isActive: true,
+  periods: [
+    {
+      id: 'period_offpeak_1',
+      periodType: 'OFF_PEAK',
+      startTime: '22:00',
+      endTime: '06:00',
+      applicableWeekdays: [1, 2, 3, 4, 5, 6, 7],
+      pricePerKwh: 0.08
+    },
+    {
+      id: 'period_peak_1',
+      periodType: 'PEAK',
+      startTime: '14:00',
+      endTime: '20:00',
+      applicableWeekdays: [1, 2, 3, 4, 5],
+      pricePerKwh: 0.28
+    },
+    {
+      id: 'period_std_1',
+      periodType: 'STANDARD',
+      startTime: '06:00',
+      endTime: '14:00',
+      applicableWeekdays: [1, 2, 3, 4, 5],
+      pricePerKwh: 0.15
+    }
+  ],
+  metadata: { provider: 'Pacific Energy', planCode: 'TOU-EV2' }
+};
+
+assert('Valid ElectricityTariff passes', validator.validate('ElectricityTariff', validTariff).valid);
+assert('Missing effectiveFrom fails', !validator.validate('ElectricityTariff', { ...validTariff, effectiveFrom: undefined }).valid);
+assert('Invalid tariffType fails', !validator.validate('ElectricityTariff', { ...validTariff, tariffType: 'INVALID_TYPE' }).valid);
+assert('Invalid currency code length fails', !validator.validate('ElectricityTariff', { ...validTariff, currency: 'US' }).valid);
+assert('Invalid period startTime format fails', !validator.validate('ElectricityTariff', {
+  ...validTariff,
+  periods: [{ ...validTariff.periods[0], startTime: '25:99' }]
+}).valid);
+assert('Negative period price fails', !validator.validate('ElectricityTariff', {
+  ...validTariff,
+  periods: [{ ...validTariff.periods[0], pricePerKwh: -0.05 }]
+}).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

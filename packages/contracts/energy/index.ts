@@ -252,3 +252,98 @@ export interface EnergyOptimizationRecommendation {
   createdAt: string;
   updatedAt: string;
 }
+
+// --- PHASE 21 TARIFFS & COST INTELLIGENCE ---
+
+export type TariffType = 'FLAT' | 'TIME_OF_USE' | 'DYNAMIC';
+
+export type TariffPeriodType = 'OFF_PEAK' | 'STANDARD' | 'PEAK' | 'CRITICAL_PEAK';
+
+export interface TariffPeriod {
+  id: string;
+  periodType: TariffPeriodType;
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+  applicableWeekdays: number[]; // 1 = Monday ... 7 = Sunday
+  pricePerKwh: number;
+}
+
+export interface ElectricityTariff {
+  schemaVersion: 1;
+  id: string;
+  homeId: string;
+  name: string;
+  tariffType: TariffType;
+  currency: string;
+  flatRatePerKwh?: number | null;
+  fixedDailyCharge?: number | null;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  carbonIntensityGPerKwh?: number | null;
+  isActive: boolean;
+  periods?: TariffPeriod[];
+  metadata?: Record<string, any> | null;
+}
+
+export type BudgetPeriodType = 'daily' | 'weekly' | 'monthly';
+
+export interface EnergyBudget {
+  schemaVersion: 1;
+  id: string;
+  homeId: string;
+  periodType: BudgetPeriodType;
+  budgetAmount: number;
+  currency: string;
+  alertThresholdPercent: number;
+  isEnabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CostForecast {
+  homeId: string;
+  period: BudgetPeriodType;
+  currency: string;
+  actualCostToDate: number;
+  estimatedRemainingCost: number;
+  projectedTotalCost: number;
+  actualKwhToDate: number;
+  projectedTotalKwh: number;
+  confidenceScore: number;
+  isEstimate: true;
+  generatedAt: string;
+}
+
+export interface PeakDemandAnalysis {
+  homeId: string;
+  currentPeakLoadW: number;
+  highestHistoricalPeakW: number;
+  dailyPeakW: number;
+  monthlyPeakW: number;
+  peakHourOfDay: number;
+  repeatedHighLoadWindows: Array<{
+    startTime: string;
+    endTime: string;
+    avgPeakW: number;
+  }>;
+}
+
+export interface CarbonFootprint {
+  entityId: string;
+  entityType: 'home' | 'room' | 'device';
+  carbonIntensityGPerKwh: number;
+  totalGramsCO2: number;
+  totalKgCO2: number;
+  source: 'configured_tariff' | 'default_regional_estimate';
+  isEstimate: true;
+}
+
+export interface CheapestPeriod {
+  startTime: string; // ISO
+  endTime: string; // ISO
+  durationHours: number;
+  pricePerKwh: number;
+  currency: string;
+  periodType: TariffPeriodType;
+  potentialSavingsPercent: number;
+}
