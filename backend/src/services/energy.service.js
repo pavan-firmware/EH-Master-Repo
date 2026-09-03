@@ -26,6 +26,8 @@ class EnergyService {
    * @param {Object} opts.homeRepo           - HomeRepository
    * @param {Object} [opts.notificationService] - NotificationService
    * @param {Object} [opts.realtimeEventBus]    - RealtimeEventBus
+   * @param {Object} [opts.automationService]   - AutomationService (Phase 20)
+   * @param {Object} [opts.optimizationRepo]    - EnergyOptimizationRepository (Phase 20)
    */
   constructor({
     telemetryRepo,
@@ -36,7 +38,9 @@ class EnergyService {
     roomRepo,
     homeRepo,
     notificationService = null,
-    realtimeEventBus = null
+    realtimeEventBus = null,
+    automationService = null,
+    optimizationRepo = null
   }) {
     this.telemetryRepo = telemetryRepo;
     this.aggregateRepo = aggregateRepo;
@@ -47,6 +51,8 @@ class EnergyService {
     this.homeRepo = homeRepo;
     this.notificationService = notificationService;
     this.realtimeEventBus = realtimeEventBus;
+    this.automationService = automationService;
+    this.optimizationRepo = optimizationRepo;
 
     this._deviceStateCache = new Map(); // deviceId -> { lastSeq, lastEnergyWh, lastTimestamp }
     this._alertCooldownMap = new Map(); // alertKey -> lastSentTimestamp
@@ -137,6 +143,15 @@ class EnergyService {
     // Evaluate Thresholds & Anomalies
     if (homeId) {
       await this._evaluateThresholds(homeId, deviceId, t.p_mw / 1000.0, t.e_tot_wh / 1000.0, isReset);
+    }
+
+    // Evaluate Active Energy Automations (Phase 20)
+    if (homeId && this.automationService) {
+      try {
+        await this._evaluateEnergyAutomations(homeId, deviceId, channelIndex, t, nowIso);
+      } catch (err) {
+        console.warn(`[EnergyService] Automation evaluation failed for ${deviceId}:`, err.message);
+      }
     }
 
     // Publish Realtime Event
@@ -690,6 +705,397 @@ class EnergyService {
     if (!deviceId || !this.deviceRepo) return null;
     const auth = await this.deviceRepo.getDeviceAuthorization(deviceId);
     return auth ? auth.home_id : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 6. Phase 20: Energy Automation Evaluation & Optimization Engine
+  // ---------------------------------------------------------------------------
+
+  async _evaluateEnergyAutomations(homeId, deviceId, channelIndex, telemetryMsg, timestampIso) {
+    if (!this.automationService || !this.automationService.automationRepo) return;
+
+    // Find enabled automations for this home
+    const rules = await this.automationService.automationRepo.findByHomeId(homeId);
+    if (!rules || rules.length === 0) return;
+
+    const powerW = telemetryMsg.p_mw / 1000.0;
+    const totalEnergyKwh = telemetryMsg.e_tot_wh / 1000.0;
+
+    // Get device's room if available
+    let roomId = null;
+    if (this.deviceRepo) {
+      const auth = await this.deviceRepo.getDeviceAuthorization(deviceId);
+      roomId = auth ? auth.room_id : null;
+    }
+
+    const matchingRules = rules.filter(r => {
+      if (!r.is_enabled) return false;
+      const isEnergyTrigger = r.trigger_type === 'energy_threshold' ||
+        r.trigger_type === 'energy' ||
+        (Array.isArray(r.conditions) && r.conditions.some(c =>
+          c.type === 'energy_condition' ||
+          c.type === 'energy_threshold' ||
+          c.metric === 'instantaneous_power' ||
+          c.metric === 'sustained_power' ||
+          c.metric === 'daily_energy' ||
+          c.metric === 'cumulative_energy'
+        ));
+      if (!isEnergyTrigger) return false;
+
+      // Check scope
+      const scopeType = r.trigger_config?.scopeType || r.scopeType || 'device';
+      const scopeId = r.trigger_config?.scopeId || r.scopeId || null;
+
+      if (scopeType === 'device' && scopeId && scopeId !== deviceId) {
+        return false;
+      }
+      if (scopeType === 'room' && scopeId && scopeId !== roomId) {
+        return false;
+      }
+      return true;
+    });
+
+    for (const rule of matchingRules) {
+      try {
+        await this.automationService.runAutomation({
+          homeId,
+          automationId: rule.id,
+          triggerSource: 'energy_telemetry',
+          context: {
+            telemetry: {
+              deviceId,
+              channelIndex,
+              powerW,
+              totalEnergyKwh,
+              timestamp: timestampIso
+            },
+            asOfDate: timestampIso
+          }
+        });
+      } catch (err) {
+        console.warn(`[EnergyService] Error executing rule ${rule.id}:`, err.message);
+      }
+    }
+  }
+
+  async getOptimizationRecommendations(homeId) {
+    if (!homeId) throw new Error('homeId is required');
+
+    // Load active tariff
+    let tariffPerKwh = 0.15;
+    let currency = 'USD';
+    if (this.thresholdRepo) {
+      const homeThreshold = typeof this.thresholdRepo.getThresholdForHome === 'function'
+        ? await this.thresholdRepo.getThresholdForHome(homeId)
+        : await this.thresholdRepo.getThreshold(homeId);
+      if (homeThreshold) {
+        if (typeof homeThreshold.cost_per_kwh === 'number') tariffPerKwh = homeThreshold.cost_per_kwh;
+        if (homeThreshold.currency) currency = homeThreshold.currency;
+      }
+    }
+
+    const recommendations = [];
+
+    // Retrieve devices for home
+    let authorizations = [];
+    if (this.deviceRepo) {
+      authorizations = await this.deviceRepo.getAuthorizationsByHome(homeId);
+    }
+
+    let rooms = [];
+    if (this.roomRepo) {
+      rooms = await this.roomRepo.getRoomsByHome(homeId);
+    }
+    const roomMap = new Map(rooms.map(r => [r.id, r.name]));
+
+    for (const auth of authorizations) {
+      const deviceId = auth.device_id;
+      const deviceName = auth.custom_name || 'Device';
+      const roomName = auth.room_id ? (roomMap.get(auth.room_id) || 'Room') : null;
+
+      // 1. Check recent hourly aggregates
+      let aggregates = [];
+      if (this.aggregateRepo) {
+        aggregates = await this.aggregateRepo.getAggregates(deviceId, {
+          bucketType: 'HOUR',
+          limit: 72
+        });
+      }
+
+      // Check latest measurements
+      let latestMeasurements = [];
+      if (this.telemetryRepo) {
+        latestMeasurements = await this.telemetryRepo.getMeasurements(deviceId, { limit: 100 });
+      }
+
+      // Calculate statistics
+      let minPowerW = Infinity;
+      let maxPowerW = 0;
+      let sumPowerW = 0;
+      let count = 0;
+      let overnightPowerSum = 0;
+      let overnightCount = 0;
+
+      for (const agg of aggregates) {
+        const avgP = agg.avg_power_w || 0;
+        const peakP = agg.peak_power_w || avgP;
+        const minP = agg.min_power_w !== undefined ? agg.min_power_w : avgP;
+        if (minP < minPowerW) minPowerW = minP;
+        if (peakP > maxPowerW) maxPowerW = peakP;
+        sumPowerW += avgP;
+        count++;
+
+        const hour = new Date(agg.bucket_start).getUTCHours();
+        if (hour >= 23 || hour <= 5) {
+          overnightPowerSum += avgP;
+          overnightCount++;
+        }
+      }
+
+      if (count === 0 && latestMeasurements.length > 0) {
+        for (const m of latestMeasurements) {
+          const pW = m.p_mw / 1000.0;
+          if (pW < minPowerW) minPowerW = pW;
+          if (pW > maxPowerW) maxPowerW = pW;
+          sumPowerW += pW;
+          count++;
+
+          const hour = new Date(m.device_timestamp).getUTCHours();
+          if (hour >= 23 || hour <= 5) {
+            overnightPowerSum += pW;
+            overnightCount++;
+          }
+        }
+      }
+
+      const overallAvgPowerW = count > 0 ? sumPowerW / count : 0;
+      const avgOvernightPowerW = overnightCount > 0 ? overnightPowerSum / overnightCount : 0;
+
+      // Recommendation 1: VAMPIRE_STANDBY_POWER
+      if (minPowerW >= 5.0 && minPowerW <= 150.0 && count >= 5) {
+        const baselineStandbyW = Math.round(minPowerW * 10) / 10;
+        const dailyKwh = (baselineStandbyW * 24.0) / 1000.0;
+        const monthlyKwh = dailyKwh * 30.0;
+        const annualKwh = dailyKwh * 365.0;
+        const monthlyCost = monthlyKwh * tariffPerKwh;
+        const annualCost = annualKwh * tariffPerKwh;
+
+        const recId = `opt_vamp_${homeId}_${deviceId}`;
+        const rec = {
+          id: recId,
+          homeId,
+          deviceId,
+          deviceName,
+          roomName,
+          category: 'VAMPIRE_STANDBY_POWER',
+          severity: baselineStandbyW > 30 ? 'HIGH' : 'MEDIUM',
+          title: `Standby Power Waste Detected on ${deviceName}`,
+          description: `Device draws a continuous baseline standby power of ~${baselineStandbyW}W. Automating power cutoff when not in use can save approximately ${monthlyKwh.toFixed(1)} kWh/month.`,
+          estimatedSavings: {
+            dailyKwh: Math.round(dailyKwh * 1000) / 1000,
+            monthlyKwh: Math.round(monthlyKwh * 100) / 100,
+            annualKwh: Math.round(annualKwh * 100) / 100,
+            monthlyCost: Math.round(monthlyCost * 100) / 100,
+            annualCost: Math.round(annualCost * 100) / 100,
+            currency,
+            tariffPerKwh,
+            isEstimate: true
+          },
+          calculationBasis: {
+            observedAvgPowerW: Math.round(overallAvgPowerW * 10) / 10,
+            baselineStandbyW,
+            activeHoursPerDay: 24,
+            sampleCount: count,
+            confidenceScore: 0.9
+          },
+          suggestedAction: {
+            actionType: 'create_automation',
+            automationTemplate: {
+              name: `Auto-Off ${deviceName} on Low Standby`,
+              scopeType: 'device',
+              scopeId: deviceId,
+              triggerCondition: {
+                metric: 'sustained_power',
+                operator: 'LT',
+                threshold: baselineStandbyW + 5.0,
+                durationSeconds: 1800
+              },
+              actions: [
+                {
+                  actionType: 'device_command',
+                  deviceId,
+                  channelIndex: 1,
+                  command: 'setPower',
+                  params: { value: false }
+                }
+              ]
+            }
+          },
+          isDismissed: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        recommendations.push(rec);
+
+        if (this.optimizationRepo) {
+          await this.optimizationRepo.upsertOptimization({
+            id: recId,
+            homeId,
+            deviceId,
+            category: rec.category,
+            severity: rec.severity,
+            title: rec.title,
+            description: rec.description,
+            estimatedDailySavingsKwh: rec.estimatedSavings.dailyKwh,
+            estimatedMonthlySavingsKwh: rec.estimatedSavings.monthlyKwh,
+            estimatedMonthlyCostSavings: rec.estimatedSavings.monthlyCost,
+            currency,
+            calculationBasis: rec.calculationBasis,
+            suggestedAction: rec.suggestedAction,
+            isDismissed: false
+          });
+        }
+      }
+
+      // Recommendation 2: OVERNIGHT_CONSUMPTION
+      if (avgOvernightPowerW >= 30.0 && overnightCount >= 3) {
+        const overnightW = Math.round(avgOvernightPowerW * 10) / 10;
+        const dailyKwh = (overnightW * 7.0) / 1000.0;
+        const monthlyKwh = dailyKwh * 30.0;
+        const annualKwh = dailyKwh * 365.0;
+        const monthlyCost = monthlyKwh * tariffPerKwh;
+        const annualCost = annualKwh * tariffPerKwh;
+
+        const recId = `opt_night_${homeId}_${deviceId}`;
+        const rec = {
+          id: recId,
+          homeId,
+          deviceId,
+          deviceName,
+          roomName,
+          category: 'OVERNIGHT_CONSUMPTION',
+          severity: overnightW > 80 ? 'HIGH' : 'MEDIUM',
+          title: `Recurring Overnight Energy Consumption on ${deviceName}`,
+          description: `Device is active overnight between 23:00 and 06:00 drawing an average of ~${overnightW}W. Scheduling an automatic shutoff can prevent unnecessary drain.`,
+          estimatedSavings: {
+            dailyKwh: Math.round(dailyKwh * 1000) / 1000,
+            monthlyKwh: Math.round(monthlyKwh * 100) / 100,
+            annualKwh: Math.round(annualKwh * 100) / 100,
+            monthlyCost: Math.round(monthlyCost * 100) / 100,
+            annualCost: Math.round(annualCost * 100) / 100,
+            currency,
+            tariffPerKwh,
+            isEstimate: true
+          },
+          calculationBasis: {
+            observedAvgPowerW: overnightW,
+            activeHoursPerDay: 7,
+            sampleCount: overnightCount,
+            confidenceScore: 0.85
+          },
+          suggestedAction: {
+            actionType: 'schedule_off',
+            automationTemplate: {
+              name: `Overnight Shutdown for ${deviceName}`,
+              scopeType: 'device',
+              scopeId: deviceId,
+              triggerCondition: {
+                metric: 'instantaneous_power',
+                operator: 'GT',
+                threshold: 10.0,
+                timeWindow: {
+                  startTime: '23:00',
+                  endTime: '06:00'
+                }
+              },
+              actions: [
+                {
+                  actionType: 'device_command',
+                  deviceId,
+                  channelIndex: 1,
+                  command: 'setPower',
+                  params: { value: false }
+                }
+              ]
+            }
+          },
+          isDismissed: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        recommendations.push(rec);
+
+        if (this.optimizationRepo) {
+          await this.optimizationRepo.upsertOptimization({
+            id: recId,
+            homeId,
+            deviceId,
+            category: rec.category,
+            severity: rec.severity,
+            title: rec.title,
+            description: rec.description,
+            estimatedDailySavingsKwh: rec.estimatedSavings.dailyKwh,
+            estimatedMonthlySavingsKwh: rec.estimatedSavings.monthlyKwh,
+            estimatedMonthlyCostSavings: rec.estimatedSavings.monthlyCost,
+            currency,
+            calculationBasis: rec.calculationBasis,
+            suggestedAction: rec.suggestedAction,
+            isDismissed: false
+          });
+        }
+      }
+    }
+
+    // Calculate total summary
+    let totalMonthlySavingsKwh = 0;
+    let totalMonthlyCostSavings = 0;
+    for (const r of recommendations) {
+      totalMonthlySavingsKwh += r.estimatedSavings.monthlyKwh;
+      totalMonthlyCostSavings += r.estimatedSavings.monthlyCost;
+    }
+
+    const summary = {
+      totalRecommendations: recommendations.length,
+      totalEstimatedMonthlySavingsKwh: Math.round(totalMonthlySavingsKwh * 100) / 100,
+      totalEstimatedMonthlyCostSavings: Math.round(totalMonthlyCostSavings * 100) / 100,
+      currency,
+      tariffPerKwh,
+      isEstimate: true
+    };
+
+    if (this.realtimeEventBus && recommendations.length > 0) {
+      this.realtimeEventBus.publish({
+        type: 'energy.optimization.detected',
+        homeId,
+        payload: {
+          summary,
+          count: recommendations.length,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    return {
+      summary,
+      recommendations
+    };
+  }
+
+  async getDeviceOptimizations(deviceId) {
+    if (!deviceId) throw new Error('deviceId is required');
+    const homeId = await this._getHomeIdForDevice(deviceId);
+    if (!homeId) return [];
+    const all = await this.getOptimizationRecommendations(homeId);
+    return all.recommendations.filter(r => r.deviceId === deviceId);
+  }
+
+  async dismissOptimization(homeId, optimizationId) {
+    if (this.optimizationRepo) {
+      return this.optimizationRepo.dismissOptimization(optimizationId);
+    }
+    return { success: true };
   }
 }
 
