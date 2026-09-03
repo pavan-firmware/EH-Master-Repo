@@ -102,6 +102,24 @@ class DataRetentionService {
     return { pruned: stale.length, cutoff };
   }
 
+  async prunePresenceSignals(days = 14) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('presence_signals', s => (s.observed_at || s.created_at) < cutoff);
+    for (const s of stale) {
+      await this.db.delete('presence_signals', s.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneContextTransitions(days = 30) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('context_transitions', t => t.created_at < cutoff);
+    for (const t of stale) {
+      await this.db.delete('context_transitions', t.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
   async runRetentionCycle(policies = {}) {
     const notif = await this.pruneNotifications(policies.notificationDays || 30);
     const audit = await this.pruneAuditLogs(policies.auditLogDays || 90);
@@ -113,6 +131,8 @@ class DataRetentionService {
     const forecasts = await this.pruneEnergyForecasts(policies.forecastDays || 30);
     const anomalies = await this.pruneEnergyAnomalies(policies.anomalyDays || 60);
     const accuracy = await this.pruneForecastAccuracy(policies.accuracyDays || 90);
+    const presenceSignals = await this.prunePresenceSignals(policies.presenceSignalDays || 14);
+    const contextTransitions = await this.pruneContextTransitions(policies.contextTransitionDays || 30);
 
     return {
       executedAt: new Date().toISOString(),
@@ -125,7 +145,9 @@ class DataRetentionService {
       costOptimizationsPruned: costOpt.pruned,
       forecastsPruned: forecasts.pruned,
       anomaliesPruned: anomalies.pruned,
-      accuracyRecordsPruned: accuracy.pruned
+      accuracyRecordsPruned: accuracy.pruned,
+      presenceSignalsPruned: presenceSignals.pruned,
+      contextTransitionsPruned: contextTransitions.pruned
     };
   }
 }

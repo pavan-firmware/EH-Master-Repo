@@ -1827,12 +1827,16 @@ class DeviceTelemetryRepository {
 
   async recordMeasurement(m) {
     const id = m.id || `telem_${m.deviceId || m.device_id}_${m.channelIndex || m.channel_index || 1}_${m.sequenceNumber || m.sequence_number || 0}_${Date.now()}`;
+    const p_mw = m.p_mw !== undefined ? m.p_mw : (m.powerW ? m.powerW * 1000 : (m.power_w ? m.power_w * 1000 : 0));
+    const power_w = m.powerW !== undefined ? m.powerW : (m.power_w !== undefined ? m.power_w : (p_mw / 1000));
     const record = {
       device_id: m.deviceId || m.device_id,
+      home_id: m.homeId || m.home_id || null,
       channel_index: m.channelIndex !== undefined ? m.channelIndex : (m.channel_index !== undefined ? m.channel_index : 1),
       v_mv: m.v_mv,
       i_ma: m.i_ma,
-      p_mw: m.p_mw,
+      p_mw,
+      power_w,
       e_tot_wh: m.e_tot_wh,
       e_int_mwh: m.e_int_mwh,
       freq_mhz: m.freq_mhz,
@@ -1843,6 +1847,14 @@ class DeviceTelemetryRepository {
       ingested_at: m.ingested_at || new Date().toISOString()
     };
     return this.db.insert('device_telemetry_measurements', id, record);
+  }
+
+  async recordTelemetry(m) {
+    return this.recordMeasurement(m);
+  }
+
+  async insertMeasurement(m) {
+    return this.recordMeasurement(m);
   }
 
   async getLatestMeasurement(deviceId, channelIndex = 1) {
@@ -2819,6 +2831,290 @@ class EnergyEfficiencyScoreRepository {
   }
 }
 
+class PresenceSignalRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordSignal({
+    id = null,
+    userId,
+    homeId,
+    source,
+    state,
+    confidence = 1.0,
+    evidence = {},
+    observedAt = null,
+    expiresAt = null
+  }) {
+    const sigId = id || `sig_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const nowIso = new Date().toISOString();
+    return this.db.insert('presence_signals', sigId, {
+      user_id: userId,
+      home_id: homeId,
+      source,
+      state,
+      confidence: Number(confidence),
+      evidence_json: JSON.stringify(evidence || {}),
+      observed_at: observedAt || nowIso,
+      expires_at: expiresAt || null,
+      created_at: nowIso
+    });
+  }
+
+  async getSignalsByHome(homeId, { limit = 50, from = null, userId = null } = {}) {
+    let list = await this.db.find('presence_signals', s => {
+      if (s.home_id !== homeId) return false;
+      if (userId && s.user_id !== userId) return false;
+      if (from && new Date(s.observed_at) < new Date(from)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.observed_at) - new Date(a.observed_at));
+    return list.slice(0, limit);
+  }
+
+  async getLatestSignalForUser(homeId, userId) {
+    const list = await this.db.find('presence_signals', s => s.home_id === homeId && s.user_id === userId);
+    if (list.length === 0) return null;
+    list.sort((a, b) => new Date(b.observed_at) - new Date(a.observed_at));
+    return list[0];
+  }
+
+  async pruneOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('presence_signals', s => new Date(s.observed_at || s.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('presence_signals', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class PresenceStateRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async upsertUserState({
+    homeId,
+    userId,
+    state,
+    confidence = 1.0,
+    source = 'mobile_app',
+    isStale = 0,
+    lastObservedAt = null,
+    expiresAt = null
+  }) {
+    const id = `${homeId}_${userId}`;
+    const nowIso = new Date().toISOString();
+    const existing = await this.db.findById('presence_states', id);
+    if (existing) {
+      return this.db.update('presence_states', id, {
+        state,
+        confidence: Number(confidence),
+        source,
+        is_stale: isStale ? 1 : 0,
+        last_observed_at: lastObservedAt || nowIso,
+        expires_at: expiresAt || null,
+        updated_at: nowIso
+      });
+    }
+
+    return this.db.insert('presence_states', id, {
+      home_id: homeId,
+      user_id: userId,
+      state,
+      confidence: Number(confidence),
+      source,
+      is_stale: isStale ? 1 : 0,
+      last_observed_at: lastObservedAt || nowIso,
+      expires_at: expiresAt || null,
+      updated_at: nowIso
+    });
+  }
+
+  async getUserState(homeId, userId) {
+    const id = `${homeId}_${userId}`;
+    return this.db.findById('presence_states', id);
+  }
+
+  async getHomeStates(homeId) {
+    return this.db.find('presence_states', s => s.home_id === homeId);
+  }
+
+  async deleteByHome(homeId) {
+    const list = await this.getHomeStates(homeId);
+    for (const s of list) {
+      await this.db.delete('presence_states', s.id);
+    }
+    return list.length;
+  }
+}
+
+class HomeContextRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async upsertHomeContext({
+    homeId,
+    mode = 'HOME',
+    previousMode = null,
+    precedenceTier = 'DEFAULT_FALLBACK',
+    activeOverrideId = null,
+    isVacation = 0,
+    isOccupied = 1,
+    confidence = 1.0,
+    updatedAt = null
+  }) {
+    const nowIso = updatedAt || new Date().toISOString();
+    const existing = await this.db.findById('home_contexts', homeId);
+    if (existing) {
+      return this.db.update('home_contexts', homeId, {
+        mode,
+        previous_mode: previousMode !== undefined ? previousMode : existing.mode,
+        precedence_tier: precedenceTier,
+        active_override_id: activeOverrideId,
+        is_vacation: isVacation ? 1 : 0,
+        is_occupied: isOccupied ? 1 : 0,
+        confidence: Number(confidence),
+        updated_at: nowIso
+      });
+    }
+
+    return this.db.insert('home_contexts', homeId, {
+      mode,
+      previous_mode: previousMode || null,
+      precedence_tier: precedenceTier,
+      active_override_id: activeOverrideId || null,
+      is_vacation: isVacation ? 1 : 0,
+      is_occupied: isOccupied ? 1 : 0,
+      confidence: Number(confidence),
+      updated_at: nowIso
+    });
+  }
+
+  async getHomeContext(homeId) {
+    return this.db.findById('home_contexts', homeId);
+  }
+}
+
+class ContextOverrideRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createOverride({
+    id = null,
+    homeId,
+    userId,
+    mode,
+    state = null,
+    reason = '',
+    expiresAt = null,
+    isActive = 1
+  }) {
+    const ovrId = id || `ovr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const nowIso = new Date().toISOString();
+    return this.db.insert('context_overrides', ovrId, {
+      home_id: homeId,
+      user_id: userId,
+      mode,
+      state: state || (mode === 'VACATION' || mode === 'AWAY' ? 'AWAY' : 'HOME'),
+      reason: reason || '',
+      is_active: isActive ? 1 : 0,
+      created_at: nowIso,
+      expires_at: expiresAt || null
+    });
+  }
+
+  async getActiveOverride(homeId) {
+    const list = await this.db.find('context_overrides', o => o.home_id === homeId && o.is_active === 1);
+    if (list.length === 0) return null;
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const latest = list[0];
+    if (latest.expires_at && new Date(latest.expires_at) < new Date()) {
+      await this.clearOverride(latest.id);
+      return null;
+    }
+    return latest;
+  }
+
+  async getOverridesByHome(homeId, { limit = 20, includeInactive = false } = {}) {
+    let list = await this.db.find('context_overrides', o => {
+      if (o.home_id !== homeId) return false;
+      if (!includeInactive && o.is_active !== 1) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async clearOverride(id) {
+    const existing = await this.db.findById('context_overrides', id);
+    if (existing) {
+      return this.db.update('context_overrides', id, { is_active: 0 });
+    }
+    return null;
+  }
+
+  async clearActiveOverridesForHome(homeId) {
+    const list = await this.db.find('context_overrides', o => o.home_id === homeId && o.is_active === 1);
+    for (const o of list) {
+      await this.db.update('context_overrides', o.id, { is_active: 0 });
+    }
+    return list.length;
+  }
+}
+
+class ContextTransitionRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordTransition({
+    id = null,
+    homeId,
+    fromMode,
+    toMode,
+    triggerSource,
+    reason = '',
+    evidence = {},
+    createdAt = null
+  }) {
+    const transId = id || `trans_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const nowIso = createdAt || new Date().toISOString();
+    return this.db.insert('context_transitions', transId, {
+      home_id: homeId,
+      from_mode: fromMode || 'UNKNOWN',
+      to_mode: toMode,
+      trigger_source: triggerSource,
+      reason: reason || '',
+      evidence_json: JSON.stringify(evidence || {}),
+      created_at: nowIso
+    });
+  }
+
+  async getTransitionsByHome(homeId, { limit = 50, from = null } = {}) {
+    let list = await this.db.find('context_transitions', t => {
+      if (t.home_id !== homeId) return false;
+      if (from && new Date(t.created_at) < new Date(from)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async pruneOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('context_transitions', t => new Date(t.created_at) < cutoffDate);
+    for (const t of stale) {
+      await this.db.delete('context_transitions', t.id);
+    }
+    return stale.length;
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -2861,5 +3157,10 @@ module.exports = {
   EnergyAnomalyRepository,
   EnergyBaselineRepository,
   ForecastAccuracyRepository,
-  EnergyEfficiencyScoreRepository
+  EnergyEfficiencyScoreRepository,
+  PresenceSignalRepository,
+  PresenceStateRepository,
+  HomeContextRepository,
+  ContextOverrideRepository,
+  ContextTransitionRepository
 };

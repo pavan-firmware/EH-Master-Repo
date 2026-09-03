@@ -30,7 +30,8 @@ class AutomationService {
     energyExecutionRepo = null,
     notificationService = null,
     sceneService = null,
-    energyService = null
+    energyService = null,
+    contextService = null
   }) {
     this.automationRepo = automationRepo;
     this.homeAuthService = homeAuthService;
@@ -44,15 +45,27 @@ class AutomationService {
     this.notificationService = notificationService;
     this.sceneService = sceneService;
     this.energyService = energyService;
+    this.contextService = contextService;
 
     // Hysteresis & cooldown tracking: key -> { isTriggered: boolean, lastTriggeredAt: number, lastValue: number }
     this._hysteresisState = new Map();
     // Sustained duration tracking: key -> { firstExceededAt: number }
     this._sustainedTracker = new Map();
+    // Manual command cooldown: deviceId -> timestamp
+    this._manualCommandCooldown = new Map();
   }
 
   setEnergyService(energyService) {
     this.energyService = energyService;
+  }
+
+  setContextService(contextService) {
+    this.contextService = contextService;
+  }
+
+  recordManualUserAction(deviceId, durationSeconds = 300) {
+    if (!deviceId) return;
+    this._manualCommandCooldown.set(deviceId, Date.now() + durationSeconds * 1000);
   }
 
   async createAutomation({
@@ -228,7 +241,8 @@ class AutomationService {
    */
   async evaluateCondition(cond, context = {}) {
     if (!cond) return true;
-    const condType = cond.type || cond.kind || (cond.metric ? 'energy_condition' : null);
+    const isContextMetric = cond.metric && ['presence_state', 'presence_confidence', 'home_context', 'context_transition', 'home_occupied', 'home_empty'].includes(cond.metric);
+    const condType = cond.type || cond.kind || (isContextMetric ? 'presence_condition' : (cond.metric ? 'energy_condition' : null));
     if (!condType) return true;
 
     switch (condType) {
@@ -322,7 +336,21 @@ class AutomationService {
         return this._evaluateEnergyCondition(cond, context);
       }
 
+      // Phase 23: Presence & Context Automation Conditions
+      case 'presence_condition':
+      case 'presence_state':
+      case 'presence_confidence':
+      case 'home_context':
+      case 'context_transition':
+      case 'home_occupied':
+      case 'home_empty': {
+        return this._evaluateContextCondition(cond, context);
+      }
+
       default:
+        if (cond.metric && ['presence_state', 'presence_confidence', 'home_context', 'context_transition', 'home_occupied', 'home_empty'].includes(cond.metric)) {
+          return this._evaluateContextCondition(cond, context);
+        }
         return true;
     }
   }
@@ -510,6 +538,91 @@ class AutomationService {
     }
 
     return isSatisfied;
+  }
+
+  /**
+   * Internal deterministic evaluation for Phase 23 presence & context conditions
+   */
+  async _evaluateContextCondition(cond, context = {}) {
+    const metric = cond.metric || cond.type || 'home_context';
+    const operator = (cond.operator || 'EQ').toUpperCase();
+    const homeId = context.homeId || cond.homeId;
+
+    if (!homeId) return true;
+
+    // Get current context / presence snapshot
+    let currentContextMode = context.home_context || 'HOME';
+    let isOccupied = context.is_occupied !== undefined ? context.is_occupied : true;
+    let presenceConfidence = 0.9;
+    let currentPresenceState = 'HOME';
+
+    if (this.contextService) {
+      try {
+        const hc = await this.contextService.contextRepo.getHomeContext(homeId);
+        if (hc) {
+          currentContextMode = hc.mode;
+          isOccupied = Boolean(hc.is_occupied);
+          presenceConfidence = Number(hc.confidence || 0.9);
+        }
+        const ps = await this.contextService.getPresenceSnapshot(homeId);
+        if (ps) {
+          currentPresenceState = ps.state;
+          if (hc?.precedence_tier !== 'MANUAL_OVERRIDE') {
+            isOccupied = ps.isOccupied;
+            presenceConfidence = ps.confidence;
+          }
+        }
+      } catch (_) {}
+    }
+
+    switch (metric) {
+      case 'home_context': {
+        const expected = cond.expectedMode || cond.mode || cond.threshold;
+        if (operator === 'EQ' || operator === '==') {
+          return currentContextMode === expected;
+        } else if (operator === 'NE' || operator === '!=') {
+          return currentContextMode !== expected;
+        }
+        return currentContextMode === expected;
+      }
+
+      case 'presence_state': {
+        const expected = cond.expectedState || cond.state || cond.threshold;
+        if (operator === 'EQ' || operator === '==') {
+          return currentPresenceState === expected;
+        } else if (operator === 'NE' || operator === '!=') {
+          return currentPresenceState !== expected;
+        }
+        return currentPresenceState === expected;
+      }
+
+      case 'home_occupied': {
+        const expected = cond.expected !== undefined ? Boolean(cond.expected) : true;
+        return isOccupied === expected;
+      }
+
+      case 'home_empty': {
+        const expected = cond.expected !== undefined ? Boolean(cond.expected) : true;
+        return (!isOccupied) === expected;
+      }
+
+      case 'presence_confidence': {
+        const threshold = Number(cond.threshold !== undefined ? cond.threshold : 0.7);
+        if (operator === 'GT' || operator === '>') return presenceConfidence > threshold;
+        if (operator === 'GTE' || operator === '>=') return presenceConfidence >= threshold;
+        if (operator === 'LT' || operator === '<') return presenceConfidence < threshold;
+        if (operator === 'LTE' || operator === '<=') return presenceConfidence <= threshold;
+        return presenceConfidence >= threshold;
+      }
+
+      case 'context_transition': {
+        const targetMode = cond.targetMode || cond.toMode || cond.mode;
+        return currentContextMode === targetMode;
+      }
+
+      default:
+        return true;
+    }
   }
 
   /**
@@ -761,6 +874,18 @@ class AutomationService {
       } else if (act.command === 'identifyDevice' || act.action === 'identifyDevice') {
         action = 'identifyDevice';
         params = {};
+      }
+
+      // Check manual user command priority cooldown
+      const manualExpiry = this._manualCommandCooldown.get(act.deviceId);
+      if (manualExpiry && Date.now() < manualExpiry && triggerSource !== 'manual') {
+        targetResults.push({
+          deviceId: act.deviceId,
+          status: 'skipped',
+          skipReason: 'manual_command_priority',
+          message: `Suppressed by manual command priority until ${new Date(manualExpiry).toISOString()}`
+        });
+        continue;
       }
 
       const cmdEnvelope = {

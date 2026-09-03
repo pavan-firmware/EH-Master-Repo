@@ -51,7 +51,12 @@ const {
   EnergyAnomalyRepository,
   EnergyBaselineRepository,
   ForecastAccuracyRepository,
-  EnergyEfficiencyScoreRepository
+  EnergyEfficiencyScoreRepository,
+  PresenceSignalRepository,
+  PresenceStateRepository,
+  HomeContextRepository,
+  ContextOverrideRepository,
+  ContextTransitionRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -75,6 +80,7 @@ const { InvitationService } = require('./services/invitation.service');
 const { SyncService } = require('./services/sync.service');
 const { DataExportService } = require('./services/data-export.service');
 const { DataRetentionService } = require('./services/data-retention.service');
+const { ContextService } = require('./services/context.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
@@ -87,6 +93,7 @@ const { ApiRouter: ProductCatalogApiRouter } = require('./api/product-catalog.ro
 const { buildRouteHandlers: buildCommandRouteHandlers } = require('./api/device-command.router');
 const { OtaApiRouter } = require('./api/ota.router');
 const { EnergyApiRouter } = require('./api/energy.router');
+const { ContextApiRouter } = require('./api/context.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
@@ -218,6 +225,11 @@ function createApp(options = {}) {
   const baselineRepo = options.baselineRepo || new EnergyBaselineRepository(db);
   const accuracyRepo = options.accuracyRepo || new ForecastAccuracyRepository(db);
   const efficiencyRepo = options.efficiencyRepo || new EnergyEfficiencyScoreRepository(db);
+  const signalRepo = options.signalRepo || new PresenceSignalRepository(db);
+  const presenceStateRepo = options.presenceStateRepo || new PresenceStateRepository(db);
+  const contextRepo = options.contextRepo || new HomeContextRepository(db);
+  const overrideRepo = options.overrideRepo || new ContextOverrideRepository(db);
+  const transitionRepo = options.transitionRepo || new ContextTransitionRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -295,7 +307,23 @@ function createApp(options = {}) {
     efficiencyRepo
   });
 
+  const contextService = options.contextService || new ContextService({
+    signalRepo,
+    stateRepo: presenceStateRepo,
+    contextRepo,
+    overrideRepo,
+    transitionRepo,
+    homeRepo,
+    deviceRepo,
+    roomRepo,
+    energyService,
+    automationService,
+    notificationService,
+    realtimeEventBus: eventBus
+  });
+
   automationService.setEnergyService(energyService);
+  automationService.setContextService(contextService);
 
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,
@@ -420,6 +448,7 @@ function createApp(options = {}) {
     executionRepo,
     optimizationRepo
   });
+  const contextRouter = new ContextApiRouter({ contextService, homeAuthService });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const deviceManagementRouter = new DeviceManagementApiRouter({
     deviceManagementService,
@@ -607,6 +636,13 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.statusCode, result.body);
     }
 
+    // 8.56. Route to Context & Presence Router (Phase 23)
+    if (pathname.startsWith('/api/v1/context')) {
+      const actorContext = req.user ? { userId: req.user.id } : (req.actorContext || null);
+      const result = await contextRouter.handleRequest({ method, path: pathname, query, body }, actorContext);
+      return sendJsonResponse(res, result.statusCode, result.body);
+    }
+
     // 8.6. Route to Automation, Scene, and Schedule Router
     if (
       pathname.includes('/scenes') ||
@@ -712,6 +748,7 @@ function createApp(options = {}) {
       dataExportService,
       dataRetentionService,
       energyService,
+      contextService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -724,8 +761,13 @@ function createApp(options = {}) {
       invitationRepo, syncRepo, exportRepo,
       firmwareRepo, operationRepo, rolloutRepo, maintenanceRepo,
       telemetryRepo, aggregateRepo, thresholdRepo, energyEventRepo,
-      executionRepo, optimizationRepo
-    }
+      executionRepo, optimizationRepo,
+      tariffRepo, tariffPeriodRepo, budgetRepo, costOptimizationRepo,
+      forecastRepo, anomalyRepo, baselineRepo, accuracyRepo, efficiencyRepo,
+      signalRepo, presenceStateRepo, contextRepo, overrideRepo, transitionRepo
+    },
+    contextApiRouter: contextRouter,
+    energyApiRouter: energyRouter
   };
 }
 
