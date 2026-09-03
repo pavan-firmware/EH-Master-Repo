@@ -27,6 +27,7 @@ const schemaFiles = [
   '../context/presence-context.schema.json',
   '../intelligence/home-intelligence.schema.json',
   '../reliability/device-reliability.schema.json',
+  '../connectivity/device-connectivity.schema.json',
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
@@ -777,6 +778,102 @@ const validFleet = {
 };
 assert('Valid FleetHealthSummary passes', validator.validate('FleetHealthSummary', validFleet).valid);
 assert('fleetHealthScore > 100 fails', !validator.validate('FleetHealthSummary', { ...validFleet, fleetHealthScore: 150 }).valid);
+
+// ── Phase 26 — Multi-Protocol Connectivity Contract Tests ─────────────────
+console.log('\n19. TransportCapability:');
+const validCapability = {
+  transportType: 'WIFI_MQTT',
+  isSupported: true,
+  isConfigured: true,
+  priorityRank: 1,
+  directIp: true,
+  meshCapable: false,
+  lowPower: false,
+  localOnly: false,
+  maxPayloadBytes: 65536
+};
+assert('Valid TransportCapability passes', validator.validate('TransportCapability', validCapability).valid);
+assert('Invalid transportType fails', !validator.validate('TransportCapability', { ...validCapability, transportType: 'ZIGBEE' }).valid);
+
+console.log('\n20. TransportHealth:');
+const validHealth = {
+  transportType: 'MATTER',
+  availability: 'ONLINE',
+  latencyMs: 42.5,
+  errorRate: 0.02,
+  reconnectCount: 1,
+  lastSuccessfulCommand: '2026-09-03T18:00:00Z',
+  lastSuccessfulTelemetry: '2026-09-03T18:05:00Z',
+  signalRssi: -58
+};
+assert('Valid TransportHealth passes', validator.validate('TransportHealth', validHealth).valid);
+assert('Invalid availability fails', !validator.validate('TransportHealth', { ...validHealth, availability: 'LOST' }).valid);
+assert('errorRate > 1 fails', !validator.validate('TransportHealth', { ...validHealth, errorRate: 1.5 }).valid);
+
+console.log('\n21. DeviceConnectionSnapshot:');
+const validConnSnapshot = {
+  deviceId: 'dev_01',
+  homeId: 'home_01',
+  activeTransport: 'WIFI_MQTT',
+  connectionState: 'CONNECTED',
+  supportedTransports: ['WIFI_MQTT', 'BLE'],
+  transportHealth: {
+    WIFI_MQTT: validHealth
+  },
+  lastSelectedReason: 'Primary active transport',
+  reconnectCount: 0,
+  updatedAt: '2026-09-03T18:10:00Z'
+};
+assert('Valid DeviceConnectionSnapshot passes', validator.validate('DeviceConnectionSnapshot', validConnSnapshot).valid);
+assert('Invalid connectionState fails', !validator.validate('DeviceConnectionSnapshot', { ...validConnSnapshot, connectionState: 'SLEEPING' }).valid);
+
+console.log('\n22. TransportSelection:');
+const validSelection = {
+  deviceId: 'dev_01',
+  selectedTransport: 'WIFI_MQTT',
+  reason: 'Lowest latency and highest availability',
+  confidence: 0.95,
+  fallbackOrder: ['BLE', 'THREAD']
+};
+assert('Valid TransportSelection passes', validator.validate('TransportSelection', validSelection).valid);
+assert('confidence > 1 fails', !validator.validate('TransportSelection', { ...validSelection, confidence: 1.2 }).valid);
+
+console.log('\n23. DeviceDiscoveryResult:');
+const validDiscovery = {
+  provisionalIdentity: 'matter_disc_01',
+  protocol: 'MATTER',
+  deviceModel: 'EH-Switch-4G',
+  vendorId: '0x1234',
+  productId: '0x5678',
+  discriminator: 3840,
+  isCommissionable: true,
+  discoveredAt: '2026-09-03T18:15:00Z'
+};
+assert('Valid DeviceDiscoveryResult passes', validator.validate('DeviceDiscoveryResult', validDiscovery).valid);
+assert('Missing provisionalIdentity fails', !validator.validate('DeviceDiscoveryResult', { ...validDiscovery, provisionalIdentity: undefined }).valid);
+
+console.log('\n24. CommissioningSession & Result:');
+const validSession = {
+  sessionId: 'comm_sess_01',
+  homeId: 'home_01',
+  deviceId: 'dev_01',
+  transportType: 'BLE',
+  stage: 'AUTHENTICATING',
+  startedAt: '2026-09-03T18:20:00Z'
+};
+assert('Valid CommissioningSession passes', validator.validate('CommissioningSession', validSession).valid);
+assert('Invalid stage fails', !validator.validate('CommissioningSession', { ...validSession, stage: 'FINISHING' }).valid);
+
+const validCommResult = {
+  sessionId: 'comm_sess_01',
+  deviceId: 'dev_01',
+  homeId: 'home_01',
+  transportType: 'BLE',
+  success: true,
+  assignedNetwork: 'ThreadMesh-1',
+  completedAt: '2026-09-03T18:22:00Z'
+};
+assert('Valid CommissioningResult passes', validator.validate('CommissioningResult', validCommResult).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

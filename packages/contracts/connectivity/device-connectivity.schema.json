@@ -1,0 +1,177 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "DeviceTransportType": {
+      "type": "string",
+      "enum": ["WIFI_MQTT", "BLE", "THREAD", "MATTER"]
+    },
+    "TransportAvailability": {
+      "type": "string",
+      "enum": ["ONLINE", "DEGRADED", "UNREACHABLE", "UNCONFIGURED"]
+    },
+    "DeviceConnectionState": {
+      "type": "string",
+      "enum": [
+        "DISCOVERING",
+        "COMMISSIONING",
+        "CONNECTING",
+        "CONNECTED",
+        "DEGRADED",
+        "RECONNECTING",
+        "DISCONNECTED",
+        "FAILED",
+        "DECOMMISSIONED"
+      ]
+    },
+    "CommissioningStage": {
+      "type": "string",
+      "enum": [
+        "DISCOVERED",
+        "READY",
+        "STARTED",
+        "AUTHENTICATING",
+        "NETWORK_JOINING",
+        "VERIFYING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "TransportCapability": {
+      "type": "object",
+      "title": "TransportCapability",
+      "required": ["transportType", "isSupported", "isConfigured", "priorityRank"],
+      "properties": {
+        "transportType": { "$ref": "#/definitions/DeviceTransportType" },
+        "isSupported": { "type": "boolean" },
+        "isConfigured": { "type": "boolean" },
+        "priorityRank": { "type": "integer", "minimum": 1 },
+        "directIp": { "type": "boolean" },
+        "meshCapable": { "type": "boolean" },
+        "lowPower": { "type": "boolean" },
+        "localOnly": { "type": "boolean" },
+        "maxPayloadBytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "TransportHealth": {
+      "type": "object",
+      "title": "TransportHealth",
+      "required": ["transportType", "availability", "latencyMs", "errorRate", "reconnectCount"],
+      "properties": {
+        "transportType": { "$ref": "#/definitions/DeviceTransportType" },
+        "availability": { "$ref": "#/definitions/TransportAvailability" },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "errorRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reconnectCount": { "type": "integer", "minimum": 0 },
+        "lastSuccessfulCommand": { "type": ["string", "null"], "format": "date-time" },
+        "lastSuccessfulTelemetry": { "type": ["string", "null"], "format": "date-time" },
+        "signalRssi": { "type": ["number", "null"] },
+        "metrics": { "type": ["object", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "DeviceConnectionSnapshot": {
+      "type": "object",
+      "title": "DeviceConnectionSnapshot",
+      "required": [
+        "deviceId",
+        "homeId",
+        "activeTransport",
+        "connectionState",
+        "supportedTransports",
+        "transportHealth",
+        "updatedAt"
+      ],
+      "properties": {
+        "deviceId": { "type": "string" },
+        "homeId": { "type": "string" },
+        "activeTransport": { "$ref": "#/definitions/DeviceTransportType" },
+        "connectionState": { "$ref": "#/definitions/DeviceConnectionState" },
+        "supportedTransports": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/DeviceTransportType" },
+          "minItems": 1
+        },
+        "transportHealth": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/TransportHealth" }
+        },
+        "lastSelectedReason": { "type": ["string", "null"] },
+        "reconnectCount": { "type": "integer", "minimum": 0 },
+        "lastConnectedAt": { "type": ["string", "null"], "format": "date-time" },
+        "lastDisconnectedAt": { "type": ["string", "null"], "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "TransportSelection": {
+      "type": "object",
+      "title": "TransportSelection",
+      "required": ["deviceId", "selectedTransport", "reason", "confidence", "fallbackOrder"],
+      "properties": {
+        "deviceId": { "type": "string" },
+        "selectedTransport": { "$ref": "#/definitions/DeviceTransportType" },
+        "reason": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fallbackOrder": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/DeviceTransportType" }
+        },
+        "evaluatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "DeviceDiscoveryResult": {
+      "type": "object",
+      "title": "DeviceDiscoveryResult",
+      "required": ["provisionalIdentity", "protocol", "isCommissionable", "discoveredAt"],
+      "properties": {
+        "provisionalIdentity": { "type": "string" },
+        "protocol": { "$ref": "#/definitions/DeviceTransportType" },
+        "deviceModel": { "type": ["string", "null"] },
+        "vendorId": { "type": ["string", "null"] },
+        "productId": { "type": ["string", "null"] },
+        "discriminator": { "type": ["integer", "null"] },
+        "isCommissionable": { "type": "boolean" },
+        "signalStrength": { "type": ["number", "null"] },
+        "metadata": { "type": ["object", "null"] },
+        "discoveredAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "CommissioningSession": {
+      "type": "object",
+      "title": "CommissioningSession",
+      "required": ["sessionId", "homeId", "deviceId", "transportType", "stage", "startedAt"],
+      "properties": {
+        "sessionId": { "type": "string" },
+        "homeId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "transportType": { "$ref": "#/definitions/DeviceTransportType" },
+        "stage": { "$ref": "#/definitions/CommissioningStage" },
+        "authMethod": { "type": ["string", "null"] },
+        "errorDetails": { "type": ["string", "null"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "CommissioningResult": {
+      "type": "object",
+      "title": "CommissioningResult",
+      "required": ["sessionId", "deviceId", "homeId", "transportType", "success", "completedAt"],
+      "properties": {
+        "sessionId": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "homeId": { "type": "string" },
+        "transportType": { "$ref": "#/definitions/DeviceTransportType" },
+        "success": { "type": "boolean" },
+        "assignedNetwork": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
