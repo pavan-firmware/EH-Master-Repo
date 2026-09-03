@@ -24,7 +24,8 @@ class DatabaseClient {
       'device_telemetry_measurements', 'telemetry_aggregates', 'energy_threshold_configs', 'energy_events',
       'energy_automation_executions', 'energy_optimizations',
       'energy_tariffs', 'tariff_periods', 'energy_budgets', 'cost_optimizations',
-      'energy_forecasts', 'energy_anomalies', 'energy_baselines', 'forecast_accuracy_records', 'energy_efficiency_scores'
+      'energy_forecasts', 'energy_anomalies', 'energy_baselines', 'forecast_accuracy_records', 'energy_efficiency_scores',
+      'presence_signals', 'presence_states', 'home_contexts', 'context_overrides', 'context_transitions'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

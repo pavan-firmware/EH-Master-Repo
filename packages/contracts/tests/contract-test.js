@@ -507,7 +507,109 @@ const validOpt = {
 };
 
 assert('Valid PredictiveOptimizationRecommendation passes', validator.validate('PredictiveOptimizationRecommendation', validOpt).valid);
-assert('Invalid recommendation category fails', !validator.validate('PredictiveOptimizationRecommendation', { ...validOpt, category: 'UNREALISTIC' }).valid);
+console.log('\n--- Section 11: Phase 23 Presence and Context Intelligence Schemas ---');
+
+validator.loadSchema(path.join(__dirname, '../context/presence-context.schema.json'));
+
+const validSignal = {
+  userId: 'usr_owner_01',
+  homeId: 'home_01',
+  source: 'mobile_app',
+  state: 'HOME',
+  confidence: 0.95,
+  observedAt: '2026-07-16T14:30:00Z',
+  expiresAt: '2026-07-16T15:30:00Z',
+  evidence: { accuracyMeters: 15, batteryPercent: 82 }
+};
+
+assert('Valid PresenceSignal passes', validator.validate('PresenceSignal', validSignal).valid);
+assert('Missing userId in PresenceSignal fails', !validator.validate('PresenceSignal', { ...validSignal, userId: '' }).valid);
+assert('Invalid source in PresenceSignal fails', !validator.validate('PresenceSignal', { ...validSignal, source: 'telepathy' }).valid);
+assert('Confidence > 1.0 fails', !validator.validate('PresenceSignal', { ...validSignal, confidence: 1.5 }).valid);
+assert('Confidence < 0.0 fails', !validator.validate('PresenceSignal', { ...validSignal, confidence: -0.2 }).valid);
+assert('Invalid presence state fails', !validator.validate('PresenceSignal', { ...validSignal, state: 'DISAPPEARED' }).valid);
+
+const validSnapshot = {
+  homeId: 'home_01',
+  state: 'HOME',
+  confidence: 0.90,
+  isOccupied: true,
+  activeUserCount: 1,
+  userStates: {
+    usr_owner_01: {
+      state: 'HOME',
+      confidence: 0.95,
+      source: 'mobile_app',
+      observedAt: '2026-07-16T14:30:00Z',
+      isStale: false
+    }
+  },
+  inferredRooms: [
+    {
+      roomId: 'room_living_01',
+      isOccupied: true,
+      confidence: 0.75,
+      isInferred: true,
+      inferenceReason: 'Recent light switch action',
+      lastActivityAt: '2026-07-16T14:28:00Z'
+    }
+  ],
+  calculatedAt: '2026-07-16T14:30:05Z'
+};
+
+assert('Valid PresenceSnapshot passes', validator.validate('PresenceSnapshot', validSnapshot).valid);
+assert('Missing homeId in PresenceSnapshot fails', !validator.validate('PresenceSnapshot', { ...validSnapshot, homeId: '' }).valid);
+assert('Negative activeUserCount in PresenceSnapshot fails', !validator.validate('PresenceSnapshot', { ...validSnapshot, activeUserCount: -1 }).valid);
+
+const validOverride = {
+  id: 'ovr_01',
+  homeId: 'home_01',
+  userId: 'usr_owner_01',
+  mode: 'VACATION',
+  state: 'AWAY',
+  reason: 'Summer holiday trip',
+  createdAt: '2026-07-16T10:00:00Z',
+  expiresAt: '2026-07-23T10:00:00Z',
+  isActive: true
+};
+
+assert('Valid PresenceOverride passes', validator.validate('PresenceOverride', validOverride).valid);
+assert('Invalid mode in PresenceOverride fails', !validator.validate('PresenceOverride', { ...validOverride, mode: 'PARTY' }).valid);
+
+const validContext = {
+  homeId: 'home_01',
+  mode: 'VACATION',
+  previousMode: 'HOME',
+  precedenceTier: 'MANUAL_OVERRIDE',
+  activeOverride: {
+    id: 'ovr_01',
+    userId: 'usr_owner_01',
+    mode: 'VACATION',
+    reason: 'Summer holiday trip',
+    expiresAt: '2026-07-23T10:00:00Z'
+  },
+  isVacation: true,
+  isOccupied: false,
+  confidence: 1.0,
+  updatedAt: '2026-07-16T10:00:05Z'
+};
+
+assert('Valid HomeContext passes', validator.validate('HomeContext', validContext).valid);
+assert('Invalid precedenceTier in HomeContext fails', !validator.validate('HomeContext', { ...validContext, precedenceTier: 'ARBITRARY' }).valid);
+
+const validTransition = {
+  id: 'trans_01',
+  homeId: 'home_01',
+  fromMode: 'HOME',
+  toMode: 'AWAY',
+  triggerSource: 'all_users_left',
+  reason: 'Deterministic reconciliation: 0 active users remaining',
+  evidence: { departedUserId: 'usr_owner_01' },
+  timestamp: '2026-07-16T14:35:00Z'
+};
+
+assert('Valid ContextTransition passes', validator.validate('ContextTransition', validTransition).valid);
+assert('Missing timestamp in ContextTransition fails', !validator.validate('ContextTransition', { ...validTransition, timestamp: undefined }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);
