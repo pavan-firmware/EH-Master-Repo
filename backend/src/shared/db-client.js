@@ -25,7 +25,8 @@ class DatabaseClient {
       'energy_automation_executions', 'energy_optimizations',
       'energy_tariffs', 'tariff_periods', 'energy_budgets', 'cost_optimizations',
       'energy_forecasts', 'energy_anomalies', 'energy_baselines', 'forecast_accuracy_records', 'energy_efficiency_scores',
-      'presence_signals', 'presence_states', 'home_contexts', 'context_overrides', 'context_transitions'
+      'presence_signals', 'presence_states', 'home_contexts', 'context_overrides', 'context_transitions',
+      'intelligence_decisions', 'intelligence_recommendations', 'intelligence_decision_outcomes'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

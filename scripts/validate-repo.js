@@ -135,8 +135,11 @@ runStep('32. Phase 22 Energy Forecasting & Predictive Intelligence Tests', `${no
 // 33. Phase 23 Presence, Context Intelligence + Context-Aware Automation Tests
 runStep('33. Phase 23 Presence & Context Intelligence Tests', `${nodeBin} backend/tests/phase23-presence-context.test.js`);
 
+// 34. Phase 24 Smart Home Intelligence + Unified Decision Engine Tests
+runStep('34. Phase 24 Smart Home Intelligence & Decision Engine Tests', `${nodeBin} backend/tests/phase24-smart-home-intelligence.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  33 SUITES ATTEMPTED. ${failedSuites === 0 ? '33/33' : (33 - failedSuites) + '/33'} PASSED.`);
+console.log(`  34 SUITES ATTEMPTED. ${failedSuites === 0 ? '34/34' : (34 - failedSuites) + '/34'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

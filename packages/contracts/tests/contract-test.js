@@ -24,6 +24,8 @@ const schemaFiles = [
   '../energy/energy-automation.schema.json',
   '../energy/energy-cost.schema.json',
   '../energy/energy-forecasting.schema.json',
+  '../context/presence-context.schema.json',
+  '../intelligence/home-intelligence.schema.json',
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
@@ -610,6 +612,90 @@ const validTransition = {
 
 assert('Valid ContextTransition passes', validator.validate('ContextTransition', validTransition).valid);
 assert('Missing timestamp in ContextTransition fails', !validator.validate('ContextTransition', { ...validTransition, timestamp: undefined }).valid);
+
+// 12. Phase 24 Intelligence & Decision Engine Contracts
+console.log('\n--- Section 12: Phase 24 Intelligence and Unified Decision Schemas ---');
+const validIntelSnapshot = {
+  homeId: 'home_01',
+  timestamp: '2026-07-16T15:00:00Z',
+  homeContext: 'AWAY',
+  presenceState: 'AWAY',
+  isOccupied: false,
+  deviceCount: 6,
+  activeDevicesCount: 2,
+  totalPowerW: 420.5,
+  tariffPeriod: 'PEAK',
+  tariffPrice: 0.35,
+  forecastPredictedKwh: 12.4,
+  activeAnomalyCount: 1,
+  activeAutomationCount: 4,
+  activeScheduleCount: 2
+};
+
+assert('Valid HomeIntelligenceSnapshot passes', validator.validate('HomeIntelligenceSnapshot', validIntelSnapshot).valid);
+assert('Missing homeId in HomeIntelligenceSnapshot fails', !validator.validate('HomeIntelligenceSnapshot', { ...validIntelSnapshot, homeId: undefined }).valid);
+assert('Negative totalPowerW in HomeIntelligenceSnapshot fails', !validator.validate('HomeIntelligenceSnapshot', { ...validIntelSnapshot, totalPowerW: -10 }).valid);
+
+const validDecision = {
+  id: 'dec_01',
+  homeId: 'home_01',
+  decisionType: 'LOAD_SHEDDING',
+  priority: 'ENERGY_COST_OPTIMIZATION',
+  priorityRank: 5,
+  confidence: 'HIGH',
+  confidenceScore: 0.95,
+  risk: 'LOW',
+  evidence: { currentTariff: 'PEAK', price: 0.35, powerW: 1500 },
+  proposedAction: { actionType: 'device_command', deviceId: 'dev_ac_01', command: 'setPower', value: false },
+  expectedEffect: 'Reduce peak power by 1500W and save $0.52/hr',
+  isAutoExecutable: true,
+  safetyResult: { isSafe: true, riskLevel: 'LOW', reason: 'Non-critical cooling load' },
+  status: 'GENERATED',
+  createdAt: '2026-07-16T15:00:00Z',
+  expiresAt: '2026-07-16T16:00:00Z'
+};
+
+assert('Valid IntelligenceDecision passes', validator.validate('IntelligenceDecision', validDecision).valid);
+assert('Invalid priority enum in IntelligenceDecision fails', !validator.validate('IntelligenceDecision', { ...validDecision, priority: 'SUPER_URGENT' }).valid);
+assert('Invalid risk enum in IntelligenceDecision fails', !validator.validate('IntelligenceDecision', { ...validDecision, risk: 'EXTREME' }).valid);
+assert('Invalid status in IntelligenceDecision fails', !validator.validate('IntelligenceDecision', { ...validDecision, status: 'DONE' }).valid);
+
+const validRecommendation = {
+  id: 'rec_01',
+  homeId: 'home_01',
+  recommendationType: 'TURN_OFF_UNUSED_DEVICE',
+  priority: 'CONVENIENCE_RECOMMENDATION',
+  priorityRank: 7,
+  confidence: 'HIGH',
+  risk: 'LOW',
+  title: 'Turn Off Unused Basement Lights',
+  description: 'Basement light switch has been drawing 60W for 8 hours with zero room presence.',
+  evidence: { durationHours: 8, roomOccupied: false, deviceId: 'dev_light_base' },
+  proposedAction: { deviceId: 'dev_light_base', command: 'setPower', params: { value: false } },
+  expectedBenefit: 'Saves ~0.48 kWh ($0.12) per day',
+  isAutoExecutable: true,
+  status: 'GENERATED',
+  createdAt: '2026-07-16T15:00:00Z'
+};
+
+assert('Valid IntelligenceRecommendation passes', validator.validate('IntelligenceRecommendation', validRecommendation).valid);
+assert('Invalid recommendationType fails', !validator.validate('IntelligenceRecommendation', { ...validRecommendation, recommendationType: 'UNKNOWN_REC' }).valid);
+
+const validOutcome = {
+  id: 'out_01',
+  decisionId: 'dec_01',
+  homeId: 'home_01',
+  status: 'EXECUTED',
+  executedAt: '2026-07-16T15:01:00Z',
+  previousState: { powerState: true },
+  newState: { powerState: false },
+  expectedBenefit: 'Save 1500W load',
+  actualBenefit: 'Load dropped by 1485W',
+  feedback: 'User confirmed via app'
+};
+
+assert('Valid DecisionOutcome passes', validator.validate('DecisionOutcome', validOutcome).valid);
+assert('Missing decisionId in DecisionOutcome fails', !validator.validate('DecisionOutcome', { ...validOutcome, decisionId: undefined }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

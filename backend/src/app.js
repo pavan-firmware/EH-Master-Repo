@@ -56,7 +56,10 @@ const {
   PresenceStateRepository,
   HomeContextRepository,
   ContextOverrideRepository,
-  ContextTransitionRepository
+  ContextTransitionRepository,
+  IntelligenceDecisionRepository,
+  IntelligenceRecommendationRepository,
+  IntelligenceOutcomeRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -81,6 +84,7 @@ const { SyncService } = require('./services/sync.service');
 const { DataExportService } = require('./services/data-export.service');
 const { DataRetentionService } = require('./services/data-retention.service');
 const { ContextService } = require('./services/context.service');
+const { IntelligenceService } = require('./services/intelligence.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
@@ -94,6 +98,7 @@ const { buildRouteHandlers: buildCommandRouteHandlers } = require('./api/device-
 const { OtaApiRouter } = require('./api/ota.router');
 const { EnergyApiRouter } = require('./api/energy.router');
 const { ContextApiRouter } = require('./api/context.router');
+const { IntelligenceApiRouter } = require('./api/intelligence.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
@@ -230,6 +235,9 @@ function createApp(options = {}) {
   const contextRepo = options.contextRepo || new HomeContextRepository(db);
   const overrideRepo = options.overrideRepo || new ContextOverrideRepository(db);
   const transitionRepo = options.transitionRepo || new ContextTransitionRepository(db);
+  const decisionRepo = options.decisionRepo || new IntelligenceDecisionRepository(db);
+  const recommendationRepo = options.recommendationRepo || new IntelligenceRecommendationRepository(db);
+  const outcomeRepo = options.outcomeRepo || new IntelligenceOutcomeRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -324,6 +332,24 @@ function createApp(options = {}) {
 
   automationService.setEnergyService(energyService);
   automationService.setContextService(contextService);
+
+  const intelligenceService = options.intelligenceService || new IntelligenceService({
+    decisionRepo,
+    recommendationRepo,
+    outcomeRepo,
+    deviceRepo,
+    deviceStateRepo,
+    roomRepo,
+    homeRepo,
+    energyService,
+    contextService,
+    automationService,
+    sceneService,
+    commandService,
+    notificationService,
+    realtimeEventBus: eventBus,
+    homeAuthService
+  });
 
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,
@@ -449,6 +475,7 @@ function createApp(options = {}) {
     optimizationRepo
   });
   const contextRouter = new ContextApiRouter({ contextService, homeAuthService });
+  const intelligenceRouter = new IntelligenceApiRouter({ intelligenceService, homeAuthService });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const deviceManagementRouter = new DeviceManagementApiRouter({
     deviceManagementService,
@@ -643,6 +670,13 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.statusCode, result.body);
     }
 
+    // 8.57. Route to Smart Home Intelligence & Unified Decision Router (Phase 24)
+    if (pathname.startsWith('/api/v1/intelligence')) {
+      const actorContext = req.user ? { userId: req.user.id } : (req.actorContext || null);
+      const result = await intelligenceRouter.handleRequest({ method, path: pathname, query, body }, actorContext);
+      return sendJsonResponse(res, result.statusCode, result.body);
+    }
+
     // 8.6. Route to Automation, Scene, and Schedule Router
     if (
       pathname.includes('/scenes') ||
@@ -749,6 +783,7 @@ function createApp(options = {}) {
       dataRetentionService,
       energyService,
       contextService,
+      intelligenceService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -764,10 +799,12 @@ function createApp(options = {}) {
       executionRepo, optimizationRepo,
       tariffRepo, tariffPeriodRepo, budgetRepo, costOptimizationRepo,
       forecastRepo, anomalyRepo, baselineRepo, accuracyRepo, efficiencyRepo,
-      signalRepo, presenceStateRepo, contextRepo, overrideRepo, transitionRepo
+      signalRepo, presenceStateRepo, contextRepo, overrideRepo, transitionRepo,
+      decisionRepo, recommendationRepo, outcomeRepo
     },
     contextApiRouter: contextRouter,
-    energyApiRouter: energyRouter
+    energyApiRouter: energyRouter,
+    intelligenceApiRouter: intelligenceRouter
   };
 }
 
