@@ -3115,6 +3115,169 @@ class ContextTransitionRepository {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Phase 24: Smart Home Intelligence & Unified Decision Repositories
+// -----------------------------------------------------------------------------
+
+class IntelligenceDecisionRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createDecision(data) {
+    const id = data.id || `dec_${data.homeId || data.home_id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const record = {
+      id,
+      home_id: data.homeId || data.home_id,
+      decision_type: data.decisionType || data.decision_type,
+      priority: data.priority,
+      priority_rank: data.priorityRank !== undefined ? data.priorityRank : (data.priority_rank !== undefined ? data.priority_rank : 7),
+      confidence: data.confidence || 'MEDIUM',
+      confidence_score: data.confidenceScore !== undefined ? data.confidenceScore : (data.confidence_score !== undefined ? data.confidence_score : 0.5),
+      risk: data.risk || 'LOW',
+      evidence: data.evidence || {},
+      proposed_action: data.proposedAction || data.proposed_action || {},
+      expected_effect: data.expectedEffect || data.expected_effect || '',
+      is_auto_executable: Boolean(data.isAutoExecutable ?? data.is_auto_executable ?? false),
+      safety_result: data.safetyResult || data.safety_result || { isSafe: true, riskLevel: 'LOW' },
+      status: data.status || 'GENERATED',
+      created_at: data.createdAt || data.created_at || new Date().toISOString(),
+      expires_at: data.expiresAt || data.expires_at || null
+    };
+    return this.db.insert('intelligence_decisions', id, record);
+  }
+
+  async getDecisionById(id) {
+    return this.db.findById('intelligence_decisions', id);
+  }
+
+  async getDecisionsByHome(homeId, { limit = 50, status = null, priority = null } = {}) {
+    let list = await this.db.find('intelligence_decisions', d => {
+      if (d.home_id !== homeId) return false;
+      if (status && d.status !== status) return false;
+      if (priority && d.priority !== priority) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async updateDecisionStatus(id, status) {
+    return this.db.update('intelligence_decisions', id, { status });
+  }
+
+  async purgeOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('intelligence_decisions', d => new Date(d.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('intelligence_decisions', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class IntelligenceRecommendationRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createRecommendation(data) {
+    const id = data.id || `rec_${data.homeId || data.home_id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const record = {
+      id,
+      home_id: data.homeId || data.home_id,
+      recommendation_type: data.recommendationType || data.recommendation_type,
+      priority: data.priority || 'CONVENIENCE_RECOMMENDATION',
+      priority_rank: data.priorityRank !== undefined ? data.priorityRank : (data.priority_rank !== undefined ? data.priority_rank : 7),
+      confidence: data.confidence || 'MEDIUM',
+      risk: data.risk || 'LOW',
+      title: data.title,
+      description: data.description || '',
+      evidence: data.evidence || {},
+      proposed_action: data.proposedAction || data.proposed_action || {},
+      expected_benefit: data.expectedBenefit || data.expected_benefit || '',
+      is_auto_executable: Boolean(data.isAutoExecutable ?? data.is_auto_executable ?? false),
+      status: data.status || 'GENERATED',
+      created_at: data.createdAt || data.created_at || new Date().toISOString(),
+      expires_at: data.expiresAt || data.expires_at || null
+    };
+    return this.db.insert('intelligence_recommendations', id, record);
+  }
+
+  async getRecommendationById(id) {
+    return this.db.findById('intelligence_recommendations', id);
+  }
+
+  async getRecommendationsByHome(homeId, { limit = 50, status = null, type = null } = {}) {
+    let list = await this.db.find('intelligence_recommendations', r => {
+      if (r.home_id !== homeId) return false;
+      if (status && r.status !== status) return false;
+      if (type && r.recommendation_type !== type) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async updateRecommendationStatus(id, status) {
+    return this.db.update('intelligence_recommendations', id, { status });
+  }
+
+  async purgeOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('intelligence_recommendations', r => new Date(r.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('intelligence_recommendations', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class IntelligenceOutcomeRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordOutcome(data) {
+    const id = data.id || `out_${data.decisionId || data.decision_id || data.homeId}_${Date.now()}`;
+    const record = {
+      id,
+      decision_id: data.decisionId || data.decision_id || '',
+      home_id: data.homeId || data.home_id,
+      status: data.status,
+      executed_at: data.executedAt || data.executed_at || new Date().toISOString(),
+      previous_state: data.previousState || data.previous_state || {},
+      new_state: data.newState || data.new_state || {},
+      expected_benefit: data.expectedBenefit || data.expected_benefit || '',
+      actual_benefit: data.actualBenefit || data.actual_benefit || '',
+      feedback: data.feedback || '',
+      failure_reason: data.failureReason || data.failure_reason || null,
+      created_at: data.createdAt || data.created_at || new Date().toISOString()
+    };
+    return this.db.insert('intelligence_decision_outcomes', id, record);
+  }
+
+  async getOutcomesByHome(homeId, { limit = 50 } = {}) {
+    let list = await this.db.find('intelligence_decision_outcomes', o => o.home_id === homeId);
+    list.sort((a, b) => new Date(b.executed_at || b.created_at) - new Date(a.executed_at || a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async getOutcomeByDecisionId(decisionId) {
+    const list = await this.db.find('intelligence_decision_outcomes', o => o.decision_id === decisionId);
+    return list.length > 0 ? list[0] : null;
+  }
+
+  async purgeOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('intelligence_decision_outcomes', o => new Date(o.created_at || o.executed_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('intelligence_decision_outcomes', s.id);
+    }
+    return stale.length;
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -3162,5 +3325,8 @@ module.exports = {
   PresenceStateRepository,
   HomeContextRepository,
   ContextOverrideRepository,
-  ContextTransitionRepository
+  ContextTransitionRepository,
+  IntelligenceDecisionRepository,
+  IntelligenceRecommendationRepository,
+  IntelligenceOutcomeRepository
 };

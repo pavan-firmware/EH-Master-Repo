@@ -68,6 +68,10 @@ class AutomationService {
     this._manualCommandCooldown.set(deviceId, Date.now() + durationSeconds * 1000);
   }
 
+  recordManualCommand(deviceId, durationSeconds = 300) {
+    return this.recordManualUserAction(deviceId, durationSeconds);
+  }
+
   async createAutomation({
     homeId,
     userId,

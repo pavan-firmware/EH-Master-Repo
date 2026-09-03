@@ -1,0 +1,181 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HomeIntelligenceContracts",
+  "description": "Canonical contracts for EH Home Phase 24 Unified Intelligence & Decision Engine",
+  "definitions": {
+    "DecisionPriority": {
+      "type": "string",
+      "enum": [
+        "SAFETY",
+        "MANUAL_USER_ACTION",
+        "EXPLICIT_HOME_MODE",
+        "SCHEDULED_AUTOMATION",
+        "ENERGY_COST_OPTIMIZATION",
+        "PREDICTIVE_OPTIMIZATION",
+        "CONVENIENCE_RECOMMENDATION"
+      ]
+    },
+    "ConfidenceLevel": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH"]
+    },
+    "RiskLevel": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "DecisionStatus": {
+      "type": "string",
+      "enum": [
+        "GENERATED",
+        "VIEWED",
+        "ACCEPTED",
+        "REJECTED",
+        "AUTO_EXECUTED",
+        "EXECUTED",
+        "FAILED",
+        "EXPIRED",
+        "SKIPPED"
+      ]
+    },
+    "RecommendationType": {
+      "type": "string",
+      "enum": [
+        "TURN_OFF_UNUSED_DEVICE",
+        "SHIFT_LOAD_TO_CHEAPER_PERIOD",
+        "REDUCE_PEAK_LOAD",
+        "INVESTIGATE_ANOMALY",
+        "CHANGE_HOME_MODE",
+        "OPTIMIZE_AUTOMATION",
+        "REDUCE_STANDBY",
+        "REVIEW_SCHEDULE",
+        "REVIEW_TARIFF"
+      ]
+    },
+    "HomeIntelligenceSnapshot": {
+      "type": "object",
+      "required": [
+        "homeId",
+        "timestamp",
+        "homeContext",
+        "presenceState",
+        "totalPowerW"
+      ],
+      "properties": {
+        "homeId": { "type": "string", "minLength": 1 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "homeContext": { "type": "string" },
+        "presenceState": { "type": "string" },
+        "isOccupied": { "type": "boolean" },
+        "deviceCount": { "type": "integer", "minimum": 0 },
+        "activeDevicesCount": { "type": "integer", "minimum": 0 },
+        "totalPowerW": { "type": "number", "minimum": 0 },
+        "tariffPeriod": { "type": "string" },
+        "tariffPrice": { "type": "number", "minimum": 0 },
+        "forecastPredictedKwh": { "type": "number", "minimum": 0 },
+        "activeAnomalyCount": { "type": "integer", "minimum": 0 },
+        "activeAutomationCount": { "type": "integer", "minimum": 0 },
+        "activeScheduleCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "IntelligenceDecision": {
+      "type": "object",
+      "required": [
+        "id",
+        "homeId",
+        "decisionType",
+        "priority",
+        "confidence",
+        "risk",
+        "evidence",
+        "status",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "homeId": { "type": "string", "minLength": 1 },
+        "decisionType": { "type": "string" },
+        "priority": { "$ref": "#/definitions/DecisionPriority" },
+        "priorityRank": { "type": "integer", "minimum": 1, "maximum": 7 },
+        "confidence": { "$ref": "#/definitions/ConfidenceLevel" },
+        "confidenceScore": { "type": "number", "minimum": 0, "maximum": 1 },
+        "risk": { "$ref": "#/definitions/RiskLevel" },
+        "evidence": { "type": "object" },
+        "proposedAction": { "type": "object" },
+        "expectedEffect": { "type": "string" },
+        "isAutoExecutable": { "type": "boolean" },
+        "safetyResult": {
+          "type": "object",
+          "properties": {
+            "isSafe": { "type": "boolean" },
+            "riskLevel": { "type": "string" },
+            "reason": { "type": "string" }
+          }
+        },
+        "status": { "$ref": "#/definitions/DecisionStatus" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": true
+    },
+    "IntelligenceRecommendation": {
+      "type": "object",
+      "required": [
+        "id",
+        "homeId",
+        "recommendationType",
+        "priority",
+        "confidence",
+        "risk",
+        "title",
+        "description",
+        "evidence",
+        "status",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "homeId": { "type": "string", "minLength": 1 },
+        "recommendationType": { "$ref": "#/definitions/RecommendationType" },
+        "priority": { "$ref": "#/definitions/DecisionPriority" },
+        "priorityRank": { "type": "integer", "minimum": 1, "maximum": 7 },
+        "confidence": { "$ref": "#/definitions/ConfidenceLevel" },
+        "risk": { "$ref": "#/definitions/RiskLevel" },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "evidence": { "type": "object" },
+        "proposedAction": { "type": "object" },
+        "expectedBenefit": { "type": "string" },
+        "isAutoExecutable": { "type": "boolean" },
+        "status": { "$ref": "#/definitions/DecisionStatus" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": true
+    },
+    "DecisionOutcome": {
+      "type": "object",
+      "required": [
+        "id",
+        "decisionId",
+        "homeId",
+        "status",
+        "executedAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "decisionId": { "type": "string", "minLength": 1 },
+        "homeId": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/definitions/DecisionStatus" },
+        "executedAt": { "type": "string", "format": "date-time" },
+        "previousState": { "type": "object" },
+        "newState": { "type": "object" },
+        "expectedBenefit": { "type": "string" },
+        "actualBenefit": { "type": "string" },
+        "feedback": { "type": "string" },
+        "failureReason": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

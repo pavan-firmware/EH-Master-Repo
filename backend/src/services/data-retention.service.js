@@ -120,6 +120,33 @@ class DataRetentionService {
     return { pruned: stale.length, cutoff };
   }
 
+  async pruneIntelligenceDecisions(days = 60) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('intelligence_decisions', d => d.created_at < cutoff);
+    for (const d of stale) {
+      await this.db.delete('intelligence_decisions', d.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneIntelligenceRecommendations(days = 30) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('intelligence_recommendations', r => r.created_at < cutoff);
+    for (const r of stale) {
+      await this.db.delete('intelligence_recommendations', r.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneIntelligenceOutcomes(days = 90) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('intelligence_decision_outcomes', o => (o.executed_at || o.created_at) < cutoff);
+    for (const o of stale) {
+      await this.db.delete('intelligence_decision_outcomes', o.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
   async runRetentionCycle(policies = {}) {
     const notif = await this.pruneNotifications(policies.notificationDays || 30);
     const audit = await this.pruneAuditLogs(policies.auditLogDays || 90);
@@ -133,6 +160,9 @@ class DataRetentionService {
     const accuracy = await this.pruneForecastAccuracy(policies.accuracyDays || 90);
     const presenceSignals = await this.prunePresenceSignals(policies.presenceSignalDays || 14);
     const contextTransitions = await this.pruneContextTransitions(policies.contextTransitionDays || 30);
+    const intelDecisions = await this.pruneIntelligenceDecisions(policies.intelDecisionDays || 60);
+    const intelRecs = await this.pruneIntelligenceRecommendations(policies.intelRecDays || 30);
+    const intelOutcomes = await this.pruneIntelligenceOutcomes(policies.intelOutcomeDays || 90);
 
     return {
       executedAt: new Date().toISOString(),
@@ -147,7 +177,10 @@ class DataRetentionService {
       anomaliesPruned: anomalies.pruned,
       accuracyRecordsPruned: accuracy.pruned,
       presenceSignalsPruned: presenceSignals.pruned,
-      contextTransitionsPruned: contextTransitions.pruned
+      contextTransitionsPruned: contextTransitions.pruned,
+      intelDecisionsPruned: intelDecisions.pruned,
+      intelRecsPruned: intelRecs.pruned,
+      intelOutcomesPruned: intelOutcomes.pruned
     };
   }
 }

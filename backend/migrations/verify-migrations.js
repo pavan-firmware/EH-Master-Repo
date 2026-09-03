@@ -16,7 +16,8 @@ const migrations = [
   { up: '013_smart_energy_automation.sql', down: '013_smart_energy_automation.down.sql' },
   { up: '014_energy_cost_tariffs.sql', down: '014_energy_cost_tariffs.down.sql' },
   { up: '015_energy_forecasting_predictive.sql', down: '015_energy_forecasting_predictive.down.sql' },
-  { up: '016_presence_context_intelligence.sql', down: '016_presence_context_intelligence.down.sql' }
+  { up: '016_presence_context_intelligence.sql', down: '016_presence_context_intelligence.down.sql' },
+  { up: '017_smart_home_intelligence.sql', down: '017_smart_home_intelligence.down.sql' }
 ];
 
 let totalUpTables = [];
