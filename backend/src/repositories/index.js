@@ -525,9 +525,13 @@ class DeviceRepository {
     const devices = [];
     for (const a of auths) {
       const dev = await this.db.findById('devices', a.device_id);
-      if (dev) devices.push({ ...dev, ...a });
+      if (dev) devices.push({ ...dev, ...a, id: dev.id, homeId: a.home_id });
     }
     return devices;
+  }
+
+  async findByHomeId(homeId) {
+    return this.getDevicesByHome(homeId);
   }
 
   async getDevicesByRoom(roomId) {
@@ -1836,6 +1840,18 @@ class DeviceTelemetryRepository {
     return list.slice(offset, offset + limit);
   }
 
+  async findByTimeRange(homeId, { startTime = null, endTime = null, deviceId = null } = {}) {
+    let list = await this.db.find('device_telemetry_measurements', m => {
+      if (deviceId && m.device_id !== deviceId) return false;
+      const ts = m.device_timestamp || m.created_at;
+      if (startTime && new Date(ts) < new Date(startTime)) return false;
+      if (endTime && new Date(ts) > new Date(endTime)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(a.device_timestamp) - new Date(b.device_timestamp));
+    return list;
+  }
+
   async purgeOlderThan(cutoffIso) {
     const cutoffDate = new Date(cutoffIso);
     const stale = await this.db.find('device_telemetry_measurements', m => new Date(m.device_timestamp) < cutoffDate);
@@ -1852,47 +1868,58 @@ class TelemetryAggregateRepository {
   }
 
   async upsertAggregate({
+    id: explicitId = null,
+    homeId = null,
     deviceId,
+    roomId = null,
     channelIndex = 1,
-    bucketType, // 'MINUTE', 'HOUR', 'DAY'
-    bucketStart,
-    bucketEnd,
-    totalEnergyWh,
-    avgPowerW,
-    peakPowerW,
+    bucket = 'HOUR',
+    bucketType = 'HOUR',
+    startTime = null,
+    endTime = null,
+    bucketStart = null,
+    bucketEnd = null,
+    energyDeltaWh = 0,
+    totalEnergyWh = 0,
+    avgPowerW = 0,
+    peakPowerW = 0,
     minPowerW = 0,
     sampleCount = 1,
     dataQuality = 'GOOD'
   }) {
-    const id = `agg_${deviceId}_${channelIndex}_${bucketType}_${bucketStart}`;
-    const existing = await this.db.findById('telemetry_aggregates', id);
-    if (existing) {
-      return this.db.update('telemetry_aggregates', id, {
-        total_energy_wh: totalEnergyWh,
-        avg_power_w: avgPowerW,
-        peak_power_w: peakPowerW,
-        min_power_w: minPowerW,
-        sample_count: sampleCount,
-        data_quality: dataQuality,
-        updated_at: new Date().toISOString()
-      });
-    }
+    const sTime = bucketStart || startTime || new Date().toISOString();
+    const eTime = bucketEnd || endTime || new Date().toISOString();
+    const bType = (bucketType || bucket || 'HOUR').toUpperCase();
+    const energyWh = Number(totalEnergyWh || energyDeltaWh || 0);
+    const id = explicitId || `agg_${deviceId}_${channelIndex}_${bType}_${sTime}`;
 
-    return this.db.insert('telemetry_aggregates', id, {
+    const record = {
+      id,
+      home_id: homeId,
       device_id: deviceId,
+      room_id: roomId,
       channel_index: channelIndex,
-      bucket_type: bucketType,
-      bucket_start: bucketStart,
-      bucket_end: bucketEnd,
-      total_energy_wh: totalEnergyWh,
-      avg_power_w: avgPowerW,
-      peak_power_w: peakPowerW,
-      min_power_w: minPowerW,
-      sample_count: sampleCount,
+      bucket_type: bType,
+      bucket_start: sTime,
+      bucket_end: eTime,
+      start_time: sTime,
+      end_time: eTime,
+      energy_delta_wh: energyWh,
+      total_energy_wh: energyWh,
+      avg_power_w: Number(avgPowerW || 0),
+      peak_power_w: Number(peakPowerW || 0),
+      min_power_w: Number(minPowerW || 0),
+      sample_count: Number(sampleCount || 1),
       data_quality: dataQuality,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
-    });
+    };
+
+    const existing = await this.db.findById('telemetry_aggregates', id);
+    if (existing) {
+      return this.db.update('telemetry_aggregates', id, record);
+    }
+    return this.db.insert('telemetry_aggregates', id, record);
   }
 
   async getAggregates(deviceId, { bucketType, from = null, to = null, limit = 500 } = {}) {
@@ -1918,6 +1945,20 @@ class TelemetryAggregateRepository {
       return true;
     });
     list.sort((a, b) => new Date(a.bucket_start) - new Date(b.bucket_start));
+    return list;
+  }
+
+  async findByPeriod(homeId, { bucket = 'HOUR', bucketType = null, startTime = null, endTime = null } = {}) {
+    const targetBucket = (bucketType || bucket || 'HOUR').toUpperCase();
+    const list = await this.db.find('telemetry_aggregates', a => {
+      if (a.home_id && a.home_id !== homeId) return false;
+      if (targetBucket && a.bucket_type && a.bucket_type.toUpperCase() !== targetBucket) return false;
+      const aStart = a.bucket_start || a.start_time || a.created_at;
+      if (startTime && new Date(aStart) < new Date(startTime)) return false;
+      if (endTime && new Date(aStart) > new Date(endTime)) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(a.bucket_start || a.start_time) - new Date(b.bucket_start || b.start_time));
     return list;
   }
 }
@@ -2193,6 +2234,230 @@ class EnergyOptimizationRepository {
   }
 }
 
+class EnergyTariffRepository {
+  constructor(dbClient) {
+    this.db = dbClient;
+  }
+
+  async createTariff(tariff) {
+    const id = tariff.id || `tariff_${crypto.randomUUID()}`;
+    const nowIso = new Date().toISOString();
+    const record = {
+      id,
+      home_id: tariff.homeId || tariff.home_id,
+      name: tariff.name,
+      tariff_type: tariff.tariffType || tariff.tariff_type || 'FLAT',
+      currency: tariff.currency || 'USD',
+      flat_rate_per_kwh: tariff.flatRatePerKwh !== undefined ? tariff.flatRatePerKwh : (tariff.flat_rate_per_kwh !== undefined ? tariff.flat_rate_per_kwh : null),
+      fixed_daily_charge: tariff.fixedDailyCharge !== undefined ? tariff.fixedDailyCharge : (tariff.fixed_daily_charge || 0),
+      effective_from: tariff.effectiveFrom || tariff.effective_from || nowIso,
+      effective_to: tariff.effectiveTo !== undefined ? tariff.effectiveTo : (tariff.effective_to || null),
+      carbon_intensity_g_per_kwh: tariff.carbonIntensityGPerKwh !== undefined ? tariff.carbonIntensityGPerKwh : (tariff.carbon_intensity_g_per_kwh || null),
+      is_active: tariff.isActive !== undefined ? (tariff.isActive ? 1 : 0) : (tariff.is_active !== undefined ? tariff.is_active : 1),
+      metadata: typeof tariff.metadata === 'object' && tariff.metadata !== null ? JSON.stringify(tariff.metadata) : (tariff.metadata || null),
+      created_at: tariff.createdAt || tariff.created_at || nowIso,
+      updated_at: tariff.updatedAt || tariff.updated_at || nowIso
+    };
+    return this.db.insert('energy_tariffs', id, record);
+  }
+
+  async findById(id) {
+    return this.db.findById('energy_tariffs', id);
+  }
+
+  async findByHomeId(homeId, { activeOnly = false } = {}) {
+    return this.db.find('energy_tariffs', t => {
+      if (t.home_id !== homeId) return false;
+      if (activeOnly && !t.is_active) return false;
+      return true;
+    });
+  }
+
+  async findActiveTariffForTime(homeId, asOfTime = null) {
+    const timeIso = asOfTime ? (typeof asOfTime === 'string' ? asOfTime : new Date(asOfTime).toISOString()) : new Date().toISOString();
+    const all = await this.findByHomeId(homeId, { activeOnly: true });
+    // Filter matching effective_from <= timeIso and (effective_to == null or effective_to >= timeIso)
+    const matching = all.filter(t => {
+      if (t.effective_from > timeIso) return false;
+      if (t.effective_to && t.effective_to < timeIso) return false;
+      return true;
+    });
+    // Sort by effective_from DESC
+    matching.sort((a, b) => (b.effective_from || '').localeCompare(a.effective_from || ''));
+    return matching[0] || null;
+  }
+
+  async updateTariff(id, updates) {
+    const current = await this.findById(id);
+    if (!current) throw new Error(`Tariff ${id} not found`);
+    const mapped = { ...updates, updated_at: new Date().toISOString() };
+    if (updates.flatRatePerKwh !== undefined) mapped.flat_rate_per_kwh = updates.flatRatePerKwh;
+    if (updates.fixedDailyCharge !== undefined) mapped.fixed_daily_charge = updates.fixedDailyCharge;
+    if (updates.effectiveFrom !== undefined) mapped.effective_from = updates.effectiveFrom;
+    if (updates.effectiveTo !== undefined) mapped.effective_to = updates.effectiveTo;
+    if (updates.isActive !== undefined) mapped.is_active = updates.isActive ? 1 : 0;
+    if (updates.carbonIntensityGPerKwh !== undefined) mapped.carbon_intensity_g_per_kwh = updates.carbonIntensityGPerKwh;
+    if (updates.metadata && typeof updates.metadata === 'object') mapped.metadata = JSON.stringify(updates.metadata);
+    return this.db.update('energy_tariffs', id, mapped);
+  }
+
+  async deleteTariff(id) {
+    return this.db.delete('energy_tariffs', id);
+  }
+}
+
+class TariffPeriodRepository {
+  constructor(dbClient) {
+    this.db = dbClient;
+  }
+
+  async createPeriod(period) {
+    const id = period.id || `period_${crypto.randomUUID()}`;
+    const record = {
+      id,
+      tariff_id: period.tariffId || period.tariff_id,
+      home_id: period.homeId || period.home_id,
+      period_type: period.periodType || period.period_type,
+      start_time: period.startTime || period.start_time,
+      end_time: period.endTime || period.end_time,
+      applicable_weekdays: Array.isArray(period.applicableWeekdays)
+        ? JSON.stringify(period.applicableWeekdays)
+        : (period.applicable_weekdays || '[1,2,3,4,5,6,7]'),
+      price_per_kwh: Number(period.pricePerKwh !== undefined ? period.pricePerKwh : period.price_per_kwh),
+      created_at: period.createdAt || period.created_at || new Date().toISOString()
+    };
+    return this.db.insert('tariff_periods', id, record);
+  }
+
+  async findByTariffId(tariffId) {
+    return this.db.find('tariff_periods', p => p.tariff_id === tariffId);
+  }
+
+  async findByHomeId(homeId) {
+    return this.db.find('tariff_periods', p => p.home_id === homeId);
+  }
+
+  async deleteByTariffId(tariffId) {
+    const periods = await this.findByTariffId(tariffId);
+    for (const p of periods) {
+      await this.db.delete('tariff_periods', p.id);
+    }
+    return periods.length;
+  }
+
+  async deletePeriod(id) {
+    return this.db.delete('tariff_periods', id);
+  }
+}
+
+class EnergyBudgetRepository {
+  constructor(dbClient) {
+    this.db = dbClient;
+  }
+
+  async setBudget(budget) {
+    const homeId = budget.homeId || budget.home_id;
+    const periodType = budget.periodType || budget.period_type;
+    const existing = await this.findByHomeAndPeriod(homeId, periodType);
+    const nowIso = new Date().toISOString();
+
+    if (existing) {
+      const updates = {
+        budget_amount: Number(budget.budgetAmount !== undefined ? budget.budgetAmount : budget.budget_amount),
+        currency: budget.currency || existing.currency || 'USD',
+        alert_threshold_percent: Number(budget.alertThresholdPercent !== undefined ? budget.alertThresholdPercent : (budget.alert_threshold_percent || 80)),
+        is_enabled: budget.isEnabled !== undefined ? (budget.isEnabled ? 1 : 0) : (budget.is_enabled !== undefined ? budget.is_enabled : 1),
+        updated_at: nowIso
+      };
+      return this.db.update('energy_budgets', existing.id, updates);
+    }
+
+    const id = budget.id || `budget_${crypto.randomUUID()}`;
+    const record = {
+      id,
+      home_id: homeId,
+      period_type: periodType,
+      budget_amount: Number(budget.budgetAmount !== undefined ? budget.budgetAmount : budget.budget_amount),
+      currency: budget.currency || 'USD',
+      alert_threshold_percent: Number(budget.alertThresholdPercent !== undefined ? budget.alertThresholdPercent : (budget.alert_threshold_percent || 80)),
+      is_enabled: budget.isEnabled !== undefined ? (budget.isEnabled ? 1 : 0) : (budget.is_enabled !== undefined ? budget.is_enabled : 1),
+      created_at: nowIso,
+      updated_at: nowIso
+    };
+    return this.db.insert('energy_budgets', id, record);
+  }
+
+  async findByHomeId(homeId) {
+    return this.db.find('energy_budgets', b => b.home_id === homeId);
+  }
+
+  async findByHomeAndPeriod(homeId, periodType) {
+    const all = await this.db.find('energy_budgets', b => b.home_id === homeId && b.period_type === periodType);
+    return all[0] || null;
+  }
+
+  async deleteBudget(homeId, periodType) {
+    const existing = await this.findByHomeAndPeriod(homeId, periodType);
+    if (existing) {
+      return this.db.delete('energy_budgets', existing.id);
+    }
+    return false;
+  }
+}
+
+class CostOptimizationRepository {
+  constructor(dbClient) {
+    this.db = dbClient;
+  }
+
+  async createOptimization(opt) {
+    const id = opt.id || `copt_${crypto.randomUUID()}`;
+    const nowIso = new Date().toISOString();
+    const record = {
+      id,
+      home_id: opt.homeId || opt.home_id,
+      device_id: opt.deviceId || opt.device_id || null,
+      category: opt.category,
+      priority: opt.priority || 'MEDIUM',
+      title: opt.title,
+      description: opt.description,
+      evidence: typeof opt.evidence === 'object' && opt.evidence !== null ? JSON.stringify(opt.evidence) : (opt.evidence || null),
+      estimated_savings: typeof opt.estimatedSavings === 'object' && opt.estimatedSavings !== null ? JSON.stringify(opt.estimatedSavings) : (opt.estimated_savings || null),
+      recommended_window: typeof opt.recommendedWindow === 'object' && opt.recommendedWindow !== null ? JSON.stringify(opt.recommendedWindow) : (opt.recommended_window || null),
+      is_dismissed: opt.isDismissed ? 1 : 0,
+      created_at: opt.createdAt || opt.created_at || nowIso,
+      updated_at: opt.updatedAt || opt.updated_at || nowIso
+    };
+    return this.db.insert('cost_optimizations', id, record);
+  }
+
+  async findById(id) {
+    return this.db.findById('cost_optimizations', id);
+  }
+
+  async findByHomeId(homeId, { includeDismissed = false } = {}) {
+    return this.db.find('cost_optimizations', opt => {
+      if (opt.home_id !== homeId) return false;
+      if (!includeDismissed && opt.is_dismissed) return false;
+      return true;
+    });
+  }
+
+  async dismissOptimization(id) {
+    const current = await this.findById(id);
+    if (!current) throw new Error(`Cost optimization ${id} not found`);
+    return this.db.update('cost_optimizations', id, { is_dismissed: 1, updated_at: new Date().toISOString() });
+  }
+
+  async deleteOlderThan(cutoffIso) {
+    const stale = await this.db.find('cost_optimizations', opt => opt.created_at < cutoffIso && opt.is_dismissed === 1);
+    for (const item of stale) {
+      await this.db.delete('cost_optimizations', item.id);
+    }
+    return stale.length;
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -2226,5 +2491,9 @@ module.exports = {
   EnergyThresholdRepository,
   EnergyEventRepository,
   EnergyAutomationExecutionRepository,
-  EnergyOptimizationRepository
+  EnergyOptimizationRepository,
+  EnergyTariffRepository,
+  TariffPeriodRepository,
+  EnergyBudgetRepository,
+  CostOptimizationRepository
 };

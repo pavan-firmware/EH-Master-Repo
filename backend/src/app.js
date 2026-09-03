@@ -42,7 +42,11 @@ const {
   EnergyThresholdRepository,
   EnergyEventRepository,
   EnergyAutomationExecutionRepository,
-  EnergyOptimizationRepository
+  EnergyOptimizationRepository,
+  EnergyTariffRepository,
+  TariffPeriodRepository,
+  EnergyBudgetRepository,
+  CostOptimizationRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -200,6 +204,10 @@ function createApp(options = {}) {
   const energyEventRepo = options.energyEventRepo || new EnergyEventRepository(db);
   const executionRepo = options.executionRepo || new EnergyAutomationExecutionRepository(db);
   const optimizationRepo = options.optimizationRepo || new EnergyOptimizationRepository(db);
+  const tariffRepo = options.tariffRepo || new EnergyTariffRepository(db);
+  const tariffPeriodRepo = options.tariffPeriodRepo || new TariffPeriodRepository(db);
+  const budgetRepo = options.budgetRepo || new EnergyBudgetRepository(db);
+  const costOptimizationRepo = options.costOptimizationRepo || new CostOptimizationRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -265,8 +273,14 @@ function createApp(options = {}) {
     notificationService,
     realtimeEventBus: eventBus,
     automationService,
-    optimizationRepo
+    optimizationRepo,
+    tariffRepo,
+    tariffPeriodRepo,
+    budgetRepo,
+    costOptimizationRepo
   });
+
+  automationService.setEnergyService(energyService);
 
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,

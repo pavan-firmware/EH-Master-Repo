@@ -22,7 +22,8 @@ class DatabaseClient {
       'sync_checkpoints', 'pending_change_audits', 'data_export_records',
       'firmware_releases', 'ota_rollouts', 'ota_operations', 'device_maintenance_logs',
       'device_telemetry_measurements', 'telemetry_aggregates', 'energy_threshold_configs', 'energy_events',
-      'energy_automation_executions', 'energy_optimizations'
+      'energy_automation_executions', 'energy_optimizations',
+      'energy_tariffs', 'tariff_periods', 'energy_budgets', 'cost_optimizations'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

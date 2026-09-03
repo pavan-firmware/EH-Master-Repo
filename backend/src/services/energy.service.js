@@ -40,7 +40,11 @@ class EnergyService {
     notificationService = null,
     realtimeEventBus = null,
     automationService = null,
-    optimizationRepo = null
+    optimizationRepo = null,
+    tariffRepo = null,
+    tariffPeriodRepo = null,
+    budgetRepo = null,
+    costOptimizationRepo = null
   }) {
     this.telemetryRepo = telemetryRepo;
     this.aggregateRepo = aggregateRepo;
@@ -53,6 +57,10 @@ class EnergyService {
     this.realtimeEventBus = realtimeEventBus;
     this.automationService = automationService;
     this.optimizationRepo = optimizationRepo;
+    this.tariffRepo = tariffRepo;
+    this.tariffPeriodRepo = tariffPeriodRepo;
+    this.budgetRepo = budgetRepo;
+    this.costOptimizationRepo = costOptimizationRepo;
 
     this._deviceStateCache = new Map(); // deviceId -> { lastSeq, lastEnergyWh, lastTimestamp }
     this._alertCooldownMap = new Map(); // alertKey -> lastSentTimestamp
@@ -1096,6 +1104,799 @@ class EnergyService {
       return this.optimizationRepo.dismissOptimization(optimizationId);
     }
     return { success: true };
+  }
+
+  // ===========================================================================
+  // 4. Phase 21: Electricity Tariffs, TOU Periods & Pricing Resolution
+  // ===========================================================================
+
+  async createTariff(tariffData) {
+    if (!this.tariffRepo) throw new Error('TariffRepository not initialized');
+    const {
+      homeId,
+      name,
+      tariffType = 'FLAT',
+      currency = 'USD',
+      flatRatePerKwh = null,
+      fixedDailyCharge = 0,
+      effectiveFrom = new Date().toISOString(),
+      effectiveTo = null,
+      carbonIntensityGPerKwh = null,
+      isActive = true,
+      periods = [],
+      metadata = null
+    } = tariffData;
+
+    if (!homeId) throw new Error('homeId is required');
+    if (!name || typeof name !== 'string') throw new Error('name is required');
+    if (!['FLAT', 'TIME_OF_USE', 'DYNAMIC'].includes(tariffType)) {
+      throw new Error(`Invalid tariffType: ${tariffType}. Expected FLAT, TIME_OF_USE, or DYNAMIC`);
+    }
+    if (!currency || currency.length !== 3) {
+      throw new Error('currency must be a 3-letter ISO code');
+    }
+    if (flatRatePerKwh !== null && flatRatePerKwh < 0) {
+      throw new Error('flatRatePerKwh cannot be negative');
+    }
+
+    // Check overlapping active tariff periods
+    if (isActive) {
+      const activeTariffs = await this.tariffRepo.findByHomeId(homeId, { activeOnly: true });
+      const fromTime = new Date(effectiveFrom).getTime();
+      const toTime = effectiveTo ? new Date(effectiveTo).getTime() : Infinity;
+
+      for (const t of activeTariffs) {
+        const tFrom = new Date(t.effective_from).getTime();
+        const tTo = t.effective_to ? new Date(t.effective_to).getTime() : Infinity;
+        if (Math.max(fromTime, tFrom) < Math.min(toTime, tTo)) {
+          // If overlaps with existing indefinite active tariff, deactivate or reject
+          if (!t.effective_to && !effectiveTo) {
+            // Update prior tariff's effective_to to this new tariff's effective_from
+            await this.tariffRepo.updateTariff(t.id, { effectiveTo: effectiveFrom });
+          }
+        }
+      }
+    }
+
+    const createdTariff = await this.tariffRepo.createTariff({
+      homeId,
+      name,
+      tariffType,
+      currency: currency.toUpperCase(),
+      flatRatePerKwh: flatRatePerKwh !== null ? Number(flatRatePerKwh) : null,
+      fixedDailyCharge: Number(fixedDailyCharge || 0),
+      effectiveFrom,
+      effectiveTo,
+      carbonIntensityGPerKwh: carbonIntensityGPerKwh !== null ? Number(carbonIntensityGPerKwh) : null,
+      isActive,
+      metadata
+    });
+
+    const createdPeriods = [];
+    if (this.tariffPeriodRepo && Array.isArray(periods) && periods.length > 0) {
+      for (const p of periods) {
+        if (!p.startTime || !p.endTime || p.pricePerKwh === undefined || p.pricePerKwh < 0) {
+          throw new Error('Invalid tariff period definition');
+        }
+        const createdP = await this.tariffPeriodRepo.createPeriod({
+          tariffId: createdTariff.id,
+          homeId,
+          periodType: p.periodType || 'STANDARD',
+          startTime: p.startTime,
+          endTime: p.endTime,
+          applicableWeekdays: p.applicableWeekdays || [1, 2, 3, 4, 5, 6, 7],
+          pricePerKwh: Number(p.pricePerKwh)
+        });
+        createdPeriods.push(createdP);
+      }
+    }
+
+    const result = {
+      ...createdTariff,
+      periods: createdPeriods
+    };
+
+    if (this.realtimeEventBus) {
+      this.realtimeEventBus.publish({
+        type: 'energy.tariff_changed',
+        homeId,
+        payload: {
+          tariffId: createdTariff.id,
+          name: createdTariff.name,
+          tariffType: createdTariff.tariff_type,
+          effectiveFrom: createdTariff.effective_from,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    return result;
+  }
+
+  async getTariffs(homeId, { activeOnly = false } = {}) {
+    if (!this.tariffRepo) return [];
+    const tariffs = await this.tariffRepo.findByHomeId(homeId, { activeOnly });
+    const result = [];
+    for (const t of tariffs) {
+      const periods = this.tariffPeriodRepo ? await this.tariffPeriodRepo.findByTariffId(t.id) : [];
+      result.push({
+        ...t,
+        periods
+      });
+    }
+    return result;
+  }
+
+  async getTariffById(id) {
+    if (!this.tariffRepo) return null;
+    const tariff = await this.tariffRepo.findById(id);
+    if (!tariff) return null;
+    const periods = this.tariffPeriodRepo ? await this.tariffPeriodRepo.findByTariffId(id) : [];
+    return { ...tariff, periods };
+  }
+
+  async updateTariff(id, updates) {
+    if (!this.tariffRepo) throw new Error('TariffRepository not initialized');
+    const updated = await this.tariffRepo.updateTariff(id, updates);
+    if (this.tariffPeriodRepo && Array.isArray(updates.periods)) {
+      await this.tariffPeriodRepo.deleteByTariffId(id);
+      for (const p of updates.periods) {
+        await this.tariffPeriodRepo.createPeriod({
+          tariffId: id,
+          homeId: updated.home_id,
+          periodType: p.periodType || p.period_type || 'STANDARD',
+          startTime: p.startTime || p.start_time,
+          endTime: p.endTime || p.end_time,
+          applicableWeekdays: p.applicableWeekdays || p.applicable_weekdays || [1, 2, 3, 4, 5, 6, 7],
+          pricePerKwh: Number(p.pricePerKwh !== undefined ? p.pricePerKwh : p.price_per_kwh)
+        });
+      }
+    }
+    return this.getTariffById(id);
+  }
+
+  async deleteTariff(id) {
+    if (!this.tariffRepo) throw new Error('TariffRepository not initialized');
+    const current = await this.tariffRepo.findById(id);
+    if (!current) return false;
+    if (this.tariffPeriodRepo) {
+      await this.tariffPeriodRepo.deleteByTariffId(id);
+    }
+    return this.tariffRepo.deleteTariff(id);
+  }
+
+  /**
+   * Authoritatively resolve current rate and period type for a home at a given timestamp
+   */
+  async resolveCurrentRate(homeId, asOfTime = null) {
+    const timestamp = asOfTime ? new Date(asOfTime) : new Date();
+    const isoString = timestamp.toISOString();
+
+    if (!this.tariffRepo) {
+      return {
+        pricePerKwh: 0.15,
+        currency: 'USD',
+        periodType: 'STANDARD',
+        tariffType: 'FLAT',
+        tariffId: null,
+        isFallback: true
+      };
+    }
+
+    const activeTariff = await this.tariffRepo.findActiveTariffForTime(homeId, isoString);
+    if (!activeTariff) {
+      return {
+        pricePerKwh: 0.15,
+        currency: 'USD',
+        periodType: 'STANDARD',
+        tariffType: 'FLAT',
+        tariffId: null,
+        isFallback: true
+      };
+    }
+
+    const currency = activeTariff.currency || 'USD';
+    const tariffType = activeTariff.tariff_type || 'FLAT';
+
+    if (tariffType === 'FLAT' || !this.tariffPeriodRepo) {
+      return {
+        pricePerKwh: activeTariff.flat_rate_per_kwh !== null ? Number(activeTariff.flat_rate_per_kwh) : 0.15,
+        currency,
+        periodType: 'STANDARD',
+        tariffType: 'FLAT',
+        tariffId: activeTariff.id,
+        isFallback: false
+      };
+    }
+
+    // Time of Use resolution
+    const periods = await this.tariffPeriodRepo.findByTariffId(activeTariff.id);
+    if (!periods || periods.length === 0) {
+      return {
+        pricePerKwh: activeTariff.flat_rate_per_kwh !== null ? Number(activeTariff.flat_rate_per_kwh) : 0.15,
+        currency,
+        periodType: 'STANDARD',
+        tariffType: 'FLAT',
+        tariffId: activeTariff.id,
+        isFallback: false
+      };
+    }
+
+    const hours = String(timestamp.getUTCHours()).padStart(2, '0');
+    const minutes = String(timestamp.getUTCMinutes()).padStart(2, '0');
+    const currentTimeStr = `${hours}:${minutes}`;
+    const jsDay = timestamp.getUTCDay();
+    const isoDay = jsDay === 0 ? 7 : jsDay;
+
+    let matchedPeriod = null;
+    for (const p of periods) {
+      const weekdays = typeof p.applicable_weekdays === 'string'
+        ? JSON.parse(p.applicable_weekdays)
+        : (p.applicable_weekdays || [1, 2, 3, 4, 5, 6, 7]);
+
+      if (!weekdays.includes(isoDay)) continue;
+
+      const s = p.start_time;
+      const e = p.end_time;
+
+      if (s <= e) {
+        // Daytime / non-overnight period (e.g. 06:00 to 14:00)
+        if (currentTimeStr >= s && currentTimeStr < e) {
+          matchedPeriod = p;
+          break;
+        }
+      } else {
+        // Overnight period crossing midnight (e.g. 22:00 to 06:00)
+        if (currentTimeStr >= s || currentTimeStr < e) {
+          matchedPeriod = p;
+          break;
+        }
+      }
+    }
+
+    if (matchedPeriod) {
+      return {
+        pricePerKwh: Number(matchedPeriod.price_per_kwh),
+        currency,
+        periodType: matchedPeriod.period_type,
+        tariffType: 'TIME_OF_USE',
+        tariffId: activeTariff.id,
+        periodId: matchedPeriod.id,
+        isFallback: false
+      };
+    }
+
+    // Default to flat rate or first period rate
+    const fallbackRate = activeTariff.flat_rate_per_kwh !== null ? Number(activeTariff.flat_rate_per_kwh) : (periods[0] ? Number(periods[0].price_per_kwh) : 0.15);
+    return {
+      pricePerKwh: fallbackRate,
+      currency,
+      periodType: 'STANDARD',
+      tariffType: 'TIME_OF_USE',
+      tariffId: activeTariff.id,
+      isFallback: true
+    };
+  }
+
+  // ===========================================================================
+  // 5. Authoritative Energy Cost Calculations & Boundary Splitting
+  // ===========================================================================
+
+  async calculateEnergyCost(homeId, { entityType = 'home', entityId = null, period = 'today', asOfDate = null } = {}) {
+    if (!homeId) throw new Error('homeId is required');
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+
+    let startIso;
+    let endIso = baseDate.toISOString();
+    let daysInPeriod = 1;
+
+    if (period === 'today') {
+      const d = new Date(baseDate);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = d.toISOString();
+      daysInPeriod = 1;
+    } else if (period === 'week') {
+      const d = new Date(baseDate);
+      d.setUTCDate(d.getUTCDate() - 7);
+      startIso = d.toISOString();
+      daysInPeriod = 7;
+    } else if (period === 'month') {
+      const d = new Date(baseDate);
+      d.setUTCDate(1);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = d.toISOString();
+      daysInPeriod = Math.max(1, baseDate.getUTCDate());
+    } else {
+      const d = new Date(baseDate);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = d.toISOString();
+    }
+
+    // Retrieve aggregates or telemetry measurements
+    let totalKwh = 0;
+    let peakKwh = 0;
+    let offPeakKwh = 0;
+    let standardKwh = 0;
+
+    let peakCost = 0;
+    let offPeakCost = 0;
+    let standardCost = 0;
+
+    const rateInfo = await this.resolveCurrentRate(homeId, baseDate);
+    const currency = rateInfo.currency || 'USD';
+
+    // Query aggregates
+    if (this.aggregateRepo) {
+      const aggregates = await this.aggregateRepo.findByPeriod(homeId, {
+        bucket: 'hour',
+        startTime: startIso,
+        endTime: endIso
+      });
+
+      const filtered = aggregates.filter(a => {
+        if (entityType === 'device' && a.device_id !== entityId) return false;
+        if (entityType === 'room' && a.room_id !== entityId) return false;
+        return true;
+      });
+
+      for (const agg of filtered) {
+        const kwh = Number(agg.energy_delta_wh || 0) / 1000.0;
+        if (kwh <= 0) continue;
+
+        const aggRate = await this.resolveCurrentRate(homeId, agg.start_time || agg.created_at);
+        const cost = kwh * aggRate.pricePerKwh;
+
+        totalKwh += kwh;
+        if (aggRate.periodType === 'PEAK' || aggRate.periodType === 'CRITICAL_PEAK') {
+          peakKwh += kwh;
+          peakCost += cost;
+        } else if (aggRate.periodType === 'OFF_PEAK') {
+          offPeakKwh += kwh;
+          offPeakCost += cost;
+        } else {
+          standardKwh += kwh;
+          standardCost += cost;
+        }
+      }
+    }
+
+    // If aggregates were empty, derive from latest telemetry measurements
+    if (totalKwh === 0 && this.telemetryRepo) {
+      const measurements = await this.telemetryRepo.findByTimeRange(homeId, {
+        startTime: startIso,
+        endTime: endIso
+      });
+      const filtered = measurements.filter(m => {
+        if (entityType === 'device' && m.device_id !== entityId) return false;
+        return true;
+      });
+
+      if (filtered.length > 1) {
+        filtered.sort((a, b) => a.sequence_number - b.sequence_number);
+        const deltaWh = (filtered[filtered.length - 1].e_tot_wh || 0) - (filtered[0].e_tot_wh || 0);
+        totalKwh = Math.max(0, deltaWh / 1000.0);
+        const cost = totalKwh * rateInfo.pricePerKwh;
+        if (rateInfo.periodType === 'PEAK') {
+          peakKwh = totalKwh;
+          peakCost = cost;
+        } else if (rateInfo.periodType === 'OFF_PEAK') {
+          offPeakKwh = totalKwh;
+          offPeakCost = cost;
+        } else {
+          standardKwh = totalKwh;
+          standardCost = cost;
+        }
+      }
+    }
+
+    const activeTariff = this.tariffRepo ? await this.tariffRepo.findActiveTariffForTime(homeId, baseDate) : null;
+    const fixedDailyCharge = activeTariff ? Number(activeTariff.fixed_daily_charge || 0) : 0;
+    const fixedCharges = Math.round(fixedDailyCharge * daysInPeriod * 100) / 100;
+
+    const variableCost = peakCost + offPeakCost + standardCost;
+    const totalCost = Math.round((variableCost + fixedCharges) * 100) / 100;
+
+    return {
+      homeId,
+      entityType,
+      entityId,
+      period,
+      totalCost,
+      variableCost: Math.round(variableCost * 100) / 100,
+      fixedCharges,
+      currency,
+      totalKwh: Math.round(totalKwh * 1000) / 1000,
+      breakdown: {
+        peak: { cost: Math.round(peakCost * 100) / 100, kwh: Math.round(peakKwh * 1000) / 1000 },
+        offPeak: { cost: Math.round(offPeakCost * 100) / 100, kwh: Math.round(offPeakKwh * 1000) / 1000 },
+        standard: { cost: Math.round(standardCost * 100) / 100, kwh: Math.round(standardKwh * 1000) / 1000 }
+      },
+      effectiveTariff: activeTariff ? { id: activeTariff.id, name: activeTariff.name, type: activeTariff.tariff_type } : null,
+      dataQuality: totalKwh > 0 ? 'GOOD' : 'PARTIAL',
+      calculatedAt: new Date().toISOString()
+    };
+  }
+
+  async getDeviceCost(homeId, deviceId, period = 'today', asOfDate = null) {
+    return this.calculateEnergyCost(homeId, { entityType: 'device', entityId: deviceId, period, asOfDate });
+  }
+
+  async getRoomCost(homeId, roomId, period = 'today', asOfDate = null) {
+    return this.calculateEnergyCost(homeId, { entityType: 'room', entityId: roomId, period, asOfDate });
+  }
+
+  async getHomeCost(homeId, period = 'today', asOfDate = null) {
+    return this.calculateEnergyCost(homeId, { entityType: 'home', entityId: homeId, period, asOfDate });
+  }
+
+  // ===========================================================================
+  // 6. Cost Forecasting & Energy Budget Management
+  // ===========================================================================
+
+  async getCostForecast(homeId, { period = 'monthly', asOfDate = null } = {}) {
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+    const currentCostData = await this.calculateEnergyCost(homeId, { period: 'month', asOfDate: baseDate });
+
+    const year = baseDate.getUTCFullYear();
+    const month = baseDate.getUTCMonth();
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const currentDay = Math.max(1, baseDate.getUTCDate());
+    const remainingDays = Math.max(0, daysInMonth - currentDay);
+
+    const actualCostToDate = currentCostData.totalCost;
+    const actualKwhToDate = currentCostData.totalKwh;
+
+    // Daily average run rate
+    const dailyAvgCost = actualCostToDate / currentDay;
+    const dailyAvgKwh = actualKwhToDate / currentDay;
+
+    const estimatedRemainingCost = Math.round(dailyAvgCost * remainingDays * 100) / 100;
+    const estimatedRemainingKwh = Math.round(dailyAvgKwh * remainingDays * 1000) / 1000;
+
+    const projectedTotalCost = Math.round((actualCostToDate + estimatedRemainingCost) * 100) / 100;
+    const projectedTotalKwh = Math.round((actualKwhToDate + estimatedRemainingKwh) * 1000) / 1000;
+
+    const confidenceScore = Math.min(1.0, Math.round((currentDay / daysInMonth + (actualKwhToDate > 0 ? 0.3 : 0.0)) * 100) / 100);
+
+    return {
+      homeId,
+      period,
+      currency: currentCostData.currency,
+      actualCostToDate,
+      estimatedRemainingCost,
+      projectedTotalCost,
+      actualKwhToDate,
+      projectedTotalKwh,
+      daysElapsed: currentDay,
+      daysRemaining: remainingDays,
+      confidenceScore,
+      isEstimate: true,
+      generatedAt: new Date().toISOString()
+    };
+  }
+
+  async setBudget({ homeId, periodType = 'monthly', budgetAmount, currency = 'USD', alertThresholdPercent = 80, isEnabled = true }) {
+    if (!this.budgetRepo) throw new Error('BudgetRepository not initialized');
+    if (!homeId) throw new Error('homeId is required');
+    if (budgetAmount <= 0) throw new Error('budgetAmount must be positive');
+
+    return this.budgetRepo.setBudget({
+      homeId,
+      periodType,
+      budgetAmount: Number(budgetAmount),
+      currency: currency.toUpperCase(),
+      alertThresholdPercent: Number(alertThresholdPercent),
+      isEnabled
+    });
+  }
+
+  async getBudgets(homeId) {
+    if (!this.budgetRepo) return [];
+    return this.budgetRepo.findByHomeId(homeId);
+  }
+
+  async getBudgetStatus(homeId, periodType = 'monthly', { asOfDate = null } = {}) {
+    if (!this.budgetRepo) return { configured: false };
+    const budget = await this.budgetRepo.findByHomeAndPeriod(homeId, periodType);
+    if (!budget) {
+      return { configured: false, homeId, periodType };
+    }
+
+    const forecast = await this.getCostForecast(homeId, { period: periodType, asOfDate });
+    const budgetAmount = Number(budget.budget_amount);
+    const alertThresholdPercent = Number(budget.alert_threshold_percent || 80);
+    const isEnabled = Boolean(budget.is_enabled);
+
+    const actualCost = forecast.actualCostToDate;
+    const projectedTotal = forecast.projectedTotalCost;
+    const percentConsumed = Math.round((actualCost / budgetAmount) * 1000) / 10;
+    const percentProjected = Math.round((projectedTotal / budgetAmount) * 1000) / 10;
+    const budgetRemaining = Math.max(0, Math.round((budgetAmount - actualCost) * 100) / 100);
+    const projectedOverrun = Math.max(0, Math.round((projectedTotal - budgetAmount) * 100) / 100);
+    const isProjectedToExceed = projectedTotal > budgetAmount;
+
+    // Trigger alert if projected overrun exceeds threshold and rule is enabled
+    if (isEnabled && percentProjected >= alertThresholdPercent) {
+      if (this.realtimeEventBus) {
+        this.realtimeEventBus.publish({
+          type: 'energy.budget_forecast_exceeded',
+          homeId,
+          payload: {
+            periodType,
+            budgetAmount,
+            projectedTotal,
+            percentProjected,
+            projectedOverrun,
+            currency: budget.currency,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      if (this.notificationService) {
+        const cooldownKey = `budget_overrun_${homeId}_${periodType}`;
+        const lastSent = this._alertCooldownMap.get(cooldownKey) || 0;
+        if (Date.now() - lastSent > 12 * 3600 * 1000) { // 12h cooldown
+          this._alertCooldownMap.set(cooldownKey, Date.now());
+          try {
+            await this.notificationService.notifyHome({
+              homeId,
+              category: 'energy_budget',
+              title: `Energy Budget Alert (${Math.round(percentProjected)}%)`,
+              body: `Your projected ${periodType} cost (${budget.currency} ${projectedTotal.toFixed(2)}) is expected to exceed your budget of ${budget.currency} ${budgetAmount.toFixed(2)}.`,
+              metadata: { budgetAmount, projectedTotal, percentProjected }
+            });
+          } catch (_) {}
+        }
+      }
+    }
+
+    return {
+      configured: true,
+      homeId,
+      periodType,
+      budgetAmount,
+      currency: budget.currency,
+      alertThresholdPercent,
+      isEnabled,
+      actualCostToDate: actualCost,
+      budgetRemaining,
+      percentConsumed,
+      projectedTotalCost: projectedTotal,
+      percentProjected,
+      projectedOverrun,
+      isProjectedToExceed,
+      isEstimate: true,
+      evaluatedAt: new Date().toISOString()
+    };
+  }
+
+  // ===========================================================================
+  // 7. Peak Demand & Carbon Footprint Analytics
+  // ===========================================================================
+
+  async getPeakDemandAnalysis(homeId, { asOfDate = null } = {}) {
+    if (!homeId) throw new Error('homeId is required');
+    const baseDate = asOfDate ? new Date(asOfDate) : new Date();
+
+    let currentPeakLoadW = 0;
+    let highestHistoricalPeakW = 0;
+    let dailyPeakW = 0;
+    let monthlyPeakW = 0;
+    let peakHourOfDay = 19; // 7 PM default peak hour
+
+    if (this.aggregateRepo) {
+      const aggregates = await this.aggregateRepo.findByPeriod(homeId, {
+        bucket: 'hour',
+        startTime: new Date(baseDate.getTime() - 30 * 24 * 3600 * 1000).toISOString(),
+        endTime: baseDate.toISOString()
+      });
+
+      for (const a of aggregates) {
+        const peak = Number(a.peak_power_w || 0);
+        if (peak > highestHistoricalPeakW) highestHistoricalPeakW = peak;
+      }
+    }
+
+    // Get today's peak
+    const todaySummary = await this.getHomeSummary(homeId, 'today');
+    if (todaySummary) {
+      dailyPeakW = todaySummary.peakPowerW || 0;
+      currentPeakLoadW = todaySummary.currentPowerW || 0;
+    }
+
+    highestHistoricalPeakW = Math.max(highestHistoricalPeakW, dailyPeakW, 2500);
+    monthlyPeakW = Math.max(highestHistoricalPeakW, dailyPeakW);
+
+    return {
+      homeId,
+      currentPeakLoadW: Math.round(currentPeakLoadW * 10) / 10,
+      highestHistoricalPeakW: Math.round(highestHistoricalPeakW * 10) / 10,
+      dailyPeakW: Math.round(dailyPeakW * 10) / 10,
+      monthlyPeakW: Math.round(monthlyPeakW * 10) / 10,
+      peakHourOfDay,
+      repeatedHighLoadWindows: [
+        { startTime: '18:00', endTime: '21:00', avgPeakW: Math.round(highestHistoricalPeakW * 0.85) }
+      ],
+      generatedAt: new Date().toISOString()
+    };
+  }
+
+  async getCarbonFootprint(homeId, { entityType = 'home', entityId = null, period = 'today', asOfDate = null } = {}) {
+    const costData = await this.calculateEnergyCost(homeId, { entityType, entityId, period, asOfDate });
+    const totalKwh = costData.totalKwh || 0;
+
+    let carbonIntensity = 420.0; // 420 g CO2/kWh default regional grid estimate
+    let source = 'default_regional_estimate';
+
+    if (this.tariffRepo) {
+      const activeTariff = await this.tariffRepo.findActiveTariffForTime(homeId, asOfDate);
+      if (activeTariff && activeTariff.carbon_intensity_g_per_kwh !== null && activeTariff.carbon_intensity_g_per_kwh > 0) {
+        carbonIntensity = Number(activeTariff.carbon_intensity_g_per_kwh);
+        source = 'configured_tariff';
+      }
+    }
+
+    const totalGramsCO2 = Math.round(totalKwh * carbonIntensity * 10) / 10;
+    const totalKgCO2 = Math.round((totalGramsCO2 / 1000.0) * 100) / 100;
+
+    return {
+      homeId,
+      entityId: entityId || homeId,
+      entityType,
+      period,
+      carbonIntensityGPerKwh: carbonIntensity,
+      totalGramsCO2,
+      totalKgCO2,
+      source,
+      isEstimate: true,
+      calculatedAt: new Date().toISOString()
+    };
+  }
+
+  // ===========================================================================
+  // 8. Cheapest Upcoming Periods & Load Shifting Optimizations
+  // ===========================================================================
+
+  async getCheapestPeriods(homeId, { durationHours = 2, withinHours = 24, asOfTime = null } = {}) {
+    const baseTime = asOfTime ? new Date(asOfTime) : new Date();
+    const rateSlots = [];
+
+    // Sample hourly rates across next `withinHours`
+    for (let h = 0; h < withinHours; h++) {
+      const slotTime = new Date(baseTime.getTime() + h * 3600 * 1000);
+      const rate = await this.resolveCurrentRate(homeId, slotTime);
+      rateSlots.push({
+        hourOffset: h,
+        timestamp: slotTime.toISOString(),
+        pricePerKwh: rate.pricePerKwh,
+        periodType: rate.periodType,
+        currency: rate.currency
+      });
+    }
+
+    // Find sliding window of `durationHours` with lowest average price
+    let minAvgPrice = Infinity;
+    let bestStartIndex = 0;
+
+    let maxAvgPrice = -Infinity;
+    let worstStartIndex = 0;
+
+    const windowSize = Math.max(1, Math.min(durationHours, rateSlots.length));
+    for (let i = 0; i <= rateSlots.length - windowSize; i++) {
+      let sum = 0;
+      for (let j = 0; j < windowSize; j++) {
+        sum += rateSlots[i + j].pricePerKwh;
+      }
+      const avg = sum / windowSize;
+      if (avg < minAvgPrice) {
+        minAvgPrice = avg;
+        bestStartIndex = i;
+      }
+      if (avg > maxAvgPrice) {
+        maxAvgPrice = avg;
+        worstStartIndex = i;
+      }
+    }
+
+    const cheapestSlot = rateSlots[bestStartIndex];
+    const cheapestEndSlot = rateSlots[Math.min(rateSlots.length - 1, bestStartIndex + windowSize)];
+    const peakSlot = rateSlots[worstStartIndex];
+    const peakEndSlot = rateSlots[Math.min(rateSlots.length - 1, worstStartIndex + windowSize)];
+
+    const potentialSavingsPercent = maxAvgPrice > minAvgPrice
+      ? Math.round(((maxAvgPrice - minAvgPrice) / maxAvgPrice) * 1000) / 10
+      : 0;
+
+    return {
+      homeId,
+      currency: cheapestSlot.currency,
+      durationHours: windowSize,
+      cheapestWindow: {
+        startTime: cheapestSlot.timestamp,
+        endTime: cheapestEndSlot.timestamp,
+        avgPricePerKwh: Math.round(minAvgPrice * 1000) / 1000,
+        periodType: cheapestSlot.periodType
+      },
+      peakWindow: {
+        startTime: peakSlot.timestamp,
+        endTime: peakEndSlot.timestamp,
+        avgPricePerKwh: Math.round(maxAvgPrice * 1000) / 1000,
+        periodType: peakSlot.periodType
+      },
+      potentialSavingsPercent,
+      analyzedAt: new Date().toISOString()
+    };
+  }
+
+  async generateCostOptimizations(homeId, { asOfDate = null } = {}) {
+    if (!this.costOptimizationRepo) return { summary: {}, recommendations: [] };
+
+    const recommendations = [];
+    const cheapestAnalysis = await this.getCheapestPeriods(homeId, { durationHours: 2, asOfTime: asOfDate });
+    const devices = this.deviceRepo ? await this.deviceRepo.findByHomeId(homeId) : [];
+
+    // Inspect peak period usage across devices
+    for (const dev of devices) {
+      const devCost = await this.getDeviceCost(homeId, dev.id, 'today', asOfDate);
+      if (devCost.breakdown && devCost.breakdown.peak.kwh > 0.5) {
+        const peakKwh = devCost.breakdown.peak.kwh;
+        const peakPrice = cheapestAnalysis.peakWindow.avgPricePerKwh;
+        const offPeakPrice = cheapestAnalysis.cheapestWindow.avgPricePerKwh;
+        const dailySavings = peakKwh * (peakPrice - offPeakPrice);
+        const monthlySavings = dailySavings * 30.5;
+
+        const rec = await this.costOptimizationRepo.createOptimization({
+          homeId,
+          deviceId: dev.id,
+          category: 'LOAD_SHIFTING',
+          priority: monthlySavings > 10 ? 'HIGH' : 'MEDIUM',
+          title: `Shift ${dev.custom_name || dev.serial_number || 'Heavy Load'} to Off-Peak`,
+          description: `Device consumed ${peakKwh.toFixed(1)} kWh during expensive peak hours. Operating during off-peak (${cheapestAnalysis.cheapestWindow.periodType}) can reduce cost significantly.`,
+          evidence: {
+            peakKwhConsumed: peakKwh,
+            peakPricePerKwh: peakPrice,
+            offPeakPricePerKwh: offPeakPrice
+          },
+          estimatedSavings: {
+            dailyCostSavings: Math.round(dailySavings * 100) / 100,
+            monthlyCostSavings: Math.round(monthlySavings * 100) / 100,
+            monthlyKwhShifted: Math.round(peakKwh * 30.5 * 10) / 10,
+            currency: cheapestAnalysis.currency,
+            isEstimate: true
+          },
+          recommendedWindow: cheapestAnalysis.cheapestWindow
+        });
+        recommendations.push(rec);
+      }
+    }
+
+    if (this.realtimeEventBus && recommendations.length > 0) {
+      this.realtimeEventBus.publish({
+        type: 'energy.cost_optimization_detected',
+        homeId,
+        payload: {
+          count: recommendations.length,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    return {
+      homeId,
+      recommendations,
+      cheapestUpcomingWindow: cheapestAnalysis.cheapestWindow
+    };
+  }
+
+  async getCostOptimizations(homeId, { includeDismissed = false } = {}) {
+    if (!this.costOptimizationRepo) return [];
+    return this.costOptimizationRepo.findByHomeId(homeId, { includeDismissed });
+  }
+
+  async dismissCostOptimization(id) {
+    if (!this.costOptimizationRepo) return false;
+    return this.costOptimizationRepo.dismissOptimization(id);
   }
 }
 

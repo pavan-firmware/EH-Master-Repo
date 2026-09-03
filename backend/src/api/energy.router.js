@@ -516,6 +516,256 @@ class EnergyApiRouter {
       return { statusCode: 200, body: { success: true, data: events } };
     }
 
+    // -------------------------------------------------------------------------
+    // 4. Phase 21: Electricity Tariffs & Dynamic Pricing
+    // -------------------------------------------------------------------------
+
+    // 4.1 GET /api/v1/energy/homes/:homeId/tariffs
+    const getTariffsMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/tariffs$/);
+    if (method === 'GET' && (getTariffsMatch || path === '/api/v1/energy/tariffs')) {
+      const homeId = getTariffsMatch ? getTariffsMatch[1] : (query.homeId || body.homeId);
+      if (!homeId) {
+        return { statusCode: 400, body: { success: false, error: 'homeId is required' } };
+      }
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const activeOnly = query.activeOnly === 'true' || query.activeOnly === true;
+      const tariffs = await this.energyService.getTariffs(homeId, { activeOnly });
+      return { statusCode: 200, body: { success: true, data: tariffs } };
+    }
+
+    // 4.2 POST /api/v1/energy/homes/:homeId/tariffs
+    const postTariffMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/tariffs$/);
+    if (method === 'POST' && (postTariffMatch || path === '/api/v1/energy/tariffs')) {
+      const homeId = postTariffMatch ? postTariffMatch[1] : (body.homeId || query.homeId);
+      if (!homeId) {
+        return { statusCode: 400, body: { success: false, error: 'homeId is required' } };
+      }
+      const authCheck = await this.homeAuth.authorizeRequest({
+        userId,
+        homeId,
+        requiredCapability: 'canManageHome'
+      });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      try {
+        const created = await this.energyService.createTariff({ ...body, homeId });
+        return { statusCode: 201, body: { success: true, data: created } };
+      } catch (err) {
+        return { statusCode: 400, body: { success: false, error: err.message } };
+      }
+    }
+
+    // 4.3 GET /api/v1/energy/homes/:homeId/tariffs/:id
+    const getTariffIdMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/tariffs\/([^/]+)$/);
+    if (method === 'GET' && getTariffIdMatch) {
+      const homeId = getTariffIdMatch[1];
+      const tariffId = getTariffIdMatch[2];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const tariff = await this.energyService.getTariffById(tariffId);
+      if (!tariff) {
+        return { statusCode: 404, body: { success: false, error: 'Tariff not found' } };
+      }
+      return { statusCode: 200, body: { success: true, data: tariff } };
+    }
+
+    // 4.4 PUT /api/v1/energy/homes/:homeId/tariffs/:id
+    const putTariffMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/tariffs\/([^/]+)$/);
+    if (method === 'PUT' && putTariffMatch) {
+      const homeId = putTariffMatch[1];
+      const tariffId = putTariffMatch[2];
+      const authCheck = await this.homeAuth.authorizeRequest({
+        userId,
+        homeId,
+        requiredCapability: 'canManageHome'
+      });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      try {
+        const updated = await this.energyService.updateTariff(tariffId, body);
+        return { statusCode: 200, body: { success: true, data: updated } };
+      } catch (err) {
+        return { statusCode: 400, body: { success: false, error: err.message } };
+      }
+    }
+
+    // 4.5 DELETE /api/v1/energy/homes/:homeId/tariffs/:id
+    const delTariffMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/tariffs\/([^/]+)$/);
+    if (method === 'DELETE' && delTariffMatch) {
+      const homeId = delTariffMatch[1];
+      const tariffId = delTariffMatch[2];
+      const authCheck = await this.homeAuth.authorizeRequest({
+        userId,
+        homeId,
+        requiredCapability: 'canManageHome'
+      });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const deleted = await this.energyService.deleteTariff(tariffId);
+      return { statusCode: 200, body: { success: Boolean(deleted) } };
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Phase 21: Energy Cost, Forecasting & Budgeting
+    // -------------------------------------------------------------------------
+
+    // 5.1 GET /api/v1/energy/homes/:homeId/cost
+    const getCostMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/cost$/);
+    if (method === 'GET' && getCostMatch) {
+      const homeId = getCostMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const costData = await this.energyService.calculateEnergyCost(homeId, {
+        entityType: query.entityType || 'home',
+        entityId: query.entityId || homeId,
+        period: query.period || 'today'
+      });
+      return { statusCode: 200, body: { success: true, data: costData } };
+    }
+
+    // 5.2 GET /api/v1/energy/homes/:homeId/cost/forecast
+    const getForecastMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/cost\/forecast$/);
+    if (method === 'GET' && getForecastMatch) {
+      const homeId = getForecastMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const forecast = await this.energyService.getCostForecast(homeId, { period: query.period || 'monthly' });
+      return { statusCode: 200, body: { success: true, data: forecast } };
+    }
+
+    // 5.3 GET /api/v1/energy/homes/:homeId/budget
+    const getBudgetMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/budget$/);
+    if (method === 'GET' && getBudgetMatch) {
+      const homeId = getBudgetMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const status = await this.energyService.getBudgetStatus(homeId, query.periodType || 'monthly');
+      return { statusCode: 200, body: { success: true, data: status } };
+    }
+
+    // 5.4 POST /api/v1/energy/homes/:homeId/budget
+    const postBudgetMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/budget$/);
+    if (method === 'POST' && postBudgetMatch) {
+      const homeId = postBudgetMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({
+        userId,
+        homeId,
+        requiredCapability: 'canManageHome'
+      });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      try {
+        const budget = await this.energyService.setBudget({ ...body, homeId });
+        return { statusCode: 200, body: { success: true, data: budget } };
+      } catch (err) {
+        return { statusCode: 400, body: { success: false, error: err.message } };
+      }
+    }
+
+    // 5.5 GET /api/v1/energy/homes/:homeId/tariff-periods
+    const getPeriodsMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/tariff-periods$/);
+    if (method === 'GET' && getPeriodsMatch) {
+      const homeId = getPeriodsMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const rateInfo = await this.energyService.resolveCurrentRate(homeId);
+      return { statusCode: 200, body: { success: true, data: rateInfo } };
+    }
+
+    // 5.6 GET /api/v1/energy/homes/:homeId/optimization/cost
+    const getCostOptMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/optimization\/cost$/);
+    if (method === 'GET' && getCostOptMatch) {
+      const homeId = getCostOptMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const optimizations = await this.energyService.generateCostOptimizations(homeId);
+      return { statusCode: 200, body: { success: true, data: optimizations } };
+    }
+
+    // 5.7 GET /api/v1/energy/homes/:homeId/optimization/cheapest-periods
+    const getCheapestMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/optimization\/cheapest-periods$/);
+    if (method === 'GET' && getCheapestMatch) {
+      const homeId = getCheapestMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const cheapest = await this.energyService.getCheapestPeriods(homeId, {
+        durationHours: Number(query.durationHours || 2),
+        withinHours: Number(query.withinHours || 24)
+      });
+      return { statusCode: 200, body: { success: true, data: cheapest } };
+    }
+
+    // 5.8 GET /api/v1/energy/homes/:homeId/carbon
+    const getCarbonMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/carbon$/);
+    if (method === 'GET' && getCarbonMatch) {
+      const homeId = getCarbonMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const carbon = await this.energyService.getCarbonFootprint(homeId, {
+        entityType: query.entityType || 'home',
+        entityId: query.entityId || homeId,
+        period: query.period || 'today'
+      });
+      return { statusCode: 200, body: { success: true, data: carbon } };
+    }
+
+    // 5.9 GET /api/v1/energy/homes/:homeId/peak-demand
+    const getPeakDemandMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/peak-demand$/);
+    if (method === 'GET' && getPeakDemandMatch) {
+      const homeId = getPeakDemandMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const peakAnalysis = await this.energyService.getPeakDemandAnalysis(homeId);
+      return { statusCode: 200, body: { success: true, data: peakAnalysis } };
+    }
+
+    // 5.10 POST /api/v1/energy/optimization/cost/:id/dismiss
+    const dismissCostOptMatch = path.match(/^\/api\/v1\/energy\/optimization\/cost\/([^/]+)\/dismiss$/);
+    if (method === 'POST' && dismissCostOptMatch) {
+      const optId = dismissCostOptMatch[1];
+      await this.energyService.dismissCostOptimization(optId);
+      return { statusCode: 200, body: { success: true } };
+    }
+
     return { statusCode: 404, body: { success: false, error: 'Endpoint not found' } };
   }
 }
