@@ -23,6 +23,7 @@ const schemaFiles = [
   '../energy/energy.schema.json',
   '../energy/energy-automation.schema.json',
   '../energy/energy-cost.schema.json',
+  '../energy/energy-forecasting.schema.json',
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
@@ -392,6 +393,121 @@ assert('Negative period price fails', !validator.validate('ElectricityTariff', {
   ...validTariff,
   periods: [{ ...validTariff.periods[0], pricePerKwh: -0.05 }]
 }).valid);
+
+// 10. Phase 22 Energy Forecasting & Predictive Intelligence Hardening Tests
+console.log('\n10. Phase 22 Energy Forecasting & Predictive Intelligence:');
+
+const validForecast = {
+  id: 'fc_home_01_24h',
+  homeId: 'home_01',
+  scopeType: 'home',
+  scopeId: 'home_01',
+  horizon: 'next_24_hours',
+  startTime: '2026-07-16T00:00:00Z',
+  endTime: '2026-07-17T00:00:00Z',
+  predictedKwh: 14.5,
+  predictedCost: 3.25,
+  currency: 'USD',
+  confidenceScore: 0.88,
+  methodology: 'HISTORICAL_HOURLY_PROFILE_DAY_OF_WEEK',
+  dataCoverage: 'FULL',
+  isEstimate: true,
+  generatedAt: '2026-07-15T23:59:59Z',
+  points: [
+    {
+      timestamp: '2026-07-16T00:00:00Z',
+      predictedPowerW: 450,
+      predictedEnergyWh: 450,
+      predictedCost: 0.036,
+      confidenceScore: 0.90
+    }
+  ]
+};
+
+assert('Valid EnergyForecast passes', validator.validate('EnergyForecast', validForecast).valid);
+assert('Missing confidenceScore fails', !validator.validate('EnergyForecast', { ...validForecast, confidenceScore: undefined }).valid);
+assert('isEstimate not true fails', !validator.validate('EnergyForecast', { ...validForecast, isEstimate: false }).valid);
+assert('Invalid horizon fails', !validator.validate('EnergyForecast', { ...validForecast, horizon: 'next_century' }).valid);
+
+const validBaseline = {
+  id: 'base_dev_ac_01',
+  homeId: 'home_01',
+  scopeType: 'device',
+  scopeId: 'dev_ac_01',
+  typicalPowerW: 1850.0,
+  typicalDailyEnergyKwh: 8.5,
+  typicalOvernightWh: 120.0,
+  typicalOperatingHours: [14, 15, 16, 17, 18, 19, 20],
+  sampleCount: 48,
+  confidence: 0.92,
+  calculatedAt: '2026-07-15T23:59:59Z'
+};
+
+assert('Valid EnergyBaseline passes', validator.validate('EnergyBaseline', validBaseline).valid);
+assert('Negative typicalPowerW fails', !validator.validate('EnergyBaseline', { ...validBaseline, typicalPowerW: -10 }).valid);
+assert('Missing sampleCount fails', !validator.validate('EnergyBaseline', { ...validBaseline, sampleCount: undefined }).valid);
+
+const validAnomaly = {
+  id: 'anom_01',
+  homeId: 'home_01',
+  scopeType: 'device',
+  scopeId: 'dev_ac_01',
+  anomalyType: 'UNEXPECTED_OVERNIGHT_LOAD',
+  severity: 'HIGH',
+  observedValue: 1200.0,
+  baselineValue: 120.0,
+  deviationPercentage: 900.0,
+  isConfirmed: true,
+  confirmationCount: 3,
+  evidence: { overnightPeriod: '02:00-05:00', durationHours: 3 },
+  detectedAt: '2026-07-15T03:30:00Z'
+};
+
+assert('Valid EnergyAnomaly passes', validator.validate('EnergyAnomaly', validAnomaly).valid);
+assert('Invalid anomaly severity fails', !validator.validate('EnergyAnomaly', { ...validAnomaly, severity: 'EXTREME' }).valid);
+assert('Invalid anomalyType fails', !validator.validate('EnergyAnomaly', { ...validAnomaly, anomalyType: 'ALIEN_ATTACK' }).valid);
+
+const validScore = {
+  id: 'eff_home_01',
+  homeId: 'home_01',
+  score: 84.5,
+  grade: 'A',
+  factors: {
+    standbyLossScore: 90.0,
+    peakDemandScore: 82.0,
+    thresholdViolationScore: 95.0,
+    tariffEfficiencyScore: 78.0,
+    trendScore: 78.0
+  },
+  evidence: { vampireDrawW: 35, peakHoursRatio: 0.18 },
+  calculatedAt: '2026-07-15T23:59:59Z'
+};
+
+assert('Valid EnergyEfficiencyScore passes', validator.validate('EnergyEfficiencyScore', validScore).valid);
+assert('Score above 100 fails', !validator.validate('EnergyEfficiencyScore', { ...validScore, score: 105 }).valid);
+assert('Invalid grade fails', !validator.validate('EnergyEfficiencyScore', { ...validScore, grade: 'Z' }).valid);
+
+const validOpt = {
+  id: 'pred_opt_01',
+  homeId: 'home_01',
+  deviceId: 'dev_ev_01',
+  category: 'PEAK_AVOIDANCE',
+  priority: 'HIGH',
+  title: 'Pre-cool living room before 4 PM peak tariff window',
+  description: 'Forecasted peak temperature will cause high AC load during expensive $0.32/kWh peak window.',
+  reason: 'Predicted peak price window (16:00-21:00) with expected high outdoor heat',
+  evidence: { predictedPeakW: 3200, peakPricePerKwh: 0.32 },
+  estimatedKwhSavings: 4.5,
+  estimatedCostSavings: 1.08,
+  currency: 'USD',
+  confidence: 0.85,
+  isEstimate: true,
+  generatedAt: '2026-07-15T12:00:00Z',
+  isDismissed: false
+};
+
+assert('Valid PredictiveOptimizationRecommendation passes', validator.validate('PredictiveOptimizationRecommendation', validOpt).valid);
+assert('Invalid recommendation category fails', !validator.validate('PredictiveOptimizationRecommendation', { ...validOpt, category: 'UNREALISTIC' }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

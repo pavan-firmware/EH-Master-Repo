@@ -129,8 +129,11 @@ runStep('30. Phase 20 Smart Energy Automation & Optimization Tests', `${nodeBin}
 // 31. Phase 21 Energy Cost Intelligence & Dynamic Tariffs Tests
 runStep('31. Phase 21 Energy Cost Intelligence & Dynamic Tariffs Tests', `${nodeBin} backend/tests/phase21-energy-cost-optimization.test.js`);
 
+// 32. Phase 22 Energy Forecasting & Predictive Intelligence Tests
+runStep('32. Phase 22 Energy Forecasting & Predictive Intelligence Tests', `${nodeBin} backend/tests/phase22-energy-forecasting.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  31 SUITES ATTEMPTED. ${failedSuites === 0 ? '31/31' : (31 - failedSuites) + '/31'} PASSED.`);
+console.log(`  32 SUITES ATTEMPTED. ${failedSuites === 0 ? '32/32' : (32 - failedSuites) + '/32'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

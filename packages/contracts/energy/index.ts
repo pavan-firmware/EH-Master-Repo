@@ -347,3 +347,117 @@ export interface CheapestPeriod {
   periodType: TariffPeriodType;
   potentialSavingsPercent: number;
 }
+
+// --- PHASE 22 FORECASTING & PREDICTIVE INTELLIGENCE ---
+
+export type ForecastHorizon = 'next_hour' | 'next_24_hours' | 'next_7_days' | 'current_month';
+
+export interface ForecastPoint {
+  timestamp: string;
+  predictedPowerW: number;
+  predictedEnergyWh: number;
+  predictedCost?: number;
+  confidenceScore: number;
+}
+
+export interface EnergyForecast {
+  id?: string;
+  homeId: string;
+  scopeType: EnergyScopeType;
+  scopeId: string;
+  horizon: ForecastHorizon;
+  startTime: string;
+  endTime: string;
+  predictedKwh: number;
+  predictedCost?: number;
+  currency?: string;
+  confidenceScore: number;
+  methodology: string;
+  dataCoverage: 'FULL' | 'PARTIAL' | 'INSUFFICIENT';
+  isEstimate: true;
+  generatedAt: string;
+  points?: ForecastPoint[];
+}
+
+export interface EnergyBaseline {
+  id?: string;
+  homeId: string;
+  scopeType: EnergyScopeType;
+  scopeId: string;
+  typicalPowerW: number;
+  typicalDailyEnergyKwh: number;
+  typicalOvernightWh: number;
+  typicalOperatingHours?: number[];
+  sampleCount: number;
+  confidence: number;
+  calculatedAt: string;
+}
+
+export type AnomalyType =
+  | 'UNUSUAL_POWER_SPIKE'
+  | 'UNEXPECTED_OVERNIGHT_LOAD'
+  | 'UNEXPECTED_OPERATING_DURATION'
+  | 'ABNORMAL_ROOM_LOAD'
+  | 'ABNORMAL_TOTAL_CONSUMPTION';
+
+export type AnomalySeverity = 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface EnergyAnomaly {
+  id: string;
+  homeId: string;
+  scopeType: EnergyScopeType;
+  scopeId: string;
+  anomalyType: AnomalyType;
+  severity: AnomalySeverity;
+  observedValue: number;
+  baselineValue: number;
+  deviationPercentage: number;
+  isConfirmed: boolean;
+  confirmationCount?: number;
+  evidence?: Record<string, any>;
+  detectedAt: string;
+}
+
+export interface EnergyEfficiencyScore {
+  id?: string;
+  homeId: string;
+  score: number;
+  grade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+  factors: {
+    standbyLossScore: number;
+    peakDemandScore: number;
+    thresholdViolationScore: number;
+    tariffEfficiencyScore: number;
+    trendScore: number;
+  };
+  evidence?: Record<string, any>;
+  calculatedAt: string;
+}
+
+export interface PredictiveOptimizationRecommendation {
+  id: string;
+  homeId: string;
+  deviceId?: string | null;
+  category: 'LOAD_SHIFTING' | 'PEAK_AVOIDANCE' | 'ANOMALY_INSPECTION' | 'BUDGET_PROTECTION' | 'OVERNIGHT_OPTIMIZATION';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  title: string;
+  description: string;
+  reason: string;
+  evidence?: Record<string, any>;
+  estimatedKwhSavings?: number;
+  estimatedCostSavings?: number;
+  currency?: string;
+  confidence: number;
+  isEstimate: true;
+  generatedAt: string;
+  isDismissed: boolean;
+}
+
+export interface ForecastAccuracy {
+  homeId: string;
+  horizon: string;
+  sampleCount: number;
+  mae: number;
+  mape: number;
+  evaluatedAt: string;
+}

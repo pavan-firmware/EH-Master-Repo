@@ -523,9 +523,20 @@ class DeviceRepository {
   async getDevicesByHome(homeId) {
     const auths = await this.getAuthorizationsByHome(homeId);
     const devices = [];
+    const seen = new Set();
     for (const a of auths) {
       const dev = await this.db.findById('devices', a.device_id);
-      if (dev) devices.push({ ...dev, ...a, id: dev.id, homeId: a.home_id });
+      if (dev) {
+        devices.push({ ...dev, ...a, id: dev.id, homeId: a.home_id });
+        seen.add(dev.id);
+      }
+    }
+    const directDevs = await this.db.find('devices', d => d.home_id === homeId || d.homeId === homeId);
+    for (const dev of directDevs) {
+      if (!seen.has(dev.id)) {
+        devices.push({ ...dev, id: dev.id, homeId: dev.home_id || dev.homeId });
+        seen.add(dev.id);
+      }
     }
     return devices;
   }
@@ -537,15 +548,30 @@ class DeviceRepository {
   async getDevicesByRoom(roomId) {
     const auths = await this.db.find('device_authorizations', a => a.room_id === roomId);
     const devices = [];
+    const seen = new Set();
     for (const a of auths) {
       const dev = await this.db.findById('devices', a.device_id);
-      if (dev) devices.push({ ...dev, ...a });
+      if (dev) {
+        devices.push({ ...dev, ...a, id: dev.id });
+        seen.add(dev.id);
+      }
+    }
+    const directDevs = await this.db.find('devices', d => d.room_id === roomId || d.roomId === roomId);
+    for (const dev of directDevs) {
+      if (!seen.has(dev.id)) {
+        devices.push({ ...dev, id: dev.id });
+        seen.add(dev.id);
+      }
     }
     return devices;
   }
 
   async getDevice(deviceId) {
     return this.db.findById('devices', deviceId);
+  }
+
+  async findById(deviceId) {
+    return this.getDevice(deviceId);
   }
 
   async updateDeviceFirmwareVersion(deviceId, version) {
@@ -2458,6 +2484,341 @@ class CostOptimizationRepository {
   }
 }
 
+class EnergyForecastRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async saveForecast({
+    id = null,
+    homeId,
+    scopeType = 'home',
+    scopeId,
+    horizon,
+    startTime,
+    endTime,
+    predictedKwh = 0,
+    predictedCost = 0,
+    currency = 'USD',
+    confidenceScore = 0.5,
+    methodology = 'HISTORICAL_HOURLY_PROFILE',
+    dataCoverage = 'FULL',
+    isEstimate = true,
+    points = []
+  }) {
+    const recordId = id || `fc_${homeId}_${scopeType}_${scopeId || homeId}_${horizon}_${Date.now()}`;
+    const record = {
+      id: recordId,
+      home_id: homeId,
+      scope_type: scopeType,
+      scope_id: scopeId || homeId,
+      horizon,
+      start_time: startTime,
+      end_time: endTime,
+      predicted_kwh: Number(predictedKwh),
+      predicted_cost: Number(predictedCost),
+      currency: currency.toUpperCase(),
+      confidence_score: Number(confidenceScore),
+      methodology,
+      data_coverage: dataCoverage,
+      is_estimate: Boolean(isEstimate),
+      points_json: points,
+      created_at: new Date().toISOString()
+    };
+    return this.db.insert('energy_forecasts', recordId, record);
+  }
+
+  async findLatestForecast(homeId, { scopeType = 'home', scopeId = null, horizon = null } = {}) {
+    const targetScopeId = scopeId || homeId;
+    const list = await this.db.find('energy_forecasts', f => {
+      if (f.home_id !== homeId) return false;
+      if (scopeType && f.scope_type !== scopeType) return false;
+      if (targetScopeId && f.scope_id !== targetScopeId) return false;
+      if (horizon && f.horizon !== horizon) return false;
+      return true;
+    });
+    if (list.length === 0) return null;
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list[0];
+  }
+
+  async findByHomeId(homeId, { horizon = null, limit = 50 } = {}) {
+    let list = await this.db.find('energy_forecasts', f => {
+      if (f.home_id !== homeId) return false;
+      if (horizon && f.horizon !== horizon) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async pruneOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('energy_forecasts', f => new Date(f.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('energy_forecasts', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class EnergyAnomalyRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async createAnomaly({
+    id = null,
+    homeId,
+    scopeType = 'device',
+    scopeId,
+    anomalyType,
+    severity = 'LOW',
+    observedValue,
+    baselineValue,
+    deviationPercentage,
+    isConfirmed = false,
+    confirmationCount = 1,
+    evidence = {},
+    detectedAt = null
+  }) {
+    const recordId = id || `anom_${homeId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const record = {
+      id: recordId,
+      home_id: homeId,
+      scope_type: scopeType,
+      scope_id: scopeId,
+      anomaly_type: anomalyType,
+      severity,
+      observed_value: Number(observedValue),
+      baseline_value: Number(baselineValue),
+      deviation_percentage: Number(deviationPercentage),
+      is_confirmed: Boolean(isConfirmed),
+      confirmation_count: Number(confirmationCount),
+      evidence_json: evidence,
+      detected_at: detectedAt || new Date().toISOString(),
+      created_at: new Date().toISOString()
+    };
+    return this.db.insert('energy_anomalies', recordId, record);
+  }
+
+  async findById(id) {
+    return this.db.findById('energy_anomalies', id);
+  }
+
+  async confirmAnomaly(id) {
+    const existing = await this.findById(id);
+    if (!existing) return null;
+    return this.db.update('energy_anomalies', id, {
+      is_confirmed: true,
+      confirmation_count: (existing.confirmation_count || 1) + 1
+    });
+  }
+
+  async findByHomeId(homeId, { scopeType = null, scopeId = null, severity = null, limit = 100 } = {}) {
+    let list = await this.db.find('energy_anomalies', a => {
+      if (a.home_id !== homeId) return false;
+      if (scopeType && a.scope_type !== scopeType) return false;
+      if (scopeId && a.scope_id !== scopeId) return false;
+      if (severity && a.severity !== severity) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.detected_at || b.created_at) - new Date(a.detected_at || a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async pruneOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('energy_anomalies', a => new Date(a.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('energy_anomalies', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class EnergyBaselineRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async upsertBaseline({
+    homeId,
+    scopeType = 'device',
+    scopeId,
+    typicalPowerW,
+    typicalDailyEnergyKwh,
+    typicalOvernightWh,
+    typicalOperatingHours = [],
+    sampleCount = 0,
+    confidence = 0.5,
+    calculatedAt = null
+  }) {
+    const id = `base_${homeId}_${scopeType}_${scopeId}`;
+    const record = {
+      id,
+      home_id: homeId,
+      scope_type: scopeType,
+      scope_id: scopeId,
+      typical_power_w: Number(typicalPowerW),
+      typical_daily_kwh: Number(typicalDailyEnergyKwh),
+      typical_overnight_wh: Number(typicalOvernightWh),
+      typical_operating_hours: typicalOperatingHours,
+      sample_count: Number(sampleCount),
+      confidence: Number(confidence),
+      calculated_at: calculatedAt || new Date().toISOString(),
+      created_at: new Date().toISOString()
+    };
+
+    const existing = await this.db.findById('energy_baselines', id);
+    if (existing) {
+      return this.db.update('energy_baselines', id, record);
+    }
+    return this.db.insert('energy_baselines', id, record);
+  }
+
+  async findByScope(homeId, scopeType, scopeId) {
+    const id = `base_${homeId}_${scopeType}_${scopeId}`;
+    return this.db.findById('energy_baselines', id);
+  }
+
+  async findByHomeId(homeId) {
+    return this.db.find('energy_baselines', b => b.home_id === homeId);
+  }
+
+  async pruneOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('energy_baselines', b => new Date(b.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('energy_baselines', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class ForecastAccuracyRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async recordAccuracy({
+    id = null,
+    homeId,
+    forecastId = null,
+    horizon,
+    predictedValue,
+    actualValue,
+    calculatedAt = null
+  }) {
+    const recordId = id || `acc_${homeId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const pred = Number(predictedValue);
+    const act = Number(actualValue);
+    const absErr = Math.abs(pred - act);
+    const pctErr = act > 0 ? (absErr / act) * 100.0 : 0.0;
+
+    const record = {
+      id: recordId,
+      home_id: homeId,
+      forecast_id: forecastId,
+      horizon,
+      predicted_value: pred,
+      actual_value: act,
+      absolute_error: absErr,
+      percentage_error: pctErr,
+      calculated_at: calculatedAt || new Date().toISOString(),
+      created_at: new Date().toISOString()
+    };
+    return this.db.insert('forecast_accuracy_records', recordId, record);
+  }
+
+  async findByHomeId(homeId, { horizon = null, limit = 100 } = {}) {
+    let list = await this.db.find('forecast_accuracy_records', r => {
+      if (r.home_id !== homeId) return false;
+      if (horizon && r.horizon !== horizon) return false;
+      return true;
+    });
+    list.sort((a, b) => new Date(b.calculated_at || b.created_at) - new Date(a.calculated_at || a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async getAggregateMetrics(homeId, horizon = null) {
+    const records = await this.findByHomeId(homeId, { horizon, limit: 500 });
+    if (records.length === 0) {
+      return { sampleCount: 0, mae: 0, mape: 0, hasSufficientData: false };
+    }
+    const sumAbs = records.reduce((acc, r) => acc + Number(r.absolute_error || 0), 0);
+    const sumPct = records.reduce((acc, r) => acc + Number(r.percentage_error || 0), 0);
+    const mae = Math.round((sumAbs / records.length) * 1000) / 1000;
+    const mape = Math.round((sumPct / records.length) * 10) / 10;
+    return {
+      sampleCount: records.length,
+      mae,
+      mape,
+      hasSufficientData: records.length >= 3
+    };
+  }
+
+  async pruneOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('forecast_accuracy_records', r => new Date(r.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('forecast_accuracy_records', s.id);
+    }
+    return stale.length;
+  }
+}
+
+class EnergyEfficiencyScoreRepository {
+  constructor(db) {
+    this.db = db;
+  }
+
+  async saveScore({
+    id = null,
+    homeId,
+    score,
+    grade,
+    factors = {},
+    evidence = {},
+    calculatedAt = null
+  }) {
+    const recordId = id || `eff_${homeId}_${Date.now()}`;
+    const record = {
+      id: recordId,
+      home_id: homeId,
+      score: Number(score),
+      grade,
+      factors_json: factors,
+      evidence_json: evidence,
+      calculated_at: calculatedAt || new Date().toISOString(),
+      created_at: new Date().toISOString()
+    };
+    return this.db.insert('energy_efficiency_scores', recordId, record);
+  }
+
+  async findLatest(homeId) {
+    const list = await this.db.find('energy_efficiency_scores', s => s.home_id === homeId);
+    if (list.length === 0) return null;
+    list.sort((a, b) => new Date(b.calculated_at || b.created_at) - new Date(a.calculated_at || a.created_at));
+    return list[0];
+  }
+
+  async findByHomeId(homeId, { limit = 20 } = {}) {
+    let list = await this.db.find('energy_efficiency_scores', s => s.home_id === homeId);
+    list.sort((a, b) => new Date(b.calculated_at || b.created_at) - new Date(a.calculated_at || a.created_at));
+    return list.slice(0, limit);
+  }
+
+  async pruneOlderThan(cutoffIso) {
+    const cutoffDate = new Date(cutoffIso);
+    const stale = await this.db.find('energy_efficiency_scores', s => new Date(s.created_at) < cutoffDate);
+    for (const s of stale) {
+      await this.db.delete('energy_efficiency_scores', s.id);
+    }
+    return stale.length;
+  }
+}
+
 module.exports = {
   UserRepository,
   HomeRepository,
@@ -2495,5 +2856,10 @@ module.exports = {
   EnergyTariffRepository,
   TariffPeriodRepository,
   EnergyBudgetRepository,
-  CostOptimizationRepository
+  CostOptimizationRepository,
+  EnergyForecastRepository,
+  EnergyAnomalyRepository,
+  EnergyBaselineRepository,
+  ForecastAccuracyRepository,
+  EnergyEfficiencyScoreRepository
 };

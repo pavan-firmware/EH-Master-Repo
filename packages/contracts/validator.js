@@ -13,6 +13,11 @@ class SchemaValidator {
     if (content.title) {
       this.schemas.set(content.title, content);
     }
+    const defs = content.definitions || content.$defs || {};
+    for (const [key, def] of Object.entries(defs)) {
+      this.schemas.set(key, def);
+      this.schemas.set(`#/definitions/${key}`, def);
+    }
     return content;
   }
 

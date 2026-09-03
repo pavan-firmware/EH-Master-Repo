@@ -4,6 +4,8 @@
  * EH Home — Energy Intelligence & Automation REST API Router (Phase 19 & Phase 20)
  */
 
+const url = require('url');
+
 class EnergyApiRouter {
   /**
    * @param {Object} opts
@@ -24,7 +26,9 @@ class EnergyApiRouter {
     eventRepo = null,
     automationService = null,
     executionRepo = null,
-    optimizationRepo = null
+    optimizationRepo = null,
+    deviceRepo = null,
+    roomRepo = null
   }) {
     this.energyService = energyService;
     this.homeAuth = homeAuthService;
@@ -34,11 +38,23 @@ class EnergyApiRouter {
     this.automationService = automationService || (energyService ? energyService.automationService : null);
     this.executionRepo = executionRepo;
     this.optimizationRepo = optimizationRepo || (energyService ? energyService.optimizationRepo : null);
+    this.deviceRepo = deviceRepo || (energyService ? energyService.deviceRepo : null);
+    this.roomRepo = roomRepo || (energyService ? energyService.roomRepo : null);
   }
 
   async handleRequest(req, actorContext) {
-    const { method, path, query = {}, body = {} } = req;
-    const userId = actorContext ? actorContext.userId : null;
+    const method = req.method;
+    let path = req.path;
+    let query = req.query || {};
+    const body = req.body || {};
+
+    if (req.url) {
+      const parsed = url.parse(req.url, true);
+      path = parsed.pathname;
+      query = { ...parsed.query, ...query };
+    }
+
+    const userId = (actorContext && actorContext.userId) || req.userId || (req.user && req.user.id) || null;
 
     if (!userId) {
       return { statusCode: 401, body: { success: false, error: 'Unauthorized: missing authentication token' } };
@@ -764,6 +780,179 @@ class EnergyApiRouter {
       const optId = dismissCostOptMatch[1];
       await this.energyService.dismissCostOptimization(optId);
       return { statusCode: 200, body: { success: true } };
+    }
+
+    // =========================================================================
+    // 6. PHASE 22: FORECASTING & PREDICTIVE INTELLIGENCE ENDPOINTS
+    // =========================================================================
+
+    // 6.1 GET /api/v1/energy/homes/:homeId/forecast
+    const homeForecastMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/forecast$/);
+    if (method === 'GET' && homeForecastMatch) {
+      const homeId = homeForecastMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const horizon = query.horizon || 'next_24_hours';
+      const forecast = await this.energyService.getForecast({
+        homeId,
+        scopeType: 'home',
+        scopeId: homeId,
+        horizon,
+        asOfDate: query.asOfDate || null
+      });
+      return { statusCode: 200, body: { success: true, data: forecast } };
+    }
+
+    // 6.2 GET /api/v1/energy/homes/:homeId/forecast/daily
+    const homeDailyForecastMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/forecast\/daily$/);
+    if (method === 'GET' && homeDailyForecastMatch) {
+      const homeId = homeDailyForecastMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const forecast = await this.energyService.getDailyForecast(homeId, { asOfDate: query.asOfDate || null });
+      return { statusCode: 200, body: { success: true, data: forecast } };
+    }
+
+    // 6.3 GET /api/v1/energy/homes/:homeId/forecast/monthly
+    const homeMonthlyForecastMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/forecast\/monthly$/);
+    if (method === 'GET' && homeMonthlyForecastMatch) {
+      const homeId = homeMonthlyForecastMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const forecast = await this.energyService.getMonthlyForecast(homeId, { asOfDate: query.asOfDate || null });
+      return { statusCode: 200, body: { success: true, data: forecast } };
+    }
+
+    // 6.4 GET /api/v1/energy/devices/:deviceId/forecast
+    const devForecastMatch = path.match(/^\/api\/v1\/energy\/devices\/([^/]+)\/forecast$/);
+    if (method === 'GET' && devForecastMatch) {
+      const deviceId = devForecastMatch[1];
+      const dev = await this.deviceRepo.findById(deviceId);
+      if (!dev) return { statusCode: 404, body: { success: false, error: `Device ${deviceId} not found` } };
+
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId: dev.home_id });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const horizon = query.horizon || 'next_24_hours';
+      const forecast = await this.energyService.getForecast({
+        homeId: dev.home_id,
+        scopeType: 'device',
+        scopeId: deviceId,
+        horizon,
+        asOfDate: query.asOfDate || null
+      });
+      return { statusCode: 200, body: { success: true, data: forecast } };
+    }
+
+    // 6.5 GET /api/v1/energy/devices/:deviceId/baseline
+    const devBaselineMatch = path.match(/^\/api\/v1\/energy\/devices\/([^/]+)\/baseline$/);
+    if (method === 'GET' && devBaselineMatch) {
+      const deviceId = devBaselineMatch[1];
+      const dev = await this.deviceRepo.findById(deviceId);
+      if (!dev) return { statusCode: 404, body: { success: false, error: `Device ${deviceId} not found` } };
+
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId: dev.home_id });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const baseline = await this.energyService.getDeviceBaseline(dev.home_id, deviceId, { asOfDate: query.asOfDate || null });
+      return { statusCode: 200, body: { success: true, data: baseline } };
+    }
+
+    // 6.6 GET /api/v1/energy/rooms/:roomId/baseline
+    const roomBaselineMatch = path.match(/^\/api\/v1\/energy\/rooms\/([^/]+)\/baseline$/);
+    if (method === 'GET' && roomBaselineMatch) {
+      const roomId = roomBaselineMatch[1];
+      const room = await this.roomRepo.findById(roomId);
+      if (!room) return { statusCode: 404, body: { success: false, error: `Room ${roomId} not found` } };
+
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId: room.home_id });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const baseline = await this.energyService.getRoomBaseline(room.home_id, roomId, { asOfDate: query.asOfDate || null });
+      return { statusCode: 200, body: { success: true, data: baseline } };
+    }
+
+    // 6.7 GET /api/v1/energy/homes/:homeId/anomalies
+    const homeAnomaliesMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/anomalies$/);
+    if (method === 'GET' && homeAnomaliesMatch) {
+      const homeId = homeAnomaliesMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const anomalies = await this.energyService.detectAnomalies(homeId, { asOfDate: query.asOfDate || null });
+      return { statusCode: 200, body: { success: true, data: anomalies } };
+    }
+
+    // 6.8 GET /api/v1/energy/devices/:deviceId/anomalies
+    const devAnomaliesMatch = path.match(/^\/api\/v1\/energy\/devices\/([^/]+)\/anomalies$/);
+    if (method === 'GET' && devAnomaliesMatch) {
+      const deviceId = devAnomaliesMatch[1];
+      const dev = await this.deviceRepo.findById(deviceId);
+      if (!dev) return { statusCode: 404, body: { success: false, error: `Device ${deviceId} not found` } };
+
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId: dev.home_id });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const anomalies = await this.energyService.getAnomalies(dev.home_id, { scopeType: 'device', scopeId: deviceId });
+      return { statusCode: 200, body: { success: true, data: anomalies } };
+    }
+
+    // 6.9 GET /api/v1/energy/homes/:homeId/efficiency-score
+    const homeEfficiencyMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/efficiency-score$/);
+    if (method === 'GET' && homeEfficiencyMatch) {
+      const homeId = homeEfficiencyMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const score = await this.energyService.getEfficiencyScore(homeId, { asOfDate: query.asOfDate || null });
+      return { statusCode: 200, body: { success: true, data: score } };
+    }
+
+    // 6.10 GET /api/v1/energy/homes/:homeId/predictive-optimization
+    const homePredOptMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/predictive-optimization$/);
+    if (method === 'GET' && homePredOptMatch) {
+      const homeId = homePredOptMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const optimizations = await this.energyService.getPredictiveOptimizations(homeId, { asOfDate: query.asOfDate || null });
+      return { statusCode: 200, body: { success: true, data: optimizations } };
+    }
+
+    // 6.11 GET /api/v1/energy/homes/:homeId/forecast/accuracy
+    const homeAccuracyMatch = path.match(/^\/api\/v1\/energy\/homes\/([^/]+)\/forecast\/accuracy$/);
+    if (method === 'GET' && homeAccuracyMatch) {
+      const homeId = homeAccuracyMatch[1];
+      const authCheck = await this.homeAuth.authorizeRequest({ userId, homeId });
+      if (!authCheck.isAuthorized) {
+        return { statusCode: authCheck.statusCode || 403, body: { success: false, error: authCheck.message } };
+      }
+
+      const accuracy = await this.energyService.getForecastAccuracy(homeId, { horizon: query.horizon || null });
+      return { statusCode: 200, body: { success: true, data: accuracy } };
     }
 
     return { statusCode: 404, body: { success: false, error: 'Endpoint not found' } };
