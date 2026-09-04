@@ -79,7 +79,11 @@ const {
   // Phase 29 — Matter Ecosystem Interoperability
   MatterDeviceRepository,
   MatterFabricRepository,
-  ExternalPlatformLinkRepository
+  ExternalPlatformLinkRepository,
+  // Phase 31 — Secure Operations, Audit & Platform Observability
+  OperationalEventRepository,
+  SecurityAuditRepository,
+  SystemHealthRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -137,6 +141,11 @@ const { MatterApiRouter } = require('./api/matter.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
+const { OperationsApiRouter } = require('./api/operations.router');
+const { OperationsAuditService } = require('./services/operations-audit.service');
+const { OperationTraceService } = require('./services/operation-trace.service');
+const { SystemHealthService } = require('./services/system-health.service');
+const { OperationsMetricsService } = require('./services/operations-metrics.service');
 const { AutomationSchedulerWorker } = require('./workers/automation-scheduler-worker');
 const { NotificationDeliveryWorker } = require('./workers/notification-delivery-worker');
 
@@ -162,7 +171,8 @@ const PUBLIC_ROUTES = [
   'GET /api/v1/products/families',
   'POST /api/v1/products/compatibility',
   'GET /api/v1/capabilities',
-  'GET /api/v1/ota/check'
+  'GET /api/v1/ota/check',
+  'GET /api/v1/operations/health'
 ];
 
 function isPublicRoute(method, pathname) {
@@ -313,6 +323,10 @@ function createApp(options = {}) {
   const matterDeviceRepo = options.matterDeviceRepo || new MatterDeviceRepository(db);
   const matterFabricRepo = options.matterFabricRepo || new MatterFabricRepository(db);
   const externalPlatformLinkRepo = options.externalPlatformLinkRepo || new ExternalPlatformLinkRepository(db);
+  // Phase 31 Repositories
+  const operationalEventRepo = options.operationalEventRepo || new OperationalEventRepository(db);
+  const securityAuditRepo = options.securityAuditRepo || new SecurityAuditRepository(db);
+  const systemHealthRepo = options.systemHealthRepo || new SystemHealthRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -696,6 +710,28 @@ function createApp(options = {}) {
     notificationService,
     homeAuthorizationService: homeAuthService
   });
+  const operationsAuditService = options.operationsAuditService || new OperationsAuditService({
+    operationalEventRepo,
+    securityAuditRepo,
+    auditRepo
+  });
+  const operationTraceService = options.operationTraceService || new OperationTraceService({
+    operationalEventRepo
+  });
+  const systemHealthService = options.systemHealthService || new SystemHealthService({
+    db,
+    systemHealthRepo
+  });
+  const operationsMetricsService = options.operationsMetricsService || new OperationsMetricsService({
+    operationalEventRepo
+  });
+  const operationsRouter = new OperationsApiRouter({
+    operationsAuditService,
+    operationTraceService,
+    systemHealthService,
+    operationsMetricsService,
+    homeAuthorizationService: homeAuthService
+  });
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -976,6 +1012,18 @@ function createApp(options = {}) {
       const notifResult = await notificationRouter.handle(method, pathname, body, req.headers, query);
       if (notifResult) {
         return sendJsonResponse(res, notifResult.status, notifResult.body);
+      }
+    }
+
+    // 8.8b. Route to Operations & Observability Router (Phase 31)
+    if (pathname.startsWith('/api/v1/operations')) {
+      if (req.user) {
+        query.userId = req.user.id;
+        if (req.user.role) query.userRole = req.user.role;
+      }
+      const opsResult = await operationsRouter.handle(method, pathname, body, req.headers, query);
+      if (opsResult) {
+        return sendJsonResponse(res, opsResult.status, opsResult.body);
       }
     }
 

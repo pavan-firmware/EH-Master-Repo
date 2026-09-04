@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/operation-trace.schema.json",
+  "title": "OperationTrace",
+  "description": "Multi-hop operation trace contract linking causation chains from command initiation to notification delivery.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "traceId",
+    "correlationId",
+    "rootOperation",
+    "status",
+    "startTime",
+    "spans"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "traceId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "rootOperation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "IN_PROGRESS",
+        "COMPLETED",
+        "FAILED",
+        "PARTIAL"
+      ]
+    },
+    "startTime": {
+      "type": "string"
+    },
+    "endTime": {
+      "type": ["string", "null"]
+    },
+    "totalDurationMs": {
+      "type": ["number", "null"]
+    },
+    "spans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "spanId",
+          "subsystem",
+          "operation",
+          "executionPath",
+          "outcome",
+          "timestamp"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "spanId": {
+            "type": "string",
+            "minLength": 3
+          },
+          "parentSpanId": {
+            "type": ["string", "null"]
+          },
+          "subsystem": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "executionPath": {
+            "type": "string",
+            "enum": [
+              "LOCAL_EDGE",
+              "CLOUD",
+              "DEVICE",
+              "HYBRID",
+              "UNKNOWN"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "FAILURE",
+              "PARTIAL",
+              "TIMEOUT",
+              "DEFERRED",
+              "UNKNOWN"
+            ]
+          },
+          "durationMs": {
+            "type": ["number", "null"]
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

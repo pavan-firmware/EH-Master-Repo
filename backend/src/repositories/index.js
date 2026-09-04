@@ -3934,5 +3934,9 @@ module.exports = {
   // Phase 29 — Matter Ecosystem Interoperability & Multi-Platform Integration
   MatterDeviceRepository: require('./matter-device.repository').MatterDeviceRepository,
   MatterFabricRepository: require('./matter-fabric.repository').MatterFabricRepository,
-  ExternalPlatformLinkRepository: require('./external-platform-link.repository').ExternalPlatformLinkRepository
+  ExternalPlatformLinkRepository: require('./external-platform-link.repository').ExternalPlatformLinkRepository,
+  // Phase 31 — Secure Operations, Audit & Platform Observability
+  OperationalEventRepository: require('./operational-event.repository').OperationalEventRepository,
+  SecurityAuditRepository: require('./security-audit.repository').SecurityAuditRepository,
+  SystemHealthRepository: require('./system-health.repository').SystemHealthRepository
 };

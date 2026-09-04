@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/audit-record.schema.json",
+  "title": "AuditRecord",
+  "description": "Tamper-evident security audit record contract with deterministic SHA-256 hash chaining.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "auditId",
+    "sequenceNumber",
+    "recordHash",
+    "prevRecordHash",
+    "timestamp",
+    "action",
+    "resourceType",
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "auditId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "sequenceNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "recordHash": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "prevRecordHash": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "actorUserId": {
+      "type": ["string", "null"]
+    },
+    "homeId": {
+      "type": ["string", "null"]
+    },
+    "deviceId": {
+      "type": ["string", "null"]
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resourceType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resourceId": {
+      "type": ["string", "null"]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "SUCCESS",
+        "DENIED",
+        "FAILURE",
+        "ERROR"
+      ]
+    },
+    "ipAddress": {
+      "type": ["string", "null"]
+    },
+    "correlationId": {
+      "type": ["string", "null"]
+    },
+    "canonicalPayload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

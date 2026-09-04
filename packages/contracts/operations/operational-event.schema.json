@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/operational-event.schema.json",
+  "title": "OperationalEvent",
+  "description": "Authoritative operational event contract capturing multi-domain execution traces, outcomes, and failure classifications.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "correlationId",
+    "timestamp",
+    "subsystem",
+    "operation",
+    "action",
+    "source",
+    "executionPath",
+    "severity",
+    "authorizationResult",
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "causationId": {
+      "type": ["string", "null"]
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "homeId": {
+      "type": ["string", "null"]
+    },
+    "userId": {
+      "type": ["string", "null"]
+    },
+    "deviceId": {
+      "type": ["string", "null"]
+    },
+    "roomId": {
+      "type": ["string", "null"]
+    },
+    "subsystem": {
+      "type": "string",
+      "enum": [
+        "DEVICE",
+        "CONNECTIVITY",
+        "RELIABILITY",
+        "OTA",
+        "ENERGY",
+        "AUTOMATION",
+        "MATTER",
+        "SECURITY",
+        "ACCOUNT",
+        "EDGE",
+        "SYSTEM"
+      ]
+    },
+    "operation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executionPath": {
+      "type": "string",
+      "enum": [
+        "LOCAL_EDGE",
+        "CLOUD",
+        "DEVICE",
+        "HYBRID",
+        "UNKNOWN"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "INFO",
+        "NOTICE",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+      ]
+    },
+    "authorizationResult": {
+      "type": "string",
+      "enum": [
+        "AUTHORIZED",
+        "DENIED",
+        "BYPASSED_INTERNAL",
+        "UNKNOWN"
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "SUCCESS",
+        "FAILURE",
+        "PARTIAL",
+        "TIMEOUT",
+        "DEFERRED",
+        "UNKNOWN"
+      ]
+    },
+    "failureCode": {
+      "type": ["string", "null"]
+    },
+    "durationMs": {
+      "type": ["number", "null"]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "redactionMarkers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "traceLifecycle": {
+      "type": ["string", "null"],
+      "enum": [
+        "START",
+        "IN_PROGRESS",
+        "COMPLETE",
+        "FAILED",
+        null
+      ]
+    }
+  }
+}

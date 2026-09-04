@@ -391,3 +391,4 @@ export * from './connectivity';
 export * from './product';
 export * from './edge';
 export * from './matter';
+export * from './operations';
