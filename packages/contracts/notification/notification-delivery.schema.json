@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/notification/notification-delivery.schema.json",
+  "title": "NotificationDelivery",
+  "description": "Notification delivery attempt record tracking channel, recipient, and status.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deliveryId",
+    "notificationId",
+    "channel",
+    "status",
+    "attempts",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "deliveryId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "notificationId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "push",
+        "in_app",
+        "email"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "SENT",
+        "FAILED",
+        "RETRYING",
+        "DEAD_LETTER"
+      ]
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lastError": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -38,7 +38,9 @@ class DatabaseClient {
       // Phase 28 — Local-First Home Control & Edge Execution
       'local_route_cache', 'edge_execution_records', 'local_discovery_nodes',
       // Phase 29 — Matter Ecosystem Interoperability & Multi-Platform Integration
-      'matter_devices', 'matter_fabrics', 'matter_endpoints', 'matter_sync_state', 'external_platform_links'
+      'matter_devices', 'matter_fabrics', 'matter_endpoints', 'matter_sync_state', 'external_platform_links',
+      // Phase 30 — Intelligent Notifications, Alerts & User Event Center
+      'platform_events', 'notification_aggregations', 'notification_actions'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

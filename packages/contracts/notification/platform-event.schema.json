@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/notification/platform-event.schema.json",
+  "title": "PlatformEvent",
+  "description": "Normalized platform event emitted across device, connectivity, reliability, OTA, energy, automation, Matter, security, and membership subsystems.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "source",
+    "homeId",
+    "severity",
+    "occurredAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "eventType": {
+      "type": "string",
+      "minLength": 3
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "device",
+        "connectivity",
+        "reliability",
+        "ota",
+        "energy",
+        "automation",
+        "matter",
+        "security",
+        "account",
+        "system"
+      ]
+    },
+    "homeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deviceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "userId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "INFO",
+        "NOTICE",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

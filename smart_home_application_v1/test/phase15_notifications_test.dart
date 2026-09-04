@@ -24,6 +24,7 @@ class MockNotificationRepository implements NotificationRepository {
   Future<List<NotificationItem>> getNotifications({
     String? homeId,
     NotificationCategory? category,
+    NotificationSeverity? severity,
     int limit = 50,
     int offset = 0,
     bool unreadOnly = false,
@@ -31,6 +32,9 @@ class MockNotificationRepository implements NotificationRepository {
     if (shouldThrow) throw Exception('Network error');
     return items.where((n) {
       if (category != null && category != NotificationCategory.all && n.category != category) {
+        return false;
+      }
+      if (severity != null && n.severity != severity) {
         return false;
       }
       if (unreadOnly && n.isRead) return false;
@@ -68,11 +72,22 @@ class MockNotificationRepository implements NotificationRepository {
   }
 
   @override
-  Future<Map<String, bool>> getPreferences() async => Map.from(prefs);
+  Future<bool> performAction(
+    String notificationId,
+    String actionType, {
+    Map<String, dynamic>? payload,
+  }) async {
+    return true;
+  }
 
   @override
-  Future<bool> updatePreferences(Map<String, bool> preferences) async {
-    prefs.addAll(preferences);
+  Future<Map<String, dynamic>> getPreferences() async => Map.from(prefs);
+
+  @override
+  Future<bool> updatePreferences(Map<String, dynamic> preferences) async {
+    preferences.forEach((k, v) {
+      if (v is bool) prefs[k] = v;
+    });
     return true;
   }
 

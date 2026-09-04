@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/notification/notification-aggregation.schema.json",
+  "title": "NotificationAggregation",
+  "description": "Aggregated notification record grouping related events to prevent notification fatigue.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "aggregationId",
+    "aggregationKey",
+    "homeId",
+    "eventType",
+    "severity",
+    "eventCount",
+    "aggregatedIds",
+    "summaryTitle",
+    "summaryBody",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "aggregationId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "aggregationKey": {
+      "type": "string",
+      "minLength": 3
+    },
+    "homeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "roomId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "eventType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "INFO",
+        "NOTICE",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+      ]
+    },
+    "eventCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "aggregatedIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summaryTitle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summaryBody": {
+      "type": "string"
+    },
+    "windowSeconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

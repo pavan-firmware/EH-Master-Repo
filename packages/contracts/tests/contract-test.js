@@ -54,7 +54,13 @@ const schemaFiles = [
   '../matter/matter-commissioning-session.schema.json',
   '../matter/matter-sync-event.schema.json',
   '../matter/external-platform-link.schema.json',
-  '../matter/interoperability-capability-mapping.schema.json'
+  '../matter/interoperability-capability-mapping.schema.json',
+  '../notification/platform-event.schema.json',
+  '../notification/user-notification.schema.json',
+  '../notification/notification-preference.schema.json',
+  '../notification/notification-delivery.schema.json',
+  '../notification/notification-action.schema.json',
+  '../notification/notification-aggregation.schema.json'
 ];
 
 schemaFiles.forEach(f => validator.loadSchema(path.join(__dirname, f)));
@@ -1317,8 +1323,131 @@ const validCapMapping = {
 };
 assert('Valid InteroperabilityCapabilityMapping passes', validator.validate('InteroperabilityCapabilityMapping', validCapMapping).valid);
 
+console.log('\n47. Phase 30 — PlatformEvent:');
+const validPlatformEvent = {
+  schemaVersion: 1,
+  eventId: 'evt_dev_offline_001',
+  eventType: 'DEVICE_OFFLINE',
+  source: 'device',
+  homeId: 'home_main',
+  deviceId: '22222222-2222-4222-8222-222222222221',
+  userId: null,
+  severity: 'WARNING',
+  title: 'Living Room Switch is offline',
+  message: 'Living Room Switch lost connection.',
+  data: { reason: 'PING_TIMEOUT', lastSeenAt: '2026-09-04T15:00:00Z' },
+  occurredAt: '2026-09-04T15:00:00Z'
+};
+assert('Valid PlatformEvent passes', validator.validate('PlatformEvent', validPlatformEvent).valid);
+assert('Invalid severity fails', !validator.validate('PlatformEvent', { ...validPlatformEvent, severity: 'FATAL' }).valid);
+assert('Invalid source fails', !validator.validate('PlatformEvent', { ...validPlatformEvent, source: 'satellite' }).valid);
+
+console.log('\n48. Phase 30 — UserNotification:');
+const validUserNotification = {
+  schemaVersion: 1,
+  id: 'notif_001',
+  userId: 'usr_alice',
+  homeId: 'home_main',
+  type: 'DEVICE_OFFLINE',
+  category: 'alert',
+  priority: 'HIGH',
+  severity: 'WARNING',
+  title: 'Living Room Switch is offline',
+  body: 'Device lost connection or powered down.',
+  entityType: 'device',
+  entityId: '22222222-2222-4222-8222-222222222221',
+  data: { deviceName: 'Living Room Switch' },
+  readAt: null,
+  deliveryStatus: 'DELIVERED',
+  actionType: 'VIEW_DEVICE',
+  actionTarget: '22222222-2222-4222-8222-222222222221',
+  actionState: 'NONE',
+  isAggregated: false,
+  aggregatedCount: 1,
+  aggregatedIds: [],
+  idempotencyKey: 'dedup_home_main_dev_offline_001',
+  createdAt: '2026-09-04T15:00:00Z'
+};
+assert('Valid UserNotification passes', validator.validate('UserNotification', validUserNotification).valid);
+assert('Invalid deliveryStatus fails', !validator.validate('UserNotification', { ...validUserNotification, deliveryStatus: 'UNKNOWN' }).valid);
+
+console.log('\n49. Phase 30 — NotificationPreference:');
+const validNotificationPreference = {
+  schemaVersion: 1,
+  userId: 'usr_alice',
+  pushEnabled: true,
+  emailEnabled: true,
+  inAppEnabled: true,
+  criticalAlerts: true,
+  deviceOffline: true,
+  deviceHealth: true,
+  automationFailure: true,
+  firmwareUpdates: true,
+  energyAlerts: true,
+  securityAlerts: true,
+  matterAlerts: true,
+  memberAlerts: true,
+  quietHoursEnabled: true,
+  quietHoursStart: '22:00',
+  quietHoursEnd: '07:00',
+  updatedAt: '2026-09-04T15:00:00Z'
+};
+assert('Valid NotificationPreference passes', validator.validate('NotificationPreference', validNotificationPreference).valid);
+assert('Invalid quietHours time format fails', !validator.validate('NotificationPreference', { ...validNotificationPreference, quietHoursStart: '25:00' }).valid);
+
+console.log('\n50. Phase 30 — NotificationDelivery:');
+const validNotificationDelivery = {
+  schemaVersion: 1,
+  deliveryId: 'del_001',
+  notificationId: 'notif_001',
+  channel: 'push',
+  status: 'SENT',
+  attempts: 1,
+  lastError: null,
+  createdAt: '2026-09-04T15:00:00Z',
+  updatedAt: '2026-09-04T15:00:01Z'
+};
+assert('Valid NotificationDelivery passes', validator.validate('NotificationDelivery', validNotificationDelivery).valid);
+assert('Invalid channel fails', !validator.validate('NotificationDelivery', { ...validNotificationDelivery, channel: 'fax' }).valid);
+
+console.log('\n51. Phase 30 — NotificationAction:');
+const validNotificationAction = {
+  schemaVersion: 1,
+  actionId: 'act_001',
+  notificationId: 'notif_001',
+  userId: 'usr_alice',
+  actionType: 'VIEW_DEVICE',
+  actionTarget: '22222222-2222-4222-8222-222222222221',
+  actionState: 'ACTIONED',
+  payload: { openedScreen: 'DeviceDetailPage' },
+  executedAt: '2026-09-04T15:05:00Z'
+};
+assert('Valid NotificationAction passes', validator.validate('NotificationAction', validNotificationAction).valid);
+assert('Invalid actionType fails', !validator.validate('NotificationAction', { ...validNotificationAction, actionType: 'EXPLODE' }).valid);
+
+console.log('\n52. Phase 30 — NotificationAggregation:');
+const validNotificationAggregation = {
+  schemaVersion: 1,
+  aggregationId: 'agg_001',
+  aggregationKey: 'home_main:offline_cluster',
+  homeId: 'home_main',
+  roomId: 'room_living',
+  eventType: 'DEVICE_OFFLINE',
+  severity: 'WARNING',
+  eventCount: 3,
+  aggregatedIds: ['notif_001', 'notif_002', 'notif_003'],
+  summaryTitle: '3 devices in Living Room are offline',
+  summaryBody: 'Living Room Switch, Accent Light, and Ceiling Fan went offline.',
+  windowSeconds: 60,
+  createdAt: '2026-09-04T15:00:00Z',
+  updatedAt: '2026-09-04T15:01:00Z'
+};
+assert('Valid NotificationAggregation passes', validator.validate('NotificationAggregation', validNotificationAggregation).valid);
+assert('Invalid eventCount fails', !validator.validate('NotificationAggregation', { ...validNotificationAggregation, eventCount: 0 }).valid);
+
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);
 console.log(`========================================\n`);
 
 process.exit(failed > 0 ? 1 : 0);
+

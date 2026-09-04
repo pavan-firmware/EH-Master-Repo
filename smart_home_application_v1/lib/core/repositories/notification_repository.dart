@@ -4,6 +4,7 @@ abstract class NotificationRepository {
   Future<List<NotificationItem>> getNotifications({
     String? homeId,
     NotificationCategory? category,
+    NotificationSeverity? severity,
     int limit = 50,
     int offset = 0,
     bool unreadOnly = false,
@@ -15,9 +16,15 @@ abstract class NotificationRepository {
 
   Future<int> markAllAsRead({String? homeId});
 
-  Future<Map<String, bool>> getPreferences();
+  Future<bool> performAction(
+    String notificationId,
+    String actionType, {
+    Map<String, dynamic>? payload,
+  });
 
-  Future<bool> updatePreferences(Map<String, bool> preferences);
+  Future<Map<String, dynamic>> getPreferences();
+
+  Future<bool> updatePreferences(Map<String, dynamic> preferences);
 
   Future<bool> registerPushToken(
     String token, {
