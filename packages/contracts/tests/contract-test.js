@@ -40,7 +40,14 @@ const schemaFiles = [
   '../telemetry/telemetry.schema.json',
   '../automation/automation-rule.schema.json',
   '../ota/ota-manifest.schema.json',
-  '../api/api-envelope.schema.json'
+  '../api/api-envelope.schema.json',
+  '../edge/local-execution-request.schema.json',
+  '../edge/execution-route-decision.schema.json',
+  '../edge/local-connectivity-state.schema.json',
+  '../edge/local-device-discovery.schema.json',
+  '../edge/local-execution-result.schema.json',
+  '../edge/local-state-event.schema.json',
+  '../edge/edge-automation-execution.schema.json'
 ];
 
 schemaFiles.forEach(f => validator.loadSchema(path.join(__dirname, f)));
@@ -1037,6 +1044,131 @@ const validAddSession = {
 };
 assert('Valid DeviceAddSession passes', validator.validate('DeviceAddSession', validAddSession).valid);
 assert('Invalid stage fails', !validator.validate('DeviceAddSession', { ...validAddSession, stage: 'DONE_NOW' }).valid);
+
+// 33. Phase 28 — Edge & Local-First Execution Contracts:
+console.log('\n33. Phase 28 — LocalExecutionRequest:');
+const validLocalExecReq = {
+  commandId: 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
+  deviceId: 'eh-switch-001',
+  homeId: 'home_main',
+  channelIndex: 1,
+  action: 'setPower',
+  params: { value: true },
+  idempotencyKey: 'idem_key_12345678',
+  preferredRoute: 'AUTO',
+  maxTimeoutMs: 2500,
+  expiresAt: '2026-09-04T18:00:00Z',
+  actor: { userId: 'usr_01', role: 'OWNER', source: 'APP_LOCAL' },
+  createdAt: '2026-09-04T14:00:00Z'
+};
+assert('Valid LocalExecutionRequest passes', validator.validate('LocalExecutionRequest', validLocalExecReq).valid);
+assert('Invalid action fails', !validator.validate('LocalExecutionRequest', { ...validLocalExecReq, action: 'invalidAction' }).valid);
+
+console.log('\n34. Phase 28 — ExecutionRouteDecision:');
+const validRouteDecision = {
+  decisionId: 'dec_01928374',
+  deviceId: 'eh-switch-001',
+  homeId: 'home_main',
+  routeMode: 'LOCAL',
+  selectedTransport: 'WIFI_MQTT',
+  localEndpoint: '192.168.1.145:1883',
+  confidenceScore: 0.95,
+  fallbackOrder: ['BLE', 'CLOUD'],
+  isCloudAvailable: true,
+  isLocalAvailable: true,
+  decisionRationale: 'Device reachable on local LAN with active session',
+  decidedAt: '2026-09-04T14:00:01Z'
+};
+assert('Valid ExecutionRouteDecision passes', validator.validate('ExecutionRouteDecision', validRouteDecision).valid);
+assert('Invalid routeMode fails', !validator.validate('ExecutionRouteDecision', { ...validRouteDecision, routeMode: 'TELEPATHY' }).valid);
+
+console.log('\n35. Phase 28 — LocalConnectivityState:');
+const validLocalConnState = {
+  deviceId: 'eh-switch-001',
+  homeId: 'home_main',
+  isReachableLocally: true,
+  transportType: 'WIFI_MQTT',
+  localIp: '192.168.1.145',
+  localPort: 1883,
+  macAddress: 'AA:BB:CC:DD:EE:FF',
+  rssiDbm: -58,
+  latencyEstimateMs: 12.5,
+  authFingerprint: 'sha256:abcd1234ef',
+  isTlsSecured: true,
+  lastSeenAt: '2026-09-04T14:00:00Z'
+};
+assert('Valid LocalConnectivityState passes', validator.validate('LocalConnectivityState', validLocalConnState).valid);
+
+console.log('\n36. Phase 28 — LocalDeviceDiscovery:');
+const validLocalDiscovery = {
+  discoveryId: 'disc_98765',
+  deviceId: 'eh-switch-001',
+  homeId: 'home_main',
+  productVariantId: 'eh-smart-switch-3x',
+  macAddress: 'AA:BB:CC:DD:EE:FF',
+  ipAddress: '192.168.1.145',
+  port: 1883,
+  transportType: 'WIFI_MQTT',
+  protocolVersion: '1.2.0',
+  firmwareVersion: '2.1.0',
+  identityFingerprint: 'cert_fingerprint_hash',
+  isTrusted: true,
+  ttlSeconds: 300,
+  discoveredAt: '2026-09-04T14:00:00Z'
+};
+assert('Valid LocalDeviceDiscovery passes', validator.validate('LocalDeviceDiscovery', validLocalDiscovery).valid);
+
+console.log('\n37. Phase 28 — LocalExecutionResult:');
+const validExecResult = {
+  commandId: 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
+  deviceId: 'eh-switch-001',
+  channelIndex: 1,
+  action: 'setPower',
+  status: 'CONFIRMED',
+  routeUsed: 'LOCAL',
+  transportUsed: 'WIFI_MQTT',
+  isConfirmedByDevice: true,
+  confirmedState: { power: true },
+  latencyMs: 18.4,
+  errorMessage: null,
+  isIdempotentReplay: false,
+  queuedForCloudSync: true,
+  executedAt: '2026-09-04T14:00:02Z'
+};
+assert('Valid LocalExecutionResult passes', validator.validate('LocalExecutionResult', validExecResult).valid);
+assert('Invalid status fails', !validator.validate('LocalExecutionResult', { ...validExecResult, status: 'ASSUMED' }).valid);
+
+console.log('\n38. Phase 28 — LocalStateEvent:');
+const validLocalStateEvent = {
+  eventId: 'evt_local_019',
+  deviceId: 'eh-switch-001',
+  homeId: 'home_main',
+  channelIndex: 1,
+  eventType: 'RELAY_STATE_CHANGED',
+  payload: { state: 'ON', physicalSwitch: false },
+  source: 'LOCAL_LAN',
+  timestamp: '2026-09-04T14:00:02Z'
+};
+assert('Valid LocalStateEvent passes', validator.validate('LocalStateEvent', validLocalStateEvent).valid);
+
+console.log('\n39. Phase 28 — EdgeAutomationExecution:');
+const validEdgeAuto = {
+  executionId: 'exec_edge_9988',
+  homeId: 'home_main',
+  ruleType: 'AUTOMATION',
+  ruleId: 'rule_motion_lights',
+  ruleName: 'Motion turns on Living Room Lights',
+  triggerSource: 'sensor_pir_01',
+  status: 'SUCCESS',
+  actionsTotal: 2,
+  actionsSuccessful: 2,
+  actionsFailed: 0,
+  actionResults: [{ deviceId: 'eh-switch-001', status: 'CONFIRMED' }],
+  executionDurationMs: 45.2,
+  executedAt: '2026-09-04T14:00:03Z'
+};
+assert('Valid EdgeAutomationExecution passes', validator.validate('EdgeAutomationExecution', validEdgeAuto).valid);
+assert('Invalid status fails', !validator.validate('EdgeAutomationExecution', { ...validEdgeAuto, status: 'MAGIC' }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

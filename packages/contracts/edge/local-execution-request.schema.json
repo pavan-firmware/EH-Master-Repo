@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eh-home.io/schemas/edge/local-execution-request.schema.json",
+  "title": "LocalExecutionRequest",
+  "description": "Command envelope for local or edge-routed execution with actor authorization and idempotency",
+  "type": "object",
+  "required": [
+    "commandId",
+    "deviceId",
+    "homeId",
+    "action",
+    "idempotencyKey",
+    "createdAt"
+  ],
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "homeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "channelIndex": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "action": {
+      "type": "string",
+      "enum": ["setPower", "setLevel", "setColorTemp", "identifyDevice", "otaUpdate", "sceneActivate"]
+    },
+    "params": {
+      "type": "object"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8
+    },
+    "preferredRoute": {
+      "type": "string",
+      "enum": ["AUTO", "LOCAL_ONLY", "CLOUD_ONLY"],
+      "default": "AUTO"
+    },
+    "maxTimeoutMs": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000,
+      "default": 3000
+    },
+    "expiresAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string" },
+        "source": { "type": "string", "enum": ["APP_LOCAL", "APP_CLOUD", "EDGE_AUTOMATION", "EDGE_SCENE", "EDGE_SCHEDULE"] }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

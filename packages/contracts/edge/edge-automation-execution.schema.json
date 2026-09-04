@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eh-home.io/schemas/edge/edge-automation-execution.schema.json",
+  "title": "EdgeAutomationExecution",
+  "description": "Execution record for automations, scenes, and schedules evaluated locally on the edge",
+  "type": "object",
+  "required": [
+    "executionId",
+    "homeId",
+    "ruleType",
+    "ruleId",
+    "status",
+    "actionsTotal",
+    "actionsSuccessful",
+    "executedAt"
+  ],
+  "properties": {
+    "executionId": { "type": "string" },
+    "homeId": { "type": "string" },
+    "ruleType": {
+      "type": "string",
+      "enum": ["AUTOMATION", "SCENE", "SCHEDULE"]
+    },
+    "ruleId": { "type": "string" },
+    "ruleName": { "type": "string" },
+    "triggerSource": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["SUCCESS", "PARTIAL_SUCCESS", "FAILED", "SKIPPED_MANUAL_OVERRIDE", "SKIPPED_DEBOUNCE"]
+    },
+    "actionsTotal": { "type": "integer", "minimum": 0 },
+    "actionsSuccessful": { "type": "integer", "minimum": 0 },
+    "actionsFailed": { "type": "integer", "minimum": 0 },
+    "actionResults": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "executionDurationMs": { "type": "number", "minimum": 0 },
+    "executedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

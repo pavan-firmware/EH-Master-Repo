@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eh-home.io/schemas/edge/execution-route-decision.schema.json",
+  "title": "ExecutionRouteDecision",
+  "description": "Automated routing decision outcome computed by the execution router",
+  "type": "object",
+  "required": [
+    "decisionId",
+    "deviceId",
+    "homeId",
+    "routeMode",
+    "selectedTransport",
+    "confidenceScore",
+    "decidedAt"
+  ],
+  "properties": {
+    "decisionId": {
+      "type": "string"
+    },
+    "deviceId": {
+      "type": "string"
+    },
+    "homeId": {
+      "type": "string"
+    },
+    "routeMode": {
+      "type": "string",
+      "enum": ["LOCAL", "CLOUD", "DEFERRED", "UNAVAILABLE"]
+    },
+    "selectedTransport": {
+      "type": "string",
+      "enum": ["WIFI_MQTT", "BLE", "THREAD", "MATTER", "HTTP_LOCAL", "NONE"]
+    },
+    "localEndpoint": {
+      "type": ["string", "null"]
+    },
+    "confidenceScore": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "fallbackOrder": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "isCloudAvailable": {
+      "type": "boolean"
+    },
+    "isLocalAvailable": {
+      "type": "boolean"
+    },
+    "decisionRationale": {
+      "type": "string"
+    },
+    "decidedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

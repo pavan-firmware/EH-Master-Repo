@@ -147,8 +147,11 @@ runStep('36. Phase 26 Multi-Protocol Device Connectivity Tests', `${nodeBin} bac
 // 37. Phase 27 Product Discovery, Catalog & Consumer Device Add Tests
 runStep('37. Phase 27 Product Discovery, Catalog & Consumer Device Add Tests', `${nodeBin} backend/tests/phase27-product-discovery-catalog.test.js`);
 
+// 38. Phase 28 Local-First Home Control & Edge Execution Tests
+runStep('38. Phase 28 Local-First Home Control & Edge Execution Tests', `${nodeBin} backend/tests/phase28-local-first-edge-control.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  37 SUITES ATTEMPTED. ${failedSuites === 0 ? '37/37' : (37 - failedSuites) + '/37'} PASSED.`);
+console.log(`  38 SUITES ATTEMPTED. ${failedSuites === 0 ? '38/38' : (38 - failedSuites) + '/38'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

@@ -3683,5 +3683,9 @@ module.exports = {
   CommissioningSessionRepository,
   TransportHealthSnapshotRepository,
   // Phase 27 — Product Discovery & Consumer Device Add
-  DeviceAddSessionRepository: require('./device-add-session.repository').DeviceAddSessionRepository
+  DeviceAddSessionRepository: require('./device-add-session.repository').DeviceAddSessionRepository,
+  // Phase 28 — Local-First Home Control & Edge Execution
+  LocalRouteCacheRepository: require('./local-route-cache.repository').LocalRouteCacheRepository,
+  EdgeExecutionRepository: require('./edge-execution.repository').EdgeExecutionRepository,
+  LocalDiscoveryNodeRepository: require('./local-discovery-node.repository').LocalDiscoveryNodeRepository
 };

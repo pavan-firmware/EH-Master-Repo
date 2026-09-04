@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eh-home.io/schemas/edge/local-state-event.schema.json",
+  "title": "LocalStateEvent",
+  "description": "High-speed local state update stream event from physical device or local transport",
+  "type": "object",
+  "required": [
+    "eventId",
+    "deviceId",
+    "homeId",
+    "eventType",
+    "payload",
+    "timestamp"
+  ],
+  "properties": {
+    "eventId": { "type": "string" },
+    "deviceId": { "type": "string" },
+    "homeId": { "type": "string" },
+    "channelIndex": { "type": ["integer", "null"] },
+    "eventType": {
+      "type": "string",
+      "enum": ["RELAY_STATE_CHANGED", "PHYSICAL_SWITCH_TOGGLED", "TELEMETRY_SAMPLE", "CONNECTIVITY_CHANGED", "DEVICE_RECOVERED"]
+    },
+    "payload": { "type": "object" },
+    "source": {
+      "type": "string",
+      "enum": ["LOCAL_LAN", "LOCAL_BLE", "LOCAL_THREAD", "LOCAL_MATTER", "CLOUD_SYNC"]
+    },
+    "timestamp": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eh-home.io/schemas/edge/local-device-discovery.schema.json",
+  "title": "LocalDeviceDiscovery",
+  "description": "Authenticated local network discovery record with cryptographic device identity",
+  "type": "object",
+  "required": [
+    "discoveryId",
+    "deviceId",
+    "homeId",
+    "productVariantId",
+    "transportType",
+    "identityFingerprint",
+    "isTrusted",
+    "discoveredAt"
+  ],
+  "properties": {
+    "discoveryId": { "type": "string" },
+    "deviceId": { "type": "string" },
+    "homeId": { "type": "string" },
+    "productVariantId": { "type": "string" },
+    "macAddress": { "type": "string" },
+    "ipAddress": { "type": "string" },
+    "port": { "type": "integer" },
+    "transportType": {
+      "type": "string",
+      "enum": ["WIFI_MQTT", "BLE", "THREAD", "MATTER", "HTTP_LOCAL"]
+    },
+    "protocolVersion": { "type": "string" },
+    "firmwareVersion": { "type": "string" },
+    "identityFingerprint": { "type": "string" },
+    "isTrusted": { "type": "boolean" },
+    "ttlSeconds": { "type": "integer", "default": 300 },
+    "discoveredAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
