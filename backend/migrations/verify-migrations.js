@@ -24,7 +24,8 @@ const migrations = [
   { up: '021_local_first_edge_control.sql', down: '021_local_first_edge_control.down.sql' },
   { up: '022_matter_ecosystem_interoperability.sql', down: '022_matter_ecosystem_interoperability.down.sql' },
   { up: '023_intelligent_notifications.sql', down: '023_intelligent_notifications.down.sql' },
-  { up: '024_secure_operations_observability.sql', down: '024_secure_operations_observability.down.sql' }
+  { up: '024_secure_operations_observability.sql', down: '024_secure_operations_observability.down.sql' },
+  { up: '025_device_trust_security.sql', down: '025_device_trust_security.down.sql' }
 ];
 
 let totalUpTables = [];

@@ -64,7 +64,13 @@ const schemaFiles = [
   '../operations/operational-event.schema.json',
   '../operations/audit-record.schema.json',
   '../operations/operation-trace.schema.json',
-  '../operations/system-health.schema.json'
+  '../operations/system-health.schema.json',
+  '../device-trust/device-identity-verification.schema.json',
+  '../device-trust/device-trust-state.schema.json',
+  '../device-trust/device-credential-lifecycle.schema.json',
+  '../device-trust/device-revocation.schema.json',
+  '../device-trust/device-provisioning-record.schema.json',
+  '../device-trust/device-security-event.schema.json'
 ];
 
 schemaFiles.forEach(f => validator.loadSchema(path.join(__dirname, f)));
@@ -1548,6 +1554,131 @@ const validSystemHealth = {
 };
 assert('Valid SystemHealth passes', validator.validate('SystemHealth', validSystemHealth).valid);
 assert('Invalid status in SystemHealth fails', !validator.validate('SystemHealth', { ...validSystemHealth, status: 'AWESOME' }).valid);
+
+console.log('\n57. Phase 32 — DeviceIdentityVerification:');
+const validIdentityVerif = {
+  schemaVersion: 1,
+  deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  serialNumber: 'EH-SW3X-2026W12-00891',
+  productVariantId: 'eh-smart-switch-3x',
+  hardwareRevision: 'HW_1_0',
+  firmwareFamily: 'esp32c6-switch-platform',
+  secureElementPresent: true,
+  attestationType: 'FACTORY_KEY',
+  attestationVerified: true,
+  verifiedAt: '2026-09-04T16:00:00.000Z'
+};
+assert('Valid DeviceIdentityVerification passes', validator.validate('DeviceIdentityVerification', validIdentityVerif).valid);
+assert('Missing deviceId in DeviceIdentityVerification fails', !validator.validate('DeviceIdentityVerification', { ...validIdentityVerif, deviceId: undefined }).valid);
+assert('Invalid attestationType in DeviceIdentityVerification fails', !validator.validate('DeviceIdentityVerification', { ...validIdentityVerif, attestationType: 'MAGIC_HANDSHAKE' }).valid);
+
+console.log('\n58. Phase 32 — DeviceTrustState:');
+const validTrustState = {
+  schemaVersion: 1,
+  deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  trustState: 'TRUSTED',
+  trustScore: 98.5,
+  reasoningJson: { verifiedCredentials: true, recentAuthFailures: 0 },
+  quarantinedAt: null,
+  revokedAt: null,
+  lastEvaluatedAt: '2026-09-04T16:00:00.000Z',
+  updatedAt: '2026-09-04T16:00:00.000Z'
+};
+assert('Valid DeviceTrustState passes', validator.validate('DeviceTrustState', validTrustState).valid);
+const allowedTrustStates = ['PROVISIONED', 'COMMISSIONED', 'TRUSTED', 'DEGRADED', 'QUARANTINED', 'REVOKED', 'DECOMMISSIONED', 'FACTORY_RESET'];
+allowedTrustStates.forEach(st => {
+  assert(`DeviceTrustState state '${st}' is valid`, validator.validate('DeviceTrustState', { ...validTrustState, trustState: st }).valid);
+});
+assert('Invalid trustState fails', !validator.validate('DeviceTrustState', { ...validTrustState, trustState: 'INVINCIBLE' }).valid);
+assert('TrustScore > 100 fails', !validator.validate('DeviceTrustState', { ...validTrustState, trustScore: 101 }).valid);
+assert('TrustScore < 0 fails', !validator.validate('DeviceTrustState', { ...validTrustState, trustScore: -5 }).valid);
+
+console.log('\n59. Phase 32 — DeviceCredentialLifecycle:');
+const validCredLifecycle = {
+  schemaVersion: 1,
+  id: 'e0000000-0000-0000-0000-000000000001',
+  deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  credentialType: 'MQTT',
+  keyIdentifier: 'eh_dev_0194fe237a1b7890_gen2',
+  fingerprint: 'a1b2c3d4e5f6071829304a5b6c7d8e9f0123456789abcdef0123456789abcdef',
+  status: 'CONFIRMED',
+  rotationGeneration: 2,
+  issuedAt: '2026-09-04T16:00:00.000Z',
+  expiresAt: null,
+  rotatedAt: null,
+  revokedAt: null,
+  metadata: {
+    algorithm: 'Argon2id',
+    provider: 'EH_INTERNAL',
+    rotationReason: 'PERIODIC_POLICY'
+  }
+};
+assert('Valid DeviceCredentialLifecycle passes', validator.validate('DeviceCredentialLifecycle', validCredLifecycle).valid);
+const allowedCredStatuses = ['ROTATION_PENDING', 'CONFIRMED', 'ROTATED', 'REVOKED', 'EXPIRED'];
+allowedCredStatuses.forEach(st => {
+  assert(`DeviceCredentialLifecycle status '${st}' is valid`, validator.validate('DeviceCredentialLifecycle', { ...validCredLifecycle, status: st }).valid);
+});
+assert('Invalid status in DeviceCredentialLifecycle fails', !validator.validate('DeviceCredentialLifecycle', { ...validCredLifecycle, status: 'PERMANENT' }).valid);
+assert('Zero rotationGeneration fails', !validator.validate('DeviceCredentialLifecycle', { ...validCredLifecycle, rotationGeneration: 0 }).valid);
+
+console.log('\n60. Phase 32 — DeviceRevocation:');
+const validRevocation = {
+  schemaVersion: 1,
+  id: 'f0000000-0000-0000-0000-000000000001',
+  deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  revocationType: 'COMPROMISED',
+  reason: 'Anomalous authentication burst and repeated invalid payload signatures',
+  actorUserId: null,
+  evidenceJson: { failedAuthAttempts: 25 },
+  remediationAllowed: false,
+  createdAt: '2026-09-04T16:00:00.000Z'
+};
+assert('Valid DeviceRevocation passes', validator.validate('DeviceRevocation', validRevocation).valid);
+const allowedRevocationTypes = ['CREDENTIAL_REVOKED', 'TRUST_REVOKED', 'DECOMMISSIONED', 'COMPROMISED'];
+allowedRevocationTypes.forEach(rt => {
+  assert(`DeviceRevocation type '${rt}' is valid`, validator.validate('DeviceRevocation', { ...validRevocation, revocationType: rt }).valid);
+});
+assert('Invalid revocationType fails', !validator.validate('DeviceRevocation', { ...validRevocation, revocationType: 'BANISHED' }).valid);
+
+console.log('\n61. Phase 32 — DeviceProvisioningRecord:');
+const validProvRecord = {
+  schemaVersion: 1,
+  id: 'c0000000-0000-0000-0000-000000000001',
+  deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  stage: 'VERIFIED',
+  authority: 'CLOUD_API',
+  evidenceJson: { verifiedMqttPing: true },
+  completedAt: '2026-09-04T16:00:00.000Z',
+  createdAt: '2026-09-04T15:58:00.000Z'
+};
+assert('Valid DeviceProvisioningRecord passes', validator.validate('DeviceProvisioningRecord', validProvRecord).valid);
+const allowedStages = ['FACTORY_INITIALIZED', 'PROVISIONING_STARTED', 'CREDENTIALS_ISSUED', 'CLAIMED_TO_HOME', 'VERIFIED'];
+allowedStages.forEach(st => {
+  assert(`DeviceProvisioningRecord stage '${st}' is valid`, validator.validate('DeviceProvisioningRecord', { ...validProvRecord, stage: st }).valid);
+});
+assert('Invalid stage in DeviceProvisioningRecord fails', !validator.validate('DeviceProvisioningRecord', { ...validProvRecord, stage: 'PACKAGED' }).valid);
+
+console.log('\n62. Phase 32 — DeviceSecurityEvent:');
+const validSecEvent = {
+  schemaVersion: 1,
+  id: 'd0000000-0000-0000-0000-000000000001',
+  deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  eventType: 'QUARANTINE_ENACTED',
+  severity: 'WARNING',
+  details: {
+    previousTrustState: 'TRUSTED',
+    newTrustState: 'QUARANTINED',
+    reason: 'Repeated HMAC authentication failures'
+  },
+  timestamp: '2026-09-04T16:00:00.000Z'
+};
+assert('Valid DeviceSecurityEvent passes', validator.validate('DeviceSecurityEvent', validSecEvent).valid);
+const allowedSecEvents = ['TRUST_STATE_CHANGED', 'ROTATION_INITIATED', 'ROTATION_CONFIRMED', 'QUARANTINE_ENACTED', 'REVOCATION_ENACTED', 'TRUST_RESTORED', 'AUTH_FAILED_BURST'];
+allowedSecEvents.forEach(evt => {
+  assert(`DeviceSecurityEvent eventType '${evt}' is valid`, validator.validate('DeviceSecurityEvent', { ...validSecEvent, eventType: evt }).valid);
+});
+assert('Invalid eventType fails', !validator.validate('DeviceSecurityEvent', { ...validSecEvent, eventType: 'SOMETHING_FISHY' }).valid);
+assert('Invalid severity fails', !validator.validate('DeviceSecurityEvent', { ...validSecEvent, severity: 'EXTREME' }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

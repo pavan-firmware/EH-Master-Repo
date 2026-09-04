@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/device-trust/device-revocation.schema.json",
+  "title": "DeviceRevocation",
+  "description": "Explicit revocation record documenting intentional trust or credential termination and remediation policy.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "deviceId",
+    "revocationType",
+    "reason",
+    "remediationAllowed",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "description": "Schema format version"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique revocation record UUID"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Canonical immutable logical UUID of revoked device"
+    },
+    "revocationType": {
+      "type": "string",
+      "enum": [
+        "CREDENTIAL_REVOKED",
+        "TRUST_REVOKED",
+        "DECOMMISSIONED",
+        "COMPROMISED"
+      ],
+      "description": "Classification of revocation action"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 3,
+      "description": "Human or programmatic justification for revocation"
+    },
+    "actorUserId": {
+      "type": ["string", "null"],
+      "description": "User ID who enacted revocation, or null if triggered automatically by security engine"
+    },
+    "evidenceJson": {
+      "type": "object",
+      "description": "Diagnostic or behavioral evidence supporting revocation"
+    },
+    "remediationAllowed": {
+      "type": "boolean",
+      "description": "Whether device is eligible for re-commissioning through authorized recovery flow"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when revocation occurred"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "id": "f0000000-0000-0000-0000-000000000001",
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "revocationType": "COMPROMISED",
+      "reason": "Anomalous authentication burst and repeated invalid payload signatures",
+      "actorUserId": null,
+      "evidenceJson": {
+        "failedAuthAttempts": 25,
+        "signatureFailures": 5
+      },
+      "remediationAllowed": false,
+      "createdAt": "2026-09-04T16:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/device-trust/device-security-event.schema.json",
+  "title": "DeviceSecurityEvent",
+  "description": "Security-relevant event emitted upon trust transitions, credential rotations, or policy enactments.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "deviceId",
+    "eventType",
+    "severity",
+    "timestamp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "description": "Schema format version"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique security event UUID"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Canonical immutable logical UUID of the target device"
+    },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "TRUST_STATE_CHANGED",
+        "ROTATION_INITIATED",
+        "ROTATION_CONFIRMED",
+        "QUARANTINE_ENACTED",
+        "REVOCATION_ENACTED",
+        "TRUST_RESTORED",
+        "AUTH_FAILED_BURST"
+      ],
+      "description": "Category of device security event"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+      ],
+      "description": "Severity classification"
+    },
+    "details": {
+      "type": "object",
+      "description": "Contextual details and metadata for the security incident or action"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when security event occurred"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "id": "d0000000-0000-0000-0000-000000000001",
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "eventType": "QUARANTINE_ENACTED",
+      "severity": "WARNING",
+      "details": {
+        "previousTrustState": "TRUSTED",
+        "newTrustState": "QUARANTINED",
+        "reason": "Repeated HMAC authentication failures"
+      },
+      "timestamp": "2026-09-04T16:00:00.000Z"
+    }
+  ]
+}

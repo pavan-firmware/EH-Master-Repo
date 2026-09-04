@@ -280,6 +280,29 @@ class DataRetentionService {
     }
     return { pruned: stale.length, cutoff };
   }
+
+  async pruneDeviceCredentialLifecycle(olderThanDays = 180) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    // Only prune historical rotated or expired records; NEVER active or pending records
+    const stale = await this.db.find('device_credential_lifecycle', r => {
+      return (r.status === 'ROTATED' || r.status === 'EXPIRED') && r.issued_at < cutoff;
+    });
+    for (const r of stale) {
+      await this.db.delete('device_credential_lifecycle', r.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneDeviceProvisioningRecords(olderThanDays = 90) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('device_provisioning_records', p => {
+      return p.completed_at && p.completed_at < cutoff;
+    });
+    for (const p of stale) {
+      await this.db.delete('device_provisioning_records', p.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
 }
 
 module.exports = { DataRetentionService };

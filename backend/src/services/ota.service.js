@@ -28,6 +28,7 @@ class OtaService {
     this.realtimeEventBus = options.realtimeEventBus || null;
     this.notificationService = options.notificationService || null;
     this.productCatalogService = options.productCatalogService || null;
+    this.deviceTrustService = options.deviceTrustService || null;
     this.releases = new Map();
   }
 
@@ -251,7 +252,7 @@ class OtaService {
   // 5. OTA Lifecycle Operations
   // ---------------------------------------------------------------------------
 
-  async initiateOta({ deviceId, releaseId, homeId, userId }) {
+  async initiateOta({ deviceId, releaseId, homeId, userId, isRecoveryOta = false }) {
     if (this.homeAuthService) {
       await this.homeAuthService.requireMembership(userId, homeId, null, 'canManageDevices');
     }
@@ -266,6 +267,18 @@ class OtaService {
 
     const release = await this.getRelease(releaseId);
     if (!release) throw new Error(`Firmware release ${releaseId} not found`);
+
+    // Phase 32: Device Trust & Quarantine Policy (Fix 5)
+    if (this.deviceTrustService) {
+      const sigOk = !!(release.sha256 || release.ed25519Signature || release.ed25519_signature);
+      const otaTrustCheck = await this.deviceTrustService.canPerformOta(deviceId, {
+        isRecoveryOta,
+        firmwareSignatureVerified: sigOk
+      });
+      if (!otaTrustCheck.allowed) {
+        throw new Error(`OTA denied for device ${deviceId}: ${otaTrustCheck.reason}`);
+      }
+    }
 
     // Verify compatibility
     if (release.product_variant_id && release.product_variant_id !== dev.product_variant_id) {

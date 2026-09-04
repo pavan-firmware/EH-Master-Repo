@@ -83,7 +83,9 @@ const {
   // Phase 31 — Secure Operations, Audit & Platform Observability
   OperationalEventRepository,
   SecurityAuditRepository,
-  SystemHealthRepository
+  SystemHealthRepository,
+  // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
+  DeviceTrustRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -142,6 +144,8 @@ const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
 const { OperationsApiRouter } = require('./api/operations.router');
+const { DeviceTrustApiRouter } = require('./api/device-trust.router');
+const { DeviceTrustService } = require('./services/device-trust.service');
 const { OperationsAuditService } = require('./services/operations-audit.service');
 const { OperationTraceService } = require('./services/operation-trace.service');
 const { SystemHealthService } = require('./services/system-health.service');
@@ -732,6 +736,24 @@ function createApp(options = {}) {
     operationsMetricsService,
     homeAuthorizationService: homeAuthService
   });
+
+  // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
+  const deviceTrustRepo = options.deviceTrustRepo || new DeviceTrustRepository(db);
+  const deviceTrustService = options.deviceTrustService || new DeviceTrustService({
+    deviceTrustRepo,
+    deviceRepo,
+    securityAuditRepo,
+    operationalEventService: operationsAuditService,
+    notificationService
+  });
+  commandService.deviceTrustService = deviceTrustService;
+  otaService.deviceTrustService = deviceTrustService;
+  const deviceTrustRouter = new DeviceTrustApiRouter({
+    deviceTrustService,
+    homeAuthorizationService: homeAuthService,
+    deviceRepo
+  });
+
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -1024,6 +1046,29 @@ function createApp(options = {}) {
       const opsResult = await operationsRouter.handle(method, pathname, body, req.headers, query);
       if (opsResult) {
         return sendJsonResponse(res, opsResult.status, opsResult.body);
+      }
+    }
+
+    // 8.8c. Route to Device Trust & Security Router (Phase 32)
+    if (
+      pathname.startsWith('/api/v1/admin/device-trust') ||
+      (pathname.startsWith('/api/v1/devices/') && (
+        pathname.endsWith('/trust') ||
+        pathname.endsWith('/quarantine') ||
+        pathname.endsWith('/revoke') ||
+        pathname.endsWith('/restore-trust') ||
+        pathname.includes('/credentials') ||
+        pathname.endsWith('/factory-reset-reconcile') ||
+        pathname.endsWith('/security-history')
+      ))
+    ) {
+      if (req.user) {
+        query.userId = req.user.id;
+        if (req.user.role) query.userRole = req.user.role;
+      }
+      const trustResult = await deviceTrustRouter.handle(method, pathname, body, req.headers, query);
+      if (trustResult) {
+        return sendJsonResponse(res, trustResult.status, trustResult.body);
       }
     }
 
