@@ -46,7 +46,14 @@ class DeviceAddSessionRepository {
       completed_at: null
     };
 
-    if (this.db && typeof this.db.query === 'function') {
+    this._memorySessions.set(id, session);
+    if (this.db && typeof this.db.insert === 'function') {
+      try {
+        await this.db.insert('device_add_sessions', id, session);
+      } catch (err) {
+        // Ignore if exists or mock
+      }
+    } else if (this.db && typeof this.db.query === 'function') {
       try {
         await this.db.query(
           `INSERT INTO device_add_sessions (
@@ -65,18 +72,22 @@ class DeviceAddSessionRepository {
           ]
         );
       } catch (err) {
-        // In-memory fallback if mock DB doesn't have table
-        this._memorySessions.set(id, session);
+        // Fallback
       }
-    } else {
-      this._memorySessions.set(id, session);
     }
 
     return this._mapRow(session);
   }
 
   async findById(sessionId) {
-    if (this.db && typeof this.db.query === 'function') {
+    if (this.db && typeof this.db.findById === 'function') {
+      try {
+        const found = await this.db.findById('device_add_sessions', sessionId);
+        if (found) return this._mapRow(found);
+      } catch (err) {
+        // Fallback
+      }
+    } else if (this.db && typeof this.db.query === 'function') {
       try {
         const res = await this.db.query(
           'SELECT * FROM device_add_sessions WHERE id = $1',

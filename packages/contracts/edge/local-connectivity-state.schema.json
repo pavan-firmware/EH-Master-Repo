@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eh-home.io/schemas/edge/local-connectivity-state.schema.json",
+  "title": "LocalConnectivityState",
+  "description": "Local LAN reachability, endpoint status, and signal quality metrics for a device",
+  "type": "object",
+  "required": [
+    "deviceId",
+    "homeId",
+    "isReachableLocally",
+    "transportType",
+    "lastSeenAt"
+  ],
+  "properties": {
+    "deviceId": { "type": "string" },
+    "homeId": { "type": "string" },
+    "isReachableLocally": { "type": "boolean" },
+    "transportType": {
+      "type": "string",
+      "enum": ["WIFI_MQTT", "BLE", "THREAD", "MATTER", "HTTP_LOCAL"]
+    },
+    "localIp": { "type": ["string", "null"] },
+    "localPort": { "type": ["integer", "null"] },
+    "macAddress": { "type": ["string", "null"] },
+    "rssiDbm": { "type": ["integer", "null"] },
+    "latencyEstimateMs": { "type": ["number", "null"] },
+    "authFingerprint": { "type": ["string", "null"] },
+    "isTlsSecured": { "type": "boolean", "default": true },
+    "lastSeenAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

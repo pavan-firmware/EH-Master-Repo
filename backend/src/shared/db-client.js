@@ -32,9 +32,18 @@ class DatabaseClient {
       'reliability_health_snapshots', 'maintenance_recommendations',
       // Phase 26 — Multi-Protocol Device Connectivity & Interoperability
       'device_transports', 'device_connection_states', 'commissioning_sessions',
-      'transport_health_snapshots'
+      'transport_health_snapshots',
+      // Phase 27 — Product Discovery & Consumer Device Add
+      'product_models', 'device_add_sessions',
+      // Phase 28 — Local-First Home Control & Edge Execution
+      'local_route_cache', 'edge_execution_records', 'local_discovery_nodes'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
+  }
+
+  async query(sql, params = []) {
+    // Mock query execution against in-memory tables
+    return { rows: [], rowCount: 0 };
   }
 
   getTable(name) {

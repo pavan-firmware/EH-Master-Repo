@@ -71,7 +71,11 @@ const {
   CommissioningSessionRepository,
   TransportHealthSnapshotRepository,
   // Phase 27 — Product Discovery & Consumer Device Add
-  DeviceAddSessionRepository
+  DeviceAddSessionRepository,
+  // Phase 28 — Local-First Home Control & Edge Execution
+  LocalRouteCacheRepository,
+  EdgeExecutionRepository,
+  LocalDiscoveryNodeRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -100,6 +104,10 @@ const { ContextService } = require('./services/context.service');
 const { IntelligenceService } = require('./services/intelligence.service');
 const { ReliabilityService } = require('./services/reliability.service');
 const { ConnectivityService } = require('./services/connectivity.service');
+const { ExecutionRoutingService } = require('./services/execution-routing.service');
+const { LocalExecutionService } = require('./services/local-execution.service');
+const { LocalDiscoveryService } = require('./services/local-discovery.service');
+const { EdgeAutomationService } = require('./services/edge-automation.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
@@ -116,6 +124,7 @@ const { ContextApiRouter } = require('./api/context.router');
 const { IntelligenceApiRouter } = require('./api/intelligence.router');
 const { ReliabilityApiRouter } = require('./api/reliability.router');
 const { ConnectivityApiRouter } = require('./api/connectivity.router');
+const { EdgeControlApiRouter } = require('./api/edge-control.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
@@ -274,6 +283,10 @@ function createApp(options = {}) {
   const transportHealthSnapshotRepo = options.transportHealthSnapshotRepo || new TransportHealthSnapshotRepository(db);
   // Phase 27 Repositories
   const deviceAddSessionRepo = options.deviceAddSessionRepo || new DeviceAddSessionRepository(db);
+  // Phase 28 Repositories
+  const localRouteRepo = options.localRouteRepo || new LocalRouteCacheRepository(db);
+  const edgeExecutionRepo = options.edgeExecutionRepo || new EdgeExecutionRepository(db);
+  const localDiscoveryNodeRepo = options.localDiscoveryNodeRepo || new LocalDiscoveryNodeRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -430,6 +443,45 @@ function createApp(options = {}) {
     auditRepo
   });
 
+  // Phase 28 — Local-First Home Control & Edge Execution Services
+  const executionRoutingService = options.executionRoutingService || new ExecutionRoutingService({
+    localRouteRepo,
+    connectivityService,
+    deviceRepo,
+    homeAuthService,
+    contextService,
+    reliabilityService
+  });
+
+  const localExecutionService = options.localExecutionService || new LocalExecutionService({
+    routingService: executionRoutingService,
+    edgeExecutionRepo,
+    localRouteRepo,
+    deviceRepo,
+    deviceStateRepo,
+    homeAuthService,
+    deviceCommandService: commandService,
+    eventBus,
+    syncService: options.syncService || null
+  });
+
+  const localDiscoveryService = options.localDiscoveryService || new LocalDiscoveryService({
+    discoveryRepo: localDiscoveryNodeRepo,
+    localRouteRepo,
+    deviceRepo,
+    deviceCredRepo: null
+  });
+
+  const edgeAutomationService = options.edgeAutomationService || new EdgeAutomationService({
+    localExecutionService,
+    automationService,
+    sceneService,
+    scheduleRepo,
+    automationRepo,
+    sceneRepo,
+    eventBus
+  });
+
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,
     eventRepo,
@@ -557,6 +609,15 @@ function createApp(options = {}) {
   const intelligenceRouter = new IntelligenceApiRouter({ intelligenceService, homeAuthService });
   const reliabilityRouter = new ReliabilityApiRouter({ reliabilityService, homeAuthService });
   const connectivityRouter = new ConnectivityApiRouter({ connectivityService, homeAuthService });
+  const edgeControlRouter = new EdgeControlApiRouter({
+    routingService: executionRoutingService,
+    localExecutionService,
+    localDiscoveryService,
+    edgeAutomationService,
+    edgeExecutionRepo,
+    localRouteRepo,
+    homeAuthService
+  });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
   const deviceManagementRouter = new DeviceManagementApiRouter({
     deviceManagementService,
@@ -778,6 +839,18 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.statusCode, result.body);
     }
 
+    // 8.595. Route to Edge Control & Local-First Execution Router (Phase 28)
+    if (
+      pathname.startsWith('/api/v1/edge') ||
+      (pathname.startsWith('/api/v1/devices/') && pathname.endsWith('/execute')) ||
+      (pathname.startsWith('/api/v1/devices/') && pathname.endsWith('/local-connectivity')) ||
+      (pathname.startsWith('/api/v1/homes/') && pathname.includes('/local-'))
+    ) {
+      const actorContext = req.user ? { userId: req.user.id } : (req.actorContext || null);
+      const result = await edgeControlRouter.handleRequest({ method, path: pathname, query, body }, actorContext);
+      return sendJsonResponse(res, result.statusCode, result.body);
+    }
+
     // 8.6. Route to Automation, Scene, and Schedule Router
     if (
       pathname.includes('/scenes') ||
@@ -888,6 +961,10 @@ function createApp(options = {}) {
       reliabilityService,
       connectivityService,
       deviceAddService,
+      executionRoutingService,
+      localExecutionService,
+      localDiscoveryService,
+      edgeAutomationService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -911,12 +988,17 @@ function createApp(options = {}) {
       deviceTransportRepo, deviceConnectionStateRepo, commissioningSessionRepo,
       transportHealthSnapshotRepo,
       // Phase 27 Repositories
-      deviceAddSessionRepo
+      deviceAddSessionRepo,
+      // Phase 28 Repositories
+      localRouteRepo,
+      edgeExecutionRepo,
+      localDiscoveryNodeRepo
     },
     contextApiRouter: contextRouter,
     intelligenceApiRouter: intelligenceRouter,
     reliabilityApiRouter: reliabilityRouter,
     connectivityApiRouter: connectivityRouter,
+    edgeControlApiRouter: edgeControlRouter,
     energyApiRouter: energyRouter,
     catalogApiRouter: catalogRouter
   };

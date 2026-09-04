@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eh-home.io/schemas/edge/local-execution-result.schema.json",
+  "title": "LocalExecutionResult",
+  "description": "Command execution confirmation receipt with physical state verification and latency",
+  "type": "object",
+  "required": [
+    "commandId",
+    "deviceId",
+    "status",
+    "routeUsed",
+    "transportUsed",
+    "isConfirmedByDevice",
+    "latencyMs",
+    "executedAt"
+  ],
+  "properties": {
+    "commandId": { "type": "string" },
+    "deviceId": { "type": "string" },
+    "channelIndex": { "type": ["integer", "null"] },
+    "action": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["CONFIRMED", "PENDING", "FAILED", "DEFERRED", "UNAVAILABLE", "EXPIRED"]
+    },
+    "routeUsed": {
+      "type": "string",
+      "enum": ["LOCAL", "CLOUD", "DEFERRED", "UNAVAILABLE"]
+    },
+    "transportUsed": {
+      "type": "string",
+      "enum": ["WIFI_MQTT", "BLE", "THREAD", "MATTER", "HTTP_LOCAL", "NONE"]
+    },
+    "isConfirmedByDevice": { "type": "boolean" },
+    "confirmedState": { "type": "object" },
+    "latencyMs": { "type": "number", "minimum": 0 },
+    "errorMessage": { "type": ["string", "null"] },
+    "isIdempotentReplay": { "type": "boolean", "default": false },
+    "queuedForCloudSync": { "type": "boolean", "default": false },
+    "executedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
