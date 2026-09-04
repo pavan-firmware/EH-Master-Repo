@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -21,8 +22,15 @@ class _NotificationPreferencesPageState
   bool _pushEnabled = true;
   bool _criticalAlerts = true;
   bool _deviceOffline = true;
+  bool _deviceHealth = true;
   bool _automationFailure = true;
   bool _firmwareUpdates = true;
+  bool _energyAlerts = true;
+  bool _matterAlerts = true;
+  bool _securityAlerts = true;
+  bool _quietHoursEnabled = false;
+  String _quietHoursStart = '22:00';
+  String _quietHoursEnd = '07:00';
   bool _loaded = false;
 
   @override
@@ -34,46 +42,84 @@ class _NotificationPreferencesPageState
 
   Future<void> _loadPrefs() async {
     final prefs = await _storage.loadNotificationPrefs();
+    final sp = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
         _pushEnabled = prefs['pushEnabled'] ?? true;
         _criticalAlerts = prefs['criticalAlerts'] ?? true;
         _deviceOffline = prefs['deviceOffline'] ?? true;
+        _deviceHealth = prefs['deviceHealth'] ?? true;
         _automationFailure = prefs['automationFailure'] ?? true;
         _firmwareUpdates = prefs['firmwareUpdates'] ?? true;
+        _energyAlerts = prefs['energyAlerts'] ?? true;
+        _matterAlerts = prefs['matterAlerts'] ?? true;
+        _securityAlerts = prefs['securityAlerts'] ?? true;
+        _quietHoursEnabled = prefs['quietHoursEnabled'] ?? false;
+        _quietHoursStart = sp.getString('eh_quiet_hours_start') ?? '22:00';
+        _quietHoursEnd = sp.getString('eh_quiet_hours_end') ?? '07:00';
         _loaded = true;
       });
     }
   }
 
-  Future<void> _updatePref(String key, bool value) async {
+  Future<void> _updatePref(String key, dynamic value) async {
     setState(() {
       switch (key) {
         case 'pushEnabled':
-          _pushEnabled = value;
+          _pushEnabled = value as bool;
           break;
         case 'criticalAlerts':
-          _criticalAlerts = value;
+          _criticalAlerts = value as bool;
           break;
         case 'deviceOffline':
-          _deviceOffline = value;
+          _deviceOffline = value as bool;
+          break;
+        case 'deviceHealth':
+          _deviceHealth = value as bool;
           break;
         case 'automationFailure':
-          _automationFailure = value;
+          _automationFailure = value as bool;
           break;
         case 'firmwareUpdates':
-          _firmwareUpdates = value;
+          _firmwareUpdates = value as bool;
+          break;
+        case 'energyAlerts':
+          _energyAlerts = value as bool;
+          break;
+        case 'matterAlerts':
+          _matterAlerts = value as bool;
+          break;
+        case 'securityAlerts':
+          _securityAlerts = value as bool;
+          break;
+        case 'quietHoursEnabled':
+          _quietHoursEnabled = value as bool;
+          break;
+        case 'quietHoursStart':
+          _quietHoursStart = value as String;
+          break;
+        case 'quietHoursEnd':
+          _quietHoursEnd = value as String;
           break;
       }
     });
 
-    await _storage.saveNotificationPrefs({
+    final boolMap = <String, bool>{
       'pushEnabled': _pushEnabled,
       'criticalAlerts': _criticalAlerts,
       'deviceOffline': _deviceOffline,
+      'deviceHealth': _deviceHealth,
       'automationFailure': _automationFailure,
       'firmwareUpdates': _firmwareUpdates,
-    });
+      'energyAlerts': _energyAlerts,
+      'matterAlerts': _matterAlerts,
+      'securityAlerts': _securityAlerts,
+      'quietHoursEnabled': _quietHoursEnabled,
+    };
+    await _storage.saveNotificationPrefs(boolMap);
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('eh_quiet_hours_start', _quietHoursStart);
+    await sp.setString('eh_quiet_hours_end', _quietHoursEnd);
   }
 
   @override
@@ -90,34 +136,31 @@ class _NotificationPreferencesPageState
           : ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
               children: [
+                // Master Push Toggle
                 const SettingsSectionTitle('PUSH ALERTS'),
                 SettingsSurface(
-                  child: Column(
-                    children: [
-                      SwitchListTile(
-                        activeTrackColor: tokens.bluePrimary,
-                        title: Text(
-                          'Allow push notifications',
-                          style: TextStyle(
-                            color: tokens.textPrimary,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                          ),
-                        ),
-                        subtitle: Text(
-                          'Receive real-time alerts about your home on this device.',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                        value: _pushEnabled,
-                        onChanged: (val) => _updatePref('pushEnabled', val),
+                  child: SwitchListTile(
+                    activeTrackColor: tokens.bluePrimary,
+                    title: Text(
+                      'Push Notifications',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
                       ),
-                    ],
+                    ),
+                    subtitle: Text(
+                      'Receive instant push updates on your device',
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    value: _pushEnabled,
+                    onChanged: (val) => _updatePref('pushEnabled', val),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 const SettingsSectionTitle('ALERT CATEGORIES'),
                 SettingsSurface(
                   child: Column(
@@ -171,6 +214,29 @@ class _NotificationPreferencesPageState
                       SwitchListTile(
                         activeTrackColor: tokens.bluePrimary,
                         title: Text(
+                          'Device health & self-healing',
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Notify when proactive self-healing or recovery events occur.',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        value: _deviceHealth,
+                        onChanged: _pushEnabled
+                            ? (val) => _updatePref('deviceHealth', val)
+                            : null,
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        activeTrackColor: tokens.bluePrimary,
+                        title: Text(
                           'Automation & routine failures',
                           style: TextStyle(
                             color: tokens.textPrimary,
@@ -213,7 +279,78 @@ class _NotificationPreferencesPageState
                             ? (val) => _updatePref('firmwareUpdates', val)
                             : null,
                       ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        activeTrackColor: tokens.bluePrimary,
+                        title: Text(
+                          'Energy alerts & budgets',
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Notify when power thresholds or monthly budgets are exceeded.',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        value: _energyAlerts,
+                        onChanged: _pushEnabled
+                            ? (val) => _updatePref('energyAlerts', val)
+                            : null,
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        activeTrackColor: tokens.bluePrimary,
+                        title: Text(
+                          'Matter ecosystem integrations',
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Notify when Apple Home, Google Home, or Alexa platform bridges disconnect.',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        value: _matterAlerts,
+                        onChanged: _pushEnabled
+                            ? (val) => _updatePref('matterAlerts', val)
+                            : null,
+                      ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Quiet Hours Card
+                const SettingsSectionTitle('QUIET HOURS'),
+                SettingsSurface(
+                  child: SwitchListTile(
+                    activeTrackColor: tokens.bluePrimary,
+                    title: Text(
+                      'Enable quiet hours',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Defer non-critical notifications from $_quietHoursStart to $_quietHoursEnd. Critical safety alerts will always come through.',
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    value: _quietHoursEnabled,
+                    onChanged: (val) => _updatePref('quietHoursEnabled', val),
                   ),
                 ),
               ],

@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/notification/user-notification.schema.json",
+  "title": "UserNotification",
+  "description": "Canonical user notification entity representing a user-facing alert with severity, actions, and lifecycle status.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "userId",
+    "type",
+    "category",
+    "priority",
+    "severity",
+    "title",
+    "body",
+    "deliveryStatus",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 3
+    },
+    "userId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "homeId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "alert",
+        "automation",
+        "update",
+        "energy",
+        "security",
+        "matter",
+        "system"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "CRITICAL",
+        "HIGH",
+        "NORMAL",
+        "LOW"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "INFO",
+        "NOTICE",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "body": {
+      "type": "string"
+    },
+    "entityType": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "entityId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "readAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "deliveryStatus": {
+      "type": "string",
+      "enum": [
+        "CREATED",
+        "QUEUED",
+        "DISPATCHING",
+        "DELIVERED",
+        "READ",
+        "ACTIONED",
+        "SUPPRESSED",
+        "DEFERRED",
+        "EXPIRED",
+        "FAILED",
+        "PENDING"
+      ]
+    },
+    "actionType": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actionTarget": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actionState": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "NONE",
+        "PENDING",
+        "ACTIONED",
+        "DISMISSED",
+        null
+      ]
+    },
+    "isAggregated": {
+      "type": "boolean"
+    },
+    "aggregatedCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "aggregatedIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "idempotencyKey": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

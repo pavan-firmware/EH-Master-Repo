@@ -153,8 +153,11 @@ runStep('38. Phase 28 Local-First Home Control & Edge Execution Tests', `${nodeB
 // 39. Phase 29 Matter Ecosystem Interoperability & Multi-Platform Integration Tests
 runStep('39. Phase 29 Matter Ecosystem Interoperability Tests', `${nodeBin} backend/tests/phase29-matter-interoperability.test.js`);
 
+// 40. Phase 30 Intelligent Notifications, Alerts & User Event Center Tests
+runStep('40. Phase 30 Intelligent Notifications, Alerts & User Event Center Tests', `${nodeBin} backend/tests/phase30-intelligent-notifications.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  39 SUITES ATTEMPTED. ${failedSuites === 0 ? '39/39' : (39 - failedSuites) + '/39'} PASSED.`);
+console.log(`  40 SUITES ATTEMPTED. ${failedSuites === 0 ? '40/40' : (40 - failedSuites) + '/40'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

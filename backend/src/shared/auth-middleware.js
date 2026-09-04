@@ -10,6 +10,13 @@
 
 function requireAuthentication(authService) {
   return function authMiddleware(req, res, next) {
+    if (req.user && req.user.id) {
+      if (!req.actorContext) {
+        req.actorContext = { userId: req.user.id, email: req.user.email, role: req.user.role };
+      }
+      return { success: true, user: req.user };
+    }
+
     const authHeader = req.headers['authorization'] || req.headers['Authorization'];
 
     if (!authHeader || typeof authHeader !== 'string') {
@@ -56,6 +63,7 @@ function requireAuthentication(authService) {
       req.user = {
         id: payload.sub,
         email: payload.email,
+        role: payload.role || 'MEMBER',
         type: payload.type,
         iss: payload.iss,
         aud: payload.aud
@@ -63,7 +71,8 @@ function requireAuthentication(authService) {
       // Keep actorContext backward compatibility for downstream code expecting actorContext.userId
       req.actorContext = {
         userId: payload.sub,
-        email: payload.email
+        email: payload.email,
+        role: payload.role || 'MEMBER'
       };
 
       if (typeof next === 'function') {

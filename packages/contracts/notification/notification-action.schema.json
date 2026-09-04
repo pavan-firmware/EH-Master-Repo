@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/notification/notification-action.schema.json",
+  "title": "NotificationAction",
+  "description": "Notification user action record tracking interactive user responses to alerts.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "actionId",
+    "notificationId",
+    "userId",
+    "actionType",
+    "actionState",
+    "executedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "notificationId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "userId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actionType": {
+      "type": "string",
+      "enum": [
+        "VIEW_DEVICE",
+        "REVIEW_UPDATE",
+        "VIEW_ENERGY",
+        "VIEW_AUTOMATION",
+        "VIEW_INTEGRATIONS",
+        "VIEW_SECURITY",
+        "ACKNOWLEDGE",
+        "DISMISS",
+        "CUSTOM"
+      ]
+    },
+    "actionTarget": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actionState": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "ACTIONED",
+        "DISMISSED",
+        "FAILED"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "executedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

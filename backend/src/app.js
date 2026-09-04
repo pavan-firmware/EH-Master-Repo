@@ -188,6 +188,19 @@ function parseJsonBody(req) {
     if (req.body && typeof req.body === 'object') {
       return resolve(req.body);
     }
+    if (typeof req.body === 'string') {
+      if (!req.body || req.body.trim() === '') return resolve({});
+      try {
+        return resolve(JSON.parse(req.body));
+      } catch (err) {
+        const syntaxErr = new Error('Invalid JSON payload');
+        syntaxErr.statusCode = 400;
+        return reject(syntaxErr);
+      }
+    }
+    if (typeof req.on !== 'function') {
+      return resolve({});
+    }
     let data = '';
     req.on('data', chunk => {
       data += chunk;
@@ -951,9 +964,14 @@ function createApp(options = {}) {
     }
 
     // 8.8. Route to Notifications Router
-    if (pathname.startsWith('/api/v1/notifications')) {
+    if (
+      pathname.startsWith('/api/v1/notifications') ||
+      pathname.startsWith('/api/v1/admin/notifications') ||
+      pathname.startsWith('/api/v1/users/me/notification')
+    ) {
       if (req.user) {
         query.userId = req.user.id;
+        if (req.user.role) query.userRole = req.user.role;
       }
       const notifResult = await notificationRouter.handle(method, pathname, body, req.headers, query);
       if (notifResult) {

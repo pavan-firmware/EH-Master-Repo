@@ -1324,12 +1324,23 @@ class NotificationRepository {
     type,
     category = 'alert',
     priority = 'NORMAL',
+    severity = null,
     title,
     body,
     entityType = null,
     entityId = null,
     data = {},
     deliveryStatus = 'PENDING',
+    actionType = null,
+    actionTarget = null,
+    actionState = 'NONE',
+    actionPrimary = null,
+    actionSecondary = null,
+    isAggregated = false,
+    aggregatedCount = 1,
+    aggregatedIds = [],
+    expiresAt = null,
+    decisionMetadata = {},
     idempotencyKey = null,
     readAt = null
   }) {
@@ -1340,12 +1351,15 @@ class NotificationRepository {
       }
     }
 
+    const calculatedSeverity = severity || (priority === 'CRITICAL' ? 'CRITICAL' : priority === 'HIGH' ? 'WARNING' : 'INFO');
+
     return this.db.insert('notifications', id, {
       user_id: userId,
       home_id: homeId,
       type,
       category,
       priority,
+      severity: calculatedSeverity,
       title,
       body,
       entity_type: entityType,
@@ -1353,6 +1367,16 @@ class NotificationRepository {
       data_json: data,
       read_at: readAt,
       delivery_status: deliveryStatus,
+      action_type: actionType,
+      action_target: actionTarget,
+      action_state: actionState,
+      action_primary: actionPrimary || actionType,
+      action_secondary: actionSecondary,
+      is_aggregated: isAggregated,
+      aggregated_count: aggregatedCount,
+      aggregated_ids: aggregatedIds,
+      expires_at: expiresAt,
+      decision_metadata: decisionMetadata,
       idempotency_key: idempotencyKey
     });
   }
@@ -1361,11 +1385,18 @@ class NotificationRepository {
     return this.db.findById('notifications', id);
   }
 
-  async findUserNotifications(userId, { homeId = null, category = null, limit = 50, offset = 0, unreadOnly = false } = {}) {
+  async updateNotification(id, updates = {}) {
+    const existing = await this.db.findById('notifications', id);
+    if (!existing) return null;
+    return this.db.update('notifications', id, updates);
+  }
+
+  async findUserNotifications(userId, { homeId = null, category = null, severity = null, limit = 50, offset = 0, unreadOnly = false } = {}) {
     const list = await this.db.find('notifications', n => {
       if (n.user_id && n.user_id !== userId) return false;
       if (homeId && n.home_id && n.home_id !== homeId) return false;
       if (category && n.category !== category) return false;
+      if (severity && (n.severity !== severity && n.priority !== severity)) return false;
       if (unreadOnly && n.read_at !== null) return false;
       return true;
     });
@@ -1378,6 +1409,14 @@ class NotificationRepository {
     const list = await this.db.find('notifications', n => n.home_id === homeId);
     list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     return list.slice(offset, offset + limit);
+  }
+
+  async findDeferredNotifications(userId = null, homeId = null) {
+    return this.db.find('notifications', n => {
+      if (userId && n.user_id !== userId) return false;
+      if (homeId && n.home_id !== homeId) return false;
+      return n.delivery_status === 'DEFERRED';
+    });
   }
 
   async markRead(id, userId = null) {
@@ -1414,6 +1453,149 @@ class NotificationRepository {
       return n.read_at === null;
     });
     return unread.length;
+  }
+
+  // --- Notification Actions ---
+  async recordAction({ id, notificationId, userId, actionType, actionTarget = null, payload = {}, actionState = 'ACTIONED' }) {
+    const actionId = id || `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const actionRecord = await this.db.insert('notification_actions', actionId, {
+      notification_id: notificationId,
+      user_id: userId,
+      action_type: actionType,
+      action_target: actionTarget,
+      action_state: actionState,
+      payload,
+      executed_at: new Date().toISOString()
+    });
+
+    // Update notification state
+    const notif = await this.db.findById('notifications', notificationId);
+    if (notif) {
+      await this.db.update('notifications', notificationId, {
+        action_state: actionState,
+        read_at: notif.read_at || new Date().toISOString()
+      });
+    }
+
+    return actionRecord;
+  }
+
+  async getActionLogs(notificationId) {
+    return this.db.find('notification_actions', a => a.notification_id === notificationId);
+  }
+
+  async createAction({ id, notificationId, userId, actionType, actionTarget = null, status = 'EXECUTED', payload = {} }) {
+    const record = await this.recordAction({
+      id,
+      notificationId,
+      userId,
+      actionType,
+      actionTarget,
+      payload,
+      actionState: status
+    });
+    return {
+      ...record,
+      status: record.action_state || status
+    };
+  }
+
+  async findActionsByNotificationId(notificationId) {
+    const actions = await this.getActionLogs(notificationId);
+    return actions.map(a => ({
+      ...a,
+      status: a.action_state || 'EXECUTED'
+    }));
+  }
+
+  async cleanOldEvents(retentionDays = 30) {
+    const cutoff = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+    const old = await this.db.find('platform_events', e => new Date(e.occurred_at).getTime() < cutoff);
+    let count = 0;
+    for (const item of old) {
+      await this.db.delete('platform_events', item.id);
+      count++;
+    }
+    return count;
+  }
+
+  async cleanOldAggregations(retentionDays = 7) {
+    const cutoff = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+    const old = await this.db.find('notification_aggregations', a => new Date(a.created_at).getTime() < cutoff);
+    let count = 0;
+    for (const item of old) {
+      await this.db.delete('notification_aggregations', item.id);
+      count++;
+    }
+    return count;
+  }
+
+  // --- Platform Events ---
+  async recordPlatformEvent({ id, eventType, source, homeId, deviceId = null, userId = null, severity = 'INFO', title, message = '', data = {}, occurredAt = null }) {
+    const eventId = id || `pevt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return this.db.insert('platform_events', eventId, {
+      event_type: eventType,
+      source,
+      home_id: homeId,
+      device_id: deviceId,
+      user_id: userId,
+      severity,
+      title,
+      message,
+      data_json: data,
+      occurred_at: occurredAt || new Date().toISOString()
+    });
+  }
+
+  async getPlatformEvents({ homeId = null, source = null, severity = null, limit = 50, offset = 0 } = {}) {
+    const events = await this.db.find('platform_events', e => {
+      if (homeId && e.home_id !== homeId) return false;
+      if (source && e.source !== source) return false;
+      if (severity && e.severity !== severity) return false;
+      return true;
+    });
+    events.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+    return events.slice(offset, offset + limit);
+  }
+
+  // --- Aggregations ---
+  async recordAggregation({ id, aggregationKey, homeId, roomId = null, eventType, severity = 'INFO', eventCount = 1, aggregatedIds = [], summaryTitle, summaryBody, windowSeconds = 60 }) {
+    const aggId = id || `agg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return this.db.insert('notification_aggregations', aggId, {
+      aggregation_key: aggregationKey,
+      home_id: homeId,
+      room_id: roomId,
+      event_type: eventType,
+      severity,
+      event_count: eventCount,
+      aggregated_ids: aggregatedIds,
+      summary_title: summaryTitle,
+      summary_body: summaryBody,
+      window_seconds: windowSeconds
+    });
+  }
+
+  async getAggregations(homeId) {
+    return this.db.find('notification_aggregations', a => a.home_id === homeId);
+  }
+
+  // --- Retention & Expiration ---
+  async cleanExpiredNotifications(olderThanDate, preserveCritical = true) {
+    const threshold = new Date(olderThanDate).getTime();
+    const candidates = await this.db.find('notifications', n => {
+      if (preserveCritical && (n.severity === 'CRITICAL' || n.priority === 'CRITICAL')) {
+        return false;
+      }
+      const createdTime = new Date(n.created_at).getTime();
+      return createdTime < threshold;
+    });
+
+    let cleanedCount = 0;
+    for (const c of candidates) {
+      await this.db.delete('notifications', c.id);
+      cleanedCount++;
+    }
+    return cleanedCount;
   }
 
   async upsertDeviceToken({ id, userId, pushToken, platform = 'android', deviceName = null }) {
@@ -1454,41 +1636,102 @@ class NotificationRepository {
     return this.db.find('push_device_tokens', t => t.user_id === userId && t.is_active);
   }
 
-  async getPreferences(userId) {
-    const records = await this.db.find('user_notification_preferences', p => p.user_id === userId);
-    if (records.length > 0) {
-      return records[0];
-    }
+  _normalizePrefs(userId, raw = {}) {
+    const pushEnabled = raw.push_enabled !== undefined ? raw.push_enabled : (raw.pushEnabled !== undefined ? raw.pushEnabled : true);
+    const emailEnabled = raw.email_enabled !== undefined ? raw.email_enabled : (raw.emailEnabled !== undefined ? raw.emailEnabled : false);
+    const inAppEnabled = raw.in_app_enabled !== undefined ? raw.in_app_enabled : (raw.inAppEnabled !== undefined ? raw.inAppEnabled : true);
+    const criticalAlerts = raw.critical_alerts !== undefined ? raw.critical_alerts : (raw.criticalAlerts !== undefined ? raw.criticalAlerts : true);
+    const deviceOffline = raw.device_offline !== undefined ? raw.device_offline : (raw.deviceOffline !== undefined ? raw.deviceOffline : true);
+    const deviceHealth = raw.device_health !== undefined ? raw.device_health : (raw.deviceHealth !== undefined ? raw.deviceHealth : true);
+    const automationFailure = raw.automation_failure !== undefined ? raw.automation_failure : (raw.automationFailure !== undefined ? raw.automationFailure : true);
+    const firmwareUpdates = raw.firmware_updates !== undefined ? raw.firmware_updates : (raw.firmwareUpdates !== undefined ? raw.firmwareUpdates : true);
+    const energyAlerts = raw.energy_alerts !== undefined ? raw.energy_alerts : (raw.energyAlerts !== undefined ? raw.energyAlerts : true);
+    const securityAlerts = raw.security_alerts !== undefined ? raw.security_alerts : (raw.securityAlerts !== undefined ? raw.securityAlerts : true);
+    const matterAlerts = raw.matter_alerts !== undefined ? raw.matter_alerts : (raw.matterAlerts !== undefined ? raw.matterAlerts : true);
+    const memberAlerts = raw.member_alerts !== undefined ? raw.member_alerts : (raw.memberAlerts !== undefined ? raw.memberAlerts : true);
+    const quietHoursEnabled = raw.quiet_hours_enabled !== undefined ? raw.quiet_hours_enabled : (raw.quietHoursEnabled !== undefined ? raw.quietHoursEnabled : false);
+    const quietHoursStart = raw.quiet_hours_start || raw.quietHoursStart || '22:00';
+    const quietHoursEnd = raw.quiet_hours_end || raw.quietHoursEnd || '07:00';
+
     return {
       user_id: userId,
-      push_enabled: true,
-      critical_alerts: true,
-      device_offline: true,
-      automation_failure: true,
-      firmware_updates: true
+      userId,
+      push_enabled: pushEnabled,
+      pushEnabled,
+      email_enabled: emailEnabled,
+      emailEnabled,
+      in_app_enabled: inAppEnabled,
+      inAppEnabled,
+      critical_alerts: criticalAlerts,
+      criticalAlerts,
+      device_offline: deviceOffline,
+      deviceOffline,
+      device_health: deviceHealth,
+      deviceHealth,
+      automation_failure: automationFailure,
+      automationFailure,
+      firmware_updates: firmwareUpdates,
+      firmwareUpdates,
+      energy_alerts: energyAlerts,
+      energyAlerts,
+      security_alerts: securityAlerts,
+      securityAlerts,
+      matter_alerts: matterAlerts,
+      matterAlerts,
+      member_alerts: memberAlerts,
+      memberAlerts,
+      quiet_hours_enabled: quietHoursEnabled,
+      quietHoursEnabled,
+      quiet_hours_start: quietHoursStart,
+      quietHoursStart,
+      quiet_hours_end: quietHoursEnd,
+      quietHoursEnd
     };
+  }
+
+  async getPreferences(userId) {
+    const records = await this.db.find('user_notification_preferences', p => p.user_id === userId);
+    return this._normalizePrefs(userId, records.length > 0 ? records[0] : {});
+  }
+
+  async savePreferences(userId, prefs) {
+    return this.upsertPreferences(userId, prefs);
   }
 
   async upsertPreferences(userId, prefs) {
     const existing = await this.db.find('user_notification_preferences', p => p.user_id === userId);
     const now = new Date().toISOString();
+    const normalized = this._normalizePrefs(userId, { ...(existing[0] || {}), ...prefs });
+    const dbPayload = {
+      user_id: userId,
+      push_enabled: normalized.push_enabled,
+      email_enabled: normalized.email_enabled,
+      in_app_enabled: normalized.in_app_enabled,
+      critical_alerts: normalized.critical_alerts,
+      device_offline: normalized.device_offline,
+      device_health: normalized.device_health,
+      automation_failure: normalized.automation_failure,
+      firmware_updates: normalized.firmware_updates,
+      energy_alerts: normalized.energy_alerts,
+      security_alerts: normalized.security_alerts,
+      matter_alerts: normalized.matter_alerts,
+      member_alerts: normalized.member_alerts,
+      quiet_hours_enabled: normalized.quiet_hours_enabled,
+      quiet_hours_start: normalized.quiet_hours_start,
+      quiet_hours_end: normalized.quiet_hours_end,
+      updated_at: now
+    };
+
     if (existing.length > 0) {
-      return this.db.update('user_notification_preferences', existing[0].id, {
-        ...prefs,
-        updated_at: now
+      await this.db.update('user_notification_preferences', existing[0].id, dbPayload);
+    } else {
+      const id = `pref_${userId}`;
+      await this.db.insert('user_notification_preferences', id, {
+        ...dbPayload,
+        created_at: now
       });
     }
-    const id = `pref_${userId}`;
-    return this.db.insert('user_notification_preferences', id, {
-      user_id: userId,
-      push_enabled: prefs.push_enabled !== undefined ? prefs.push_enabled : true,
-      critical_alerts: prefs.critical_alerts !== undefined ? prefs.critical_alerts : true,
-      device_offline: prefs.device_offline !== undefined ? prefs.device_offline : true,
-      automation_failure: prefs.automation_failure !== undefined ? prefs.automation_failure : true,
-      firmware_updates: prefs.firmware_updates !== undefined ? prefs.firmware_updates : true,
-      created_at: now,
-      updated_at: now
-    });
+    return normalized;
   }
 
   async enqueueDelivery({ id, notificationId, tokenId = null, status = 'PENDING', maxAttempts = 5 }) {
