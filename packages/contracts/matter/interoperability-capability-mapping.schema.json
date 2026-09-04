@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/matter/interoperability-capability-mapping.schema.json",
+  "title": "InteroperabilityCapabilityMapping",
+  "description": "Deterministic capability mapping from canonical EH device capability to Matter cluster and attribute definitions.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "ehCapability",
+    "productVariantId",
+    "isSupportedByHardware",
+    "matterClusterId",
+    "matterClusterName",
+    "supportedMatterAttributes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "ehCapability": {
+      "type": "string"
+    },
+    "productVariantId": {
+      "type": "string"
+    },
+    "isSupportedByHardware": {
+      "type": "boolean"
+    },
+    "matterClusterId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "matterClusterName": {
+      "type": "string"
+    },
+    "matterDeviceType": {
+      "type": "string"
+    },
+    "supportedMatterAttributes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "supportedMatterCommands": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "hardwareMeteringVerified": {
+      "type": "boolean"
+    },
+    "notes": {
+      "type": ["string", "null"]
+    }
+  }
+}

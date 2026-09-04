@@ -21,7 +21,8 @@ const migrations = [
   { up: '018_proactive_device_reliability.sql', down: '018_proactive_device_reliability.down.sql' },
   { up: '019_multi_protocol_connectivity.sql', down: '019_multi_protocol_connectivity.down.sql' },
   { up: '020_product_discovery_catalog.sql', down: '020_product_discovery_catalog.down.sql' },
-  { up: '021_local_first_edge_control.sql', down: '021_local_first_edge_control.down.sql' }
+  { up: '021_local_first_edge_control.sql', down: '021_local_first_edge_control.down.sql' },
+  { up: '022_matter_ecosystem_interoperability.sql', down: '022_matter_ecosystem_interoperability.down.sql' }
 ];
 
 let totalUpTables = [];

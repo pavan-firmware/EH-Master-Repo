@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/matter/matter-endpoint.schema.json",
+  "title": "MatterEndpoint",
+  "description": "Mapping from physical device channel/sub-component to Matter endpoint with associated cluster IDs.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "endpointId",
+    "matterDeviceId",
+    "endpointNumber",
+    "deviceType",
+    "channelIndex",
+    "serverClusters"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "endpointId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "matterDeviceId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "endpointNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "deviceType": {
+      "type": "string"
+    },
+    "channelIndex": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "serverClusters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["clusterId", "clusterName"],
+        "additionalProperties": false,
+        "properties": {
+          "clusterId": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clusterName": {
+            "type": "string"
+          },
+          "supportedAttributes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "supportedCommands": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "clientClusters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["clusterId", "clusterName"],
+        "additionalProperties": false,
+        "properties": {
+          "clusterId": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clusterName": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

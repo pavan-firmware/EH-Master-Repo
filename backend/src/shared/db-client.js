@@ -36,7 +36,9 @@ class DatabaseClient {
       // Phase 27 — Product Discovery & Consumer Device Add
       'product_models', 'device_add_sessions',
       // Phase 28 — Local-First Home Control & Edge Execution
-      'local_route_cache', 'edge_execution_records', 'local_discovery_nodes'
+      'local_route_cache', 'edge_execution_records', 'local_discovery_nodes',
+      // Phase 29 — Matter Ecosystem Interoperability & Multi-Platform Integration
+      'matter_devices', 'matter_fabrics', 'matter_endpoints', 'matter_sync_state', 'external_platform_links'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

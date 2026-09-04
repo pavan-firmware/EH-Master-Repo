@@ -150,8 +150,11 @@ runStep('37. Phase 27 Product Discovery, Catalog & Consumer Device Add Tests', `
 // 38. Phase 28 Local-First Home Control & Edge Execution Tests
 runStep('38. Phase 28 Local-First Home Control & Edge Execution Tests', `${nodeBin} backend/tests/phase28-local-first-edge-control.test.js`);
 
+// 39. Phase 29 Matter Ecosystem Interoperability & Multi-Platform Integration Tests
+runStep('39. Phase 29 Matter Ecosystem Interoperability Tests', `${nodeBin} backend/tests/phase29-matter-interoperability.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  38 SUITES ATTEMPTED. ${failedSuites === 0 ? '38/38' : (38 - failedSuites) + '/38'} PASSED.`);
+console.log(`  39 SUITES ATTEMPTED. ${failedSuites === 0 ? '39/39' : (39 - failedSuites) + '/39'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

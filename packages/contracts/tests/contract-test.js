@@ -47,7 +47,14 @@ const schemaFiles = [
   '../edge/local-device-discovery.schema.json',
   '../edge/local-execution-result.schema.json',
   '../edge/local-state-event.schema.json',
-  '../edge/edge-automation-execution.schema.json'
+  '../edge/edge-automation-execution.schema.json',
+  '../matter/matter-device.schema.json',
+  '../matter/matter-fabric.schema.json',
+  '../matter/matter-endpoint.schema.json',
+  '../matter/matter-commissioning-session.schema.json',
+  '../matter/matter-sync-event.schema.json',
+  '../matter/external-platform-link.schema.json',
+  '../matter/interoperability-capability-mapping.schema.json'
 ];
 
 schemaFiles.forEach(f => validator.loadSchema(path.join(__dirname, f)));
@@ -1169,6 +1176,146 @@ const validEdgeAuto = {
 };
 assert('Valid EdgeAutomationExecution passes', validator.validate('EdgeAutomationExecution', validEdgeAuto).valid);
 assert('Invalid status fails', !validator.validate('EdgeAutomationExecution', { ...validEdgeAuto, status: 'MAGIC' }).valid);
+
+// 40. Phase 29 — Matter Ecosystem Interoperability Contracts
+console.log('\n40. Phase 29 — MatterDevice:');
+const validMatterDevice = {
+  schemaVersion: 1,
+  matterDeviceId: 'mat_dev_001',
+  deviceId: '22222222-2222-4222-8222-222222222221',
+  homeId: 'home_main',
+  nodeId: '0x0000000000000001',
+  vendorId: 65521,
+  productId: 32768,
+  matterDeviceType: 'ON_OFF_LIGHT',
+  commissioningState: 'COMMISSIONED',
+  subscriptionState: 'ACTIVE',
+  softwareVersion: 1,
+  softwareVersionString: '1.0.0',
+  hardwareVersion: 1,
+  hardwareVersionString: 'revA',
+  discriminator: 3840,
+  setupPasscode: 20202021,
+  lastSynchronizedAt: '2026-09-04T15:00:00Z',
+  createdAt: '2026-09-04T15:00:00Z',
+  updatedAt: '2026-09-04T15:00:00Z'
+};
+assert('Valid MatterDevice passes', validator.validate('MatterDevice', validMatterDevice).valid);
+assert('Invalid matterDeviceType fails', !validator.validate('MatterDevice', { ...validMatterDevice, matterDeviceType: 'INVALID_DEVICE' }).valid);
+assert('Non-UUID deviceId fails', !validator.validate('MatterDevice', { ...validMatterDevice, deviceId: 'not-a-uuid' }).valid);
+
+console.log('\n41. Phase 29 — MatterFabric:');
+const validMatterFabric = {
+  schemaVersion: 1,
+  fabricId: '0x0000000000000001',
+  matterDeviceId: 'mat_dev_001',
+  fabricIndex: 1,
+  fabricName: 'APPLE_HOME',
+  vendorId: 4937,
+  controllerNodeId: '0x0000000000000002',
+  commissioningState: 'CONNECTED',
+  label: 'Living Room Apple Home',
+  pairedAt: '2026-09-04T15:00:00Z',
+  lastSynchronizedAt: '2026-09-04T15:00:00Z',
+  createdAt: '2026-09-04T15:00:00Z',
+  updatedAt: '2026-09-04T15:00:00Z'
+};
+assert('Valid MatterFabric passes', validator.validate('MatterFabric', validMatterFabric).valid);
+assert('Invalid fabricName fails', !validator.validate('MatterFabric', { ...validMatterFabric, fabricName: 'UNKNOWN_ECOSYSTEM' }).valid);
+
+console.log('\n42. Phase 29 — MatterEndpoint:');
+const validMatterEndpoint = {
+  schemaVersion: 1,
+  endpointId: 'mat_ep_001_1',
+  matterDeviceId: 'mat_dev_001',
+  endpointNumber: 1,
+  deviceType: 'ON_OFF_LIGHT',
+  channelIndex: 1,
+  serverClusters: [
+    {
+      clusterId: 6,
+      clusterName: 'On/Off',
+      supportedAttributes: ['OnOff', 'GlobalSceneControl'],
+      supportedCommands: ['Off', 'On', 'Toggle']
+    }
+  ]
+};
+assert('Valid MatterEndpoint passes', validator.validate('MatterEndpoint', validMatterEndpoint).valid);
+
+console.log('\n43. Phase 29 — MatterCommissioningSession:');
+const validCommissioningSession = {
+  schemaVersion: 1,
+  sessionId: 'mat_comm_sess_001',
+  deviceId: '22222222-2222-4222-8222-222222222221',
+  homeId: 'home_main',
+  stage: 'ADVERTISING',
+  targetFabric: 'GOOGLE_HOME',
+  discriminator: 3840,
+  setupPasscode: 20202021,
+  qrCodePayload: 'MT:Y.K9042C00KA0648G00',
+  manualPairingCode: '34970112332',
+  errorMessage: null,
+  expiresAt: '2026-09-04T15:15:00Z',
+  createdAt: '2026-09-04T15:00:00Z',
+  completedAt: null
+};
+assert('Valid MatterCommissioningSession passes', validator.validate('MatterCommissioningSession', validCommissioningSession).valid);
+assert('Invalid stage fails', !validator.validate('MatterCommissioningSession', { ...validCommissioningSession, stage: 'UNSUPPORTED_STAGE' }).valid);
+
+console.log('\n44. Phase 29 — MatterSyncEvent:');
+const validMatterSyncEvent = {
+  schemaVersion: 1,
+  eventId: 'mat_evt_001',
+  deviceId: '22222222-2222-4222-8222-222222222221',
+  homeId: 'home_main',
+  fabricId: '0x0000000000000001',
+  endpointNumber: 1,
+  clusterId: 6,
+  attributeName: 'OnOff',
+  attributeValue: true,
+  direction: 'INBOUND_FROM_MATTER',
+  stateVersion: 5,
+  isPhysicalConfirmed: true,
+  timestamp: '2026-09-04T15:00:01Z'
+};
+assert('Valid MatterSyncEvent passes', validator.validate('MatterSyncEvent', validMatterSyncEvent).valid);
+assert('Invalid direction fails', !validator.validate('MatterSyncEvent', { ...validMatterSyncEvent, direction: 'SIDEWAYS' }).valid);
+
+console.log('\n45. Phase 29 — ExternalPlatformLink:');
+const validPlatformLink = {
+  schemaVersion: 1,
+  linkId: 'link_apple_home_001',
+  homeId: 'home_main',
+  deviceId: '22222222-2222-4222-8222-222222222221',
+  platform: 'APPLE_HOME',
+  status: 'CONNECTED',
+  externalIdentifier: 'apple_accessory_123',
+  displayName: 'Apple Home Living Room',
+  syncStatus: 'SYNCHRONIZED',
+  lastErrorMessage: null,
+  linkedAt: '2026-09-04T15:00:00Z',
+  lastSyncedAt: '2026-09-04T15:00:02Z',
+  createdAt: '2026-09-04T15:00:00Z',
+  updatedAt: '2026-09-04T15:00:02Z'
+};
+assert('Valid ExternalPlatformLink passes', validator.validate('ExternalPlatformLink', validPlatformLink).valid);
+assert('Invalid platform fails', !validator.validate('ExternalPlatformLink', { ...validPlatformLink, platform: 'SMARTTHINGS' }).valid);
+
+console.log('\n46. Phase 29 — InteroperabilityCapabilityMapping:');
+const validCapMapping = {
+  schemaVersion: 1,
+  ehCapability: 'switch',
+  productVariantId: 'eh-smart-switch-2x',
+  isSupportedByHardware: true,
+  matterClusterId: 6,
+  matterClusterName: 'On/Off',
+  matterDeviceType: 'ON_OFF_LIGHT',
+  supportedMatterAttributes: ['OnOff'],
+  supportedMatterCommands: ['Off', 'On', 'Toggle'],
+  hardwareMeteringVerified: false,
+  notes: 'Direct physical relay actuation'
+};
+assert('Valid InteroperabilityCapabilityMapping passes', validator.validate('InteroperabilityCapabilityMapping', validCapMapping).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

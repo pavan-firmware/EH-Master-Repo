@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/matter/matter-sync-event.schema.json",
+  "title": "MatterSyncEvent",
+  "description": "Bidirectional state synchronization event payload between EH physical state engine and Matter subscribers.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "deviceId",
+    "homeId",
+    "endpointNumber",
+    "clusterId",
+    "attributeName",
+    "attributeValue",
+    "direction",
+    "stateVersion",
+    "timestamp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "deviceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "homeId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "fabricId": {
+      "type": ["string", "null"],
+      "pattern": "^0x[0-9a-fA-F]{16}$"
+    },
+    "endpointNumber": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "clusterId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "attributeName": {
+      "type": "string"
+    },
+    "attributeValue": {},
+    "direction": {
+      "type": "string",
+      "enum": ["INBOUND_FROM_MATTER", "OUTBOUND_TO_MATTER"]
+    },
+    "stateVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "isPhysicalConfirmed": {
+      "type": "boolean"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

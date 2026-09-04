@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/matter/matter-device.schema.json",
+  "title": "MatterDevice",
+  "description": "Matter-facing entity representation referencing canonical EH Device with vendor/product IDs, node ID, and fabric bindings.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "matterDeviceId",
+    "deviceId",
+    "homeId",
+    "nodeId",
+    "vendorId",
+    "productId",
+    "matterDeviceType",
+    "commissioningState"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "matterDeviceId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "deviceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "homeId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "nodeId": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{16}$"
+    },
+    "vendorId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "productId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "matterDeviceType": {
+      "type": "string",
+      "enum": [
+        "ON_OFF_LIGHT",
+        "DIMMABLE_LIGHT",
+        "COLOR_TEMPERATURE_LIGHT",
+        "EXTENDED_COLOR_LIGHT",
+        "ON_OFF_PLUGIN_UNIT",
+        "DIMMABLE_PLUGIN_UNIT",
+        "FAN",
+        "THERMOSTAT",
+        "GENERIC_SWITCH",
+        "ELECTRICAL_SENSOR"
+      ]
+    },
+    "commissioningState": {
+      "type": "string",
+      "enum": [
+        "NOT_COMMISSIONED",
+        "COMMISSIONING",
+        "COMMISSIONED",
+        "PARTIALLY_CONNECTED",
+        "CONNECTED",
+        "DISCONNECTED",
+        "DECOMMISSIONED"
+      ]
+    },
+    "subscriptionState": {
+      "type": "string",
+      "enum": ["ACTIVE", "INACTIVE", "ERROR", "NONE"]
+    },
+    "softwareVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "softwareVersionString": {
+      "type": "string"
+    },
+    "hardwareVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "hardwareVersionString": {
+      "type": "string"
+    },
+    "discriminator": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4095
+    },
+    "setupPasscode": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 99999998
+    },
+    "lastSynchronizedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
