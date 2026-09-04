@@ -3681,5 +3681,7 @@ module.exports = {
   DeviceTransportRepository,
   DeviceConnectionStateRepository,
   CommissioningSessionRepository,
-  TransportHealthSnapshotRepository
+  TransportHealthSnapshotRepository,
+  // Phase 27 — Product Discovery & Consumer Device Add
+  DeviceAddSessionRepository: require('./device-add-session.repository').DeviceAddSessionRepository
 };

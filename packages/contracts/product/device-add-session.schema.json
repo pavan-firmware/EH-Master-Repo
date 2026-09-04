@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/device-add-session.schema.json",
+  "title": "DeviceAddSession",
+  "description": "State tracking for the consumer device onboarding wizard.",
+  "type": "object",
+  "required": [
+    "sessionId",
+    "homeId",
+    "userId",
+    "entryMode",
+    "stage",
+    "createdAt",
+    "updatedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": { "type": "string" },
+    "homeId": { "type": "string" },
+    "userId": { "type": "string" },
+    "entryMode": {
+      "type": "string",
+      "enum": [
+        "QR_SCAN",
+        "NEARBY_DISCOVERY",
+        "MANUAL_CATALOG",
+        "RE_ADD_RESET",
+        "MATTER_COMMISSIONING"
+      ]
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "PRODUCT_SELECTED",
+        "COMPATIBILITY_CHECKED",
+        "DISCOVERING_DEVICE",
+        "COMMISSIONING",
+        "REGISTERED",
+        "CLAIMED",
+        "CONFIGURED",
+        "VERIFIED",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "productVariantId": { "type": ["string", "null"] },
+    "deviceId": { "type": ["string", "null"] },
+    "commissioningSessionId": { "type": ["string", "null"] },
+    "selectedRoomId": { "type": ["string", "null"] },
+    "customDeviceName": { "type": ["string", "null"] },
+    "channelLabels": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "string" }
+    },
+    "compatibilityStatus": { "type": ["string", "null"] },
+    "errorMessage": { "type": ["string", "null"] },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "completedAt": { "type": ["string", "null"] }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "productVariantId": "eh-smart-switch-4x",
+  "productFamily": "smart_switch",
+  "displayName": "EH Smart Switch 4X",
+  "channelCount": 4,
+  "channels": [
+    {
+      "channelIndex": 1,
+      "defaultLabel": "Channel 1",
+      "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
+    },
+    {
+      "channelIndex": 2,
+      "defaultLabel": "Channel 2",
+      "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
+    },
+    {
+      "channelIndex": 3,
+      "defaultLabel": "Channel 3",
+      "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
+    },
+    {
+      "channelIndex": 4,
+      "defaultLabel": "Channel 4",
+      "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
+    }
+  ],
+  "hardwareProfile": {
+    "schemaVersion": 1,
+    "mcuFamily": "esp32-c6",
+    "flashSizeBytes": 4194304,
+    "psramSizeBytes": null,
+    "hasEnergyMetering": true,
+    "energyMeterChip": "BL0942",
+    "maxRelayAmpsPerChannel": 10.0,
+    "maxTotalAmps": 16.0,
+    "gpioMap": {
+      "relay_ch1": 18,
+      "relay_ch2": 19,
+      "relay_ch3": 20,
+      "relay_ch4": 21,
+      "switch_in_ch1": 4,
+      "switch_in_ch2": 5,
+      "switch_in_ch3": 6,
+      "switch_in_ch4": 7
+    }
+  },
+  "connectivityProfile": {
+    "schemaVersion": 1,
+    "supportsWifi": true,
+    "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"],
+    "supportsBle": true,
+    "bleVersion": "5.0",
+    "supportsThread": false,
+    "threadVersion": null,
+    "supportsMatter": false,
+    "matterDeviceType": null
+  },
+  "capabilities": [
+    "switch",
+    "relay",
+    "local_switch",
+    "energy",
+    "voltage",
+    "current",
+    "power",
+    "ota",
+    "automation",
+    "scene",
+    "schedule"
+  ],
+  "electricalSpecifications": {
+    "voltageRange": "90V - 250V AC",
+    "frequencyHz": "50/60Hz",
+    "maxCurrentPerChannelAmps": 10.0,
+    "maxTotalCurrentAmps": 16.0
+  },
+  "images": {
+    "hero": "assets/products/smart_switch_4x/hero.png",
+    "front": "assets/products/smart_switch_4x/front.png",
+    "thumbnail": "assets/products/smart_switch_4x/thumb.png"
+  },
+  "firmwareFamily": "esp32c6-switch-platform",
+  "supportedHardwareRevisions": ["HW_1_0", "HW_1_1"]
+}

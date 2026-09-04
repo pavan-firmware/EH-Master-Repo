@@ -388,3 +388,4 @@ export * from './fleet';
 export * from './energy';
 export * from './reliability';
 export * from './connectivity';
+export * from './product';

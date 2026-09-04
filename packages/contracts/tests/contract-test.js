@@ -13,6 +13,15 @@ const schemaFiles = [
   '../product/hardware-profile.schema.json',
   '../product/connectivity-profile.schema.json',
   '../product/product-metadata.schema.json',
+  '../product/product-family.schema.json',
+  '../product/product-model.schema.json',
+  '../product/product-variant.schema.json',
+  '../product/product-asset.schema.json',
+  '../product/product-catalog-entry.schema.json',
+  '../product/product-discovery-response.schema.json',
+  '../product/product-search-result.schema.json',
+  '../product/product-compatibility.schema.json',
+  '../product/device-add-session.schema.json',
   '../capability/capability-schema.schema.json',
   '../state/channel-state.schema.json',
   '../state/device-state.schema.json',
@@ -874,6 +883,160 @@ const validCommResult = {
   completedAt: '2026-09-03T18:22:00Z'
 };
 assert('Valid CommissioningResult passes', validator.validate('CommissioningResult', validCommResult).valid);
+
+// 25. ProductFamilyDef:
+console.log('\n25. ProductFamilyDef:');
+const validFamily = {
+  familyId: 'smart_switch',
+  slug: 'smart-switch',
+  displayName: 'Smart Switches',
+  category: 'switches',
+  description: 'Modular smart in-wall switchboards',
+  icon: 'switch_icon',
+  sortOrder: 1
+};
+assert('Valid ProductFamilyDef passes', validator.validate('ProductFamilyDef', validFamily).valid);
+assert('Invalid category fails enum', !validator.validate('ProductFamilyDef', { ...validFamily, category: 'cars' }).valid);
+
+// 26. ProductModelDef:
+console.log('\n26. ProductModelDef:');
+const validModel = {
+  modelId: 'eh-switch-gen1',
+  familyId: 'smart_switch',
+  marketingName: 'EH In-Wall Smart Switch',
+  technicalName: 'EH-SW-GEN1',
+  description: 'First generation ESP32-C6 smart switch',
+  generation: 1,
+  brand: 'EH'
+};
+assert('Valid ProductModelDef passes', validator.validate('ProductModelDef', validModel).valid);
+assert('Missing marketingName fails', !validator.validate('ProductModelDef', { ...validModel, marketingName: undefined }).valid);
+
+// 27. ProductAssetDef:
+console.log('\n27. ProductAssetDef:');
+const validAsset = {
+  hero: 'assets/products/smart_switch_3x/hero.png',
+  front: 'assets/products/smart_switch_3x/front.png',
+  rear: 'assets/products/smart_switch_3x/rear.png',
+  installed: 'assets/products/smart_switch_3x/installed.png',
+  packaging: 'assets/products/smart_switch_3x/packaging.png',
+  technicalDiagram: 'assets/products/smart_switch_3x/diagram.png',
+  icon: 'assets/icons/switch.png',
+  thumbnail: 'assets/products/smart_switch_3x/thumb.png'
+};
+assert('Valid ProductAssetDef passes', validator.validate('ProductAssetDef', validAsset).valid);
+
+// 28. ProductCatalogEntry:
+console.log('\n28. ProductCatalogEntry:');
+const validCatalogEntry = {
+  productId: 'eh-smart-switch',
+  productFamilyId: 'smart_switch',
+  modelId: 'eh-switch-gen1',
+  variantId: 'eh-smart-switch-3x',
+  sku: 'EH-SW3X-001',
+  marketingName: 'EH Smart Switch 3X',
+  technicalName: 'EH-SW-3X-ESP32C6',
+  description: 'Triple-relay switchboard with energy metering',
+  productStatus: 'ACTIVE',
+  visibility: 'PUBLIC',
+  category: 'switches',
+  subcategory: 'wall_switch',
+  channelCount: 3,
+  capabilities: ['switch', 'relay', 'energy', 'voltage', 'current', 'power', 'ota'],
+  controls: ['relay_ch1', 'relay_ch2', 'relay_ch3'],
+  telemetry: ['v_mv', 'i_ma', 'p_mw', 'e_tot_wh'],
+  automationCapabilities: ['schedule', 'scene', 'energy_threshold'],
+  connectivityCapabilities: ['wifi', 'ble'],
+  commissioningCapabilities: ['ble_provisioning', 'wifi_setup'],
+  otaCapabilities: {
+    supported: true,
+    dualPartition: true,
+    firmwareFamily: 'esp32c6-switch-platform'
+  },
+  supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
+  supportedFirmwareVersions: ['1.0.0', '1.1.0'],
+  matterSupport: false,
+  threadSupport: false,
+  wifiSupport: true,
+  bleProvisioningSupport: true,
+  energyMonitoringSupport: true,
+  localControlSupport: true
+};
+assert('Valid ProductCatalogEntry passes', validator.validate('ProductCatalogEntry', validCatalogEntry).valid);
+assert('Invalid productStatus fails', !validator.validate('ProductCatalogEntry', { ...validCatalogEntry, productStatus: 'UNKNOWN' }).valid);
+
+// 29. ProductDiscoveryResponse:
+console.log('\n29. ProductDiscoveryResponse:');
+const validDiscoveryResp = {
+  products: [validCatalogEntry],
+  total: 1,
+  page: 1,
+  limit: 20,
+  totalPages: 1,
+  categories: [{ id: 'switches', displayName: 'Switches', count: 1 }],
+  families: [{ id: 'smart_switch', displayName: 'Smart Switches', category: 'switches', count: 1 }],
+  availableCapabilities: ['switch', 'energy']
+};
+assert('Valid ProductDiscoveryResponse passes', validator.validate('ProductDiscoveryResponse', validDiscoveryResp).valid);
+
+// 30. ProductSearchResult:
+console.log('\n30. ProductSearchResult:');
+const validSearch = {
+  query: 'Switch 3X',
+  results: [
+    {
+      product: validCatalogEntry,
+      matchedFields: ['marketingName', 'sku'],
+      relevanceScore: 0.95
+    }
+  ],
+  total: 1
+};
+assert('Valid ProductSearchResult passes', validator.validate('ProductSearchResult', validSearch).valid);
+
+// 31. ProductCompatibility:
+console.log('\n31. ProductCompatibility:');
+const validCompatibility = {
+  status: 'COMPATIBLE',
+  isCompatible: true,
+  reasons: [
+    {
+      code: 'WIFI_BLE_SUPPORTED',
+      message: 'Home network has 2.4GHz Wi-Fi and BLE phone commissioning',
+      severity: 'INFO',
+      remedy: null
+    }
+  ],
+  supportedTransports: ['WIFI_MQTT', 'BLE'],
+  recommendedCommissioningTransport: 'BLE',
+  unsupportedFeatures: [],
+  evaluatedAt: '2026-09-04T12:00:00Z'
+};
+assert('Valid ProductCompatibility passes', validator.validate('ProductCompatibility', validCompatibility).valid);
+assert('Invalid status fails', !validator.validate('ProductCompatibility', { ...validCompatibility, status: 'UNKNOWN' }).valid);
+
+// 32. DeviceAddSession:
+console.log('\n32. DeviceAddSession:');
+const validAddSession = {
+  sessionId: 'das_0194fe23',
+  homeId: 'home_01',
+  userId: 'user_01',
+  entryMode: 'MANUAL_CATALOG',
+  stage: 'PRODUCT_SELECTED',
+  productVariantId: 'eh-smart-switch-3x',
+  deviceId: null,
+  commissioningSessionId: null,
+  selectedRoomId: 'room_living',
+  customDeviceName: 'Living Room Switch',
+  channelLabels: { '1': 'Chandelier', '2': 'Fan', '3': 'Accent' },
+  compatibilityStatus: 'COMPATIBLE',
+  errorMessage: null,
+  createdAt: '2026-09-04T12:05:00Z',
+  updatedAt: '2026-09-04T12:05:00Z',
+  completedAt: null
+};
+assert('Valid DeviceAddSession passes', validator.validate('DeviceAddSession', validAddSession).valid);
+assert('Invalid stage fails', !validator.validate('DeviceAddSession', { ...validAddSession, stage: 'DONE_NOW' }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

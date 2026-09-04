@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/product-asset.schema.json",
+  "title": "ProductAssetDef",
+  "description": "Structured product asset collection with stable identifiers and semantic placements.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hero": { "type": "string" },
+    "front": { "type": "string" },
+    "rear": { "type": "string" },
+    "installed": { "type": "string" },
+    "packaging": { "type": "string" },
+    "technicalDiagram": { "type": "string" },
+    "icon": { "type": "string" },
+    "thumbnail": { "type": "string" }
+  }
+}

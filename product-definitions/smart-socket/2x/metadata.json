@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "productVariantId": "eh-smart-socket-2x",
+  "productFamily": "smart_socket",
+  "displayName": "EH Smart Socket 2X",
+  "channelCount": 2,
+  "channels": [
+    {
+      "channelIndex": 1,
+      "defaultLabel": "Socket 1",
+      "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
+    },
+    {
+      "channelIndex": 2,
+      "defaultLabel": "Socket 2",
+      "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
+    }
+  ],
+  "hardwareProfile": {
+    "schemaVersion": 1,
+    "mcuFamily": "esp32-c6",
+    "flashSizeBytes": 4194304,
+    "psramSizeBytes": null,
+    "hasEnergyMetering": true,
+    "energyMeterChip": "BL0942",
+    "maxRelayAmpsPerChannel": 16.0,
+    "maxTotalAmps": 16.0,
+    "gpioMap": {
+      "relay_ch1": 18,
+      "relay_ch2": 19,
+      "switch_in_ch1": 4,
+      "switch_in_ch2": 5
+    }
+  },
+  "connectivityProfile": {
+    "schemaVersion": 1,
+    "supportsWifi": true,
+    "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"],
+    "supportsBle": true,
+    "bleVersion": "5.0",
+    "supportsThread": false,
+    "threadVersion": null,
+    "supportsMatter": false,
+    "matterDeviceType": null
+  },
+  "capabilities": [
+    "switch",
+    "relay",
+    "local_switch",
+    "energy",
+    "voltage",
+    "current",
+    "power",
+    "ota",
+    "automation",
+    "scene",
+    "schedule"
+  ],
+  "electricalSpecifications": {
+    "voltageRange": "90V - 250V AC",
+    "frequencyHz": "50/60Hz",
+    "maxCurrentPerChannelAmps": 16.0,
+    "maxTotalCurrentAmps": 16.0
+  },
+  "images": {
+    "hero": "assets/products/smart_socket_2x/hero.png",
+    "front": "assets/products/smart_socket_2x/front.png",
+    "thumbnail": "assets/products/smart_socket_2x/thumb.png"
+  },
+  "firmwareFamily": "esp32c6-socket-platform",
+  "supportedHardwareRevisions": ["HW_1_0", "HW_1_1"]
+}

@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/product-catalog-entry.schema.json",
+  "title": "ProductCatalogEntry",
+  "description": "Normalized catalog entry representing a product with all required, optional, and derived properties for consumer discovery and detail.",
+  "type": "object",
+  "required": [
+    "productId",
+    "productFamilyId",
+    "modelId",
+    "variantId",
+    "sku",
+    "marketingName",
+    "technicalName",
+    "description",
+    "productStatus",
+    "visibility",
+    "category",
+    "channelCount",
+    "capabilities",
+    "controls",
+    "telemetry",
+    "automationCapabilities",
+    "connectivityCapabilities",
+    "commissioningCapabilities",
+    "otaCapabilities",
+    "supportedHardwareRevisions",
+    "supportedFirmwareVersions",
+    "matterSupport",
+    "threadSupport",
+    "wifiSupport",
+    "bleProvisioningSupport",
+    "energyMonitoringSupport",
+    "localControlSupport"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "productId": { "type": "string" },
+    "productFamilyId": { "type": "string" },
+    "modelId": { "type": "string" },
+    "variantId": { "type": "string" },
+    "sku": { "type": "string" },
+    "marketingName": { "type": "string" },
+    "technicalName": { "type": "string" },
+    "description": { "type": "string" },
+    "productStatus": {
+      "type": "string",
+      "enum": ["DRAFT", "ACTIVE", "COMING_SOON", "DISCONTINUED", "DEPRECATED"]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": ["PUBLIC", "ADMIN_ONLY", "BETA"]
+    },
+    "category": { "type": "string" },
+    "subcategory": { "type": ["string", "null"] },
+    "brand": { "type": "string" },
+    "images": { "$ref": "https://contracts.ehhome.io/product/product-asset.schema.json" },
+    "icon": { "type": ["string", "null"] },
+    "channelCount": { "type": "integer", "minimum": 1 },
+    "channels": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "electricalSpecifications": { "type": "object" },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "controls": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "telemetry": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "automationCapabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "connectivityCapabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "commissioningCapabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "otaCapabilities": {
+      "type": "object",
+      "required": ["supported", "dualPartition", "firmwareFamily"],
+      "properties": {
+        "supported": { "type": "boolean" },
+        "dualPartition": { "type": "boolean" },
+        "firmwareFamily": { "type": "string" }
+      }
+    },
+    "supportedHardwareRevisions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "supportedFirmwareVersions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "matterSupport": { "type": "boolean" },
+    "threadSupport": { "type": "boolean" },
+    "wifiSupport": { "type": "boolean" },
+    "bleProvisioningSupport": { "type": "boolean" },
+    "energyMonitoringSupport": { "type": "boolean" },
+    "localControlSupport": { "type": "boolean" }
+  }
+}

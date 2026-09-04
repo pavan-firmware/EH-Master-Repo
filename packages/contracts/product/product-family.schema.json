@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/product-family.schema.json",
+  "title": "ProductFamilyDef",
+  "description": "Canonical definition of an EH Home product family grouping models and variants.",
+  "type": "object",
+  "required": ["familyId", "slug", "displayName", "category", "description"],
+  "additionalProperties": false,
+  "properties": {
+    "familyId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "switches",
+        "sockets",
+        "lighting",
+        "climate",
+        "sensors",
+        "energy",
+        "security",
+        "fans",
+        "appliances",
+        "controllers"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "icon": {
+      "type": "string"
+    },
+    "sortOrder": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

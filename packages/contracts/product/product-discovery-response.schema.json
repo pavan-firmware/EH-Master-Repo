@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/product-discovery-response.schema.json",
+  "title": "ProductDiscoveryResponse",
+  "description": "Deterministic paginated product discovery response with filtering metadata.",
+  "type": "object",
+  "required": ["products", "total", "page", "limit", "totalPages", "categories", "families", "availableCapabilities"],
+  "additionalProperties": false,
+  "properties": {
+    "products": {
+      "type": "array",
+      "items": { "$ref": "https://contracts.ehhome.io/product/product-catalog-entry.schema.json" }
+    },
+    "total": { "type": "integer", "minimum": 0 },
+    "page": { "type": "integer", "minimum": 1 },
+    "limit": { "type": "integer", "minimum": 1 },
+    "totalPages": { "type": "integer", "minimum": 0 },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "displayName", "count"],
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string" },
+          "count": { "type": "integer" }
+        }
+      }
+    },
+    "families": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "displayName", "category", "count"],
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string" },
+          "category": { "type": "string" },
+          "count": { "type": "integer" }
+        }
+      }
+    },
+    "availableCapabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

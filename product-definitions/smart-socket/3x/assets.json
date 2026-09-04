@@ -1,0 +1,13 @@
+{
+  "productId": "eh-smart-socket-3x",
+  "assets": {
+    "diagrams": {
+      "wiring": "assets/products/smart_socket_3x/wiring.svg",
+      "dimensions": "assets/products/smart_socket_3x/dimensions.svg"
+    },
+    "renders": {
+      "hero_light": "assets/products/smart_socket_3x/hero_light.png",
+      "hero_dark": "assets/products/smart_socket_3x/hero_dark.png"
+    }
+  }
+}
