@@ -1,0 +1,13 @@
+{
+  "productId": "eh-smart-switch-1x",
+  "assets": {
+    "diagrams": {
+      "wiring": "assets/products/smart_switch_1x/wiring.svg",
+      "dimensions": "assets/products/smart_switch_1x/dimensions.svg"
+    },
+    "renders": {
+      "hero_light": "assets/products/smart_switch_1x/hero_light.png",
+      "hero_dark": "assets/products/smart_switch_1x/hero_dark.png"
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/product/product-variant.schema.json",
+  "title": "ProductVariantDef",
+  "description": "Canonical definition of a specific SKU / variant of a product model.",
+  "type": "object",
+  "required": [
+    "variantId",
+    "modelId",
+    "sku",
+    "marketingName",
+    "technicalName",
+    "channelCount",
+    "channels",
+    "hardwareProfile",
+    "connectivityProfile",
+    "capabilities",
+    "electricalSpecifications",
+    "firmwareFamily",
+    "supportedHardwareRevisions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "variantId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "modelId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "sku": {
+      "type": "string"
+    },
+    "marketingName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "technicalName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "channelCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["channelIndex", "defaultLabel", "capabilities"],
+        "additionalProperties": false,
+        "properties": {
+          "channelIndex": { "type": "integer", "minimum": 1 },
+          "defaultLabel": { "type": "string" },
+          "capabilities": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "hardwareProfile": {
+      "$ref": "https://contracts.ehhome.io/product/hardware-profile.schema.json"
+    },
+    "connectivityProfile": {
+      "$ref": "https://contracts.ehhome.io/product/connectivity-profile.schema.json"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "electricalSpecifications": {
+      "type": "object",
+      "required": ["voltageRange", "frequencyHz"],
+      "additionalProperties": false,
+      "properties": {
+        "voltageRange": { "type": "string" },
+        "frequencyHz": { "type": "string" },
+        "maxCurrentPerChannelAmps": { "type": "number" },
+        "maxTotalCurrentAmps": { "type": "number" }
+      }
+    },
+    "firmwareFamily": {
+      "type": "string"
+    },
+    "supportedHardwareRevisions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "supportedFirmwareVersions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

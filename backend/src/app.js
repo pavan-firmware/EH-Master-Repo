@@ -69,7 +69,9 @@ const {
   DeviceTransportRepository,
   DeviceConnectionStateRepository,
   CommissioningSessionRepository,
-  TransportHealthSnapshotRepository
+  TransportHealthSnapshotRepository,
+  // Phase 27 — Product Discovery & Consumer Device Add
+  DeviceAddSessionRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -80,6 +82,7 @@ const { DeviceService } = require('./services/device.service');
 const { ProvisioningService } = require('./services/provisioning.service');
 const { DeviceClaimService } = require('./services/device-claim.service');
 const { ProductCatalogService } = require('./services/product-catalog.service');
+const { DeviceAddService } = require('./services/device-add.service');
 const { DeviceCommandService } = require('./services/device-command.service');
 const { DeviceEventTelemetryIngestionService } = require('./services/device-event-telemetry-ingestion.service');
 const { OtaService } = require('./services/ota.service');
@@ -135,6 +138,11 @@ const PUBLIC_ROUTES = [
   'POST /api/v1/auth/login',
   'POST /api/v1/auth/refresh',
   'GET /api/v1/products',
+  'GET /api/v1/products/discovery',
+  'GET /api/v1/products/search',
+  'GET /api/v1/products/categories',
+  'GET /api/v1/products/families',
+  'POST /api/v1/products/compatibility',
   'GET /api/v1/capabilities',
   'GET /api/v1/ota/check'
 ];
@@ -144,6 +152,7 @@ function isPublicRoute(method, pathname) {
   if (PUBLIC_ROUTES.includes(exactKey)) return true;
 
   if (method === 'GET' && (
+    pathname.startsWith('/api/v1/products/') ||
     pathname.startsWith('/api/v1/product-variants/') ||
     pathname.startsWith('/api/v1/capabilities/') ||
     pathname.startsWith('/api/v1/ota/manifests/')
@@ -263,6 +272,8 @@ function createApp(options = {}) {
   const deviceConnectionStateRepo = options.deviceConnectionStateRepo || new DeviceConnectionStateRepository(db);
   const commissioningSessionRepo = options.commissioningSessionRepo || new CommissioningSessionRepository(db);
   const transportHealthSnapshotRepo = options.transportHealthSnapshotRepo || new TransportHealthSnapshotRepository(db);
+  // Phase 27 Repositories
+  const deviceAddSessionRepo = options.deviceAddSessionRepo || new DeviceAddSessionRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -277,7 +288,7 @@ function createApp(options = {}) {
   const deviceService = new DeviceService({ deviceRepo, deviceStateRepo, homeRepo, roomRepo, auditRepo });
   const provisioningService = new ProvisioningService({ provisioningRepo, deviceRepo, auditRepo });
   const deviceClaimService = new DeviceClaimService({ deviceRepo, homeRepo, provisioningRepo, auditRepo });
-  const catalogService = new ProductCatalogService();
+  const catalogService = options.catalogService || new ProductCatalogService();
 
   const mqttTransport = options.mqttTransport || null;
   const eventBus = options.eventBus || null;
@@ -407,6 +418,18 @@ function createApp(options = {}) {
     eventBus
   });
 
+  // Phase 27 — Consumer Device Add Service
+  const deviceAddService = options.deviceAddService || new DeviceAddService({
+    sessionRepo: deviceAddSessionRepo,
+    catalogService,
+    deviceRepo,
+    deviceClaimService,
+    connectivityService,
+    homeRepo,
+    roomRepo,
+    auditRepo
+  });
+
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,
     eventRepo,
@@ -518,7 +541,7 @@ function createApp(options = {}) {
     homeAuthService
   });
   const provisioningRouter = new ProvisioningClaimApiRouter({ provisioningService, deviceClaimService });
-  const catalogRouter = new ProductCatalogApiRouter();
+  const catalogRouter = new ProductCatalogApiRouter({ catalogService, deviceAddService });
   const otaRouter = new OtaApiRouter({ otaService });
   const energyRouter = new EnergyApiRouter({
     energyService,
@@ -696,9 +719,15 @@ function createApp(options = {}) {
       return;
     }
 
-    // 7. Route to Catalog Router
-    if (pathname.startsWith('/api/v1/products') || pathname.startsWith('/api/v1/product-variants') || pathname.startsWith('/api/v1/capabilities')) {
-      const result = await catalogRouter.handle(method, pathname, query);
+    // 7. Route to Catalog & Consumer Device Add Router
+    if (
+      pathname.startsWith('/api/v1/products') ||
+      pathname.startsWith('/api/v1/product-variants') ||
+      pathname.startsWith('/api/v1/capabilities') ||
+      pathname.startsWith('/api/v1/device-add')
+    ) {
+      const actorContext = req.user ? { userId: req.user.id } : (req.actorContext || null);
+      const result = await catalogRouter.handle(method, pathname, query, body, actorContext);
       return sendJsonResponse(res, result.status, result.body);
     }
 
@@ -858,6 +887,7 @@ function createApp(options = {}) {
       intelligenceService,
       reliabilityService,
       connectivityService,
+      deviceAddService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -879,13 +909,16 @@ function createApp(options = {}) {
       reliabilitySnapshotRepo, maintenanceRecRepo,
       // Phase 26 Repositories
       deviceTransportRepo, deviceConnectionStateRepo, commissioningSessionRepo,
-      transportHealthSnapshotRepo
+      transportHealthSnapshotRepo,
+      // Phase 27 Repositories
+      deviceAddSessionRepo
     },
     contextApiRouter: contextRouter,
     intelligenceApiRouter: intelligenceRouter,
     reliabilityApiRouter: reliabilityRouter,
     connectivityApiRouter: connectivityRouter,
-    energyApiRouter: energyRouter
+    energyApiRouter: energyRouter,
+    catalogApiRouter: catalogRouter
   };
 }
 

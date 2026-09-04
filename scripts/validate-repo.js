@@ -144,8 +144,11 @@ runStep('35. Phase 25 Proactive Device Reliability & Self-Healing Tests', `${nod
 // 36. Phase 26 Multi-Protocol Device Connectivity & Interoperability Tests
 runStep('36. Phase 26 Multi-Protocol Device Connectivity Tests', `${nodeBin} backend/tests/phase26-multi-protocol-connectivity.test.js`);
 
+// 37. Phase 27 Product Discovery, Catalog & Consumer Device Add Tests
+runStep('37. Phase 27 Product Discovery, Catalog & Consumer Device Add Tests', `${nodeBin} backend/tests/phase27-product-discovery-catalog.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  36 SUITES ATTEMPTED. ${failedSuites === 0 ? '36/36' : (36 - failedSuites) + '/36'} PASSED.`);
+console.log(`  37 SUITES ATTEMPTED. ${failedSuites === 0 ? '37/37' : (37 - failedSuites) + '/37'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');
