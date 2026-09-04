@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/device-trust/device-provisioning-record.schema.json",
+  "title": "DeviceProvisioningRecord",
+  "description": "Onboarding and claim lifecycle stage tracking record from factory to home verification.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "deviceId",
+    "stage",
+    "authority",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "description": "Schema format version"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique provisioning record UUID"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Canonical immutable logical UUID of the device"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "FACTORY_INITIALIZED",
+        "PROVISIONING_STARTED",
+        "CREDENTIALS_ISSUED",
+        "CLAIMED_TO_HOME",
+        "VERIFIED"
+      ],
+      "description": "Current provisioning milestone"
+    },
+    "authority": {
+      "type": "string",
+      "description": "Entity issuing or managing this stage (e.g. FACTORY_STATION, CLOUD_API, BLE_COMMISSIONER)"
+    },
+    "evidenceJson": {
+      "type": "object",
+      "description": "Proof or validation details for the provisioning step"
+    },
+    "completedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Timestamp when this provisioning stage successfully finished"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of stage initialization"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "id": "c0000000-0000-0000-0000-000000000001",
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "stage": "VERIFIED",
+      "authority": "CLOUD_API",
+      "evidenceJson": {
+        "verifiedMqttPing": true,
+        "firstTelemetryReceived": true
+      },
+      "completedAt": "2026-09-04T16:00:00.000Z",
+      "createdAt": "2026-09-04T15:58:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/device-trust/device-identity-verification.schema.json",
+  "title": "DeviceIdentityVerification",
+  "description": "Cryptographic and logical attestation verification record for a physical hardware device identity.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deviceId",
+    "serialNumber",
+    "productVariantId",
+    "hardwareRevision",
+    "firmwareFamily",
+    "attestationType",
+    "attestationVerified",
+    "verifiedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "description": "Schema format version"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Canonical immutable logical UUID of the device"
+    },
+    "serialNumber": {
+      "type": "string",
+      "minLength": 5,
+      "description": "Physical serial number stamped on device hardware"
+    },
+    "productVariantId": {
+      "type": "string",
+      "pattern": "^eh-[a-z0-9-]+$",
+      "description": "Reference to product catalog variant identifier"
+    },
+    "hardwareRevision": {
+      "type": "string",
+      "pattern": "^HW_[0-9]+_[0-9]+$",
+      "description": "PCB hardware revision identifier"
+    },
+    "firmwareFamily": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Target firmware binary track for OTA updates"
+    },
+    "secureElementPresent": {
+      "type": "boolean",
+      "description": "Whether hardware contains an ATECC/OPTIGA or ESP32 secure eFuse/eCDSA vault"
+    },
+    "attestationType": {
+      "type": "string",
+      "enum": [
+        "FACTORY_KEY",
+        "CERTIFICATE",
+        "SHARED_SECRET",
+        "NONE"
+      ],
+      "description": "Cryptographic method used to verify device identity"
+    },
+    "attestationVerified": {
+      "type": "boolean",
+      "description": "True if cryptographic proof matched expected signature/HMAC"
+    },
+    "verifiedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when identity attestation was executed"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "serialNumber": "EH-SW3X-2026W12-00891",
+      "productVariantId": "eh-smart-switch-3x",
+      "hardwareRevision": "HW_1_0",
+      "firmwareFamily": "esp32c6-switch-platform",
+      "secureElementPresent": true,
+      "attestationType": "FACTORY_KEY",
+      "attestationVerified": true,
+      "verifiedAt": "2026-09-04T16:00:00.000Z"
+    }
+  ]
+}

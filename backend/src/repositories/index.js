@@ -3938,5 +3938,7 @@ module.exports = {
   // Phase 31 — Secure Operations, Audit & Platform Observability
   OperationalEventRepository: require('./operational-event.repository').OperationalEventRepository,
   SecurityAuditRepository: require('./security-audit.repository').SecurityAuditRepository,
-  SystemHealthRepository: require('./system-health.repository').SystemHealthRepository
+  SystemHealthRepository: require('./system-health.repository').SystemHealthRepository,
+  // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
+  DeviceTrustRepository: require('./device-trust.repository').DeviceTrustRepository
 };

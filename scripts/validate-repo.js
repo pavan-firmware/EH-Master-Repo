@@ -159,8 +159,11 @@ runStep('40. Phase 30 Intelligent Notifications, Alerts & User Event Center Test
 // 41. Phase 31 Secure Operations, Audit & Platform Observability Tests
 runStep('41. Phase 31 Secure Operations, Audit & Observability Tests', `${nodeBin} backend/tests/phase31-secure-operations-observability.test.js`);
 
+// 42. Phase 32 Secure Device Identity, Trust & Credential Lifecycle Tests
+runStep('42. Phase 32 Secure Device Identity, Trust & Credential Lifecycle Tests', `${nodeBin} backend/tests/phase32-device-trust.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  41 SUITES ATTEMPTED. ${failedSuites === 0 ? '41/41' : (41 - failedSuites) + '/41'} PASSED.`);
+console.log(`  42 SUITES ATTEMPTED. ${failedSuites === 0 ? '42/42' : (42 - failedSuites) + '/42'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

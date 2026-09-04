@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/device-trust/device-trust-state.schema.json",
+  "title": "DeviceTrustState",
+  "description": "Continuous device trust state evaluation, trust scoring, and degradation/quarantine metadata.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "deviceId",
+    "trustState",
+    "trustScore",
+    "lastEvaluatedAt",
+    "updatedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "description": "Schema format version"
+    },
+    "deviceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Canonical immutable logical UUID of the device"
+    },
+    "trustState": {
+      "type": "string",
+      "enum": [
+        "PROVISIONED",
+        "COMMISSIONED",
+        "TRUSTED",
+        "DEGRADED",
+        "QUARANTINED",
+        "REVOKED",
+        "DECOMMISSIONED",
+        "FACTORY_RESET"
+      ],
+      "description": "Current lifecycle and trust evaluation state of the device"
+    },
+    "trustScore": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Continuous trust score evaluated from security observations"
+    },
+    "reasoningJson": {
+      "type": "object",
+      "description": "Structured diagnostics and observations explaining current trust classification"
+    },
+    "quarantinedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Timestamp when device was moved to QUARANTINED state, or null"
+    },
+    "revokedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Timestamp when device was moved to REVOKED state, or null"
+    },
+    "lastEvaluatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when trust score and state were last computed"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of record modification"
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "deviceId": "0194fe23-7a1b-7890-a123-456789abcdef",
+      "trustState": "TRUSTED",
+      "trustScore": 100.0,
+      "reasoningJson": {
+        "verifiedCredentials": true,
+        "recentAuthFailures": 0,
+        "firmwareVerified": true
+      },
+      "quarantinedAt": null,
+      "revokedAt": null,
+      "lastEvaluatedAt": "2026-09-04T16:00:00.000Z",
+      "updatedAt": "2026-09-04T16:00:00.000Z"
+    }
+  ]
+}

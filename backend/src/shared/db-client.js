@@ -42,7 +42,9 @@ class DatabaseClient {
       // Phase 30 — Intelligent Notifications, Alerts & User Event Center
       'platform_events', 'notification_aggregations', 'notification_actions',
       // Phase 31 — Secure Operations, Audit & Platform Observability
-      'operational_events', 'security_audit_records', 'system_health_snapshots'
+      'operational_events', 'security_audit_records', 'system_health_snapshots',
+      // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
+      'device_trust_states', 'device_credential_lifecycle', 'device_revocations', 'device_provisioning_records'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

@@ -36,14 +36,16 @@ class DeviceCommandService {
    * @param {Object}   opts.deviceStateRepo       - DeviceStateRepository instance
    * @param {Object}   opts.auditRepo             - AuditRepository instance
    * @param {Object}   opts.mqttTransport         - MqttDeviceTransport instance
+   * @param {Object}   [opts.deviceTrustService]  - DeviceTrustService instance (Phase 32)
    */
-  constructor({ commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo, mqttTransport }) {
-    this.commandRepo     = commandRepo;
-    this.outboxRepo      = outboxRepo;
-    this.deviceRepo      = deviceRepo;
-    this.deviceStateRepo = deviceStateRepo;
-    this.auditRepo       = auditRepo;
-    this.mqttTransport   = mqttTransport;
+  constructor({ commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo, mqttTransport, deviceTrustService = null }) {
+    this.commandRepo        = commandRepo;
+    this.outboxRepo         = outboxRepo;
+    this.deviceRepo         = deviceRepo;
+    this.deviceStateRepo    = deviceStateRepo;
+    this.auditRepo          = auditRepo;
+    this.mqttTransport      = mqttTransport;
+    this.deviceTrustService = deviceTrustService;
   }
 
   // ---------------------------------------------------------------------------
@@ -215,6 +217,14 @@ class DeviceCommandService {
 
     if (auth.home_id !== actorContext.homeId) {
       throw new Error(`Device ${deviceId} does not belong to home ${actorContext.homeId}`);
+    }
+
+    // Phase 32: Block commands if device is REVOKED or QUARANTINED
+    if (this.deviceTrustService) {
+      const trustCheck = await this.deviceTrustService.canExecuteCommand(deviceId);
+      if (!trustCheck.allowed) {
+        throw new Error(`Device ${deviceId} command rejected: ${trustCheck.reason}`);
+      }
     }
   }
 
