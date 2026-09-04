@@ -3687,5 +3687,9 @@ module.exports = {
   // Phase 28 — Local-First Home Control & Edge Execution
   LocalRouteCacheRepository: require('./local-route-cache.repository').LocalRouteCacheRepository,
   EdgeExecutionRepository: require('./edge-execution.repository').EdgeExecutionRepository,
-  LocalDiscoveryNodeRepository: require('./local-discovery-node.repository').LocalDiscoveryNodeRepository
+  LocalDiscoveryNodeRepository: require('./local-discovery-node.repository').LocalDiscoveryNodeRepository,
+  // Phase 29 — Matter Ecosystem Interoperability & Multi-Platform Integration
+  MatterDeviceRepository: require('./matter-device.repository').MatterDeviceRepository,
+  MatterFabricRepository: require('./matter-fabric.repository').MatterFabricRepository,
+  ExternalPlatformLinkRepository: require('./external-platform-link.repository').ExternalPlatformLinkRepository
 };

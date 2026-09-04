@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/matter/external-platform-link.schema.json",
+  "title": "ExternalPlatformLink",
+  "description": "Provider-neutral external smart home ecosystem link representing integration status (Apple Home, Google Home, Alexa, or Matter).",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "linkId",
+    "homeId",
+    "deviceId",
+    "platform",
+    "status",
+    "syncStatus",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "linkId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "homeId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "deviceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["MATTER", "APPLE_HOME", "GOOGLE_HOME", "AMAZON_ALEXA"]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "CONNECTED",
+        "NOT_CONNECTED",
+        "CONNECTING",
+        "CONNECTION_ISSUE",
+        "FAILED",
+        "DISCONNECTED"
+      ]
+    },
+    "externalIdentifier": {
+      "type": ["string", "null"]
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "syncStatus": {
+      "type": "string",
+      "enum": ["SYNCHRONIZED", "PENDING_SYNC", "SYNC_ERROR", "IDLE"]
+    },
+    "lastErrorMessage": {
+      "type": ["string", "null"]
+    },
+    "linkedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "lastSyncedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

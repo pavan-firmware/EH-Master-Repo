@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/matter/matter-commissioning-session.schema.json",
+  "title": "MatterCommissioningSession",
+  "description": "Lifecycle session tracking Matter device commissioning, PASE pairing, and fabric integration.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "deviceId",
+    "homeId",
+    "stage",
+    "discriminator",
+    "setupPasscode",
+    "qrCodePayload",
+    "manualPairingCode",
+    "expiresAt",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "deviceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "homeId": {
+      "type": "string",
+      "minLength": 3
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "INITIALIZED",
+        "ADVERTISING",
+        "PASE_IN_PROGRESS",
+        "PASE_ESTABLISHED",
+        "CASE_AUTHENTICATING",
+        "FABRIC_ASSIGNED",
+        "VERIFIED",
+        "COMPLETED",
+        "FAILED",
+        "EXPIRED"
+      ]
+    },
+    "targetFabric": {
+      "type": "string",
+      "enum": ["APPLE_HOME", "GOOGLE_HOME", "AMAZON_ALEXA", "EH_HOME", "CUSTOM_CONTROLLER"]
+    },
+    "discriminator": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4095
+    },
+    "setupPasscode": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 99999998
+    },
+    "qrCodePayload": {
+      "type": "string",
+      "minLength": 5
+    },
+    "manualPairingCode": {
+      "type": "string",
+      "pattern": "^[0-9]{11,21}$"
+    },
+    "errorMessage": {
+      "type": ["string", "null"]
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  }
+}

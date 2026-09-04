@@ -75,7 +75,11 @@ const {
   // Phase 28 — Local-First Home Control & Edge Execution
   LocalRouteCacheRepository,
   EdgeExecutionRepository,
-  LocalDiscoveryNodeRepository
+  LocalDiscoveryNodeRepository,
+  // Phase 29 — Matter Ecosystem Interoperability
+  MatterDeviceRepository,
+  MatterFabricRepository,
+  ExternalPlatformLinkRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -108,6 +112,10 @@ const { ExecutionRoutingService } = require('./services/execution-routing.servic
 const { LocalExecutionService } = require('./services/local-execution.service');
 const { LocalDiscoveryService } = require('./services/local-discovery.service');
 const { EdgeAutomationService } = require('./services/edge-automation.service');
+const { MatterCapabilityMappingService } = require('./services/matter-capability-mapping.service');
+const { MatterCommissioningService } = require('./services/matter-commissioning.service');
+const { MatterStateSyncService } = require('./services/matter-state-sync.service');
+const { MatterIntegrationService } = require('./services/matter-integration.service');
 const { createPushProvider } = require('./services/push-notification-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
@@ -125,6 +133,7 @@ const { IntelligenceApiRouter } = require('./api/intelligence.router');
 const { ReliabilityApiRouter } = require('./api/reliability.router');
 const { ConnectivityApiRouter } = require('./api/connectivity.router');
 const { EdgeControlApiRouter } = require('./api/edge-control.router');
+const { MatterApiRouter } = require('./api/matter.router');
 const { AutomationSceneApiRouter } = require('./api/automation-scene.router');
 const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
@@ -287,6 +296,10 @@ function createApp(options = {}) {
   const localRouteRepo = options.localRouteRepo || new LocalRouteCacheRepository(db);
   const edgeExecutionRepo = options.edgeExecutionRepo || new EdgeExecutionRepository(db);
   const localDiscoveryNodeRepo = options.localDiscoveryNodeRepo || new LocalDiscoveryNodeRepository(db);
+  // Phase 29 Repositories
+  const matterDeviceRepo = options.matterDeviceRepo || new MatterDeviceRepository(db);
+  const matterFabricRepo = options.matterFabricRepo || new MatterFabricRepository(db);
+  const externalPlatformLinkRepo = options.externalPlatformLinkRepo || new ExternalPlatformLinkRepository(db);
 
   // 2. Services
   const authService = options.authService || new AuthService({
@@ -482,6 +495,39 @@ function createApp(options = {}) {
     eventBus
   });
 
+  // Phase 29 — Matter Ecosystem Interoperability Services
+  const matterCapabilityMappingService = options.matterCapabilityMappingService || new MatterCapabilityMappingService({
+    productCatalogService: catalogService
+  });
+
+  const matterCommissioningService = options.matterCommissioningService || new MatterCommissioningService({
+    matterDeviceRepo,
+    matterFabricRepo,
+    externalPlatformLinkRepo,
+    capabilityMappingService: matterCapabilityMappingService,
+    deviceRepo
+  });
+
+  const matterStateSyncService = options.matterStateSyncService || new MatterStateSyncService({
+    matterDeviceRepo,
+    matterFabricRepo,
+    executionRoutingService,
+    localExecutionService,
+    deviceCommandService: commandService,
+    deviceStateRepo,
+    eventBus
+  });
+
+  const matterIntegrationService = options.matterIntegrationService || new MatterIntegrationService({
+    matterDeviceRepo,
+    matterFabricRepo,
+    externalPlatformLinkRepo,
+    commissioningService: matterCommissioningService,
+    stateSyncService: matterStateSyncService,
+    capabilityMappingService: matterCapabilityMappingService,
+    homeAuthService
+  });
+
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,
     eventRepo,
@@ -616,6 +662,13 @@ function createApp(options = {}) {
     edgeAutomationService,
     edgeExecutionRepo,
     localRouteRepo,
+    homeAuthService
+  });
+  const matterApiRouter = new MatterApiRouter({
+    matterIntegrationService,
+    matterCommissioningService,
+    matterStateSyncService,
+    matterCapabilityMappingService,
     homeAuthService
   });
   const automationSceneRouter = new AutomationSceneApiRouter({ sceneService, automationService, scheduleService });
@@ -851,6 +904,17 @@ function createApp(options = {}) {
       return sendJsonResponse(res, result.statusCode, result.body);
     }
 
+    // 8.596. Route to Matter & Multi-Platform Integration Router (Phase 29)
+    if (
+      pathname.startsWith('/api/v1/matter') ||
+      (pathname.startsWith('/api/v1/devices/') && pathname.includes('/matter')) ||
+      (pathname.startsWith('/api/v1/devices/') && pathname.includes('/integrations')) ||
+      (pathname.startsWith('/api/v1/homes/') && pathname.includes('/integrations'))
+    ) {
+      const result = await matterApiRouter.handleRequest(method, pathname, body, req.headers || {});
+      return sendJsonResponse(res, result.statusCode, result.body);
+    }
+
     // 8.6. Route to Automation, Scene, and Schedule Router
     if (
       pathname.includes('/scenes') ||
@@ -965,6 +1029,10 @@ function createApp(options = {}) {
       localExecutionService,
       localDiscoveryService,
       edgeAutomationService,
+      matterCapabilityMappingService,
+      matterCommissioningService,
+      matterStateSyncService,
+      matterIntegrationService,
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker
@@ -992,13 +1060,18 @@ function createApp(options = {}) {
       // Phase 28 Repositories
       localRouteRepo,
       edgeExecutionRepo,
-      localDiscoveryNodeRepo
+      localDiscoveryNodeRepo,
+      // Phase 29 Repositories
+      matterDeviceRepo,
+      matterFabricRepo,
+      externalPlatformLinkRepo
     },
     contextApiRouter: contextRouter,
     intelligenceApiRouter: intelligenceRouter,
     reliabilityApiRouter: reliabilityRouter,
     connectivityApiRouter: connectivityRouter,
     edgeControlApiRouter: edgeControlRouter,
+    matterApiRouter: matterApiRouter,
     energyApiRouter: energyRouter,
     catalogApiRouter: catalogRouter
   };
