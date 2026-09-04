@@ -60,7 +60,11 @@ const schemaFiles = [
   '../notification/notification-preference.schema.json',
   '../notification/notification-delivery.schema.json',
   '../notification/notification-action.schema.json',
-  '../notification/notification-aggregation.schema.json'
+  '../notification/notification-aggregation.schema.json',
+  '../operations/operational-event.schema.json',
+  '../operations/audit-record.schema.json',
+  '../operations/operation-trace.schema.json',
+  '../operations/system-health.schema.json'
 ];
 
 schemaFiles.forEach(f => validator.loadSchema(path.join(__dirname, f)));
@@ -1444,6 +1448,106 @@ const validNotificationAggregation = {
 };
 assert('Valid NotificationAggregation passes', validator.validate('NotificationAggregation', validNotificationAggregation).valid);
 assert('Invalid eventCount fails', !validator.validate('NotificationAggregation', { ...validNotificationAggregation, eventCount: 0 }).valid);
+
+console.log('\n53. Phase 31 — OperationalEvent:');
+const validOperationalEvent = {
+  schemaVersion: 1,
+  eventId: 'opevt_001',
+  correlationId: 'corr_001',
+  causationId: 'caus_001',
+  homeId: 'home_01',
+  deviceId: '22222222-2222-4222-8222-222222222221',
+  subsystem: 'DEVICE',
+  operation: 'EXECUTE_COMMAND',
+  action: 'LIGHT_ON',
+  source: 'USER_APP',
+  executionPath: 'LOCAL_EDGE',
+  severity: 'INFO',
+  authorizationResult: 'AUTHORIZED',
+  outcome: 'SUCCESS',
+  durationMs: 42,
+  timestamp: '2026-09-04T16:00:00Z'
+};
+assert('Valid OperationalEvent passes', validator.validate('OperationalEvent', validOperationalEvent).valid);
+assert('Invalid subsystem in OperationalEvent fails', !validator.validate('OperationalEvent', { ...validOperationalEvent, subsystem: 'UNKNOWN_SUB' }).valid);
+assert('Invalid executionPath in OperationalEvent fails', !validator.validate('OperationalEvent', { ...validOperationalEvent, executionPath: 'SATELLITE' }).valid);
+
+console.log('\n54. Phase 31 — AuditRecord:');
+const validAuditRecord = {
+  schemaVersion: 1,
+  auditId: 'sec_rec_001',
+  sequenceNumber: 1,
+  recordHash: 'a'.repeat(64),
+  prevRecordHash: '0'.repeat(64),
+  actorUserId: 'usr_alice',
+  homeId: 'home_01',
+  action: 'ROLE_ELEVATION',
+  resourceType: 'MEMBER',
+  resourceId: 'usr_bob',
+  outcome: 'SUCCESS',
+  canonicalPayload: { targetRole: 'ADMIN' },
+  timestamp: '2026-09-04T16:00:00Z'
+};
+assert('Valid AuditRecord passes', validator.validate('AuditRecord', validAuditRecord).valid);
+assert('Invalid hash length in AuditRecord fails', !validator.validate('AuditRecord', { ...validAuditRecord, recordHash: 'short' }).valid);
+assert('Negative sequenceNumber fails', !validator.validate('AuditRecord', { ...validAuditRecord, sequenceNumber: -1 }).valid);
+
+console.log('\n55. Phase 31 — OperationTrace:');
+const validOperationTrace = {
+  schemaVersion: 1,
+  traceId: 'trace_001',
+  correlationId: 'corr_001',
+  rootOperation: 'EXECUTE_COMMAND',
+  status: 'COMPLETED',
+  startTime: '2026-09-04T16:00:00.000Z',
+  endTime: '2026-09-04T16:00:00.085Z',
+  totalDurationMs: 85,
+  spans: [
+    {
+      spanId: 'span_001',
+      parentSpanId: null,
+      subsystem: 'COMMAND',
+      operation: 'PARSE_COMMAND',
+      executionPath: 'LOCAL_EDGE',
+      outcome: 'SUCCESS',
+      durationMs: 15,
+      timestamp: '2026-09-04T16:00:00.000Z'
+    },
+    {
+      spanId: 'span_002',
+      parentSpanId: 'span_001',
+      subsystem: 'EDGE_ROUTING',
+      operation: 'DISPATCH_LOCAL',
+      executionPath: 'LOCAL_EDGE',
+      outcome: 'SUCCESS',
+      durationMs: 70,
+      timestamp: '2026-09-04T16:00:00.015Z'
+    }
+  ]
+};
+assert('Valid OperationTrace passes', validator.validate('OperationTrace', validOperationTrace).valid);
+assert('Invalid status in OperationTrace fails', !validator.validate('OperationTrace', { ...validOperationTrace, status: 'EXPLODED' }).valid);
+
+console.log('\n56. Phase 31 — SystemHealth:');
+const validSystemHealth = {
+  schemaVersion: 1,
+  status: 'HEALTHY',
+  timestamp: '2026-09-04T16:00:00Z',
+  subsystems: {
+    DATABASE: {
+      status: 'HEALTHY',
+      latencyMs: 8,
+      lastCheckedAt: '2026-09-04T16:00:00Z'
+    },
+    MQTT: {
+      status: 'HEALTHY',
+      latencyMs: 12,
+      lastCheckedAt: '2026-09-04T16:00:00Z'
+    }
+  }
+};
+assert('Valid SystemHealth passes', validator.validate('SystemHealth', validSystemHealth).valid);
+assert('Invalid status in SystemHealth fails', !validator.validate('SystemHealth', { ...validSystemHealth, status: 'AWESOME' }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

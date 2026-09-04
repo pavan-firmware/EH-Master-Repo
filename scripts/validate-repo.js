@@ -156,8 +156,11 @@ runStep('39. Phase 29 Matter Ecosystem Interoperability Tests', `${nodeBin} back
 // 40. Phase 30 Intelligent Notifications, Alerts & User Event Center Tests
 runStep('40. Phase 30 Intelligent Notifications, Alerts & User Event Center Tests', `${nodeBin} backend/tests/phase30-intelligent-notifications.test.js`);
 
+// 41. Phase 31 Secure Operations, Audit & Platform Observability Tests
+runStep('41. Phase 31 Secure Operations, Audit & Observability Tests', `${nodeBin} backend/tests/phase31-secure-operations-observability.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  40 SUITES ATTEMPTED. ${failedSuites === 0 ? '40/40' : (40 - failedSuites) + '/40'} PASSED.`);
+console.log(`  41 SUITES ATTEMPTED. ${failedSuites === 0 ? '41/41' : (41 - failedSuites) + '/41'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

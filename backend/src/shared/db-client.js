@@ -40,7 +40,9 @@ class DatabaseClient {
       // Phase 29 — Matter Ecosystem Interoperability & Multi-Platform Integration
       'matter_devices', 'matter_fabrics', 'matter_endpoints', 'matter_sync_state', 'external_platform_links',
       // Phase 30 — Intelligent Notifications, Alerts & User Event Center
-      'platform_events', 'notification_aggregations', 'notification_actions'
+      'platform_events', 'notification_aggregations', 'notification_actions',
+      // Phase 31 — Secure Operations, Audit & Platform Observability
+      'operational_events', 'security_audit_records', 'system_health_snapshots'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

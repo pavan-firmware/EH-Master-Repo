@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/system-health.schema.json",
+  "title": "SystemHealth",
+  "description": "Unified observational subsystem health snapshot contract.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "status",
+    "timestamp",
+    "subsystems"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "HEALTHY",
+        "DEGRADED",
+        "UNAVAILABLE",
+        "UNKNOWN"
+      ]
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "subsystems": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "status",
+          "lastCheckedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "HEALTHY",
+              "DEGRADED",
+              "UNAVAILABLE",
+              "NOT_CHECKED",
+              "UNKNOWN"
+            ]
+          },
+          "latencyMs": {
+            "type": ["number", "null"]
+          },
+          "errorRate": {
+            "type": ["number", "null"]
+          },
+          "lastCheckedAt": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

@@ -231,6 +231,8 @@ class DataRetentionService {
     const maintRecs = await this.pruneMaintenanceRecommendations(policies.maintenanceRecDays || 180);
     const transportHealth = await this.pruneTransportHealthSnapshots(policies.transportHealthDays || 30);
     const commissioning = await this.pruneCommissioningSessions(policies.commissioningDays || 60);
+    const opEvents = await this.pruneOperationalEvents(policies.operationalEventDays || 60);
+    const healthSnaps = await this.pruneSystemHealthSnapshots(policies.systemHealthDays || 30);
 
     return {
       executedAt: new Date().toISOString(),
@@ -255,8 +257,28 @@ class DataRetentionService {
       reliabilitySnapshotsPruned: reliabilitySnap.pruned,
       maintenanceRecommendationsPruned: maintRecs.pruned,
       transportHealthSnapshotsPruned: transportHealth.pruned,
-      commissioningSessionsPruned: commissioning.pruned
+      commissioningSessionsPruned: commissioning.pruned,
+      operationalEventsPruned: opEvents.pruned,
+      systemHealthSnapshotsPruned: healthSnaps.pruned
     };
+  }
+
+  async pruneOperationalEvents(olderThanDays = 60) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('operational_events', e => e.occurred_at < cutoff);
+    for (const e of stale) {
+      await this.db.delete('operational_events', e.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneSystemHealthSnapshots(olderThanDays = 30) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('system_health_snapshots', s => s.recorded_at < cutoff);
+    for (const s of stale) {
+      await this.db.delete('system_health_snapshots', s.id);
+    }
+    return { pruned: stale.length, cutoff };
   }
 }
 
