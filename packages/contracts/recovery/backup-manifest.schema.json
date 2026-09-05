@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart-home.schema/recovery/backup-manifest.schema.json",
+  "title": "BackupManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "backupId",
+    "createdAt",
+    "source",
+    "migrationVersion",
+    "status",
+    "objects",
+    "manifestChecksum",
+    "totalBytes",
+    "objectCount"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "backupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "expiresAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "appVersion": {
+      "type": "string"
+    },
+    "migrationVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["CREATED", "IN_PROGRESS", "COMPLETED", "FAILED", "INVALID", "EXPIRED"]
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["FULL", "HOME", "SECURITY", "CONFIGURATION", "HISTORICAL"]
+    },
+    "homeId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "objectKey",
+          "entityType",
+          "recordCount",
+          "byteSize",
+          "sha256Checksum",
+          "dataClassification"
+        ],
+        "properties": {
+          "objectKey": { "type": "string" },
+          "entityType": { "type": "string" },
+          "recordCount": { "type": "integer", "minimum": 0 },
+          "byteSize": { "type": "integer", "minimum": 0 },
+          "sha256Checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "dataClassification": {
+            "type": "string",
+            "enum": ["CRITICAL_STATE", "SECURITY_STATE", "CONFIGURATION_STATE", "HISTORICAL_STATE", "DERIVED_STATE"]
+          },
+          "secretHandling": {
+            "type": "string",
+            "enum": ["EXCLUDED", "REGENERATED", "EXTERNAL_AUTHORITY", "NONE"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "manifestChecksum": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "totalBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "objectCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "encryption": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "algorithm": { "type": "string" },
+        "keyIdentifier": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

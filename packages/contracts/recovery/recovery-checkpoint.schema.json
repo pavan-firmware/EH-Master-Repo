@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart-home.schema/recovery/recovery-checkpoint.schema.json",
+  "title": "RecoveryCheckpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "checkpointId",
+    "name",
+    "checkpointType",
+    "schemaVersionRecorded",
+    "migrationVersionRecorded",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "checkpointId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checkpointType": {
+      "type": "string",
+      "enum": ["PRE_RESTORE", "POST_RESTORE", "PRE_MIGRATION", "SCHEDULED", "MANUAL"]
+    },
+    "appVersion": {
+      "type": "string"
+    },
+    "schemaVersionRecorded": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "migrationVersionRecorded": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "activeOperationId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "stateSummary": {
+      "type": "object",
+      "properties": {
+        "userCount": { "type": "integer", "minimum": 0 },
+        "homeCount": { "type": "integer", "minimum": 0 },
+        "deviceCount": { "type": "integer", "minimum": 0 },
+        "revokedDeviceCount": { "type": "integer", "minimum": 0 },
+        "automationCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

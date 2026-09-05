@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart-home.schema/recovery/backup-record.schema.json",
+  "title": "BackupRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "backupId",
+    "status",
+    "provider",
+    "location",
+    "schemaVersionRecorded",
+    "migrationVersionRecorded",
+    "objectCount",
+    "totalBytes",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "backupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["CREATED", "IN_PROGRESS", "COMPLETED", "FAILED", "INVALID", "EXPIRED"]
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["FULL", "HOME", "SECURITY", "CONFIGURATION", "HISTORICAL"]
+    },
+    "homeId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "schemaVersionRecorded": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "migrationVersionRecorded": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "objectCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "totalBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "manifestChecksum": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "errorMessage": {
+      "type": ["string", "null"]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "expiresAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  }
+}

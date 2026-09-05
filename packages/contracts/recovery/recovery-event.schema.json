@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart-home.schema/recovery/recovery-event.schema.json",
+  "title": "RecoveryEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "eventType",
+    "severity",
+    "timestamp"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "backupId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "operationId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "BACKUP_CREATED",
+        "BACKUP_COMPLETED",
+        "BACKUP_FAILED",
+        "BACKUP_VERIFIED",
+        "BACKUP_INTEGRITY_FAILED",
+        "RESTORE_REQUESTED",
+        "RESTORE_PLANNED",
+        "RESTORE_STARTED",
+        "RESTORE_COMPLETED",
+        "RESTORE_FAILED",
+        "RECONCILIATION_REQUIRED",
+        "CHECKPOINT_CREATED"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["INFO", "WARNING", "ERROR", "CRITICAL"]
+    },
+    "actorUserId": {
+      "type": ["string", "null"]
+    },
+    "details": {
+      "type": "object"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

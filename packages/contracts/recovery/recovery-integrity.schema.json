@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart-home.schema/recovery/recovery-integrity.schema.json",
+  "title": "RecoveryIntegrity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "verificationId",
+    "backupId",
+    "status",
+    "manifestValid",
+    "checksumsValid",
+    "schemaCompatible",
+    "migrationCompatible",
+    "verifiedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "verificationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "backupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["VALID", "INVALID", "INCOMPATIBLE", "UNKNOWN"]
+    },
+    "manifestValid": {
+      "type": "boolean"
+    },
+    "checksumsValid": {
+      "type": "boolean"
+    },
+    "schemaCompatible": {
+      "type": "boolean"
+    },
+    "migrationCompatible": {
+      "type": "boolean"
+    },
+    "verifiedObjectsCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failedObjectsCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failedObjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["objectKey", "expectedChecksum", "calculatedChecksum", "reason"],
+        "properties": {
+          "objectKey": { "type": "string" },
+          "expectedChecksum": { "type": "string" },
+          "calculatedChecksum": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "details": {
+      "type": "object"
+    },
+    "verifiedBy": {
+      "type": "string"
+    },
+    "verifiedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

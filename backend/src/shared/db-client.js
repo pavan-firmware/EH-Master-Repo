@@ -44,7 +44,9 @@ class DatabaseClient {
       // Phase 31 — Secure Operations, Audit & Platform Observability
       'operational_events', 'security_audit_records', 'system_health_snapshots',
       // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
-      'device_trust_states', 'device_credential_lifecycle', 'device_revocations', 'device_provisioning_records'
+      'device_trust_states', 'device_credential_lifecycle', 'device_revocations', 'device_provisioning_records',
+      // Phase 33 — Disaster Recovery, Backup & State Resilience
+      'backup_records', 'backup_objects', 'restore_operations', 'recovery_checkpoints', 'recovery_integrity_results'
     ];
     tableNames.forEach(t => this.tables.set(t, new Map()));
   }

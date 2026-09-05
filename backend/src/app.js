@@ -85,7 +85,9 @@ const {
   SecurityAuditRepository,
   SystemHealthRepository,
   // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
-  DeviceTrustRepository
+  DeviceTrustRepository,
+  // Phase 33 — Disaster Recovery, Backup & State Resilience
+  RecoveryRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -145,7 +147,9 @@ const { DeviceManagementApiRouter } = require('./api/device-management.router');
 const { NotificationApiRouter } = require('./api/notification.router');
 const { OperationsApiRouter } = require('./api/operations.router');
 const { DeviceTrustApiRouter } = require('./api/device-trust.router');
+const { RecoveryApiRouter } = require('./api/recovery.router');
 const { DeviceTrustService } = require('./services/device-trust.service');
+const { RecoveryService } = require('./services/recovery.service');
 const { OperationsAuditService } = require('./services/operations-audit.service');
 const { OperationTraceService } = require('./services/operation-trace.service');
 const { SystemHealthService } = require('./services/system-health.service');
@@ -754,6 +758,21 @@ function createApp(options = {}) {
     deviceRepo
   });
 
+  // Phase 33 — Disaster Recovery, Backup & State Resilience
+  const recoveryRepo = options.recoveryRepo || new RecoveryRepository(db);
+  const recoveryService = options.recoveryService || new RecoveryService({
+    db,
+    recoveryRepo,
+    backupProvider: options.backupProvider || null,
+    deviceTrustService,
+    operationsAuditService,
+    notificationService
+  });
+  const recoveryRouter = new RecoveryApiRouter({
+    recoveryService,
+    recoveryRepo
+  });
+
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -1072,6 +1091,18 @@ function createApp(options = {}) {
       }
     }
 
+    // 8.8d. Route to Disaster Recovery Router (Phase 33)
+    if (pathname.startsWith('/api/v1/admin/recovery')) {
+      if (req.user) {
+        query.userId = req.user.id;
+        if (req.user.role) query.userRole = req.user.role;
+      }
+      const recoveryResult = await recoveryRouter.handle(method, pathname, body, req.headers, query);
+      if (recoveryResult) {
+        return sendJsonResponse(res, recoveryResult.status, recoveryResult.body);
+      }
+    }
+
     // 8.9. Route to Sync & Data Export Router
     if (pathname.startsWith('/api/v1/sync')) {
       const responseWrapper = createResponseWrapper(res);
@@ -1146,7 +1177,8 @@ function createApp(options = {}) {
       matterIntegrationService,
       pushProvider,
       schedulerWorker,
-      notificationDeliveryWorker
+      notificationDeliveryWorker,
+      recoveryService
     },
     repositories: {
       userRepo, homeRepo, roomRepo, productRepo, capRepo, deviceRepo,
@@ -1175,7 +1207,9 @@ function createApp(options = {}) {
       // Phase 29 Repositories
       matterDeviceRepo,
       matterFabricRepo,
-      externalPlatformLinkRepo
+      externalPlatformLinkRepo,
+      // Phase 33 Repositories
+      recoveryRepo
     },
     contextApiRouter: contextRouter,
     intelligenceApiRouter: intelligenceRouter,
@@ -1184,7 +1218,8 @@ function createApp(options = {}) {
     edgeControlApiRouter: edgeControlRouter,
     matterApiRouter: matterApiRouter,
     energyApiRouter: energyRouter,
-    catalogApiRouter: catalogRouter
+    catalogApiRouter: catalogRouter,
+    recoveryApiRouter: recoveryRouter
   };
 }
 
