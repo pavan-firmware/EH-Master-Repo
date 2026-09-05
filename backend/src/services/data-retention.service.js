@@ -303,6 +303,33 @@ class DataRetentionService {
     }
     return { pruned: stale.length, cutoff };
   }
+
+  // Phase 33 — Disaster Recovery & State Resilience
+  async pruneExpiredBackups(olderThanDays = 90) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('backup_records', b => {
+      return (b.status === 'EXPIRED' || b.status === 'INVALID' || b.status === 'FAILED') && b.created_at < cutoff;
+    });
+    for (const b of stale) {
+      const objects = await this.db.find('backup_objects', o => o.backup_id === b.backup_id);
+      for (const obj of objects) {
+        await this.db.delete('backup_objects', obj.id);
+      }
+      await this.db.delete('backup_records', b.backup_id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
+
+  async pruneIntegrityResults(olderThanDays = 60) {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    const stale = await this.db.find('recovery_integrity_results', r => {
+      return r.verified_at < cutoff;
+    });
+    for (const r of stale) {
+      await this.db.delete('recovery_integrity_results', r.id);
+    }
+    return { pruned: stale.length, cutoff };
+  }
 }
 
 module.exports = { DataRetentionService };

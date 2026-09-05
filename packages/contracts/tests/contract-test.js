@@ -70,7 +70,13 @@ const schemaFiles = [
   '../device-trust/device-credential-lifecycle.schema.json',
   '../device-trust/device-revocation.schema.json',
   '../device-trust/device-provisioning-record.schema.json',
-  '../device-trust/device-security-event.schema.json'
+  '../device-trust/device-security-event.schema.json',
+  '../recovery/backup-manifest.schema.json',
+  '../recovery/backup-record.schema.json',
+  '../recovery/restore-operation.schema.json',
+  '../recovery/recovery-checkpoint.schema.json',
+  '../recovery/recovery-integrity.schema.json',
+  '../recovery/recovery-event.schema.json'
 ];
 
 schemaFiles.forEach(f => validator.loadSchema(path.join(__dirname, f)));
@@ -1679,6 +1685,199 @@ allowedSecEvents.forEach(evt => {
 });
 assert('Invalid eventType fails', !validator.validate('DeviceSecurityEvent', { ...validSecEvent, eventType: 'SOMETHING_FISHY' }).valid);
 assert('Invalid severity fails', !validator.validate('DeviceSecurityEvent', { ...validSecEvent, severity: 'EXTREME' }).valid);
+
+console.log('\n63. Phase 33 — BackupManifest:');
+const validBackupManifest = {
+  schemaVersion: 1,
+  backupId: 'b0000000-0000-0000-0000-000000000001',
+  createdAt: '2026-09-05T10:00:00.000Z',
+  completedAt: '2026-09-05T10:01:00.000Z',
+  expiresAt: '2026-10-05T10:00:00.000Z',
+  source: 'EH_INTERNAL_RECOVERY_ENGINE',
+  appVersion: '1.0.0',
+  migrationVersion: 26,
+  status: 'COMPLETED',
+  scope: 'FULL',
+  homeId: null,
+  objects: [
+    {
+      objectKey: 'users.json',
+      entityType: 'users',
+      recordCount: 15,
+      byteSize: 4096,
+      sha256Checksum: 'a1b2c3d4e5f6071829304a5b6c7d8e9f0123456789abcdef0123456789abcdef',
+      dataClassification: 'CRITICAL_STATE',
+      secretHandling: 'EXCLUDED'
+    },
+    {
+      objectKey: 'device_trust_states.json',
+      entityType: 'device_trust_states',
+      recordCount: 20,
+      byteSize: 8192,
+      sha256Checksum: 'b1b2c3d4e5f6071829304a5b6c7d8e9f0123456789abcdef0123456789abcdef',
+      dataClassification: 'SECURITY_STATE',
+      secretHandling: 'NONE'
+    }
+  ],
+  manifestChecksum: 'c1b2c3d4e5f6071829304a5b6c7d8e9f0123456789abcdef0123456789abcdef',
+  totalBytes: 12288,
+  objectCount: 2,
+  encryption: {
+    enabled: true,
+    algorithm: 'AES-256-GCM',
+    keyIdentifier: 'kms-eh-recovery-key-1'
+  },
+  dependencies: ['users', 'homes', 'devices', 'device_trust_states'],
+  metadata: { initiator: 'admin@eh.internal' }
+};
+assert('Valid BackupManifest passes', validator.validate('BackupManifest', validBackupManifest).valid);
+const allowedBackupStatuses = ['CREATED', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'INVALID', 'EXPIRED'];
+allowedBackupStatuses.forEach(st => {
+  assert(`BackupManifest status '${st}' is valid`, validator.validate('BackupManifest', { ...validBackupManifest, status: st }).valid);
+});
+assert('Invalid status in BackupManifest fails', !validator.validate('BackupManifest', { ...validBackupManifest, status: 'PURGED' }).valid);
+assert('Missing objects in BackupManifest fails', !validator.validate('BackupManifest', { ...validBackupManifest, objects: undefined }).valid);
+
+console.log('\n64. Phase 33 — BackupRecord:');
+const validBackupRecord = {
+  schemaVersion: 1,
+  backupId: 'b0000000-0000-0000-0000-000000000001',
+  status: 'COMPLETED',
+  scope: 'FULL',
+  homeId: null,
+  provider: 'LocalBackupProvider',
+  location: '/var/backups/b0000000-0000-0000-0000-000000000001',
+  schemaVersionRecorded: 1,
+  migrationVersionRecorded: 26,
+  objectCount: 2,
+  totalBytes: 12288,
+  manifestChecksum: 'c1b2c3d4e5f6071829304a5b6c7d8e9f0123456789abcdef0123456789abcdef',
+  errorMessage: null,
+  createdAt: '2026-09-05T10:00:00.000Z',
+  completedAt: '2026-09-05T10:01:00.000Z',
+  expiresAt: '2026-10-05T10:00:00.000Z'
+};
+assert('Valid BackupRecord passes', validator.validate('BackupRecord', validBackupRecord).valid);
+assert('Negative totalBytes fails', !validator.validate('BackupRecord', { ...validBackupRecord, totalBytes: -1 }).valid);
+
+console.log('\n65. Phase 33 — RestoreOperation:');
+const validRestoreOperation = {
+  schemaVersion: 1,
+  operationId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  backupId: 'b0000000-0000-0000-0000-000000000001',
+  status: 'COMPLETED',
+  stage: 'COMPLETE',
+  targetScope: 'FULL',
+  homeId: null,
+  initiatedBy: 'admin-user-1',
+  dryRun: false,
+  plan: {
+    restorableEntities: ['users', 'homes', 'devices'],
+    excludedEntities: ['refresh_tokens', 'presence_signals'],
+    conflicts: [
+      {
+        entityType: 'device',
+        entityId: 'dev-123',
+        conflictType: 'REVOKED_IN_DB_TRUSTED_IN_BACKUP',
+        resolution: 'PRESERVE_REVOCATION'
+      }
+    ],
+    migrationCompatibility: 'COMPATIBLE'
+  },
+  reconciliation: {
+    status: 'CONSISTENT',
+    revocationsPreserved: 3,
+    decommissionedPreserved: 1,
+    expiredCredentialsPreserved: 2,
+    trustReEvaluatedCount: 15,
+    devicesRequiringRecommissioning: [],
+    warnings: []
+  },
+  errorMessage: null,
+  createdAt: '2026-09-05T10:15:00.000Z',
+  completedAt: '2026-09-05T10:16:30.000Z'
+};
+assert('Valid RestoreOperation passes', validator.validate('RestoreOperation', validRestoreOperation).valid);
+const allowedRestoreStages = ['VALIDATE', 'PRECHECK', 'PLAN', 'APPLY', 'VERIFY', 'COMPLETE', 'FAILED'];
+allowedRestoreStages.forEach(stg => {
+  assert(`RestoreOperation stage '${stg}' is valid`, validator.validate('RestoreOperation', { ...validRestoreOperation, stage: stg }).valid);
+});
+assert('Invalid restore stage fails', !validator.validate('RestoreOperation', { ...validRestoreOperation, stage: 'ABORT' }).valid);
+
+console.log('\n66. Phase 33 — RecoveryCheckpoint:');
+const validRecoveryCheckpoint = {
+  schemaVersion: 1,
+  checkpointId: 'c0000000-0000-0000-0000-000000000001',
+  name: 'pre_restore_20260905_101500',
+  checkpointType: 'PRE_RESTORE',
+  appVersion: '1.0.0',
+  schemaVersionRecorded: 1,
+  migrationVersionRecorded: 26,
+  activeOperationId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  stateSummary: {
+    userCount: 15,
+    homeCount: 5,
+    deviceCount: 20,
+    revokedDeviceCount: 3,
+    automationCount: 8
+  },
+  metadata: { triggeredBy: 'manual_restore' },
+  createdAt: '2026-09-05T10:15:00.000Z'
+};
+assert('Valid RecoveryCheckpoint passes', validator.validate('RecoveryCheckpoint', validRecoveryCheckpoint).valid);
+const allowedCheckpointTypes = ['PRE_RESTORE', 'POST_RESTORE', 'PRE_MIGRATION', 'SCHEDULED', 'MANUAL'];
+allowedCheckpointTypes.forEach(ct => {
+  assert(`RecoveryCheckpoint type '${ct}' is valid`, validator.validate('RecoveryCheckpoint', { ...validRecoveryCheckpoint, checkpointType: ct }).valid);
+});
+assert('Invalid checkpointType fails', !validator.validate('RecoveryCheckpoint', { ...validRecoveryCheckpoint, checkpointType: 'RANDOM' }).valid);
+
+console.log('\n67. Phase 33 — RecoveryIntegrity:');
+const validRecoveryIntegrity = {
+  schemaVersion: 1,
+  verificationId: '0194fe23-7a1b-7890-a123-456789abcdef',
+  backupId: 'b0000000-0000-0000-0000-000000000001',
+  status: 'VALID',
+  manifestValid: true,
+  checksumsValid: true,
+  schemaCompatible: true,
+  migrationCompatible: true,
+  verifiedObjectsCount: 2,
+  failedObjectsCount: 0,
+  failedObjects: [],
+  details: { sha256Matches: 2 },
+  verifiedBy: 'system_integrity_checker',
+  verifiedAt: '2026-09-05T10:02:00.000Z'
+};
+assert('Valid RecoveryIntegrity passes', validator.validate('RecoveryIntegrity', validRecoveryIntegrity).valid);
+const allowedIntegrityStatuses = ['VALID', 'INVALID', 'INCOMPATIBLE', 'UNKNOWN'];
+allowedIntegrityStatuses.forEach(st => {
+  assert(`RecoveryIntegrity status '${st}' is valid`, validator.validate('RecoveryIntegrity', { ...validRecoveryIntegrity, status: st }).valid);
+});
+assert('Invalid integrity status fails', !validator.validate('RecoveryIntegrity', { ...validRecoveryIntegrity, status: 'BROKEN' }).valid);
+
+console.log('\n68. Phase 33 — RecoveryEvent:');
+const validRecoveryEvent = {
+  schemaVersion: 1,
+  id: 'e0000000-0000-0000-0000-000000000001',
+  backupId: 'b0000000-0000-0000-0000-000000000001',
+  operationId: null,
+  eventType: 'BACKUP_COMPLETED',
+  severity: 'INFO',
+  actorUserId: 'admin-1',
+  details: { totalBytes: 12288 },
+  timestamp: '2026-09-05T10:01:00.000Z'
+};
+assert('Valid RecoveryEvent passes', validator.validate('RecoveryEvent', validRecoveryEvent).valid);
+const allowedRecoveryEvents = [
+  'BACKUP_CREATED', 'BACKUP_COMPLETED', 'BACKUP_FAILED', 'BACKUP_VERIFIED',
+  'BACKUP_INTEGRITY_FAILED', 'RESTORE_REQUESTED', 'RESTORE_PLANNED',
+  'RESTORE_STARTED', 'RESTORE_COMPLETED', 'RESTORE_FAILED',
+  'RECONCILIATION_REQUIRED', 'CHECKPOINT_CREATED'
+];
+allowedRecoveryEvents.forEach(evt => {
+  assert(`RecoveryEvent eventType '${evt}' is valid`, validator.validate('RecoveryEvent', { ...validRecoveryEvent, eventType: evt }).valid);
+});
+assert('Invalid recovery eventType fails', !validator.validate('RecoveryEvent', { ...validRecoveryEvent, eventType: 'DESTROYED' }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

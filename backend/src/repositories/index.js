@@ -3940,5 +3940,7 @@ module.exports = {
   SecurityAuditRepository: require('./security-audit.repository').SecurityAuditRepository,
   SystemHealthRepository: require('./system-health.repository').SystemHealthRepository,
   // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
-  DeviceTrustRepository: require('./device-trust.repository').DeviceTrustRepository
+  DeviceTrustRepository: require('./device-trust.repository').DeviceTrustRepository,
+  // Phase 33 — Disaster Recovery, Backup & State Resilience
+  RecoveryRepository: require('./recovery.repository').RecoveryRepository
 };

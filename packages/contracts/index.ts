@@ -393,3 +393,4 @@ export * from './edge';
 export * from './matter';
 export * from './operations';
 export * from './device-trust';
+export * from './recovery';

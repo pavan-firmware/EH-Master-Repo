@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart-home.schema/recovery/restore-operation.schema.json",
+  "title": "RestoreOperation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "operationId",
+    "backupId",
+    "status",
+    "stage",
+    "initiatedBy",
+    "dryRun",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "operationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "backupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "ROLLED_BACK"]
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["VALIDATE", "PRECHECK", "PLAN", "APPLY", "VERIFY", "COMPLETE", "FAILED"]
+    },
+    "targetScope": {
+      "type": "string",
+      "enum": ["FULL", "HOME", "SECURITY", "CONFIGURATION"]
+    },
+    "homeId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "initiatedBy": {
+      "type": "string"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "restorableEntities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "excludedEntities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entityType", "entityId", "conflictType", "resolution"],
+            "properties": {
+              "entityType": { "type": "string" },
+              "entityId": { "type": "string" },
+              "conflictType": { "type": "string" },
+              "resolution": { "type": "string" }
+            }
+          }
+        },
+        "migrationCompatibility": {
+          "type": "string",
+          "enum": ["COMPATIBLE", "MIGRATION_REQUIRED", "INCOMPATIBLE"]
+        }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["CONSISTENT", "PARTIALLY_RECONCILED", "NEEDS_RECOMMISSIONING", "TRUST_REVIEW_REQUIRED", "FAILED"]
+        },
+        "revocationsPreserved": { "type": "integer" },
+        "decommissionedPreserved": { "type": "integer" },
+        "expiredCredentialsPreserved": { "type": "integer" },
+        "trustReEvaluatedCount": { "type": "integer" },
+        "devicesRequiringRecommissioning": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "errorMessage": {
+      "type": ["string", "null"]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  }
+}
