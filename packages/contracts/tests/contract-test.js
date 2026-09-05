@@ -76,7 +76,11 @@ const schemaFiles = [
   '../recovery/restore-operation.schema.json',
   '../recovery/recovery-checkpoint.schema.json',
   '../recovery/recovery-integrity.schema.json',
-  '../recovery/recovery-event.schema.json'
+  '../recovery/recovery-event.schema.json',
+  '../operations/service-readiness.schema.json',
+  '../operations/operational-diagnostics.schema.json',
+  '../operations/release-metadata.schema.json',
+  '../operations/runtime-configuration.schema.json'
 ];
 
 schemaFiles.forEach(f => validator.loadSchema(path.join(__dirname, f)));
@@ -1878,6 +1882,79 @@ allowedRecoveryEvents.forEach(evt => {
   assert(`RecoveryEvent eventType '${evt}' is valid`, validator.validate('RecoveryEvent', { ...validRecoveryEvent, eventType: evt }).valid);
 });
 assert('Invalid recovery eventType fails', !validator.validate('RecoveryEvent', { ...validRecoveryEvent, eventType: 'DESTROYED' }).valid);
+
+console.log('\n69. Phase 34 — ServiceReadiness:');
+const validServiceReadiness = {
+  schemaVersion: 1,
+  status: 'READY',
+  service: 'eh-home-backend',
+  version: '1.0.0',
+  schema_version: 26,
+  migration_version: '026_disaster_recovery_state_resilience',
+  timestamp: '2026-09-05T12:00:00.000Z',
+  uptimeSeconds: 120.5,
+  checks: {
+    database: 'PASS',
+    redis: 'PASS',
+    mqtt: 'PASS',
+    workers: 'PASS'
+  }
+};
+assert('Valid ServiceReadiness passes', validator.validate('ServiceReadiness', validServiceReadiness).valid);
+const allowedReadinessStatuses = ['READY', 'NOT_READY', 'DEGRADED', 'STARTING', 'SHUTTING_DOWN'];
+allowedReadinessStatuses.forEach(st => {
+  assert(`ServiceReadiness status '${st}' is valid`, validator.validate('ServiceReadiness', { ...validServiceReadiness, status: st }).valid);
+});
+assert('Invalid ServiceReadiness status fails', !validator.validate('ServiceReadiness', { ...validServiceReadiness, status: 'EXPLODED' }).valid);
+
+console.log('\n70. Phase 34 — OperationalDiagnostics:');
+const validOperationalDiagnostics = {
+  schemaVersion: 1,
+  service: 'eh-home-backend',
+  version: '1.0.0',
+  flutterAppVersion: '0.1.0+1',
+  environment: 'production',
+  lifecycleState: 'READY',
+  uptimeSeconds: 3600,
+  timestamp: '2026-09-05T12:00:00.000Z',
+  dependencies: {
+    database: { status: 'HEALTHY', latencyMs: 2 }
+  }
+};
+assert('Valid OperationalDiagnostics passes', validator.validate('OperationalDiagnostics', validOperationalDiagnostics).valid);
+assert('Invalid lifecycleState fails', !validator.validate('OperationalDiagnostics', { ...validOperationalDiagnostics, lifecycleState: 'SLEEPING' }).valid);
+
+console.log('\n71. Phase 34 — ReleaseMetadata:');
+const validReleaseMetadata = {
+  schemaVersion: 1,
+  appName: 'EH Home',
+  service: 'eh-home-backend',
+  appVersion: '1.0.0',
+  flutterAppVersion: '0.1.0+1',
+  schemaVersionNumber: 26,
+  latestMigration: '026_disaster_recovery_state_resilience',
+  totalTables: 98,
+  gitCommit: 'd49d3e3d5aa858197113650b2597afb0e6a07ad0',
+  buildTimestamp: '2026-09-05T12:00:00.000Z',
+  environment: 'production'
+};
+assert('Valid ReleaseMetadata passes', validator.validate('ReleaseMetadata', validReleaseMetadata).valid);
+assert('Missing schemaVersionNumber fails', !validator.validate('ReleaseMetadata', { ...validReleaseMetadata, schemaVersionNumber: undefined }).valid);
+
+console.log('\n72. Phase 34 — RuntimeConfiguration:');
+const validRuntimeConfig = {
+  schemaVersion: 1,
+  environment: 'production',
+  port: 3000,
+  host: '0.0.0.0',
+  databaseBound: true,
+  redisConfigured: true,
+  mqttConfigured: true,
+  timestamp: '2026-09-05T12:00:00.000Z',
+  validationStatus: 'VALID'
+};
+assert('Valid RuntimeConfiguration passes', validator.validate('RuntimeConfiguration', validRuntimeConfig).valid);
+assert('Invalid port range fails', !validator.validate('RuntimeConfiguration', { ...validRuntimeConfig, port: 999999 }).valid);
 
 console.log(`\n========================================`);
 console.log(`Total Passed: ${passed}, Total Failed: ${failed}`);

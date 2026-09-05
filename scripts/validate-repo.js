@@ -165,8 +165,11 @@ runStep('42. Phase 32 Secure Device Identity, Trust & Credential Lifecycle Tests
 // 43. Phase 33 Disaster Recovery, Backup & State Resilience Tests
 runStep('43. Phase 33 Disaster Recovery, Backup & State Resilience Tests', `${nodeBin} backend/tests/phase33-disaster-recovery.test.js`);
 
+// 44. Phase 34 Production Deployment & Operational Readiness Tests
+runStep('44. Phase 34 Production Deployment & Operational Readiness Tests', `${nodeBin} backend/tests/phase34-production-operational-readiness.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  43 SUITES ATTEMPTED. ${failedSuites === 0 ? '43/43' : (43 - failedSuites) + '/43'} PASSED.`);
+console.log(`  44 SUITES ATTEMPTED. ${failedSuites === 0 ? '44/44' : (44 - failedSuites) + '/44'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

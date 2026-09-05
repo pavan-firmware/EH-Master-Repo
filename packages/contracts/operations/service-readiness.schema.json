@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/service-readiness.schema.json",
+  "title": "ServiceReadiness",
+  "description": "Unified service readiness probe and dependency health status contract.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "status",
+    "service",
+    "version",
+    "timestamp",
+    "checks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "READY",
+        "NOT_READY",
+        "DEGRADED",
+        "STARTING",
+        "SHUTTING_DOWN"
+      ]
+    },
+    "service": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": ["integer", "null"]
+    },
+    "migration_version": {
+      "type": ["integer", "string", "null"]
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "uptimeSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "database"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "database": {
+          "type": "string",
+          "enum": ["PASS", "FAIL", "CONNECTED", "DISCONNECTED", "DEGRADED"]
+        },
+        "redis": {
+          "type": ["string", "null"],
+          "enum": ["PASS", "FAIL", "CONNECTED", "DISCONNECTED", "STANDBY", "DISABLED", null]
+        },
+        "mqtt": {
+          "type": ["string", "null"],
+          "enum": ["PASS", "FAIL", "CONNECTED", "DISCONNECTED", "STANDBY", "DISABLED", null]
+        },
+        "workers": {
+          "type": ["string", "null"],
+          "enum": ["PASS", "FAIL", "RUNNING", "INACTIVE", "DEGRADED", null]
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

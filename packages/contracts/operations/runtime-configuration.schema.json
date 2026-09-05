@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/runtime-configuration.schema.json",
+  "title": "RuntimeConfiguration",
+  "description": "Safe, non-secret runtime configuration summary contract.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "environment",
+    "port",
+    "host",
+    "databaseBound",
+    "redisConfigured",
+    "mqttConfigured",
+    "timestamp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["development", "test", "staging", "production"]
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "host": {
+      "type": "string"
+    },
+    "databaseBound": {
+      "type": "boolean"
+    },
+    "redisConfigured": {
+      "type": "boolean"
+    },
+    "mqttConfigured": {
+      "type": "boolean"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "validationStatus": {
+      "type": "string",
+      "enum": ["VALID", "INVALID", "DEGRADED"]
+    }
+  }
+}
