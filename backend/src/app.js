@@ -148,8 +148,10 @@ const { NotificationApiRouter } = require('./api/notification.router');
 const { OperationsApiRouter } = require('./api/operations.router');
 const { DeviceTrustApiRouter } = require('./api/device-trust.router');
 const { RecoveryApiRouter } = require('./api/recovery.router');
+const { OperationalReadinessRouter } = require('./api/operational-readiness.router');
 const { DeviceTrustService } = require('./services/device-trust.service');
 const { RecoveryService } = require('./services/recovery.service');
+const { OperationalReadinessService } = require('./services/operational-readiness.service');
 const { OperationsAuditService } = require('./services/operations-audit.service');
 const { OperationTraceService } = require('./services/operation-trace.service');
 const { SystemHealthService } = require('./services/system-health.service');
@@ -165,9 +167,13 @@ const { HomeAuthorizationService } = require('./shared/home-authorization');
  */
 const PUBLIC_ROUTES = [
   'GET /health',
+  'GET /health/liveness',
+  'GET /health/readiness',
+  'GET /health/startup',
   'GET /api/v1/health',
   'GET /api/v1/health/liveness',
   'GET /api/v1/health/readiness',
+  'GET /api/v1/health/startup',
   'GET /api/v1/health/diagnostics',
   'POST /api/v1/auth/register',
   'POST /api/v1/auth/login',
@@ -773,6 +779,25 @@ function createApp(options = {}) {
     recoveryRepo
   });
 
+  // Phase 34 — Production Deployment & Operational Readiness
+  const operationalReadinessService = options.operationalReadinessService || new OperationalReadinessService({
+    db,
+    config: options.config || {},
+    mqttTransport: options.mqttTransport || null,
+    redisClient: options.redisClient || null,
+    initialState: options.initialLifecycleState || 'READY',
+    workers: {
+      scheduler: schedulerWorker,
+      notificationDelivery: notificationDeliveryWorker,
+      ...(options.workers || {})
+    },
+    systemHealthService: systemHealthService
+  });
+  const operationalReadinessRouter = new OperationalReadinessRouter({
+    operationalReadinessService,
+    homeAuthorizationService: homeAuthService
+  });
+
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -784,12 +809,18 @@ function createApp(options = {}) {
     const method = req.method.toUpperCase();
     const query = parsedUrl.query || {};
 
-    // 1. Health check endpoint
-    if (method === 'GET' && (pathname === '/health' || pathname === '/api/v1/health')) {
-      return sendJsonResponse(res, 200, {
-        success: true,
-        data: { status: 'OK', service: 'eh-home-backend', version: '1.0.0', timestamp: new Date().toISOString() }
-      });
+    // 0. Operational Readiness & Health Probes
+    if (
+      pathname === '/health' ||
+      pathname === '/api/v1/health' ||
+      pathname.startsWith('/health/') ||
+      pathname.startsWith('/api/v1/health/') ||
+      pathname.startsWith('/api/v1/admin/operations/')
+    ) {
+      const probeResult = await operationalReadinessRouter.handle(method, pathname, {}, req.headers, query);
+      if (probeResult) {
+        return sendJsonResponse(res, probeResult.status, probeResult.body);
+      }
     }
 
     // 2. Parse JSON body safely
@@ -1178,7 +1209,9 @@ function createApp(options = {}) {
       pushProvider,
       schedulerWorker,
       notificationDeliveryWorker,
-      recoveryService
+      recoveryService,
+      deviceTrustService,
+      operationalReadinessService
     },
     repositories: {
       userRepo, homeRepo, roomRepo, productRepo, capRepo, deviceRepo,
@@ -1219,7 +1252,8 @@ function createApp(options = {}) {
     matterApiRouter: matterApiRouter,
     energyApiRouter: energyRouter,
     catalogApiRouter: catalogRouter,
-    recoveryApiRouter: recoveryRouter
+    recoveryApiRouter: recoveryRouter,
+    operationalReadinessRouter
   };
 }
 

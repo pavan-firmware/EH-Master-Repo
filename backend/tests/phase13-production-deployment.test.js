@@ -107,7 +107,7 @@ async function test(name, fn) {
     const readiness = await makeRequest('/api/v1/health/readiness');
     assert.equal(readiness.status, 200);
     assert.equal(readiness.body.status, 'READY');
-    assert.equal(readiness.body.checks.database, 'CONNECTED');
+    assert.ok(readiness.body.checks.database === 'PASS' || readiness.body.checks.database === 'CONNECTED');
   });
 
   // Test 4: Database Backup & Restore Automated Verification

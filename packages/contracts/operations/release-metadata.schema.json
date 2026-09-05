@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/release-metadata.schema.json",
+  "title": "ReleaseMetadata",
+  "description": "Authoritative release, schema, migration, and build metadata contract.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "appName",
+    "service",
+    "appVersion",
+    "flutterAppVersion",
+    "schemaVersionNumber",
+    "latestMigration",
+    "environment"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "appName": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "appVersion": {
+      "type": "string"
+    },
+    "flutterAppVersion": {
+      "type": "string"
+    },
+    "schemaVersionNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "latestMigration": {
+      "type": "string"
+    },
+    "totalTables": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "gitCommit": {
+      "type": "string"
+    },
+    "buildTimestamp": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["development", "test", "staging", "production"]
+    }
+  }
+}

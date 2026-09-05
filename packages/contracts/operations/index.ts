@@ -1,5 +1,5 @@
 /**
- * EH Home Canonical Operational & Observability Contracts (Phase 31)
+ * EH Home Canonical Operational & Observability Contracts (Phase 31 & Phase 34)
  */
 
 export type ExecutionPath =
@@ -134,4 +134,92 @@ export interface SystemHealthSnapshot {
   timestamp: string;
   subsystems: Record<string, SubsystemHealthDetail>;
   metadata?: Record<string, unknown>;
+}
+
+// ==============================================================================
+// Phase 34 — Production Deployment & Operational Readiness
+// ==============================================================================
+
+export type ServiceReadinessStatus =
+  | 'READY'
+  | 'NOT_READY'
+  | 'DEGRADED'
+  | 'STARTING'
+  | 'SHUTTING_DOWN';
+
+export interface ServiceReadiness {
+  schemaVersion: 1;
+  status: ServiceReadinessStatus;
+  service: string;
+  version: string;
+  schema_version?: number | null;
+  migration_version?: number | string | null;
+  timestamp: string;
+  uptimeSeconds?: number;
+  checks: {
+    database: 'PASS' | 'FAIL' | 'CONNECTED' | 'DISCONNECTED' | 'DEGRADED';
+    redis?: 'PASS' | 'FAIL' | 'CONNECTED' | 'DISCONNECTED' | 'STANDBY' | 'DISABLED' | null;
+    mqtt?: 'PASS' | 'FAIL' | 'CONNECTED' | 'DISCONNECTED' | 'STANDBY' | 'DISABLED' | null;
+    workers?: 'PASS' | 'FAIL' | 'RUNNING' | 'INACTIVE' | 'DEGRADED' | null;
+    [key: string]: unknown;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+export type LifecycleState =
+  | 'UNINITIALIZED'
+  | 'STARTING'
+  | 'INITIALIZING'
+  | 'READY'
+  | 'DEGRADED'
+  | 'SHUTTING_DOWN'
+  | 'TERMINATED'
+  | 'FAILED';
+
+export interface OperationalDiagnostics {
+  schemaVersion: 1;
+  service: string;
+  version: string;
+  flutterAppVersion?: string;
+  environment: 'development' | 'test' | 'staging' | 'production';
+  lifecycleState: LifecycleState;
+  uptimeSeconds: number;
+  timestamp: string;
+  release?: Record<string, unknown>;
+  dependencies: {
+    database: { status: string; [key: string]: unknown };
+    redis?: Record<string, unknown>;
+    mqtt?: Record<string, unknown>;
+    workers?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  process?: Record<string, unknown>;
+  features?: Record<string, unknown>;
+}
+
+export interface ReleaseMetadata {
+  schemaVersion: 1;
+  appName: string;
+  service: string;
+  appVersion: string;
+  flutterAppVersion: string;
+  schemaVersionNumber: number;
+  latestMigration: string;
+  totalTables?: number;
+  gitCommit?: string;
+  buildTimestamp?: string;
+  environment: 'development' | 'test' | 'staging' | 'production';
+}
+
+export interface RuntimeConfiguration {
+  schemaVersion: 1;
+  environment: 'development' | 'test' | 'staging' | 'production';
+  port: number;
+  host: string;
+  databaseBound: boolean;
+  redisConfigured: boolean;
+  mqttConfigured: boolean;
+  timestamp: string;
+  features?: Record<string, unknown>;
+  validationStatus?: 'VALID' | 'INVALID' | 'DEGRADED';
 }

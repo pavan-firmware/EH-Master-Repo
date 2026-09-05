@@ -342,9 +342,15 @@ jobs:
         run: node backend/tests/phase13-production-deployment.test.js
 
       # ----------------------------------------------------------
-      # 19g. Complete Monorepo 24-Suite Regression Runner
+      # 19g. Phase 34 Production Deployment & Operational Readiness Tests
       # ----------------------------------------------------------
-      - name: Run Complete Monorepo 24-Suite Validation Runner
+      - name: Run Phase 34 Production Deployment & Operational Readiness Tests
+        run: node backend/tests/phase34-production-operational-readiness.test.js
+
+      # ----------------------------------------------------------
+      # 19h. Complete Monorepo Full Regression Runner
+      # ----------------------------------------------------------
+      - name: Run Complete Monorepo Full Validation Runner
         run: node scripts/validate-repo.js
 
       # ----------------------------------------------------------

@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.ehhome.io/operations/operational-diagnostics.schema.json",
+  "title": "OperationalDiagnostics",
+  "description": "Authenticated administrative operational diagnostics and runtime telemetry contract.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "service",
+    "version",
+    "environment",
+    "lifecycleState",
+    "uptimeSeconds",
+    "timestamp",
+    "dependencies"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "service": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "flutterAppVersion": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["development", "test", "staging", "production"]
+    },
+    "lifecycleState": {
+      "type": "string",
+      "enum": [
+        "UNINITIALIZED",
+        "STARTING",
+        "INITIALIZING",
+        "READY",
+        "DEGRADED",
+        "SHUTTING_DOWN",
+        "TERMINATED",
+        "FAILED"
+      ]
+    },
+    "uptimeSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "dependencies": {
+      "type": "object",
+      "required": ["database"],
+      "additionalProperties": true,
+      "properties": {
+        "database": {
+          "type": "object",
+          "required": ["status"],
+          "additionalProperties": true
+        },
+        "redis": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "mqtt": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "workers": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
