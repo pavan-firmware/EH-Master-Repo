@@ -1,106 +1,153 @@
+'use strict';
+
 /**
- * In-Memory SQLite / Mock Relational Storage Client for Repository Integration Testing & Local Verification
+ * EH Home — Unified Database Client & Factory (Phase 37)
+ *
+ * Implements deterministic persistence adapter selection:
+ * - TEST: InMemoryDatabaseAdapter (default, deterministic and isolated)
+ * - INTEGRATION: PostgreSQLDatabaseAdapter (when DB_ADAPTER=postgres or mode=postgres explicitly declared)
+ * - PRODUCTION: PostgreSQLDatabaseAdapter (enforced in production with connection validation)
  */
 
+const { DatabaseAdapter } = require('./database-adapter');
+const { InMemoryDatabaseAdapter } = require('./in-memory-db-adapter');
+const { PostgreSQLDatabaseAdapter } = require('./postgres-db-adapter');
+
 class DatabaseClient {
-  constructor() {
-    this.tables = new Map();
-    this._initTables();
+  /**
+   * @param {DatabaseAdapter|string|object} [adapterOrOptions] - Optional underlying database adapter, mode, or connection string
+   */
+  constructor(adapterOrOptions = null) {
+    if (adapterOrOptions && typeof adapterOrOptions.insert === 'function') {
+      this.adapter = adapterOrOptions;
+    } else if (typeof adapterOrOptions === 'string') {
+      if (adapterOrOptions === ':memory:' || adapterOrOptions === 'memory' || adapterOrOptions === 'test') {
+        this.adapter = new InMemoryDatabaseAdapter();
+      } else if (adapterOrOptions.startsWith('postgres://') || adapterOrOptions.startsWith('postgresql://')) {
+        this.adapter = new PostgreSQLDatabaseAdapter({ connectionString: adapterOrOptions });
+      } else {
+        this.adapter = new InMemoryDatabaseAdapter();
+      }
+    } else if (adapterOrOptions && typeof adapterOrOptions === 'object') {
+      if (adapterOrOptions.mode === 'postgres' || adapterOrOptions.dbAdapter === 'postgres') {
+        this.adapter = new PostgreSQLDatabaseAdapter(adapterOrOptions);
+      } else {
+        this.adapter = new InMemoryDatabaseAdapter();
+      }
+    } else {
+      this.adapter = new InMemoryDatabaseAdapter();
+    }
+
+    // Preserve legacy table Map access for in-memory testing if underlying adapter supports it
+    if (this.adapter.tables) {
+      this.tables = this.adapter.tables;
+    }
   }
 
-  _initTables() {
-    const tableNames = [
-      'users', 'refresh_tokens', 'homes', 'home_memberships', 'floors', 'rooms',
-      'product_families', 'products', 'product_variants', 'capabilities',
-      'product_capabilities', 'product_images', 'devices', 'device_credentials',
-      'network_identity', 'device_authorizations', 'device_state', 'channel_state',
-      'device_commands', 'device_events', 'audit_logs', 'outbox', 'provisioning_sessions',
-      'scenes', 'automations', 'schedules', 'automation_execution_logs',
-      'device_activity_logs', 'device_health_metrics',
-      'notifications', 'push_device_tokens', 'user_notification_preferences', 'notification_delivery_queue',
-      'user_profiles', 'home_invitations',
-      'sync_checkpoints', 'pending_change_audits', 'data_export_records',
-      'firmware_releases', 'ota_rollouts', 'ota_operations', 'device_maintenance_logs',
-      'device_telemetry_measurements', 'telemetry_aggregates', 'energy_threshold_configs', 'energy_events',
-      'energy_automation_executions', 'energy_optimizations',
-      'energy_tariffs', 'tariff_periods', 'energy_budgets', 'cost_optimizations',
-      'energy_forecasts', 'energy_anomalies', 'energy_baselines', 'forecast_accuracy_records', 'energy_efficiency_scores',
-      'presence_signals', 'presence_states', 'home_contexts', 'context_overrides', 'context_transitions',
-      'intelligence_decisions', 'intelligence_recommendations', 'intelligence_decision_outcomes',
-      // Phase 25 — Proactive Device Reliability + Self-Healing
-      'reliability_incidents', 'reliability_diagnostics', 'reliability_recovery_attempts',
-      'reliability_health_snapshots', 'maintenance_recommendations',
-      // Phase 26 — Multi-Protocol Device Connectivity & Interoperability
-      'device_transports', 'device_connection_states', 'commissioning_sessions',
-      'transport_health_snapshots',
-      // Phase 27 — Product Discovery & Consumer Device Add
-      'product_models', 'device_add_sessions',
-      // Phase 28 — Local-First Home Control & Edge Execution
-      'local_route_cache', 'edge_execution_records', 'local_discovery_nodes',
-      // Phase 29 — Matter Ecosystem Interoperability & Multi-Platform Integration
-      'matter_devices', 'matter_fabrics', 'matter_endpoints', 'matter_sync_state', 'external_platform_links',
-      // Phase 30 — Intelligent Notifications, Alerts & User Event Center
-      'platform_events', 'notification_aggregations', 'notification_actions',
-      // Phase 31 — Secure Operations, Audit & Platform Observability
-      'operational_events', 'security_audit_records', 'system_health_snapshots',
-      // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
-      'device_trust_states', 'device_credential_lifecycle', 'device_revocations', 'device_provisioning_records',
-      // Phase 33 — Disaster Recovery, Backup & State Resilience
-      'backup_records', 'backup_objects', 'restore_operations', 'recovery_checkpoints', 'recovery_integrity_results'
-    ];
-    tableNames.forEach(t => this.tables.set(t, new Map()));
+  async connect() {
+    return this.adapter.connect();
   }
 
-  async query(sql, params = []) {
-    // Mock query execution against in-memory tables
-    return { rows: [], rowCount: 0 };
+  async close() {
+    return this.adapter.close();
   }
 
   getTable(name) {
-    const tbl = this.tables.get(name);
-    if (!tbl) throw new Error(`Table ${name} does not exist`);
-    return tbl;
+    if (typeof this.adapter.getTable === 'function') {
+      return this.adapter.getTable(name);
+    }
+    throw new Error('Direct table map access is only supported on in-memory adapter');
+  }
+
+  async query(sql, params = []) {
+    return this.adapter.query(sql, params);
   }
 
   async insert(table, id, data) {
-    const tbl = this.getTable(table);
-    if (tbl.has(id)) {
-      throw new Error(`Unique constraint violation: ${table} with id ${id} already exists`);
-    }
-    const record = { ...data, created_at: data.created_at || new Date().toISOString(), id };
-    tbl.set(id, record);
-    return record;
+    return this.adapter.insert(table, id, data);
   }
 
   async findById(table, id) {
-    const tbl = this.getTable(table);
-    return tbl.get(id) || null;
+    return this.adapter.findById(table, id);
   }
 
-  async find(table, predicate) {
-    const tbl = this.getTable(table);
-    const results = [];
-    for (const record of tbl.values()) {
-      if (!predicate || predicate(record)) {
-        results.push(record);
-      }
-    }
-    return results;
+  async find(table, filter = null, options = {}) {
+    return this.adapter.find(table, filter, options);
   }
 
   async update(table, id, updates) {
-    const tbl = this.getTable(table);
-    const existing = tbl.get(id);
-    if (!existing) throw new Error(`Record ${id} not found in ${table}`);
-    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
-    tbl.set(id, updated);
-    return updated;
+    return this.adapter.update(table, id, updates);
   }
 
   async delete(table, id) {
-    const tbl = this.getTable(table);
-    return tbl.delete(id);
+    return this.adapter.delete(table, id);
+  }
+
+  async withTransaction(callback) {
+    return this.adapter.withTransaction(callback);
+  }
+
+  async checkHealth() {
+    return this.adapter.checkHealth();
   }
 }
 
-module.exports = { DatabaseClient };
+/**
+ * Factory for creating database client with deterministic adapter selection
+ *
+ * @param {Object} [opts={}]
+ * @param {'inmemory'|'postgres'} [opts.mode] - Explicit mode override
+ * @param {string} [opts.connectionString]
+ * @param {Object} [opts.config] - Runtime config dictionary
+ * @returns {DatabaseClient}
+ */
+function createDatabaseClient(opts = {}) {
+  if (opts.adapter) {
+    return new DatabaseClient(opts.adapter);
+  }
+
+  const envAdapter = (process.env.DB_ADAPTER || '').trim().toLowerCase();
+  const nodeEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
+
+  // Explicit mode precedence:
+  // 1. Explicit opts.mode
+  // 2. Explicit process.env.DB_ADAPTER
+  // 3. Production environment -> postgres
+  // 4. Default -> inmemory (guarantees unit tests never silently switch to postgres)
+  let selectedMode = 'inmemory';
+
+  if (opts.mode === 'postgres' || opts.mode === 'inmemory') {
+    selectedMode = opts.mode;
+  } else if (envAdapter === 'postgres' || envAdapter === 'inmemory') {
+    selectedMode = envAdapter;
+  } else if (nodeEnv === 'production') {
+    selectedMode = 'postgres';
+  }
+
+  if (selectedMode === 'postgres') {
+    const connectionString = opts.connectionString ||
+      (opts.config && opts.config.databaseUrl) ||
+      process.env.DATABASE_URL;
+
+    const pgAdapter = new PostgreSQLDatabaseAdapter({
+      connectionString,
+      max: opts.max || (opts.config && opts.config.dbPoolMax) || 20,
+      idleTimeoutMillis: opts.idleTimeoutMillis || 30000,
+      connectionTimeoutMillis: opts.connectionTimeoutMillis || 5000,
+      statementTimeoutMillis: opts.statementTimeoutMillis || 10000,
+      ...opts
+    });
+
+    return new DatabaseClient(pgAdapter);
+  }
+
+  return new DatabaseClient(new InMemoryDatabaseAdapter());
+}
+
+module.exports = {
+  DatabaseClient,
+  createDatabaseClient,
+  DatabaseAdapter,
+  InMemoryDatabaseAdapter,
+  PostgreSQLDatabaseAdapter
+};
