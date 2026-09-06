@@ -16,9 +16,11 @@ console.log('===============================================================');
 console.log('       EH HOME MONOREPO — PRE-PUSH FULL VALIDATION SUITE       ');
 console.log('===============================================================\n');
 
+let totalSuites = 0;
 let failedSuites = 0;
 
 function runStep(name, command, cwd = rootDir) {
+  totalSuites++;
   console.log(`\n>>> Running: ${name}`);
   console.log(`    Command: ${command}`);
   try {
@@ -186,8 +188,12 @@ runStep('49. Phase 39 Product Catalog Expansion Tests', `${nodeBin} backend/test
 // 50. Phase 40 Manufacturing Flasher & Hardware Validation Tests
 runStep('50. Phase 40 Manufacturing Flasher & Hardware Validation Tests', 'python tools/manufacturing/tests/test_flash_device.py');
 
+// 51. Phase 41 Production Device Fleet Management & Safe OTA Rollout Tests
+runStep('51. Phase 41 Fleet Management & Safe OTA Rollout Tests', `${nodeBin} backend/tests/phase41-fleet-ota-rollout.test.js`);
+
+const passedSuites = totalSuites - failedSuites;
 console.log('\n===============================================================');
-console.log(`  50 SUITES ATTEMPTED. ${failedSuites === 0 ? '50/50' : (50 - failedSuites) + '/50'} PASSED.`);
+console.log(`  ${totalSuites} SUITES ATTEMPTED. ${passedSuites}/${totalSuites} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

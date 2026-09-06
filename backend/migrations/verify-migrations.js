@@ -27,7 +27,8 @@ const migrations = [
   { up: '024_secure_operations_observability.sql', down: '024_secure_operations_observability.down.sql' },
   { up: '025_device_trust_security.sql', down: '025_device_trust_security.down.sql' },
   { up: '026_disaster_recovery_state_resilience.sql', down: '026_disaster_recovery_state_resilience.down.sql' },
-  { up: '027_seed_expanded_product_catalog.sql', down: '027_seed_expanded_product_catalog.down.sql' }
+  { up: '027_seed_expanded_product_catalog.sql', down: '027_seed_expanded_product_catalog.down.sql' },
+  { up: '028_fleet_management_and_ota_rollout.sql', down: '028_fleet_management_and_ota_rollout.down.sql' }
 ];
 
 let totalUpTables = [];

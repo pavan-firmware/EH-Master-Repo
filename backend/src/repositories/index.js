@@ -1976,47 +1976,152 @@ class OtaOperationRepository {
 class OtaRolloutRepository {
   constructor(db) {
     this.db = db;
+    this.isPostgres = !!(db.query && typeof db.query === 'function');
   }
 
   async createRollout({
     id,
     releaseId,
     homeId = null,
+    productScope = null,
+    channel = 'production',
+    rolloutState = 'DRAFT',
     rolloutStage = 'CANARY',
     status = 'ACTIVE',
+    rolloutPercentage = 10,
+    batchSize = 5,
+    maxConcurrency = 3,
+    failureThresholdPercentage = 20,
+    failureThresholdCount = 3,
+    statistics = null,
+    rollbackState = null,
     targetFilters = {}
   }) {
     const rolloutId = id || `rollout_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
-    return this.db.insert('ota_rollouts', rolloutId, {
+    const stats = statistics || {
+      totalEligible: 0,
+      totalTargeted: 0,
+      inProgress: 0,
+      installed: 0,
+      bootVerified: 0,
+      healthVerified: 0,
+      failed: 0,
+      rolledBack: 0
+    };
+
+    const record = {
+      id: rolloutId,
       release_id: releaseId,
       home_id: homeId,
+      product_scope: productScope,
+      channel,
+      rollout_state: rolloutState,
       rollout_stage: rolloutStage,
       status,
+      rollout_percentage: rolloutPercentage,
+      batch_size: batchSize,
+      max_concurrency: maxConcurrency,
+      failure_threshold_percentage: failureThresholdPercentage,
+      failure_threshold_count: failureThresholdCount,
+      statistics_json: JSON.stringify(stats),
+      rollback_state_json: rollbackState ? JSON.stringify(rollbackState) : null,
       target_filters_json: JSON.stringify(targetFilters),
+      started_at: rolloutState === 'RUNNING' ? now : null,
+      paused_at: null,
+      completed_at: null,
       created_at: now,
       updated_at: now
-    });
+    };
+
+    const inserted = await this.db.insert('ota_rollouts', rolloutId, record);
+    return this._mapRecord(inserted);
   }
 
   async findById(id) {
-    return this.db.findById('ota_rollouts', id);
+    const r = await this.db.findById('ota_rollouts', id);
+    if (!r) return null;
+    return this._mapRecord(r);
   }
 
   async findByReleaseId(releaseId) {
-    return this.db.find('ota_rollouts', r => r.release_id === releaseId);
+    const list = await this.db.find('ota_rollouts', r => r.release_id === releaseId);
+    return list.map(r => this._mapRecord(r));
   }
 
   async listActive() {
-    return this.db.find('ota_rollouts', r => r.status === 'ACTIVE');
+    const list = await this.db.find('ota_rollouts', r => r.status === 'ACTIVE' || r.rollout_state === 'RUNNING');
+    return list.map(r => this._mapRecord(r));
+  }
+
+  async listRollouts(filters = {}) {
+    const list = await this.db.find('ota_rollouts', r => {
+      if (filters.releaseId && r.release_id !== filters.releaseId) return false;
+      if (filters.rolloutState && (r.rollout_state || r.status) !== filters.rolloutState) return false;
+      if (filters.channel && r.channel !== filters.channel) return false;
+      return true;
+    });
+    return list.map(r => this._mapRecord(r));
   }
 
   async updateRollout(id, updates = {}) {
     const cleanUpdates = { updated_at: new Date().toISOString() };
     if (updates.rolloutStage !== undefined) cleanUpdates.rollout_stage = updates.rolloutStage;
+    if (updates.rolloutState !== undefined) cleanUpdates.rollout_state = updates.rolloutState;
     if (updates.status !== undefined) cleanUpdates.status = updates.status;
+    if (updates.rolloutPercentage !== undefined) cleanUpdates.rollout_percentage = updates.rolloutPercentage;
+    if (updates.batchSize !== undefined) cleanUpdates.batch_size = updates.batchSize;
+    if (updates.maxConcurrency !== undefined) cleanUpdates.max_concurrency = updates.maxConcurrency;
+    if (updates.failureThresholdPercentage !== undefined) cleanUpdates.failure_threshold_percentage = updates.failureThresholdPercentage;
+    if (updates.failureThresholdCount !== undefined) cleanUpdates.failure_threshold_count = updates.failureThresholdCount;
+    if (updates.statistics !== undefined) cleanUpdates.statistics_json = JSON.stringify(updates.statistics);
+    if (updates.rollbackState !== undefined) cleanUpdates.rollback_state_json = JSON.stringify(updates.rollbackState);
     if (updates.targetFilters !== undefined) cleanUpdates.target_filters_json = JSON.stringify(updates.targetFilters);
-    return this.db.update('ota_rollouts', id, cleanUpdates);
+    if (updates.startedAt !== undefined) cleanUpdates.started_at = updates.startedAt;
+    if (updates.pausedAt !== undefined) cleanUpdates.paused_at = updates.pausedAt;
+    if (updates.completedAt !== undefined) cleanUpdates.completed_at = updates.completedAt;
+
+    const updated = await this.db.update('ota_rollouts', id, cleanUpdates);
+    return updated ? this._mapRecord(updated) : null;
+  }
+
+  _mapRecord(r) {
+    let statistics = null;
+    try {
+      if (r.statistics_json) statistics = typeof r.statistics_json === 'string' ? JSON.parse(r.statistics_json) : r.statistics_json;
+    } catch {}
+
+    let rollbackState = null;
+    try {
+      if (r.rollback_state_json) rollbackState = typeof r.rollback_state_json === 'string' ? JSON.parse(r.rollback_state_json) : r.rollback_state_json;
+    } catch {}
+
+    let targetFilters = {};
+    try {
+      if (r.target_filters_json) targetFilters = typeof r.target_filters_json === 'string' ? JSON.parse(r.target_filters_json) : r.target_filters_json;
+    } catch {}
+
+    return {
+      ...r,
+      rolloutState: r.rollout_state || (r.status === 'ACTIVE' ? 'RUNNING' : r.status) || 'DRAFT',
+      rolloutPercentage: r.rollout_percentage || 10,
+      batchSize: r.batch_size || 5,
+      maxConcurrency: r.max_concurrency || 3,
+      failureThresholdPercentage: r.failure_threshold_percentage || 20,
+      failureThresholdCount: r.failure_threshold_count || 3,
+      statistics: statistics || {
+        totalEligible: 0,
+        totalTargeted: 0,
+        inProgress: 0,
+        installed: 0,
+        bootVerified: 0,
+        healthVerified: 0,
+        failed: 0,
+        rolledBack: 0
+      },
+      rollbackState,
+      targetFilters
+    };
   }
 }
 
@@ -3944,5 +4049,7 @@ module.exports = {
   // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
   DeviceTrustRepository: require('./device-trust.repository').DeviceTrustRepository,
   // Phase 33 — Disaster Recovery, Backup & State Resilience
-  RecoveryRepository: require('./recovery.repository').RecoveryRepository
+  RecoveryRepository: require('./recovery.repository').RecoveryRepository,
+  // Phase 41 — Production Device Fleet Management & Safe OTA Rollout
+  FleetFirmwareRepository: require('./fleet-firmware.repository').FleetFirmwareRepository
 };

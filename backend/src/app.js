@@ -87,7 +87,9 @@ const {
   // Phase 32 — Secure Device Identity, Trust & Credential Lifecycle
   DeviceTrustRepository,
   // Phase 33 — Disaster Recovery, Backup & State Resilience
-  RecoveryRepository
+  RecoveryRepository,
+  // Phase 41 — Production Device Fleet Management & Safe OTA Rollout
+  FleetFirmwareRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -150,6 +152,7 @@ const { OperationsApiRouter } = require('./api/operations.router');
 const { DeviceTrustApiRouter } = require('./api/device-trust.router');
 const { RecoveryApiRouter } = require('./api/recovery.router');
 const { OperationalReadinessRouter } = require('./api/operational-readiness.router');
+const { FleetAdminApiRouter } = require('./api/fleet-admin.router');
 const { DeviceTrustService } = require('./services/device-trust.service');
 const { RecoveryService } = require('./services/recovery.service');
 const { OperationalReadinessService } = require('./services/operational-readiness.service');
@@ -157,6 +160,11 @@ const { OperationsAuditService } = require('./services/operations-audit.service'
 const { OperationTraceService } = require('./services/operation-trace.service');
 const { SystemHealthService } = require('./services/system-health.service');
 const { OperationsMetricsService } = require('./services/operations-metrics.service');
+const { FirmwareReleaseService } = require('./services/firmware-release.service');
+const { OtaEligibilityService } = require('./services/ota-eligibility.service');
+const { OtaRolloutPolicyService } = require('./services/ota-rollout-policy.service');
+const { FleetFirmwareService } = require('./services/fleet-firmware.service');
+const { OtaRolloutService } = require('./services/ota-rollout.service');
 const { AutomationSchedulerWorker } = require('./workers/automation-scheduler-worker');
 const { NotificationDeliveryWorker } = require('./workers/notification-delivery-worker');
 
@@ -808,6 +816,46 @@ function createApp(options = {}) {
     homeAuthorizationService: homeAuthService
   });
 
+  // Phase 41 — Production Device Fleet Management & Safe OTA Rollout
+  const fleetFirmwareRepo = options.fleetFirmwareRepo || new FleetFirmwareRepository(db);
+  const firmwareReleaseService = options.firmwareReleaseService || new FirmwareReleaseService({
+    firmwareRepo,
+    operationsAuditService,
+    notificationService
+  });
+  const otaEligibilityService = options.otaEligibilityService || new OtaEligibilityService({
+    deviceTrustService,
+    productCatalogService: catalogService,
+    deviceStateRepo,
+    deviceRepo
+  });
+  const fleetFirmwareService = options.fleetFirmwareService || new FleetFirmwareService({
+    fleetFirmwareRepo,
+    deviceRepo,
+    deviceStateRepo,
+    operationsAuditService,
+    notificationService
+  });
+  const otaRolloutService = options.otaRolloutService || new OtaRolloutService({
+    rolloutRepo,
+    firmwareReleaseService,
+    otaEligibilityService,
+    fleetFirmwareService,
+    fleetFirmwareRepo,
+    deviceRepo,
+    commandService,
+    otaService,
+    operationsAuditService,
+    notificationService,
+    realtimeEventBus: eventBus
+  });
+  const fleetAdminRouter = new FleetAdminApiRouter({
+    firmwareReleaseService,
+    otaRolloutService,
+    fleetFirmwareService,
+    fleetFirmwareRepo
+  });
+
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
@@ -1141,6 +1189,18 @@ function createApp(options = {}) {
       const recoveryResult = await recoveryRouter.handle(method, pathname, body, req.headers, query);
       if (recoveryResult) {
         return sendJsonResponse(res, recoveryResult.status, recoveryResult.body);
+      }
+    }
+
+    // 8.8e. Route to Fleet Management & Safe OTA Rollout Router (Phase 41)
+    if (
+      pathname.startsWith('/api/v1/admin/firmware') ||
+      pathname.startsWith('/api/v1/admin/ota') ||
+      pathname.startsWith('/api/v1/admin/fleet')
+    ) {
+      const fleetResult = await fleetAdminRouter.handle(method, pathname, body, query, req.user);
+      if (fleetResult) {
+        return sendJsonResponse(res, fleetResult.status, fleetResult.body);
       }
     }
 
