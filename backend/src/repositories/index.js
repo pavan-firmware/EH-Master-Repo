@@ -4051,5 +4051,8 @@ module.exports = {
   // Phase 33 — Disaster Recovery, Backup & State Resilience
   RecoveryRepository: require('./recovery.repository').RecoveryRepository,
   // Phase 41 — Production Device Fleet Management & Safe OTA Rollout
-  FleetFirmwareRepository: require('./fleet-firmware.repository').FleetFirmwareRepository
+  FleetFirmwareRepository: require('./fleet-firmware.repository').FleetFirmwareRepository,
+  // Phase 43 — Production Observability, Monitoring & Incident Response
+  PlatformIncidentRepository: require('./platform-incident.repository').PlatformIncidentRepository,
+  PlatformAlertRepository: require('./platform-alert.repository').PlatformAlertRepository
 };

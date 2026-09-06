@@ -38,6 +38,7 @@ const KNOWN_TABLES = [
   'operational_events', 'security_audit_records', 'system_health_snapshots',
   'device_trust_states', 'device_credential_lifecycle', 'device_revocations', 'device_provisioning_records',
   'backup_records', 'backup_objects', 'restore_operations', 'recovery_checkpoints', 'recovery_integrity_results',
+  'platform_incidents', 'platform_alerts',
   'schema_migrations'
 ];
 

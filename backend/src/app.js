@@ -8,6 +8,7 @@
  */
 
 const url = require('url');
+const crypto = require('crypto');
 const { DatabaseClient, createDatabaseClient } = require('./shared/db-client');
 const {
   UserRepository,
@@ -89,7 +90,10 @@ const {
   // Phase 33 — Disaster Recovery, Backup & State Resilience
   RecoveryRepository,
   // Phase 41 — Production Device Fleet Management & Safe OTA Rollout
-  FleetFirmwareRepository
+  FleetFirmwareRepository,
+  // Phase 43 — Observability, Monitoring & Incidents
+  PlatformIncidentRepository,
+  PlatformAlertRepository
 } = require('./repositories');
 
 const { AuthService } = require('./services/auth.service');
@@ -153,6 +157,7 @@ const { DeviceTrustApiRouter } = require('./api/device-trust.router');
 const { RecoveryApiRouter } = require('./api/recovery.router');
 const { OperationalReadinessRouter } = require('./api/operational-readiness.router');
 const { FleetAdminApiRouter } = require('./api/fleet-admin.router');
+const { ObservabilityApiRouter } = require('./api/observability.router');
 const { DeviceTrustService } = require('./services/device-trust.service');
 const { RecoveryService } = require('./services/recovery.service');
 const { OperationalReadinessService } = require('./services/operational-readiness.service');
@@ -165,6 +170,10 @@ const { OtaEligibilityService } = require('./services/ota-eligibility.service');
 const { OtaRolloutPolicyService } = require('./services/ota-rollout-policy.service');
 const { FleetFirmwareService } = require('./services/fleet-firmware.service');
 const { OtaRolloutService } = require('./services/ota-rollout.service');
+const { MetricsService, defaultMetrics } = require('./services/metrics.service');
+const { AlertRulesService } = require('./services/alert-rules.service');
+const { IncidentService } = require('./services/incident.service');
+const { StructuredLogger, defaultLogger } = require('./shared/structured-logger');
 const { AutomationSchedulerWorker } = require('./workers/automation-scheduler-worker');
 const { NotificationDeliveryWorker } = require('./workers/notification-delivery-worker');
 
@@ -172,6 +181,7 @@ const { requireAuthentication } = require('./shared/auth-middleware');
 const { HomeAuthorizationService } = require('./shared/home-authorization');
 const { RateLimiter } = require('./shared/rate-limiter');
 const { AuditRedactionService } = require('./services/audit-redaction.service');
+
 
 /**
  * Endpoint Security Classification Registry
@@ -263,7 +273,7 @@ function parseJsonBody(req) {
  */
 function sendJsonResponse(res, statusCode, data) {
   if (res.headersSent) return;
-  res.writeHead(statusCode, {
+  const headers = {
     'Content-Type': 'application/json',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
@@ -271,7 +281,11 @@ function sendJsonResponse(res, statusCode, data) {
     'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Cache-Control': 'no-store, no-cache, must-revalidate'
-  });
+  };
+  if (res.correlationId) {
+    headers['X-Correlation-ID'] = res.correlationId;
+  }
+  res.writeHead(statusCode, headers);
   res.end(JSON.stringify(data));
 }
 
@@ -864,12 +878,45 @@ function createApp(options = {}) {
     fleetFirmwareRepo
   });
 
+  // Phase 43 — Production Observability, Monitoring & Incident Response
+  const platformIncidentRepo = options.platformIncidentRepo || new PlatformIncidentRepository(db);
+  const platformAlertRepo = options.platformAlertRepo || new PlatformAlertRepository(db);
+  const structuredLogger = options.logger || new StructuredLogger({ serviceName: 'eh-backend' });
+  const metricsService = options.metricsService || new MetricsService();
+  const alertRulesService = options.alertRulesService || new AlertRulesService({
+    alertRepository: platformAlertRepo,
+    notificationService,
+    logger: structuredLogger
+  });
+  const incidentService = options.incidentService || new IncidentService({
+    incidentRepository: platformIncidentRepo,
+    alertRepository: platformAlertRepo,
+    operationalEventRepository: operationalEventRepo,
+    securityAuditRepository: securityAuditRepo,
+    fleetRepository: fleetFirmwareRepo,
+    notificationService,
+    logger: structuredLogger
+  });
+  const observabilityRouter = new ObservabilityApiRouter({
+    metricsService,
+    alertRulesService,
+    incidentService,
+    logger: structuredLogger
+  });
+
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
 
   /**
    * Main Request Handler
    */
   async function handleRequest(req, res) {
+    const startTime = Date.now();
+    const correlationId = req.headers['x-correlation-id'] || req.headers['x-request-id'] || `req-${crypto.randomUUID()}`;
+    res.correlationId = correlationId;
+    if (typeof res.setHeader === 'function') {
+      res.setHeader('X-Correlation-ID', correlationId);
+    }
+
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
     const method = req.method.toUpperCase();
@@ -885,6 +932,7 @@ function createApp(options = {}) {
     ) {
       const probeResult = await operationalReadinessRouter.handle(method, pathname, {}, req.headers, query);
       if (probeResult) {
+        metricsService.recordApiRequest({ method, route: pathname, statusCode: probeResult.status, durationMs: Date.now() - startTime });
         return sendJsonResponse(res, probeResult.status, probeResult.body);
       }
     }
@@ -1223,6 +1271,7 @@ function createApp(options = {}) {
       const rateLimitKey = req.user ? req.user.id : (req.socket && req.socket.remoteAddress) || 'anon';
       const limitCheck = rateLimiter.isRateLimited(rateLimitKey, 'admin');
       if (limitCheck.limited) {
+        metricsService.recordRateLimitHit({ route: pathname });
         return sendJsonResponse(res, 429, {
           success: false,
           error: {
@@ -1236,7 +1285,32 @@ function createApp(options = {}) {
 
       const fleetResult = await fleetAdminRouter.handle(method, pathname, body, query, req.user);
       if (fleetResult) {
+        metricsService.recordApiRequest({ method, route: pathname, statusCode: fleetResult.status, durationMs: Date.now() - startTime });
         return sendJsonResponse(res, fleetResult.status, fleetResult.body);
+      }
+    }
+
+    // 8.8f. Route to Observability & Incident Response Router (Phase 43)
+    if (pathname.startsWith('/api/v1/admin/observability')) {
+      const rateLimitKey = req.user ? req.user.id : (req.socket && req.socket.remoteAddress) || 'anon';
+      const limitCheck = rateLimiter.isRateLimited(rateLimitKey, 'admin');
+      if (limitCheck.limited) {
+        metricsService.recordRateLimitHit({ route: pathname });
+        return sendJsonResponse(res, 429, {
+          success: false,
+          error: {
+            code: 'TOO_MANY_REQUESTS',
+            message: `Rate limit exceeded for administrative operations. Please retry in ${limitCheck.retryAfterSeconds}s`
+          },
+          retryAfter: limitCheck.retryAfterSeconds,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const obsResult = await observabilityRouter.handle(method, pathname, body, query, req.user, req.headers);
+      if (obsResult) {
+        metricsService.recordApiRequest({ method, route: pathname, statusCode: obsResult.status, durationMs: Date.now() - startTime });
+        return sendJsonResponse(res, obsResult.status, obsResult.body);
       }
     }
 
@@ -1318,6 +1392,11 @@ function createApp(options = {}) {
       recoveryService,
       deviceTrustService,
       operationalReadinessService,
+      // Phase 43 Services
+      metricsService,
+      alertRulesService,
+      incidentService,
+      logger: structuredLogger,
       db
     },
     repositories: {
@@ -1349,7 +1428,10 @@ function createApp(options = {}) {
       matterFabricRepo,
       externalPlatformLinkRepo,
       // Phase 33 Repositories
-      recoveryRepo
+      recoveryRepo,
+      // Phase 43 Repositories
+      platformIncidentRepo,
+      platformAlertRepo
     },
     contextApiRouter: contextRouter,
     intelligenceApiRouter: intelligenceRouter,
@@ -1360,7 +1442,8 @@ function createApp(options = {}) {
     energyApiRouter: energyRouter,
     catalogApiRouter: catalogRouter,
     recoveryApiRouter: recoveryRouter,
-    operationalReadinessRouter
+    operationalReadinessRouter,
+    observabilityApiRouter: observabilityRouter
   };
 }
 
