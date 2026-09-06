@@ -23,6 +23,8 @@ class OperationalReadinessService {
    * @param {Object} [opts.config] - Runtime config
    * @param {Object} [opts.mqttTransport] - MQTT client / transport
    * @param {Object} [opts.redisClient] - Redis client / cache
+   * @param {Object} [opts.pushProvider] - Push notification provider (Phase 38)
+   * @param {Object} [opts.backupProvider] - Backup provider (Phase 38)
    * @param {Object} [opts.workers] - Background workers dictionary
    * @param {Object} [opts.systemHealthService] - SystemHealthService from Phase 31
    * @param {number} [opts.timeoutMs=1500] - Probe timeout limit
@@ -32,6 +34,8 @@ class OperationalReadinessService {
     this.config = opts.config || {};
     this.mqttTransport = opts.mqttTransport || null;
     this.redisClient = opts.redisClient || null;
+    this.pushProvider = opts.pushProvider || null;
+    this.backupProvider = opts.backupProvider || null;
     this.workers = opts.workers || {};
     this.systemHealthService = opts.systemHealthService || null;
     this.timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
@@ -227,6 +231,96 @@ class OperationalReadinessService {
   }
 
   /**
+   * Check Push Notification Provider status (Phase 38)
+   */
+  async checkPushProvider() {
+    const start = Date.now();
+    if (!this.pushProvider) {
+      return {
+        status: 'STANDBY',
+        check: 'STANDBY',
+        latencyMs: 0,
+        providerType: 'none',
+        message: 'Push provider not configured',
+        lastCheckedAt: new Date().toISOString()
+      };
+    }
+
+    try {
+      if (typeof this.pushProvider.healthCheck === 'function') {
+        const res = await OperationalReadinessService.withTimeout(this.pushProvider.healthCheck(), this.timeoutMs);
+        return {
+          status: res.status || 'HEALTHY',
+          check: res.healthy !== false ? 'PASS' : 'FAIL',
+          latencyMs: Date.now() - start,
+          providerType: res.providerType || 'unknown',
+          lastCheckedAt: new Date().toISOString()
+        };
+      }
+      return {
+        status: 'HEALTHY',
+        check: 'PASS',
+        latencyMs: Date.now() - start,
+        providerType: this.pushProvider.name || 'custom',
+        lastCheckedAt: new Date().toISOString()
+      };
+    } catch (err) {
+      return {
+        status: 'DEGRADED',
+        check: 'FAIL',
+        latencyMs: Date.now() - start,
+        error: err.message,
+        lastCheckedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * Check Backup Provider status (Phase 38)
+   */
+  async checkBackupProvider() {
+    const start = Date.now();
+    if (!this.backupProvider) {
+      return {
+        status: 'STANDBY',
+        check: 'STANDBY',
+        latencyMs: 0,
+        providerType: 'none',
+        message: 'Backup provider not configured',
+        lastCheckedAt: new Date().toISOString()
+      };
+    }
+
+    try {
+      if (typeof this.backupProvider.healthCheck === 'function') {
+        const res = await OperationalReadinessService.withTimeout(this.backupProvider.healthCheck(), this.timeoutMs);
+        return {
+          status: res.status || 'HEALTHY',
+          check: res.healthy !== false ? 'PASS' : 'FAIL',
+          latencyMs: Date.now() - start,
+          providerType: res.providerType || 'unknown',
+          lastCheckedAt: new Date().toISOString()
+        };
+      }
+      return {
+        status: 'HEALTHY',
+        check: 'PASS',
+        latencyMs: Date.now() - start,
+        providerType: this.backupProvider.name || 'custom',
+        lastCheckedAt: new Date().toISOString()
+      };
+    } catch (err) {
+      return {
+        status: 'DEGRADED',
+        check: 'FAIL',
+        latencyMs: Date.now() - start,
+        error: err.message,
+        lastCheckedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
    * Verify migration and schema compatibility
    */
   async checkMigrationCompatibility() {
@@ -376,10 +470,12 @@ class OperationalReadinessService {
     const metadata = getReleaseMetadata();
     const uptimeSeconds = Math.floor((Date.now() - this.startedAt) / 1000);
 
-    const [dbResult, redisResult, mqttResult] = await Promise.all([
+    const [dbResult, redisResult, mqttResult, pushResult, backupResult] = await Promise.all([
       this.checkDatabase(),
       this.checkRedis(),
-      this.checkMqtt()
+      this.checkMqtt(),
+      this.checkPushProvider(),
+      this.checkBackupProvider()
     ]);
     const workersResult = this.checkWorkers();
     const migrationInfo = await this.checkMigrationCompatibility();
@@ -408,6 +504,8 @@ class OperationalReadinessService {
         database: dbResult,
         redis: redisResult,
         mqtt: mqttResult,
+        pushProvider: pushResult,
+        backupProvider: backupResult,
         workers: workersResult,
         migration: migrationInfo
       },
@@ -432,7 +530,9 @@ class OperationalReadinessService {
         secureOperationsAudit: true,
         deviceTrustSecurity: true,
         disasterRecoveryResilience: true,
-        productionOperationalReadiness: true
+        productionOperationalReadiness: true,
+        pushNotificationDelivery: true,
+        remoteBackupStorage: true
       }
     };
   }
