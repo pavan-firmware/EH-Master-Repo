@@ -63,6 +63,15 @@ class RateLimiter {
     return { limited: false, retryAfterSeconds: 0 };
   }
 
+  isAllowed(key, bucketName = null) {
+    const res = this.isRateLimited(key, bucketName);
+    return {
+      allowed: !res.limited,
+      limited: res.limited,
+      retryAfterSeconds: res.retryAfterSeconds
+    };
+  }
+
   reset(key, bucketName = null) {
     if (key) {
       const fullKey = bucketName ? `${bucketName}:${key}` : key;
@@ -73,4 +82,7 @@ class RateLimiter {
   }
 }
 
-module.exports = { RateLimiter };
+module.exports = {
+  RateLimiter,
+  SlidingWindowRateLimiter: RateLimiter
+};

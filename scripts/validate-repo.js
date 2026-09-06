@@ -197,6 +197,9 @@ runStep('52. Phase 42 Security Hardening & Compliance Tests', `${nodeBin} backen
 // 53. Phase 43 Production Observability, Monitoring & Incident Response Tests
 runStep('53. Phase 43 Observability & Incident Response Tests', `${nodeBin} backend/tests/phase43-observability.test.js`);
 
+// 54. Phase 44 Production Performance, Scalability & Load Validation Tests
+runStep('54. Phase 44 Performance & Scalability Tests', `${nodeBin} backend/tests/phase44-performance-scalability.test.js`);
+
 
 const passedSuites = totalSuites - failedSuites;
 console.log('\n===============================================================');
