@@ -170,6 +170,8 @@ const { NotificationDeliveryWorker } = require('./workers/notification-delivery-
 
 const { requireAuthentication } = require('./shared/auth-middleware');
 const { HomeAuthorizationService } = require('./shared/home-authorization');
+const { RateLimiter } = require('./shared/rate-limiter');
+const { AuditRedactionService } = require('./services/audit-redaction.service');
 
 /**
  * Endpoint Security Classification Registry
@@ -257,13 +259,18 @@ function parseJsonBody(req) {
 }
 
 /**
- * Helper to send standardized JSON response
+ * Helper to send standardized JSON response with production security headers (Phase 42 Hardening)
  */
 function sendJsonResponse(res, statusCode, data) {
   if (res.headersSent) return;
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Cache-Control': 'no-store, no-cache, must-revalidate'
   });
   res.end(JSON.stringify(data));
 }
@@ -683,7 +690,8 @@ function createApp(options = {}) {
   }
 
   // 3. API Routers
-  const authRouter = new AuthApiRouter({ authService, rateLimiter: options.rateLimiter });
+  const rateLimiter = options.rateLimiter || new RateLimiter();
+  const authRouter = new AuthApiRouter({ authService, rateLimiter });
   const accountRouter = new AccountApiRouter({ authService, homeRepo });
   const invitationRouter = new InvitationApiRouter({ invitationService, userRepo });
   const syncRouter = new SyncApiRouter({ syncService, dataExportService, dataRetentionService });
@@ -989,6 +997,20 @@ function createApp(options = {}) {
 
     // 6. Route to Command Handlers
     if (pathname === '/api/v1/commands/send' && method === 'POST') {
+      const rateLimitKey = req.user ? req.user.id : (req.socket && req.socket.remoteAddress) || 'anon';
+      const limitCheck = rateLimiter.isRateLimited(rateLimitKey, 'commands');
+      if (limitCheck.limited) {
+        return sendJsonResponse(res, 429, {
+          success: false,
+          error: {
+            code: 'TOO_MANY_REQUESTS',
+            message: `Rate limit exceeded for device commands. Please retry in ${limitCheck.retryAfterSeconds}s`
+          },
+          retryAfter: limitCheck.retryAfterSeconds,
+          timestamp: new Date().toISOString()
+        });
+      }
+
       req.body = body;
       req.params = {};
       const fakeRes = createResponseWrapper(res);
@@ -1198,6 +1220,20 @@ function createApp(options = {}) {
       pathname.startsWith('/api/v1/admin/ota') ||
       pathname.startsWith('/api/v1/admin/fleet')
     ) {
+      const rateLimitKey = req.user ? req.user.id : (req.socket && req.socket.remoteAddress) || 'anon';
+      const limitCheck = rateLimiter.isRateLimited(rateLimitKey, 'admin');
+      if (limitCheck.limited) {
+        return sendJsonResponse(res, 429, {
+          success: false,
+          error: {
+            code: 'TOO_MANY_REQUESTS',
+            message: `Rate limit exceeded for administrative operations. Please retry in ${limitCheck.retryAfterSeconds}s`
+          },
+          retryAfter: limitCheck.retryAfterSeconds,
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const fleetResult = await fleetAdminRouter.handle(method, pathname, body, query, req.user);
       if (fleetResult) {
         return sendJsonResponse(res, fleetResult.status, fleetResult.body);
