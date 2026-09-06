@@ -95,7 +95,7 @@ async function runPhase27Tests() {
   assert('All filtered products support wifi', wifiFilter.products.every(p => p.wifiSupport));
 
   const threadFilter = catalog.discoverProducts({ connectivity: 'thread' });
-  assert('Connectivity thread filter returns 0 for current baseline without fake features', threadFilter.total === 0);
+  assert('Connectivity thread filter returns thread products', threadFilter.total >= 1 && threadFilter.products.every(p => p.threadSupport));
 
   // -------------------------------------------------------------------------
   // 5. Product Discovery — Pagination & Stable Sorting

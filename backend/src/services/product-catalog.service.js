@@ -72,6 +72,24 @@ const FAMILY_METADATA = {
     description: 'Tunable white and RGBCW intelligent lighting solutions',
     icon: 'lightbulb_rounded',
     sortOrder: 4
+  },
+  smart_controller: {
+    id: 'smart_controller',
+    slug: 'smart-hub',
+    displayName: 'Smart Hubs & Gateways',
+    category: 'controllers',
+    description: 'Multi-protocol smart home gateway and local edge automation controller',
+    icon: 'hub_rounded',
+    sortOrder: 5
+  },
+  smart_sensor: {
+    id: 'smart_sensor',
+    slug: 'sensor-node',
+    displayName: 'Sensor Nodes',
+    category: 'sensors',
+    description: 'Environmental monitoring and telemetry sensor node platform',
+    icon: 'sensors_rounded',
+    sortOrder: 6
   }
 };
 

@@ -180,8 +180,11 @@ runStep('47. Phase 38 Real Push Notification Delivery Tests', `${nodeBin} backen
 // 48. Phase 38 Remote Backup Storage & Disaster Recovery Tests
 runStep('48. Phase 38 Remote Backup Storage Tests', `${nodeBin} backend/tests/phase38-remote-backup.test.js`);
 
+// 49. Phase 39 Product Catalog Expansion Tests
+runStep('49. Phase 39 Product Catalog Expansion Tests', `${nodeBin} backend/tests/phase39-product-catalog.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  48 SUITES ATTEMPTED. ${failedSuites === 0 ? '48/48' : (48 - failedSuites) + '/48'} PASSED.`);
+console.log(`  49 SUITES ATTEMPTED. ${failedSuites === 0 ? '49/49' : (49 - failedSuites) + '/49'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

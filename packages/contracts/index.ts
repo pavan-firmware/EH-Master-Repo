@@ -108,6 +108,7 @@ export interface ProductChannelMetadata {
 export type ProductFamily =
   | 'smart_switch'
   | 'smart_socket'
+  | 'smart_fan'
   | 'smart_climate'
   | 'smart_lighting'
   | 'smart_sensor'

@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "productVariantId": "eh-smart-hub-v1",
+  "productFamily": "smart_controller",
+  "displayName": "EH Smart Hub Gateway V1",
+  "channelCount": 1,
+  "channels": [
+    {
+      "channelIndex": 1,
+      "defaultLabel": "Gateway Controller",
+      "capabilities": ["switch", "ota", "automation", "schedule"]
+    }
+  ],
+  "hardwareProfile": {
+    "schemaVersion": 1,
+    "mcuFamily": "esp32-s3",
+    "flashSizeBytes": 16777216,
+    "psramSizeBytes": 8388608,
+    "hasEnergyMetering": false,
+    "energyMeterChip": null,
+    "maxRelayAmpsPerChannel": 0.0,
+    "maxTotalAmps": 0.0,
+    "gpioMap": {
+      "status_led": 21,
+      "pairing_btn": 0
+    }
+  },
+  "connectivityProfile": {
+    "schemaVersion": 1,
+    "supportsWifi": true,
+    "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"],
+    "supportsBle": true,
+    "bleVersion": "5.0",
+    "supportsThread": true,
+    "threadVersion": "1.3",
+    "supportsMatter": true,
+    "matterDeviceType": "0x0016"
+  },
+  "capabilities": [
+    "switch",
+    "ota",
+    "automation",
+    "schedule"
+  ],
+  "electricalSpecifications": {
+    "voltageRange": "5V DC USB-C",
+    "frequencyHz": "DC",
+    "maxCurrentPerChannelAmps": 2.0,
+    "maxTotalCurrentAmps": 2.0
+  },
+  "images": {
+    "hero": "assets/products/smart_hub_v1/hero.png",
+    "front": "assets/products/smart_hub_v1/front.png",
+    "thumbnail": "assets/products/smart_hub_v1/thumb.png"
+  },
+  "firmwareFamily": "esp32s3-hub-platform",
+  "supportedHardwareRevisions": ["HW_1_0"]
+}
