@@ -10,6 +10,7 @@ import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/models/update_models.dart';
 import '../../../core/repositories/cloud_device_trust_repository.dart';
+import '../../../core/repositories/cloud_fleet_firmware_repository.dart';
 import '../../../core/repositories/cloud_notification_repository.dart';
 import '../../../core/repositories/cloud_operational_readiness_repository.dart';
 import '../../../core/repositories/cloud_operations_repository.dart';
@@ -40,6 +41,9 @@ import '../../device_trust/presentation/device_security_status_page.dart';
 import '../../diagnostics/presentation/device_health_page.dart';
 import '../../edge_control/presentation/edge_execution_dashboard_page.dart';
 import '../../energy/presentation/energy_optimization_page.dart';
+import '../../fleet/presentation/firmware_releases_page.dart';
+import '../../fleet/presentation/fleet_firmware_status_page.dart';
+import '../../fleet/presentation/ota_rollouts_page.dart';
 import '../../energy/presentation/home_energy_dashboard_page.dart';
 import '../../energy/presentation/tariff_management_page.dart';
 import '../../integrations/presentation/matter_integration_page.dart';
@@ -761,6 +765,76 @@ class _SettingsContent extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => SystemOperationalStatusPage(
                       repository: CloudOperationalReadinessRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
+        const SettingsSectionTitle('Fleet & OTA rollouts'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.developer_board_rounded,
+                title: 'Firmware releases',
+                subtitle: 'Manage signed artifacts, channels, and release notes',
+                trailing: isAdmin
+                    ? null
+                    : SettingsStatusChip(
+                        label: 'Admin only',
+                        color: tokens.textSecondary,
+                        background: tokens.surfaceCard,
+                      ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FirmwareReleasesPage(
+                      repository: CloudFleetFirmwareRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.campaign_rounded,
+                title: 'OTA rollout campaigns',
+                subtitle: 'Controlled batched deployments, canary gates & rollbacks',
+                trailing: isAdmin
+                    ? null
+                    : SettingsStatusChip(
+                        label: 'Admin only',
+                        color: tokens.textSecondary,
+                        background: tokens.surfaceCard,
+                      ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => OtaRolloutsPage(
+                      repository: CloudFleetFirmwareRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.devices_other_rounded,
+                title: 'Fleet firmware status',
+                subtitle: 'Per-device firmware versions, rollout states & health',
+                trailing: isAdmin
+                    ? null
+                    : SettingsStatusChip(
+                        label: 'Admin only',
+                        color: tokens.textSecondary,
+                        background: tokens.surfaceCard,
+                      ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FleetFirmwareStatusPage(
+                      repository: CloudFleetFirmwareRepository(effectiveClient),
                     ),
                   ),
                 ),

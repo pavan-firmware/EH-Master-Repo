@@ -148,15 +148,15 @@ async function runSuite() {
   // --- Group 2: Migration Runner Architecture ---
   console.log('\n--- 2. Migration Runner Architecture & Safety ---');
 
-  await test('MigrationRunner discovers all 27 migration files on disk in strict numerical order', () => {
+  await test('MigrationRunner discovers all migration files on disk in strict numerical order', () => {
     const runner = new MigrationRunner();
     const files = runner.getMigrationFiles();
 
-    assert.strictEqual(files.length, 27);
+    assert.ok(files.length >= 28);
     assert.strictEqual(files[0].version, '001');
     assert.strictEqual(files[0].filename, '001_initial_schema.sql');
-    assert.strictEqual(files[26].version, '027');
-    assert.strictEqual(files[26].filename, '027_seed_expanded_product_catalog.sql');
+    assert.strictEqual(files[files.length - 1].version, '028');
+    assert.strictEqual(files[files.length - 1].filename, '028_fleet_management_and_ota_rollout.sql');
 
     // Verify each migration has a valid sha256 checksum
     files.forEach(f => {
@@ -169,10 +169,11 @@ async function runSuite() {
     const db = new DatabaseClient(new InMemoryDatabaseAdapter());
     const runner = new MigrationRunner({ db });
 
+    const files = runner.getMigrationFiles();
     const status = await runner.getStatus();
-    assert.strictEqual(status.total, 27);
+    assert.strictEqual(status.total, files.length);
     assert.strictEqual(status.appliedCount, 0);
-    assert.strictEqual(status.pendingCount, 27);
+    assert.strictEqual(status.pendingCount, files.length);
     assert.strictEqual(status.hasDrift, false);
   });
 
@@ -180,11 +181,12 @@ async function runSuite() {
     const db = new DatabaseClient(new InMemoryDatabaseAdapter());
     const runner = new MigrationRunner({ db });
 
+    const files = runner.getMigrationFiles();
     const res = await runner.runMigrations();
-    assert.strictEqual(res.appliedCount, 27);
+    assert.strictEqual(res.appliedCount, files.length);
 
     const status = await runner.getStatus();
-    assert.strictEqual(status.appliedCount, 27);
+    assert.strictEqual(status.appliedCount, files.length);
     assert.strictEqual(status.pendingCount, 0);
     assert.strictEqual(status.hasDrift, false);
   });
@@ -245,12 +247,14 @@ async function runSuite() {
       /requires explicit { forceDevDowngrade: true }/
     );
 
-    // With explicit forceDevDowngrade: succeeds and reverts 027
+    // With explicit forceDevDowngrade: succeeds and reverts last migration
+    const files = runner.getMigrationFiles();
+    const lastFile = files[files.length - 1].filename;
     const res = await runner.revertLastMigration({ forceDevDowngrade: true });
-    assert.strictEqual(res.reverted, '027_seed_expanded_product_catalog.sql');
+    assert.strictEqual(res.reverted, lastFile);
 
     const status = await runner.getStatus();
-    assert.strictEqual(status.appliedCount, 26);
+    assert.strictEqual(status.appliedCount, files.length - 1);
     assert.strictEqual(status.pendingCount, 1);
   });
 

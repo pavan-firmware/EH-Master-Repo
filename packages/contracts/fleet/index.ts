@@ -1,14 +1,34 @@
 /**
- * EH Home — Device Fleet Management & OTA Canonical Contract Types (Phase 18)
+ * EH Home — Device Fleet Management & Safe OTA Canonical Contract Types (Phase 18 + Phase 41)
  */
 
-export type ReleaseChannel = 'development' | 'staging' | 'production' | 'canary';
+export type ReleaseChannel = 'development' | 'beta' | 'production' | 'staging' | 'canary';
 
 export type ReleaseStatus = 'DRAFT' | 'PUBLISHED' | 'DEPRECATED' | 'REVOKED';
 
 export type RolloutStage = 'CANARY' | 'STAGED_25' | 'STAGED_50' | 'FULL_100';
 
 export type RolloutStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+
+export type RolloutState =
+  | 'DRAFT'
+  | 'SCHEDULED'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'FAILED_THRESHOLD_PAUSED'
+  | 'ROLLING_BACK'
+  | 'ROLLED_BACK';
+
+export type HealthVerificationState =
+  | 'PENDING'
+  | 'REQUESTED'
+  | 'DOWNLOADING'
+  | 'INSTALLED'
+  | 'BOOT_VERIFIED'
+  | 'HEALTH_VERIFIED'
+  | 'FAILED';
 
 export type OtaOperationStatus =
   | 'QUEUED'
@@ -46,11 +66,68 @@ export interface OtaRolloutContract {
   id: string;
   releaseId: string;
   homeId?: string | null;
-  rolloutStage: RolloutStage;
+  productScope?: string | null;
+  channel?: ReleaseChannel;
+  rolloutState: RolloutState;
+  rolloutStage?: RolloutStage;
   status: RolloutStatus;
+  rolloutPercentage: number;
+  batchSize: number;
+  maxConcurrency: number;
+  failureThresholdPercentage: number;
+  failureThresholdCount: number;
+  statistics?: {
+    totalEligible: number;
+    totalTargeted: number;
+    inProgress: number;
+    installed: number;
+    bootVerified: number;
+    healthVerified: number;
+    failed: number;
+    rolledBack: number;
+  };
+  rollbackState?: {
+    isRollback: boolean;
+    sourceRolloutId?: string | null;
+    targetReleaseId?: string | null;
+    reason?: string | null;
+    initiatedBy?: string | null;
+  } | null;
   targetFilters?: Record<string, any>;
+  startedAt?: string | null;
+  pausedAt?: string | null;
+  completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface FleetDeviceFirmwareStateContract {
+  schemaVersion: 1;
+  deviceId: string;
+  productVariantId: string;
+  currentFirmwareVersion: string;
+  targetFirmwareVersion?: string | null;
+  rolloutId?: string | null;
+  rolloutState?: RolloutState | null;
+  lastOtaResult?: string | null;
+  lastAttemptAt?: string | null;
+  failureReason?: string | null;
+  healthVerificationState: HealthVerificationState;
+  updatedAt: string;
+}
+
+export interface OtaAttemptContract {
+  schemaVersion: 1;
+  id: string;
+  deviceId: string;
+  rolloutId: string;
+  requestedVersion: string;
+  outcome: 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'HEALTH_VERIFIED' | 'ROLLED_BACK';
+  reason?: string | null;
+  startedAt: string;
+  completedAt?: string | null;
+  auditMetadata?: Record<string, any>;
+  createdAt: string;
 }
 
 export interface OtaOperationContract {
