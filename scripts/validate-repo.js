@@ -194,6 +194,10 @@ runStep('51. Phase 41 Fleet Management & Safe OTA Rollout Tests', `${nodeBin} ba
 // 52. Phase 42 Production Security Hardening & Compliance Tests
 runStep('52. Phase 42 Security Hardening & Compliance Tests', `${nodeBin} backend/tests/phase42-security-hardening.test.js`);
 
+// 53. Phase 43 Production Observability, Monitoring & Incident Response Tests
+runStep('53. Phase 43 Observability & Incident Response Tests', `${nodeBin} backend/tests/phase43-observability.test.js`);
+
+
 const passedSuites = totalSuites - failedSuites;
 console.log('\n===============================================================');
 console.log(`  ${totalSuites} SUITES ATTEMPTED. ${passedSuites}/${totalSuites} PASSED.`);
