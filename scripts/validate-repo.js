@@ -168,8 +168,11 @@ runStep('43. Phase 33 Disaster Recovery, Backup & State Resilience Tests', `${no
 // 44. Phase 34 Production Deployment & Operational Readiness Tests
 runStep('44. Phase 34 Production Deployment & Operational Readiness Tests', `${nodeBin} backend/tests/phase34-production-operational-readiness.test.js`);
 
+// 45. Phase 35 Firmware End-to-End MQTT, Persistence & OTA Tests
+runStep('45. Phase 35 Firmware End-to-End Integration Tests', `${nodeBin} firmware/tests/test_phase35_firmware_e2e.js`);
+
 console.log('\n===============================================================');
-console.log(`  44 SUITES ATTEMPTED. ${failedSuites === 0 ? '44/44' : (44 - failedSuites) + '/44'} PASSED.`);
+console.log(`  45 SUITES ATTEMPTED. ${failedSuites === 0 ? '45/45' : (45 - failedSuites) + '/45'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

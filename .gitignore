@@ -31,6 +31,8 @@ $RECYCLE.BIN/
 tools/manufacturing/*.html
 tools/manufacturing/*.svg
 tools/manufacturing/out/
+var/
+
 
 # ------------------------------------------------------------------------------
 # 3. ENVIRONMENT, SECRETS & CREDENTIALS (CRITICAL)
