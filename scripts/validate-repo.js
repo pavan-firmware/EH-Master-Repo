@@ -191,6 +191,9 @@ runStep('50. Phase 40 Manufacturing Flasher & Hardware Validation Tests', 'pytho
 // 51. Phase 41 Production Device Fleet Management & Safe OTA Rollout Tests
 runStep('51. Phase 41 Fleet Management & Safe OTA Rollout Tests', `${nodeBin} backend/tests/phase41-fleet-ota-rollout.test.js`);
 
+// 52. Phase 42 Production Security Hardening & Compliance Tests
+runStep('52. Phase 42 Security Hardening & Compliance Tests', `${nodeBin} backend/tests/phase42-security-hardening.test.js`);
+
 const passedSuites = totalSuites - failedSuites;
 console.log('\n===============================================================');
 console.log(`  ${totalSuites} SUITES ATTEMPTED. ${passedSuites}/${totalSuites} PASSED.`);

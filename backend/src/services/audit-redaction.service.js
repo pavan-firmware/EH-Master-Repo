@@ -1,8 +1,8 @@
 /**
- * Audit Redaction Service
+ * Audit Redaction Service (Phase 31 & Phase 42 Hardening)
  *
  * Deterministically sanitizes payloads to prevent secret leakage into
- * operational event logs, security audit records, and traces.
+ * operational event logs, security audit records, error responses, and traces.
  *
  * Replaces values of sensitive keys with '[REDACTED]'.
  */
@@ -21,7 +21,21 @@ const SENSITIVE_KEY_PATTERNS = [
   /psk/i,
   /jwt/i,
   /pairing_code/i,
-  /setup_pin/i
+  /setup_pin/i,
+  /api_key/i,
+  /apikey/i,
+  /client_secret/i,
+  /access_token/i,
+  /refresh_token/i,
+  /encryption_key/i,
+  /signing_key/i,
+  /db_password/i,
+  /connection_string/i,
+  /database_url/i,
+  /db_url/i,
+  /connection_url/i,
+  /bearer/i,
+  /private_pem/i
 ];
 
 class AuditRedactionService {
@@ -77,6 +91,34 @@ class AuditRedactionService {
    */
   static sanitize(target) {
     return AuditRedactionService.redact(target).sanitized;
+  }
+
+  /**
+   * Redacts sensitive details from error messages and objects in production
+   */
+  static sanitizeError(err, isProduction = (process.env.NODE_ENV === 'production')) {
+    if (!err) {
+      return { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' };
+    }
+
+    const code = err.code || err.statusCode || 'INTERNAL_ERROR';
+    let message = typeof err === 'string' ? err : (err.message || 'An unexpected error occurred');
+
+    if (isProduction) {
+      // In production mode, remove filesystem paths, stack traces, and internal DB details
+      message = message
+        .replace(/(\/|[A-Za-z]:\\)[^\s:]+/g, '[INTERNAL_PATH]')
+        .replace(/SELECT\s+.*?\s+FROM/gi, '[SQL_QUERY]')
+        .replace(/INSERT\s+INTO/gi, '[SQL_QUERY]')
+        .replace(/UPDATE\s+.*?\s+SET/gi, '[SQL_QUERY]')
+        .replace(/DELETE\s+FROM/gi, '[SQL_QUERY]');
+    }
+
+    return {
+      code,
+      message,
+      ...(isProduction ? {} : { stack: err.stack })
+    };
   }
 }
 

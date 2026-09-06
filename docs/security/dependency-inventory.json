@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "bomFormat": "CycloneDX-Compatible Inventory",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-06T19:30:00Z",
+    "component": {
+      "name": "eh-home-monorepo",
+      "version": "1.0.0",
+      "type": "application",
+      "description": "EH Home — Production Smart-Home Platform"
+    },
+    "disclaimer": "The existence of this dependency inventory does not claim or imply zero-vulnerability or vulnerability-free status. It provides deterministic tracking of supply-chain and runtime dependencies."
+  },
+  "dependencies": {
+    "backend_nodejs": [
+      {
+        "name": "mqtt",
+        "version": "^5.10.0",
+        "purl": "pkg:npm/mqtt@5.10.0",
+        "license": "MIT",
+        "scope": "runtime",
+        "securityBoundary": "MQTT TLS/mTLS protocol broker communication",
+        "integrityCheck": "Verified via package-lock.json"
+      },
+      {
+        "name": "pg",
+        "version": "^8.11.3",
+        "purl": "pkg:npm/pg@8.11.3",
+        "license": "MIT",
+        "scope": "runtime",
+        "securityBoundary": "PostgreSQL relational persistence with parameterized query enforcement",
+        "integrityCheck": "Verified via package-lock.json"
+      },
+      {
+        "name": "node-crypto",
+        "version": ">=18.0.0 (built-in)",
+        "purl": "pkg:generic/node-core-crypto",
+        "license": "Node.js License",
+        "scope": "runtime",
+        "securityBoundary": "Ed25519, RS256, AES-256-GCM, PBKDF2, timingSafeEqual cryptographic primitives",
+        "integrityCheck": "Platform built-in"
+      }
+    ],
+    "flutter_dart": [
+      {
+        "name": "flutter",
+        "version": "SDK",
+        "purl": "pkg:generic/flutter-sdk",
+        "license": "BSD-3-Clause",
+        "scope": "runtime_ui",
+        "securityBoundary": "Mobile application framework",
+        "integrityCheck": "Flutter SDK lock"
+      },
+      {
+        "name": "flutter_reactive_ble",
+        "version": "5.5.0",
+        "purl": "pkg:pub/flutter_reactive_ble@5.5.0",
+        "license": "Apache-2.0",
+        "scope": "runtime",
+        "securityBoundary": "Local Bluetooth Low Energy device discovery and provisioning",
+        "integrityCheck": "Verified via pubspec.lock"
+      },
+      {
+        "name": "flutter_secure_storage",
+        "version": "^11.0.0",
+        "purl": "pkg:pub/flutter_secure_storage@11.0.0",
+        "license": "BSD-3-Clause",
+        "scope": "runtime",
+        "securityBoundary": "Hardware-backed Keychain (iOS) and KeyStore/EncryptedSharedPreferences (Android)",
+        "integrityCheck": "Verified via pubspec.lock"
+      },
+      {
+        "name": "http",
+        "version": "^1.6.0",
+        "purl": "pkg:pub/http@1.6.0",
+        "license": "BSD-3-Clause",
+        "scope": "runtime",
+        "securityBoundary": "HTTPS TLS transport client for Backend REST API communication",
+        "integrityCheck": "Verified via pubspec.lock"
+      },
+      {
+        "name": "mobile_scanner",
+        "version": "^7.4.0",
+        "purl": "pkg:pub/mobile_scanner@7.4.0",
+        "license": "MIT",
+        "scope": "runtime",
+        "securityBoundary": "QR code scanner for onboarding payloads without secret persistence",
+        "integrityCheck": "Verified via pubspec.lock"
+      },
+      {
+        "name": "permission_handler",
+        "version": "12.0.3",
+        "purl": "pkg:pub/permission_handler@12.0.3",
+        "license": "MIT",
+        "scope": "runtime",
+        "securityBoundary": "OS runtime permission gating (BLE, Camera, Notifications)",
+        "integrityCheck": "Verified via pubspec.lock"
+      },
+      {
+        "name": "pointycastle",
+        "version": "^4.0.0",
+        "purl": "pkg:pub/pointycastle@4.0.0",
+        "license": "MIT",
+        "scope": "runtime",
+        "securityBoundary": "Client-side cryptographic validation and hashing",
+        "integrityCheck": "Verified via pubspec.lock"
+      },
+      {
+        "name": "shared_preferences",
+        "version": "^2.5.5",
+        "purl": "pkg:pub/shared_preferences@2.5.5",
+        "license": "BSD-3-Clause",
+        "scope": "runtime",
+        "securityBoundary": "Non-sensitive UI preferences and theme persistence",
+        "integrityCheck": "Verified via pubspec.lock"
+      }
+    ],
+    "python_manufacturing": [
+      {
+        "name": "cryptography",
+        "version": ">=41.0.0",
+        "purl": "pkg:pypi/cryptography@41.0.0",
+        "license": "Apache-2.0 / BSD-3-Clause",
+        "scope": "tooling",
+        "securityBoundary": "Factory CA, device certificate, Ed25519/ECDSA generation and fact_v2 signature",
+        "integrityCheck": "Pip dependency lock"
+      },
+      {
+        "name": "pyserial",
+        "version": ">=3.5",
+        "purl": "pkg:pypi/pyserial@3.5",
+        "license": "BSD-3-Clause",
+        "scope": "tooling",
+        "securityBoundary": "Factory UART bootloader communication and device flash verification",
+        "integrityCheck": "Pip dependency lock"
+      },
+      {
+        "name": "esptool",
+        "version": ">=4.6.0",
+        "purl": "pkg:pypi/esptool@4.6.0",
+        "license": "GPL-2.0",
+        "scope": "tooling",
+        "securityBoundary": "ESP32 ROM bootloader flash, partition readback, image checksum verification",
+        "integrityCheck": "Pip dependency lock"
+      },
+      {
+        "name": "qrcode",
+        "version": ">=7.4.2",
+        "purl": "pkg:pypi/qrcode@7.4.2",
+        "license": "BSD-3-Clause",
+        "scope": "tooling",
+        "securityBoundary": "Factory QR code generation for physical device pairing payload",
+        "integrityCheck": "Pip dependency lock"
+      }
+    ]
+  }
+}
