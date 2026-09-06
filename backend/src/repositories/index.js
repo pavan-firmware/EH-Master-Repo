@@ -1352,8 +1352,9 @@ class NotificationRepository {
     }
 
     const calculatedSeverity = severity || (priority === 'CRITICAL' ? 'CRITICAL' : priority === 'HIGH' ? 'WARNING' : 'INFO');
+    const notifId = id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
-    return this.db.insert('notifications', id, {
+    return this.db.insert('notifications', notifId, {
       user_id: userId,
       home_id: homeId,
       type,
@@ -1610,7 +1611,8 @@ class NotificationRepository {
       });
     }
 
-    return this.db.insert('push_device_tokens', id, {
+    const tokenId = id || `tok_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    return this.db.insert('push_device_tokens', tokenId, {
       user_id: userId,
       push_token: pushToken,
       platform,

@@ -174,8 +174,14 @@ runStep('45. Phase 35 Firmware End-to-End Integration Tests', `${nodeBin} firmwa
 // 46. Phase 37 PostgreSQL Persistence & Migration Runner Tests
 runStep('46. Phase 37 Real PostgreSQL Persistence & Migration Tests', `${nodeBin} backend/tests/phase37-postgresql-persistence.test.js`);
 
+// 47. Phase 38 Real Push Notification Delivery Tests
+runStep('47. Phase 38 Real Push Notification Delivery Tests', `${nodeBin} backend/tests/phase38-push-notifications.test.js`);
+
+// 48. Phase 38 Remote Backup Storage & Disaster Recovery Tests
+runStep('48. Phase 38 Remote Backup Storage Tests', `${nodeBin} backend/tests/phase38-remote-backup.test.js`);
+
 console.log('\n===============================================================');
-console.log(`  46 SUITES ATTEMPTED. ${failedSuites === 0 ? '46/46' : (46 - failedSuites) + '/46'} PASSED.`);
+console.log(`  48 SUITES ATTEMPTED. ${failedSuites === 0 ? '48/48' : (48 - failedSuites) + '/48'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');

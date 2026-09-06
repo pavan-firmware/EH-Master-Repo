@@ -125,6 +125,7 @@ const { MatterCommissioningService } = require('./services/matter-commissioning.
 const { MatterStateSyncService } = require('./services/matter-state-sync.service');
 const { MatterIntegrationService } = require('./services/matter-integration.service');
 const { createPushProvider } = require('./services/push-notification-provider');
+const { createBackupProvider } = require('./services/backup-provider');
 
 const { AuthApiRouter } = require('./api/auth.router');
 const { AccountApiRouter } = require('./api/account.router');
@@ -359,7 +360,14 @@ function createApp(options = {}) {
 
   const mqttTransport = options.mqttTransport || null;
   const eventBus = options.eventBus || null;
-  const pushProvider = options.pushProvider || createPushProvider(options.pushProviderType || 'simulated');
+  const pushProvider = options.pushProvider || createPushProvider(
+    options.pushProviderType || (options.config && options.config.push && options.config.push.providerType) || 'simulated',
+    options.pushProviderOptions || (options.config && options.config.push) || {}
+  );
+  const backupProvider = options.backupProvider || createBackupProvider(
+    options.backupProviderType || (options.config && options.config.backup && options.config.backup.providerType) || 'memory',
+    options.backupProviderOptions || (options.config && options.config.backup) || {}
+  );
 
   const authMiddleware = requireAuthentication(authService);
   const homeAuthService = new HomeAuthorizationService({ homeRepo, deviceRepo, roomRepo });
@@ -769,7 +777,7 @@ function createApp(options = {}) {
   const recoveryService = options.recoveryService || new RecoveryService({
     db,
     recoveryRepo,
-    backupProvider: options.backupProvider || null,
+    backupProvider: options.backupProvider || backupProvider,
     deviceTrustService,
     operationsAuditService,
     notificationService
@@ -785,6 +793,8 @@ function createApp(options = {}) {
     config: options.config || {},
     mqttTransport: options.mqttTransport || null,
     redisClient: options.redisClient || null,
+    pushProvider,
+    backupProvider,
     initialState: options.initialLifecycleState || 'READY',
     workers: {
       scheduler: schedulerWorker,

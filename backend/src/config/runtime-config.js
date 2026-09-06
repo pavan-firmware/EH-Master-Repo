@@ -42,7 +42,11 @@ const SECRET_CONFIG_KEYS = new Set([
   'MQTT_PASSWORD',
   'ADMIN_API_KEY',
   'APNS_AUTH_KEY',
-  'FCM_SERVER_KEY'
+  'FCM_SERVER_KEY',
+  'FCM_PRIVATE_KEY',
+  'FCM_SERVICE_ACCOUNT_KEY',
+  'BACKUP_S3_SECRET_ACCESS_KEY',
+  'AWS_SECRET_ACCESS_KEY'
 ]);
 
 /**
@@ -215,6 +219,69 @@ function loadAndValidateConfig(env = process.env, options = {}) {
     errors.push(`Invalid DB_CONNECTION_TIMEOUT_MS "${env.DB_CONNECTION_TIMEOUT_MS}". Must be between 500 and 60000 ms`);
   }
 
+  // Push Notification Provider Configuration
+  const pushProviderType = (env.PUSH_PROVIDER_TYPE || (isTest ? 'simulated' : 'simulated')).toLowerCase();
+  const validPushTypes = ['simulated', 'fcm', 'apns', 'composite'];
+  if (!validPushTypes.includes(pushProviderType)) {
+    errors.push(`Invalid PUSH_PROVIDER_TYPE "${env.PUSH_PROVIDER_TYPE}". Must be one of: ${validPushTypes.join(', ')}`);
+  }
+
+  const fcmProjectId = env.FCM_PROJECT_ID || null;
+  const fcmClientEmail = env.FCM_CLIENT_EMAIL || null;
+  const fcmPrivateKey = env.FCM_PRIVATE_KEY || null;
+  const fcmServiceAccountKey = env.FCM_SERVICE_ACCOUNT_KEY || null;
+
+  const apnsKeyId = env.APNS_KEY_ID || null;
+  const apnsTeamId = env.APNS_TEAM_ID || null;
+  const apnsBundleId = env.APNS_BUNDLE_ID || null;
+  const apnsAuthKey = env.APNS_AUTH_KEY || null;
+  const apnsEnvironment = (env.APNS_ENVIRONMENT || (isProduction ? 'production' : 'sandbox')).toLowerCase();
+
+  if (pushProviderType === 'fcm' || (pushProviderType === 'composite' && fcmProjectId)) {
+    if (!fcmProjectId) errors.push('FCM push provider requires FCM_PROJECT_ID');
+    if (!fcmClientEmail && !fcmServiceAccountKey) errors.push('FCM push provider requires FCM_CLIENT_EMAIL or FCM_SERVICE_ACCOUNT_KEY');
+    if (!fcmPrivateKey && !fcmServiceAccountKey) errors.push('FCM push provider requires FCM_PRIVATE_KEY or FCM_SERVICE_ACCOUNT_KEY');
+  }
+
+  if (pushProviderType === 'apns' || (pushProviderType === 'composite' && apnsKeyId)) {
+    if (!apnsKeyId) errors.push('APNs push provider requires APNS_KEY_ID');
+    if (!apnsTeamId) errors.push('APNs push provider requires APNS_TEAM_ID');
+    if (!apnsBundleId) errors.push('APNs push provider requires APNS_BUNDLE_ID');
+    if (!apnsAuthKey) errors.push('APNs push provider requires APNS_AUTH_KEY');
+  }
+
+  // Backup Provider Configuration (Phase 33 / Phase 38)
+  const backupProviderType = (env.BACKUP_PROVIDER_TYPE || (isTest ? 'memory' : 'local')).toLowerCase();
+  const validBackupTypes = ['local', 'memory', 's3'];
+  if (!validBackupTypes.includes(backupProviderType)) {
+    errors.push(`Invalid BACKUP_PROVIDER_TYPE "${env.BACKUP_PROVIDER_TYPE}". Must be one of: ${validBackupTypes.join(', ')}`);
+  }
+
+  const backupLocalDir = env.BACKUP_LOCAL_DIR || './backups';
+  const backupS3Bucket = env.BACKUP_S3_BUCKET || null;
+  const backupS3Region = env.BACKUP_S3_REGION || 'us-east-1';
+  const backupS3Endpoint = env.BACKUP_S3_ENDPOINT || null;
+  const backupS3AccessKeyId = env.BACKUP_S3_ACCESS_KEY_ID || env.AWS_ACCESS_KEY_ID || null;
+  const backupS3SecretAccessKey = env.BACKUP_S3_SECRET_ACCESS_KEY || env.AWS_SECRET_ACCESS_KEY || null;
+  const backupS3Prefix = env.BACKUP_S3_PREFIX || 'backups/';
+  const backupS3ForcePathStyle = parseBoolSafe(env.BACKUP_S3_FORCE_PATH_STYLE, false);
+  const backupS3Sse = env.BACKUP_S3_SSE || null;
+
+  if (backupProviderType === 's3') {
+    if (!backupS3Bucket) errors.push('S3 backup provider requires BACKUP_S3_BUCKET');
+    if (!backupS3AccessKeyId) errors.push('S3 backup provider requires BACKUP_S3_ACCESS_KEY_ID');
+    if (!backupS3SecretAccessKey) errors.push('S3 backup provider requires BACKUP_S3_SECRET_ACCESS_KEY');
+  }
+
+  if (isProduction) {
+    if (env.PUSH_PROVIDER_TYPE && env.PUSH_PROVIDER_TYPE.toLowerCase() === 'simulated' && !parseBoolSafe(env.ALLOW_SIMULATED_PUSH, false)) {
+      errors.push('Simulated push provider is not allowed in production without explicit ALLOW_SIMULATED_PUSH=true');
+    }
+    if (backupProviderType === 'memory') {
+      errors.push('In-memory backup provider is not allowed in production');
+    }
+  }
+
   const isValid = errors.length === 0;
 
   const config = {
@@ -242,11 +309,43 @@ function loadAndValidateConfig(env = process.env, options = {}) {
     healthCheckTimeoutMs: healthCheckTimeoutMs || 1500,
     enableDebugRoutes: parseBoolSafe(env.ENABLE_DEBUG_ROUTES, false) || false,
     mockTransports: parseBoolSafe(env.MOCK_TRANSPORTS, false) || false,
+    push: {
+      providerType: pushProviderType,
+      fcm: {
+        projectId: fcmProjectId,
+        clientEmail: fcmClientEmail,
+        hasPrivateKey: Boolean(fcmPrivateKey || fcmServiceAccountKey)
+      },
+      apns: {
+        keyId: apnsKeyId,
+        teamId: apnsTeamId,
+        bundleId: apnsBundleId,
+        environment: apnsEnvironment,
+        hasAuthKey: Boolean(apnsAuthKey)
+      }
+    },
+    backup: {
+      providerType: backupProviderType,
+      localDir: backupLocalDir,
+      s3: {
+        bucket: backupS3Bucket,
+        region: backupS3Region,
+        endpoint: backupS3Endpoint,
+        prefix: backupS3Prefix,
+        forcePathStyle: backupS3ForcePathStyle,
+        sse: backupS3Sse,
+        hasCredentials: Boolean(backupS3AccessKeyId && backupS3SecretAccessKey)
+      }
+    },
     secrets: {
       sessionSecret: env.SESSION_SECRET || null,
       jwtSecret: env.JWT_SECRET || null,
       databasePassword: env.DATABASE_PASSWORD || null,
-      redisPassword: env.REDIS_PASSWORD || null
+      redisPassword: env.REDIS_PASSWORD || null,
+      fcmPrivateKey: fcmPrivateKey || null,
+      fcmServiceAccountKey: fcmServiceAccountKey || null,
+      apnsAuthKey: apnsAuthKey || null,
+      backupS3SecretAccessKey: backupS3SecretAccessKey || null
     }
   };
 
@@ -290,6 +389,15 @@ function toSafeConfig(config) {
     mqttConfigured: Boolean(config.mqttBrokerUrl),
     jwtKeypairConfigured: Boolean(config.jwtPrivateKeyPath && config.jwtPublicKeyPath),
     mqttCaConfigured: Boolean(config.mqttCaPath),
+    pushProvider: {
+      type: config.push ? config.push.providerType : 'unknown',
+      fcmConfigured: Boolean(config.push && config.push.fcm && config.push.fcm.projectId && config.push.fcm.hasPrivateKey),
+      apnsConfigured: Boolean(config.push && config.push.apns && config.push.apns.keyId && config.push.apns.hasAuthKey)
+    },
+    backupProvider: {
+      type: config.backup ? config.backup.providerType : 'unknown',
+      s3Configured: Boolean(config.backup && config.backup.s3 && config.backup.s3.bucket && config.backup.s3.hasCredentials)
+    },
     logLevel: config.logLevel,
     shutdownTimeoutMs: config.shutdownTimeoutMs,
     healthCheckTimeoutMs: config.healthCheckTimeoutMs,
