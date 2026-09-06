@@ -1,20 +1,56 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/theme_controller.dart';
+import '../../../core/api/api_client.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/models/health_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/models/update_models.dart';
+import '../../../core/repositories/cloud_device_trust_repository.dart';
+import '../../../core/repositories/cloud_notification_repository.dart';
+import '../../../core/repositories/cloud_operational_readiness_repository.dart';
+import '../../../core/repositories/cloud_operations_repository.dart';
+import '../../../core/repositories/cloud_recovery_repository.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/device_health_repository.dart';
 import '../../../core/repositories/home_connection_repository.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../../core/repositories/update_repository.dart';
+import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/context_presence_service.dart';
+import '../../../core/services/edge_control_service.dart';
+import '../../../core/services/energy_automation_service.dart';
+import '../../../core/services/energy_cost_service.dart';
+import '../../../core/services/energy_service.dart';
+import '../../../core/services/intelligence_service.dart';
+import '../../../core/services/matter_service.dart';
+import '../../../core/services/product_catalog_service.dart';
+import '../../../core/services/reliability_service.dart';
+import '../../../core/services/sync_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../auth/auth_controller.dart';
 import '../../connection/presentation/connection_page.dart';
+import '../../connectivity/presentation/device_connectivity_page.dart';
+import '../../context/presentation/home_context_page.dart';
+import '../../context/presentation/presence_dashboard_page.dart';
+import '../../device_trust/presentation/device_security_status_page.dart';
 import '../../diagnostics/presentation/device_health_page.dart';
+import '../../edge_control/presentation/edge_execution_dashboard_page.dart';
+import '../../energy/presentation/energy_optimization_page.dart';
+import '../../energy/presentation/home_energy_dashboard_page.dart';
+import '../../energy/presentation/tariff_management_page.dart';
+import '../../integrations/presentation/matter_integration_page.dart';
+import '../../intelligence/presentation/intelligence_center_page.dart';
+import '../../notifications/presentation/notification_center_page.dart';
+import '../../operations/presentation/operations_dashboard_page.dart';
+import '../../operations/presentation/system_operational_status_page.dart';
+import '../../product_discovery/presentation/product_discovery_page.dart';
+import '../../recovery/presentation/recovery_dashboard_page.dart';
+import '../../reliability/presentation/fleet_health_page.dart';
+import '../../sync/presentation/sync_center_page.dart';
 import '../../updates/presentation/system_update_page.dart';
 import 'add_room_device_page.dart';
 import 'factory_reset/factory_reset_page.dart';
@@ -36,6 +72,11 @@ class SettingsPage extends StatefulWidget {
     this.connectionRepository = const PreviewHomeConnectionRepository(),
     this.updateRepository = const PreviewUpdateRepository(),
     this.healthRepository = const PreviewDeviceHealthRepository(),
+    this.apiClient,
+    this.authController,
+    this.homeId,
+    this.isAdmin = false,
+    this.onLogout,
   });
 
   final Future<ConnectionResult> Function()? onConnectHome;
@@ -45,6 +86,11 @@ class SettingsPage extends StatefulWidget {
   final HomeConnectionRepository connectionRepository;
   final UpdateRepository updateRepository;
   final DeviceHealthRepository healthRepository;
+  final ApiClient? apiClient;
+  final AuthController? authController;
+  final String? homeId;
+  final bool isAdmin;
+  final VoidCallback? onLogout;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -103,6 +149,11 @@ class _SettingsPageState extends State<SettingsPage> {
               onConnectHome: widget.onConnectHome,
               connectionState: widget.connectionState,
               connectionMessage: widget.connectionMessage,
+              apiClient: widget.apiClient,
+              authController: widget.authController,
+              homeId: widget.homeId,
+              isAdmin: widget.isAdmin,
+              onLogout: widget.onLogout,
             );
           },
         ),
@@ -132,6 +183,11 @@ class _SettingsContent extends StatelessWidget {
     required this.onConnectHome,
     required this.connectionState,
     required this.connectionMessage,
+    this.apiClient,
+    this.authController,
+    this.homeId,
+    this.isAdmin = false,
+    this.onLogout,
   });
 
   final HomeSettingsData home;
@@ -141,6 +197,11 @@ class _SettingsContent extends StatelessWidget {
   final Future<ConnectionResult> Function()? onConnectHome;
   final HomeConnectionState? connectionState;
   final String? connectionMessage;
+  final ApiClient? apiClient;
+  final AuthController? authController;
+  final String? homeId;
+  final bool isAdmin;
+  final VoidCallback? onLogout;
 
   void _showAppearancePicker(BuildContext context) {
     final themeCtrl = ThemeScope.maybeOf(context);
@@ -256,6 +317,9 @@ class _SettingsContent extends StatelessWidget {
             ThemeMode.light => 'Light theme',
           };
 
+    final effectiveHomeId = homeId ?? home.id;
+    final effectiveClient = apiClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
+
     return ListView(
       key: const PageStorageKey<String>('settings-scroll'),
       padding: const EdgeInsets.fromLTRB(20, 23, 20, 28),
@@ -290,58 +354,6 @@ class _SettingsContent extends StatelessWidget {
                 onConnectHome: onConnectHome,
               ),
             ),
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Home and people'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.groups_rounded,
-                title: 'People at home',
-                subtitle: 'Manage access and invitations',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        PeoplePage(repository: repository, home: home),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.home_outlined,
-                title: 'Home details',
-                subtitle: 'Name, location, and preferences',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        HomeDetailsPage(home: home, repository: repository),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.notifications_none_rounded,
-                title: 'Notification preferences',
-                subtitle: 'Safety, offline, and update alerts',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const NotificationPreferencesPage(),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.palette_outlined,
-                title: 'Appearance',
-                subtitle: currentThemeLabel,
-                onTap: () => _showAppearancePicker(context),
-              ),
-            ],
           ),
         ),
         const SizedBox(height: 27),
@@ -431,6 +443,385 @@ class _SettingsContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 27),
+        const SettingsSectionTitle('Home and people'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.groups_rounded,
+                title: 'People at home',
+                subtitle: 'Manage access and invitations',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        PeoplePage(repository: repository, home: home),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.home_outlined,
+                title: 'Home details',
+                subtitle: 'Name, location, and preferences',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        HomeDetailsPage(home: home, repository: repository),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.notifications_none_rounded,
+                title: 'Notification preferences',
+                subtitle: 'Safety, offline, and update alerts',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationPreferencesPage(),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.palette_outlined,
+                title: 'Appearance',
+                subtitle: currentThemeLabel,
+                onTap: () => _showAppearancePicker(context),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
+        const SettingsSectionTitle('Energy and efficiency'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.bolt_rounded,
+                title: 'Energy dashboard',
+                subtitle: 'Live consumption, load trends, and analytics',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => HomeEnergyDashboardPage(
+                      homeId: effectiveHomeId,
+                      energyService: EnergyService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.eco_rounded,
+                title: 'Energy optimization',
+                subtitle: 'Smart schedules and cost saving recommendations',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EnergyOptimizationPage(
+                      homeId: effectiveHomeId,
+                      service: EnergyAutomationService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.price_change_outlined,
+                title: 'Electricity tariffs',
+                subtitle: 'Time-of-use rates and utility pricing',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TariffManagementPage(
+                      homeId: effectiveHomeId,
+                      costService: EnergyCostService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
+        const SettingsSectionTitle('Intelligence and context'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.auto_awesome_rounded,
+                title: 'Intelligence center',
+                subtitle: 'Autonomous decisions, routines, and confidence',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => IntelligenceCenterPage(
+                      homeId: effectiveHomeId,
+                      service: HomeIntelligenceService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.person_pin_circle_outlined,
+                title: 'Presence & occupancy',
+                subtitle: 'Real-time room occupancy and presence timeline',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PresenceDashboardPage(
+                      homeId: effectiveHomeId,
+                      service: ContextPresenceService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.timeline_rounded,
+                title: 'Context history',
+                subtitle: 'Environmental events and context shifts',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => HomeContextPage(
+                      homeId: effectiveHomeId,
+                      service: ContextPresenceService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
+        const SettingsSectionTitle('Devices and ecosystem'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.storefront_outlined,
+                title: 'Product discovery',
+                subtitle: 'Browse compatible smart hardware and accessories',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProductDiscoveryPage(
+                      homeId: effectiveHomeId,
+                      catalogService: ProductCatalogClientService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.health_and_safety_outlined,
+                title: 'Fleet reliability',
+                subtitle: 'Device health scores and incident diagnostics',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FleetHealthPage(
+                      homeId: effectiveHomeId,
+                      reliabilityService: ReliabilityService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.hub_outlined,
+                title: 'Multi-protocol connectivity',
+                subtitle: 'BLE, MQTT, Local HTTP, and fallback transports',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DeviceConnectivityPage(
+                      deviceId: 'primary-gateway',
+                      deviceName: 'Primary Home Gateway',
+                      connectivityService: ConnectivityService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.share_rounded,
+                title: 'Matter & Ecosystems',
+                subtitle: 'Apple Home, Google Home, Alexa & Matter fabrics',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MatterIntegrationPage(
+                      homeId: effectiveHomeId,
+                      matterService: MatterService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.memory_rounded,
+                title: 'Edge control dashboard',
+                subtitle: 'Local-first LAN control with zero cloud latency',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EdgeExecutionDashboardPage(
+                      homeId: effectiveHomeId,
+                      edgeService: EdgeControlService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
+        const SettingsSectionTitle('Notifications and sync'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.notifications_active_outlined,
+                title: 'Notification center',
+                subtitle: 'Safety alerts, system events, and priority logs',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => NotificationCenterPage(
+                      homeId: effectiveHomeId,
+                      repository: CloudNotificationRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.sync_rounded,
+                title: 'Sync center',
+                subtitle: 'Offline queue, cache status, and conflict resolution',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SyncCenterPage(
+                      syncService: SyncService(baseUrl: effectiveClient.baseUrl),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
+        const SettingsSectionTitle('Observability and operations'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.monitor_heart_outlined,
+                title: 'Operations dashboard',
+                subtitle: 'Subsystem metrics, event audit, and API health',
+                trailing: isAdmin
+                    ? null
+                    : SettingsStatusChip(
+                        label: 'Admin only',
+                        color: tokens.textSecondary,
+                        background: tokens.surfaceCard,
+                      ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => OperationsDashboardPage(
+                      homeId: effectiveHomeId,
+                      isAdmin: isAdmin,
+                      repository: CloudOperationsRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.verified_user_outlined,
+                title: 'System readiness',
+                subtitle: 'Platform operational status and subsystem health',
+                trailing: isAdmin
+                    ? null
+                    : SettingsStatusChip(
+                        label: 'Admin only',
+                        color: tokens.textSecondary,
+                        background: tokens.surfaceCard,
+                      ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SystemOperationalStatusPage(
+                      repository: CloudOperationalReadinessRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
+        const SettingsSectionTitle('Security and resilience'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.security_rounded,
+                title: 'Device trust center',
+                subtitle: 'Certificate trust, secure boot, and anomaly detection',
+                trailing: isAdmin
+                    ? null
+                    : SettingsStatusChip(
+                        label: 'Admin only',
+                        color: tokens.textSecondary,
+                        background: tokens.surfaceCard,
+                      ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DeviceSecurityStatusPage(
+                      deviceId: 'gateway-root',
+                      deviceName: 'Hardware Root of Trust',
+                      isAdmin: isAdmin,
+                      repository: CloudDeviceTrustRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+                showDivider: true,
+              ),
+              SettingsListItem(
+                icon: Icons.backup_rounded,
+                title: 'Disaster recovery',
+                subtitle: 'Configuration backups, checkpoints, and restore plans',
+                trailing: isAdmin
+                    ? null
+                    : SettingsStatusChip(
+                        label: 'Admin only',
+                        color: tokens.textSecondary,
+                        background: tokens.surfaceCard,
+                      ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RecoveryDashboardPage(
+                      isAdmin: isAdmin,
+                      repository: CloudRecoveryRepository(effectiveClient),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 27),
         const SettingsSectionTitle('Help and privacy'),
         SettingsSurface(
           child: Column(
@@ -469,6 +860,42 @@ class _SettingsContent extends StatelessWidget {
             ],
           ),
         ),
+        if (onLogout != null) ...[
+          const SizedBox(height: 27),
+          const SettingsSectionTitle('Account session'),
+          SettingsSurface(
+            child: SettingsListItem(
+              icon: Icons.logout_rounded,
+              title: 'Sign out',
+              subtitle: 'Disconnect this session and stop background sync',
+              onTap: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Sign Out'),
+                    content: const Text(
+                      'Are you sure you want to sign out of EH Home? Your live connection will be closed.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Sign Out'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  onLogout!();
+                }
+              },
+              destructive: true,
+            ),
+          ),
+        ],
         const SizedBox(height: 27),
         const SettingsSectionTitle('Danger zone'),
         SettingsSurface(

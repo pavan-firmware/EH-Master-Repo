@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/api/api_client.dart';
+import '../../auth/auth_controller.dart';
 import '../../../app/home_controller.dart';
 import '../../../app/home_shell.dart';
 
@@ -56,11 +58,23 @@ class _SplashColors {
 }
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // SPLASH SCREEN WIDGET (Hybrid Architecture)
 // ---------------------------------------------------------------------------
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key, this.homeController});
+  const SplashScreen({
+    super.key,
+    this.homeController,
+    this.authController,
+    this.apiClient,
+    this.homeId,
+  });
+
   final HomeController? homeController;
+  final AuthController? authController;
+  final ApiClient? apiClient;
+  final String? homeId;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -175,7 +189,12 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         _SplashFadePageRoute(
-          builder: (_) => HomeShell(homeController: widget.homeController),
+          builder: (_) => HomeShell(
+            homeController: widget.homeController,
+            authController: widget.authController,
+            apiClient: widget.apiClient,
+            homeId: widget.homeId,
+          ),
         ),
       );
     });
