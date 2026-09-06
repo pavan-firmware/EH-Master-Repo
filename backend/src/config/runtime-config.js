@@ -199,6 +199,22 @@ function loadAndValidateConfig(env = process.env, options = {}) {
     errors.push(`Invalid HEALTH_CHECK_TIMEOUT_MS "${env.HEALTH_CHECK_TIMEOUT_MS}". Must be between 100 and 10000 ms`);
   }
 
+  // Database Pool Settings
+  const dbPoolMax = parseIntSafe(env.DB_POOL_MAX, 20, 1, 100);
+  if (dbPoolMax === null) {
+    errors.push(`Invalid DB_POOL_MAX "${env.DB_POOL_MAX}". Must be between 1 and 100`);
+  }
+
+  const dbIdleTimeoutMs = parseIntSafe(env.DB_IDLE_TIMEOUT_MS, 30000, 1000, 300000);
+  if (dbIdleTimeoutMs === null) {
+    errors.push(`Invalid DB_IDLE_TIMEOUT_MS "${env.DB_IDLE_TIMEOUT_MS}". Must be between 1000 and 300000 ms`);
+  }
+
+  const dbConnectionTimeoutMs = parseIntSafe(env.DB_CONNECTION_TIMEOUT_MS, 5000, 500, 60000);
+  if (dbConnectionTimeoutMs === null) {
+    errors.push(`Invalid DB_CONNECTION_TIMEOUT_MS "${env.DB_CONNECTION_TIMEOUT_MS}". Must be between 500 and 60000 ms`);
+  }
+
   const isValid = errors.length === 0;
 
   const config = {
@@ -209,6 +225,10 @@ function loadAndValidateConfig(env = process.env, options = {}) {
     host,
     backendBaseUrl: env.BACKEND_BASE_URL || `http://${host}:${port || 3000}`,
     databaseUrl,
+    dbPoolMax: dbPoolMax || 20,
+    dbIdleTimeoutMs: dbIdleTimeoutMs || 30000,
+    dbConnectionTimeoutMs: dbConnectionTimeoutMs || 5000,
+    dbStatementTimeoutMs: parseIntSafe(env.DB_STATEMENT_TIMEOUT_MS, 10000, 1000, 60000) || 10000,
     redisUrl,
     mqttBrokerUrl,
     mqttTlsPort: mqttTlsPort || 8883,

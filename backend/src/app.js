@@ -8,7 +8,7 @@
  */
 
 const url = require('url');
-const { DatabaseClient } = require('./shared/db-client');
+const { DatabaseClient, createDatabaseClient } = require('./shared/db-client');
 const {
   UserRepository,
   HomeRepository,
@@ -263,7 +263,7 @@ function sendJsonResponse(res, statusCode, data) {
  * Create and configure application instance
  */
 function createApp(options = {}) {
-  const db = options.db || new DatabaseClient();
+  const db = options.db || createDatabaseClient(options);
 
   // 1. Repositories
   const userRepo = new UserRepository(db);
@@ -1211,7 +1211,8 @@ function createApp(options = {}) {
       notificationDeliveryWorker,
       recoveryService,
       deviceTrustService,
-      operationalReadinessService
+      operationalReadinessService,
+      db
     },
     repositories: {
       userRepo, homeRepo, roomRepo, productRepo, capRepo, deviceRepo,

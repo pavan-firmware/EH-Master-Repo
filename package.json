@@ -10,7 +10,8 @@
     "test:emqx": "node backend/tests/phase6-emqx-integration.test.js"
   },
   "dependencies": {
-    "mqtt": "^5.10.0"
+    "mqtt": "^5.10.0",
+    "pg": "^8.11.3"
   },
   "devDependencies": {},
   "engines": {
