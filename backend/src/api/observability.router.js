@@ -21,6 +21,8 @@
  * All observability endpoints require authenticated ADMIN or OPERATOR role.
  */
 
+const { parsePagination } = require('../shared/pagination');
+
 class ObservabilityApiRouter {
   constructor({
     metricsService,
@@ -41,6 +43,17 @@ class ObservabilityApiRouter {
     if (!user) return false;
     const role = (user.role || '').toUpperCase();
     return role === 'ADMIN' || role === 'SUPERADMIN' || role === 'OPERATOR';
+  }
+
+  async handleRequest(req = {}) {
+    return this.handle(
+      req.method,
+      req.path || req.url,
+      req.body || {},
+      req.query || {},
+      req.user || null,
+      req.headers || {}
+    );
   }
 
   async handle(method, rawPath, body = {}, query = {}, user = null, headers = {}) {
@@ -82,12 +95,13 @@ class ObservabilityApiRouter {
 
       // 2. GET /api/v1/admin/observability/alerts
       if (method === 'GET' && path === '/api/v1/admin/observability/alerts') {
+        const { limit, offset } = parsePagination(query);
         const filters = {
           status: query.status,
           severity: query.severity,
           rule_id: query.rule_id,
-          limit: query.limit ? parseInt(query.limit, 10) : undefined,
-          offset: query.offset ? parseInt(query.offset, 10) : undefined
+          limit,
+          offset
         };
         const alerts = await this.alertRulesService.listAlerts(filters);
         return {
@@ -95,6 +109,8 @@ class ObservabilityApiRouter {
           body: {
             success: true,
             count: alerts.length,
+            limit,
+            offset,
             data: alerts,
             timestamp: new Date().toISOString()
           }
@@ -134,12 +150,13 @@ class ObservabilityApiRouter {
 
       // 5. GET /api/v1/admin/observability/incidents
       if (method === 'GET' && path === '/api/v1/admin/observability/incidents') {
+        const { limit, offset } = parsePagination(query);
         const filters = {
           status: query.status,
           severity: query.severity,
           affected_component: query.affected_component,
-          limit: query.limit ? parseInt(query.limit, 10) : undefined,
-          offset: query.offset ? parseInt(query.offset, 10) : undefined
+          limit,
+          offset
         };
         const incidents = await this.incidentService.listIncidents(filters);
         return {
@@ -147,6 +164,8 @@ class ObservabilityApiRouter {
           body: {
             success: true,
             count: incidents.length,
+            limit,
+            offset,
             data: incidents,
             timestamp: new Date().toISOString()
           }
