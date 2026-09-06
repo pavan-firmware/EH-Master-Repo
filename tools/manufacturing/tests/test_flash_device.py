@@ -12,6 +12,7 @@ Comprehensive unit and mock tests verifying:
 8. Factory reset identity preservation invariant (runtime NVS cleared, fact_v2 intact).
 9. Failure handling (serial disconnect, write error, timeout).
 10. Secret-safe output sanitization.
+11. CLI main entry point invocation.
 """
 
 import os
@@ -36,7 +37,8 @@ from flash_device import (
     FirmwareArtifactValidator,
     FactoryNVSManager,
     PostFlashVerifier,
-    ManufacturingFlasher
+    ManufacturingFlasher,
+    main
 )
 
 
@@ -93,8 +95,8 @@ ota_0, app,  ota_0, 0x20000, 1000K,
 
 
 class TestSerialPortDetector(unittest.TestCase):
-    @patch("flash_device.serial.tools.list_ports.comports")
-    def test_list_ports_identifies_esp32_bridge(self, mock_comports):
+    @patch("flash_device.list_comports")
+    def test_list_ports_identifies_esp32_bridge(self, mock_list_comports):
         mock_port1 = MagicMock()
         mock_port1.device = "COM6"
         mock_port1.description = "Silicon Labs CP210x USB to UART Bridge (COM6)"
@@ -107,7 +109,7 @@ class TestSerialPortDetector(unittest.TestCase):
         mock_port2.hwid = "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}"
         mock_port2.manufacturer = "Microsoft"
 
-        mock_comports.return_value = [mock_port1, mock_port2]
+        mock_list_comports.return_value = [mock_port1, mock_port2]
 
         ports = SerialPortDetector.list_ports()
         self.assertEqual(len(ports), 2)
@@ -215,10 +217,10 @@ class TestPostFlashVerifierAndSafety(unittest.TestCase):
             b"I (678) RELAY_MGR: Relays initialized (CH1: GPIO18, CH2: GPIO19, CH3: GPIO21) - all OFF\n"
         ]
 
-        with patch("flash_device.serial.Serial") as mock_serial_cls:
+        with patch("flash_device.open_serial") as mock_open_serial:
             mock_ser = MagicMock()
             mock_ser.read.side_effect = mock_lines + [b""] * 10
-            mock_serial_cls.return_value = mock_ser
+            mock_open_serial.return_value = mock_ser
 
             res = PostFlashVerifier.capture_and_verify_boot(
                 port="COM6",
@@ -246,9 +248,9 @@ class TestPostFlashVerifierAndSafety(unittest.TestCase):
         self.assertEqual(res["status"], "FAIL")
         self.assertIn("requires explicit --port and --product", res["error"])
 
-    @patch("flash_device.esptool.main")
+    @patch("flash_device.run_esptool")
     @patch("flash_device.PostFlashVerifier.capture_and_verify_boot")
-    def test_factory_reset_preserves_fact_v2_identity(self, mock_boot, mock_esptool):
+    def test_factory_reset_preserves_fact_v2_identity(self, mock_boot, mock_run_esptool):
         mock_boot.return_value = {
             "status": "PASS",
             "factV2Loaded": True,
@@ -266,16 +268,16 @@ class TestPostFlashVerifierAndSafety(unittest.TestCase):
         self.assertEqual(res["factV2PreservedOffset"], "0x12000")
 
         # Verify esptool was called to erase ONLY runtime nvs (0x9000, 0x6000)
-        mock_esptool.assert_called_once()
-        call_args = mock_esptool.call_args[0][0]
+        mock_run_esptool.assert_called_once()
+        call_args = mock_run_esptool.call_args[0][0]
         self.assertIn("0x9000", call_args)
         self.assertIn("0x6000", call_args)
         self.assertNotIn("0x12000", call_args)
 
-    @patch("flash_device.esptool.main")
+    @patch("flash_device.run_esptool")
     @patch("flash_device.PostFlashVerifier.capture_and_verify_boot")
     @patch("flash_device.SerialPortDetector.detect_connected_chip")
-    def test_flash_workflow_uses_dynamic_partition_offsets(self, mock_chip, mock_boot, mock_esptool):
+    def test_flash_workflow_uses_dynamic_partition_offsets(self, mock_chip, mock_boot, mock_run_esptool):
         mock_chip.return_value = {
             "status": "DETECTED",
             "chipName": "ESP32",
@@ -294,18 +296,30 @@ class TestPostFlashVerifierAndSafety(unittest.TestCase):
 
         self.assertEqual(res["status"], "PASS")
         self.assertEqual(res["factV2Offset"], "0x12000")
-        mock_esptool.assert_called_once()
-        call_args = mock_esptool.call_args[0][0]
+        mock_run_esptool.assert_called_once()
+        call_args = mock_run_esptool.call_args[0][0]
         self.assertIn("0x12000", call_args)
 
-    @patch("flash_device.serial.Serial")
-    def test_serial_disconnect_failure_handling(self, mock_serial_cls):
-        mock_serial_cls.side_effect = Exception("SerialException: Device disconnected (COM6)")
+    @patch("flash_device.open_serial")
+    def test_serial_disconnect_failure_handling(self, mock_open_serial):
+        mock_open_serial.side_effect = Exception("SerialException: Device disconnected (COM6)")
         res = PostFlashVerifier.capture_and_verify_boot(port="COM6")
         self.assertEqual(res["status"], "FAIL")
         self.assertIn("disconnected", res["error"])
 
+    @patch("flash_device.list_comports")
+    def test_cli_main_detect_command(self, mock_list_comports):
+        mock_port = MagicMock()
+        mock_port.device = "COM6"
+        mock_port.description = "Silicon Labs CP210x USB to UART Bridge (COM6)"
+        mock_port.hwid = "USB VID:PID=10C4:EA60"
+        mock_port.manufacturer = "Silicon Labs"
+        mock_list_comports.return_value = [mock_port]
+
+        with patch("sys.stdout"):
+            exit_code = main(["detect", "--json"])
+        self.assertEqual(exit_code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
-

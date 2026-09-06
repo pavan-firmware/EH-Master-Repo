@@ -52,6 +52,43 @@ except ImportError:
 
 
 # ==============================================================================
+# DEPENDENCY BOUNDARY FUNCTIONS (STABLE FOR TESTS & CI)
+# ==============================================================================
+
+def list_comports() -> list:
+    """Lists available system COM ports via pyserial."""
+    if not HAVE_SERIAL or serial is None:
+        return []
+    try:
+        import serial.tools.list_ports
+        return list(serial.tools.list_ports.comports())
+    except Exception as e:
+        sys.stderr.write(f"[WARN] list_ports failed: {e}\n")
+        return []
+
+
+def open_serial(port: str, baud: int = 115200, timeout: float = 0.2):
+    """Opens a serial connection via pyserial."""
+    if not HAVE_SERIAL or serial is None:
+        raise RuntimeError("pyserial is required for serial communication")
+    return serial.Serial(port, baud, timeout=timeout)
+
+
+def run_esptool(args: List[str]) -> Any:
+    """Invokes esptool main entry point."""
+    if not HAVE_ESPTOOL or esptool is None:
+        raise RuntimeError("esptool is required for flashing")
+    return esptool.main(args)
+
+
+def detect_chip_esptool(port: str, baud: int = 115200) -> Any:
+    """Detects chip via esptool."""
+    if not HAVE_ESPTOOL or esptool is None:
+        raise RuntimeError("esptool is required for chip detection")
+    return esptool.cmds.detect_chip(port=port, baud=baud, connect_mode="default_reset")
+
+
+# ==============================================================================
 # 1. PARTITION TABLE & LAYOUT PARSER (DYNAMIC, NOT HARDCODED)
 # ==============================================================================
 
@@ -176,49 +213,43 @@ class SerialPortDetector:
 
     @classmethod
     def list_ports(cls) -> List[Dict[str, Any]]:
-        if not HAVE_SERIAL:
-            return []
-        
+        ports = list_comports()
         results = []
-        try:
-            ports = serial.tools.list_ports.comports()
-            for p in ports:
-                desc = p.description or ""
-                hwid = p.hwid or ""
-                is_candidate = False
-                matched_label = "Generic Serial Device"
+        for p in ports:
+            desc = getattr(p, "description", "") or ""
+            hwid = getattr(p, "hwid", "") or ""
+            device = getattr(p, "device", str(p))
+            manufacturer = getattr(p, "manufacturer", "Unknown") or "Unknown"
+            
+            is_candidate = False
+            matched_label = "Generic Serial Device"
 
-                for vid, pid, label in cls.KNOWN_ESP_VID_PIDS:
-                    if f"VID_{vid}" in hwid.upper() and f"PID_{pid}" in hwid.upper():
-                        is_candidate = True
-                        matched_label = label
-                        break
-
-                desc_lower = desc.lower()
-                if not is_candidate and any(k in desc_lower for k in ["cp210", "ch340", "ftdi", "espressif", "usb jtag", "esp32"]):
+            for vid, pid, label in cls.KNOWN_ESP_VID_PIDS:
+                if f"VID_{vid}" in hwid.upper() and f"PID_{pid}" in hwid.upper():
                     is_candidate = True
-                    matched_label = desc
+                    matched_label = label
+                    break
 
-                results.append({
-                    "port": p.device,
-                    "description": desc,
-                    "hwid": hwid,
-                    "isCandidate": is_candidate,
-                    "deviceType": matched_label,
-                    "manufacturer": p.manufacturer or "Unknown"
-                })
-        except Exception as e:
-            sys.stderr.write(f"[WARN] Failed to enumerate COM ports: {e}\n")
+            desc_lower = desc.lower()
+            if not is_candidate and any(k in desc_lower for k in ["cp210", "ch340", "ftdi", "espressif", "usb jtag", "esp32"]):
+                is_candidate = True
+                matched_label = desc
+
+            results.append({
+                "port": device,
+                "description": desc,
+                "hwid": hwid,
+                "isCandidate": is_candidate,
+                "deviceType": matched_label,
+                "manufacturer": manufacturer
+            })
         return results
 
     @classmethod
     def detect_connected_chip(cls, port: str, baud: int = 115200) -> Dict[str, Any]:
         """Safely queries target silicon using esptool without modifying flash."""
-        if not HAVE_ESPTOOL:
-            return {"status": "UNAVAILABLE", "error": "esptool module not available"}
-
         try:
-            esp = esptool.cmds.detect_chip(port=port, baud=baud, connect_mode="default_reset")
+            esp = detect_chip_esptool(port=port, baud=baud)
             chip_name = esp.CHIP_NAME
             mac_bytes = esp.read_mac()
             mac_str = ":".join(f"{b:02x}" for b in mac_bytes) if mac_bytes else "UNKNOWN"
@@ -405,9 +436,6 @@ class PostFlashVerifier:
     def capture_and_verify_boot(cls, port: str, baud: int = 115200, timeout_sec: float = 4.0,
                                 expected_device_id: Optional[str] = None,
                                 expected_product: Optional[str] = None) -> Dict[str, Any]:
-        if not HAVE_SERIAL:
-            return {"status": "UNAVAILABLE", "error": "pyserial not installed"}
-
         collected_lines = []
         fact_v2_loaded = False
         detected_device_id = None
@@ -452,17 +480,18 @@ class PostFlashVerifier:
                 detected_product_str = line
 
         try:
-            ser = serial.Serial(port, baud, timeout=0.2)
+            ser = open_serial(port, baud, timeout=0.2)
             time.sleep(0.1)
             # Reliable ESP32 hardware auto-reset pulse sequence
-            ser.setDTR(False)
-            ser.setRTS(True)
-            time.sleep(0.1)
-            ser.setRTS(False)
-            time.sleep(0.1)
-            ser.setDTR(True)
-            time.sleep(0.05)
-            ser.setDTR(False)
+            if hasattr(ser, "setDTR") and hasattr(ser, "setRTS"):
+                ser.setDTR(False)
+                ser.setRTS(True)
+                time.sleep(0.1)
+                ser.setRTS(False)
+                time.sleep(0.1)
+                ser.setDTR(True)
+                time.sleep(0.05)
+                ser.setDTR(False)
             
             start_time = time.time()
             buffer = ""
@@ -470,18 +499,17 @@ class PostFlashVerifier:
             while time.time() - start_time < timeout_sec:
                 data = ser.read(1024)
                 if data:
-                    buffer += data.decode("utf-8", errors="replace")
+                    buffer += data.decode("utf-8", errors="replace") if isinstance(data, (bytes, bytearray)) else str(data)
                     while "\n" in buffer:
                         line, buffer = buffer.split("\n", 1)
                         _process_line(line)
 
                     # Early return if all essential components observed
                     if fact_v2_loaded and relay_init_ok and detected_device_id and lifecycle_state:
-                        # read remaining short burst
                         time.sleep(0.05)
                         extra = ser.read(1024)
                         if extra:
-                            buffer += extra.decode("utf-8", errors="replace")
+                            buffer += extra.decode("utf-8", errors="replace") if isinstance(extra, (bytes, bytearray)) else str(extra)
                         for l in buffer.splitlines():
                             _process_line(l)
                         break
@@ -490,7 +518,8 @@ class PostFlashVerifier:
                 for l in buffer.splitlines():
                     _process_line(l)
 
-            ser.close()
+            if hasattr(ser, "close"):
+                ser.close()
 
             passed = True
             failure_reasons = []
@@ -658,14 +687,11 @@ class ManufacturingFlasher:
         if not fact_part:
             return {"status": "FAIL", "error": "Cannot reset: 'fact_v2' partition not found in partition table."}
 
-        if not HAVE_ESPTOOL:
-            return {"status": "FAIL", "error": "esptool not installed for erasing flash region."}
-
         try:
-            esptool.main([
+            run_esptool([
                 "--port", target_port,
                 "--baud", str(self.baud),
-                "erase_region",
+                "erase-region",
                 hex(nvs_part.offset),
                 hex(nvs_part.size)
             ])
@@ -713,7 +739,7 @@ class ManufacturingFlasher:
             else:
                 return {"status": "FAIL", "error": f"Multiple devices detected {candidates}. Must specify --port."}
 
-        chip_info = SerialPortDetector.detect_connected_chip(target_port, self.baud) if HAVE_ESPTOOL else {"chipFamily": "esp32"}
+        chip_info = SerialPortDetector.detect_connected_chip(target_port, self.baud)
         if chip_info.get("status") == "ERROR":
             return {"status": "FAIL", "error": f"Failed to communicate with chip on {target_port}: {chip_info.get('error')}"}
 
@@ -754,25 +780,24 @@ class ManufacturingFlasher:
             print(f"fact_v2 Offset:  {hex(fact_part.offset if fact_part else 0x12000)}")
             print("========================================================")
 
-        if HAVE_ESPTOOL and os.path.exists(fact_bin_path):
-            try:
-                flash_args = [
-                    "--port", target_port,
-                    "--baud", str(self.baud),
-                    "write_flash",
-                    hex(fact_part.offset if fact_part else 0x12000), fact_bin_path
-                ]
-                if bootloader_bin and os.path.exists(bootloader_bin):
-                    bootloader_offset = "0x0" if "c" in chip_info.get("chipFamily", "").lower() else "0x1000"
-                    flash_args.extend([bootloader_offset, bootloader_bin])
-                if partition_table_bin and os.path.exists(partition_table_bin):
-                    flash_args.extend(["0x8000", partition_table_bin])
-                if app_bin and os.path.exists(app_bin):
-                    flash_args.extend([hex(ota0_part.offset if ota0_part else 0x20000), app_bin])
+        try:
+            flash_args = [
+                "--port", target_port,
+                "--baud", str(self.baud),
+                "write-flash",
+                hex(fact_part.offset if fact_part else 0x12000), fact_bin_path
+            ]
+            if bootloader_bin and os.path.exists(bootloader_bin):
+                bootloader_offset = "0x0" if "c" in chip_info.get("chipFamily", "").lower() else "0x1000"
+                flash_args.extend([bootloader_offset, bootloader_bin])
+            if partition_table_bin and os.path.exists(partition_table_bin):
+                flash_args.extend(["0x8000", partition_table_bin])
+            if app_bin and os.path.exists(app_bin):
+                flash_args.extend([hex(ota0_part.offset if ota0_part else 0x20000), app_bin])
 
-                esptool.main(flash_args)
-            except Exception as e:
-                return {"status": "FAIL", "error": f"esptool write_flash failed: {e}", "port": target_port}
+            run_esptool(flash_args)
+        except Exception as e:
+            return {"status": "FAIL", "error": f"esptool write_flash failed: {e}", "port": target_port}
 
         time.sleep(0.5)
         boot_ver = PostFlashVerifier.capture_and_verify_boot(
@@ -796,10 +821,13 @@ class ManufacturingFlasher:
 
 
 # ==============================================================================
-# 7. CLI COMMAND ENTRYPOINT
+# 7. CLI COMMAND ENTRYPOINT (MODULE-LEVEL CALLABLE)
 # ==============================================================================
 
-def main():
+def main(argv=None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
     parser = argparse.ArgumentParser(description="EH Home Factory Flashing & Hardware Verification CLI")
     subparsers = parser.add_subparsers(dest="command", help="Manufacturing subcommands")
 
@@ -843,11 +871,11 @@ def main():
     reset_parser.add_argument("--non-interactive", action="store_true", help="Non-interactive mode")
     reset_parser.add_argument("--json", action="store_true", help="Output JSON format")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not args.command:
         parser.print_help()
-        sys.exit(1)
+        return 1
 
     json_mode = getattr(args, "json", False)
     flasher = ManufacturingFlasher(
@@ -885,12 +913,14 @@ def main():
         print(f"\n[{status}] Operation '{args.command}' completed.")
         if status == "FAIL":
             print(f"Error: {result.get('error', 'Unknown failure')}")
-            sys.exit(1)
+            return 1
         else:
             for k, v in result.items():
                 if k not in ["verification", "devices", "logSummary", "bootSummary"]:
                     print(f"  {k}: {v}")
 
+    return 0 if result.get("status") in ["PASS", "NO_DEVICES"] else 1
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
