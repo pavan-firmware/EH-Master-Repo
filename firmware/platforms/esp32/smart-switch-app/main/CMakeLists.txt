@@ -17,6 +17,8 @@ idf_component_register(
         esp_timer
         driver
         app_update
+        esp_https_ota
+        esp_http_client
         mbedtls
         eh_prov1
         mqtt_transport

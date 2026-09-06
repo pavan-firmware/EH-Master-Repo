@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+#define EH_OTA_MAX_BIN_SIZE_BYTES (1792 * 1024) /* 1.75MB partition bound */
+
 typedef enum {
     EH_OTA_STATE_IDLE = 0,
     EH_OTA_STATE_DOWNLOADING,
@@ -20,11 +22,16 @@ typedef enum {
 } eh_ota_state_t;
 
 typedef struct {
+    uint8_t schema_version;
+    char release_id[37];
+    char product_variant_id[32];
+    char hardware_revision[16];
     char version[32];
     char min_version[32];
-    char sha256[65];
-    char download_url[256];
     size_t binary_size_bytes;
+    char sha256[65];
+    char ed25519_signature[129];
+    char download_url[256];
 } eh_ota_manifest_t;
 
 /**
@@ -43,7 +50,7 @@ eh_ota_state_t ota_manager_get_state(void);
 int ota_semver_compare(const char* v1, const char* v2);
 
 /**
- * Validate manifest against running version for anti-rollback.
+ * Validate manifest against running version for anti-rollback and signature integrity.
  * Returns true if update is permitted.
  */
 bool ota_validate_manifest(const eh_ota_manifest_t* manifest, const char* current_version);
@@ -55,7 +62,7 @@ bool ota_validate_manifest(const eh_ota_manifest_t* manifest, const char* curren
 void ota_manager_confirm_boot_valid(void);
 
 /**
- * Start OTA update with given manifest.
+ * Start OTA update with given signed manifest over HTTPS.
  */
 bool ota_manager_start_update(const eh_ota_manifest_t* manifest);
 

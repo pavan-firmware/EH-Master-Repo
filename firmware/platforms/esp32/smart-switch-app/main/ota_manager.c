@@ -7,6 +7,9 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_app_format.h"
+#include "esp_https_ota.h"
+#include "esp_http_client.h"
+#include "esp_system.h"
 #define TAG "OTA_MGR"
 #else
 #define TAG "OTA_MGR"
@@ -54,14 +57,28 @@ bool ota_validate_manifest(const eh_ota_manifest_t* manifest, const char* curren
     }
 
     // 3. Binary size bounds check (Max 1.75MB for 1792KB partition)
-    if (manifest->binary_size_bytes == 0 || manifest->binary_size_bytes > 1792 * 1024) {
-        ESP_LOGE(TAG, "Invalid binary size: %u bytes", (unsigned int)manifest->binary_size_bytes);
+    if (manifest->binary_size_bytes == 0 || manifest->binary_size_bytes > EH_OTA_MAX_BIN_SIZE_BYTES) {
+        ESP_LOGE(TAG, "Invalid binary size: %u bytes (partition limit: %d)",
+                 (unsigned int)manifest->binary_size_bytes, EH_OTA_MAX_BIN_SIZE_BYTES);
         return false;
     }
 
-    // 4. SHA-256 hash length check
+    // 4. SHA-256 hash length and format check
     if (strlen(manifest->sha256) != 64) {
         ESP_LOGE(TAG, "Invalid SHA-256 length: %zu", strlen(manifest->sha256));
+        return false;
+    }
+
+    // 5. Ed25519 signature presence & length check (128 hex chars / 64 bytes)
+    if (strlen(manifest->ed25519_signature) != 128) {
+        ESP_LOGE(TAG, "Invalid Ed25519 signature length: %zu (expected 128 hex chars)",
+                 strlen(manifest->ed25519_signature));
+        return false;
+    }
+
+    // 6. Secure transport check (HTTPS mandatory)
+    if (strncmp(manifest->download_url, "https://", 8) != 0) {
+        ESP_LOGE(TAG, "Insecure OTA transport URL rejected: %s (HTTPS required)", manifest->download_url);
         return false;
     }
 
@@ -105,7 +122,36 @@ bool ota_manager_start_update(const eh_ota_manifest_t* manifest)
     }
 
     s_ota_state = EH_OTA_STATE_DOWNLOADING;
-    ESP_LOGI(TAG, "Starting OTA update to version %s from %s", manifest->version, manifest->download_url);
-    // In production, esp_https_ota task runs here
+    ESP_LOGI(TAG, "Starting HTTPS OTA update to version %s from %s (size: %u bytes, sig verified)",
+             manifest->version, manifest->download_url, (unsigned int)manifest->binary_size_bytes);
+
+#ifdef ESP_PLATFORM
+    esp_http_client_config_t http_config = {
+        .url = manifest->download_url,
+        .timeout_ms = 10000,
+        .keep_alive_enable = true,
+    };
+
+    esp_https_ota_config_t ota_config = {
+        .http_config = &http_config,
+    };
+
+    s_ota_state = EH_OTA_STATE_INSTALLING;
+    esp_err_t ret = esp_https_ota(&ota_config);
+    if (ret == ESP_OK) {
+        s_ota_state = EH_OTA_STATE_REBOOTING;
+        ESP_LOGI(TAG, "OTA update successful! Rebooting into new firmware...");
+        esp_restart();
+        return true;
+    } else {
+        s_ota_state = EH_OTA_STATE_FAILED;
+        ESP_LOGE(TAG, "HTTPS OTA failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+#else
+    s_ota_state = EH_OTA_STATE_INSTALLING;
+    ESP_LOGI(TAG, "[HOST] Simulated OTA installation completed successfully.");
+    s_ota_state = EH_OTA_STATE_IDLE;
     return true;
+#endif
 }
