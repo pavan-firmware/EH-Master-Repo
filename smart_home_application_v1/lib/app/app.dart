@@ -6,7 +6,9 @@ import '../core/theme/app_colors.dart';
 import '../core/theme/app_theme.dart';
 import '../core/api/api_client.dart';
 import '../core/api/sse_client.dart';
+import '../core/repositories/account_home_repository.dart';
 import '../core/repositories/auth_repository.dart';
+import '../core/repositories/cloud_account_home_repository.dart';
 import '../core/repositories/cloud_home_repository.dart';
 import '../core/services/realtime_event_service.dart';
 import '../features/auth/auth_controller.dart';
@@ -21,13 +23,19 @@ class SmartHomeApp extends StatefulWidget {
     this.homeController,
     this.themeController,
     this.authController,
+    this.accountHomeRepository,
     this.backendBaseUrl,
+    this.apiClient,
+    this.realtimeEventService,
   });
 
   final HomeController? homeController;
   final ThemeController? themeController;
   final AuthController? authController;
+  final AccountHomeRepository? accountHomeRepository;
   final String? backendBaseUrl;
+  final ApiClient? apiClient;
+  final RealtimeEventService? realtimeEventService;
 
   @override
   State<SmartHomeApp> createState() => _SmartHomeAppState();
@@ -40,8 +48,11 @@ class _SmartHomeAppState extends State<SmartHomeApp>
   late final HomeController _homeController;
   ApiClient? _apiClient;
   AuthRepository? _authRepository;
+  AccountHomeRepository? _accountHomeRepository;
   SseClient? _sseClient;
   RealtimeEventService? _realtimeService;
+  String? _activeHomeId;
+  bool _isResolvingHome = false;
 
   @override
   void initState() {
@@ -54,18 +65,28 @@ class _SmartHomeAppState extends State<SmartHomeApp>
       // Test / preview injection path: only HomeController supplied
       _homeController = widget.homeController!;
     } else if (widget.authController != null && widget.homeController != null) {
-      // Test injection path with explicit authController
+      // Test injection path with explicit authController and homeController
       _authController = widget.authController!;
       _homeController = widget.homeController!;
+      _apiClient = widget.apiClient;
+      _accountHomeRepository = widget.accountHomeRepository;
+      _realtimeService = widget.realtimeEventService;
       _authController!.addListener(_onAuthStateChanged);
+      if (_authController!.state == AuthState.authenticated) {
+        _onAuthenticated();
+      }
     } else {
       // Production path: wire up the full cloud stack
-      _apiClient = ApiClient(
-        baseUrl: widget.backendBaseUrl ?? AppConfig.backendBaseUrl,
-      );
+      _apiClient = widget.apiClient ??
+          ApiClient(
+            baseUrl: widget.backendBaseUrl ?? AppConfig.backendBaseUrl,
+          );
       _authRepository = AuthRepository(_apiClient!);
+      _accountHomeRepository = widget.accountHomeRepository ??
+          CloudAccountHomeRepository(_apiClient!);
       _sseClient = SseClient(_apiClient!);
-      _realtimeService = RealtimeEventService(_sseClient!);
+      _realtimeService =
+          widget.realtimeEventService ?? RealtimeEventService(_sseClient!);
 
       _authController =
           widget.authController ?? AuthController(_authRepository!);
@@ -76,24 +97,69 @@ class _SmartHomeAppState extends State<SmartHomeApp>
           HomeController(
             repository: CloudHomeRepository(_apiClient!),
             realtimeEventService: _realtimeService,
-            cloudEnabled: false, // Will be set true after auth completes
+            cloudEnabled: false, // Will be dynamically enabled upon authentication
           );
+
+      if (_authController!.state == AuthState.authenticated) {
+        _onAuthenticated();
+      }
     }
   }
 
   void _onAuthStateChanged() {
-    if (_authController?.state == AuthState.authenticated) {
-      _realtimeService?.connect('default');
-    } else if (_authController?.state == AuthState.unauthenticated) {
-      _realtimeService?.disconnect();
+    final state = _authController?.state;
+    if (state == AuthState.authenticated) {
+      _onAuthenticated();
+    } else if (state == AuthState.unauthenticated ||
+        state == AuthState.failure) {
+      _onUnauthenticated();
     }
+  }
+
+  Future<void> _onAuthenticated() async {
+    _homeController.setCloudEnabled(true);
+    await _resolveHomeAndConnect();
+  }
+
+  Future<void> _resolveHomeAndConnect() async {
+    if (_isResolvingHome) return;
+    _isResolvingHome = true;
+
+    try {
+      if (_accountHomeRepository != null) {
+        final homes = await _accountHomeRepository!.listHomes();
+        if (homes.isNotEmpty) {
+          final resolvedHome = homes.first;
+          _activeHomeId = resolvedHome.id;
+          _homeController.setActiveHomeId(resolvedHome.id);
+          _realtimeService?.connect(resolvedHome.id);
+        } else {
+          _activeHomeId = null;
+          _homeController.setActiveHomeId(null);
+        }
+      } else if (_homeController.activeHomeId != null) {
+        _activeHomeId = _homeController.activeHomeId;
+        _realtimeService?.connect(_activeHomeId!);
+      }
+    } catch (_) {
+      // Graceful error recovery: avoid crashing and avoid fake fallback
+    } finally {
+      _isResolvingHome = false;
+    }
+  }
+
+  void _onUnauthenticated() {
+    _realtimeService?.disconnect();
+    _homeController.resetSession();
+    _activeHomeId = null;
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (_authController?.state == AuthState.authenticated) {
-        _realtimeService?.connect('default');
+      if (_authController?.state == AuthState.authenticated &&
+          _activeHomeId != null) {
+        _realtimeService?.connect(_activeHomeId!);
       }
     } else if (state == AppLifecycleState.paused) {
       _sseClient?.disconnect();
@@ -170,10 +236,20 @@ class _SmartHomeAppState extends State<SmartHomeApp>
                       }
 
                       // Authenticated → show splash → home shell
-                      return SplashScreen(homeController: _homeController);
+                      return SplashScreen(
+                        homeController: _homeController,
+                        authController: _authController,
+                        apiClient: _apiClient,
+                        homeId: _activeHomeId,
+                      );
                     },
                   )
-                : SplashScreen(homeController: _homeController),
+                : SplashScreen(
+                    homeController: _homeController,
+                    authController: _authController,
+                    apiClient: _apiClient,
+                    homeId: _activeHomeId,
+                  ),
           ),
         );
       },

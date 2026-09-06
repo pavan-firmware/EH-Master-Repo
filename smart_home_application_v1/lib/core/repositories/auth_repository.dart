@@ -7,18 +7,23 @@ class UserProfile {
   final String id;
   final String email;
   final bool emailVerified;
+  final String role;
 
   UserProfile({
     required this.id,
     required this.email,
     required this.emailVerified,
+    this.role = 'USER',
   });
+
+  bool get isAdmin => role.toUpperCase() == 'ADMIN';
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
       id: json['id'] as String,
       email: json['email'] as String,
       emailVerified: json['emailVerified'] as bool? ?? false,
+      role: json['role'] as String? ?? 'USER',
     );
   }
 
@@ -26,6 +31,7 @@ class UserProfile {
     'id': id,
     'email': email,
     'emailVerified': emailVerified,
+    'role': role,
   };
 }
 

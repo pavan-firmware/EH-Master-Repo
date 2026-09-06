@@ -3,23 +3,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_home_application_v1/core/models/settings_models.dart';
 import 'package:smart_home_application_v1/core/repositories/settings_repository.dart';
 import 'package:smart_home_application_v1/features/settings/presentation/settings_page.dart';
-import 'package:smart_home_application_v1/features/settings/presentation/settings_ui.dart';
 
 Future<void> _scrollSettingsToBottom(WidgetTester tester) async {
   final listFinder = find.byType(Scrollable).first;
-  await tester.drag(listFinder, const Offset(0, -600));
+  await tester.drag(listFinder, const Offset(0, -3000));
   await tester.pumpAndSettle();
 }
 
 Future<void> _tapSettingsRow(WidgetTester tester, String label) async {
-  final row = find.descendant(
-    of: find.byType(SettingsListItem),
-    matching: find.text(label),
-  );
-  final target = row.evaluate().isNotEmpty ? row.first : find.text(label);
-  await tester.ensureVisible(target);
+  final target = find.text(label);
+  if (target.evaluate().isEmpty) {
+    final listFinder = find.byType(Scrollable).first;
+    try {
+      await tester.scrollUntilVisible(target, 200.0, scrollable: listFinder);
+    } catch (_) {
+      await tester.scrollUntilVisible(target, -200.0, scrollable: listFinder);
+    }
+  }
   await tester.pumpAndSettle();
-  await tester.tap(target);
+  await tester.tap(target.first);
   await tester.pumpAndSettle(const Duration(milliseconds: 300));
 }
 

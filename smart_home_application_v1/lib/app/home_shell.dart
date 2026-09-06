@@ -12,13 +12,24 @@ import '../features/dashboard/presentation/home_insights_page.dart';
 import '../features/dashboard/presentation/home_page.dart';
 import '../features/rooms/presentation/rooms_page.dart';
 import '../features/rooms/presentation/room_context_page.dart';
+import '../core/api/api_client.dart';
+import '../features/auth/auth_controller.dart';
 import '../features/settings/presentation/settings_page.dart';
 import 'home_controller.dart';
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, this.homeController});
+  const HomeShell({
+    super.key,
+    this.homeController,
+    this.authController,
+    this.apiClient,
+    this.homeId,
+  });
 
   final HomeController? homeController;
+  final AuthController? authController;
+  final ApiClient? apiClient;
+  final String? homeId;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -360,6 +371,13 @@ class _HomeShellState extends State<HomeShell> {
                         primaryDevice: _homeController.connectedDeviceSummary,
                         onRefresh: _homeController.startConnectionSetup,
                       ),
+                      apiClient: widget.apiClient,
+                      authController: widget.authController,
+                      homeId: _homeController.activeHomeId ?? widget.homeId,
+                      isAdmin: widget.authController?.currentUser?.isAdmin ?? false,
+                      onLogout: widget.authController != null
+                          ? () => widget.authController!.logout()
+                          : null,
                     ),
                   ),
                 ),

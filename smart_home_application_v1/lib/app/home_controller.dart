@@ -54,7 +54,9 @@ class HomeController extends ChangeNotifier {
   final DeviceStorageService _storageService;
 
   /// True when a real authenticated backend is powering this controller.
-  final bool _cloudEnabled;
+  bool _cloudEnabled;
+
+  String? _activeHomeId;
 
   bool _awayMode = false;
   bool _livingRoomLightOn = true;
@@ -101,10 +103,49 @@ class HomeController extends ChangeNotifier {
   String? get activeDeviceId => _activeDeviceId;
   String? get activeDisplayName => _activeDisplayName;
   String? get activeSerialNumber => _activeSerialNumber;
+  String? get activeHomeId => _activeHomeId;
+  bool get cloudEnabled => _cloudEnabled;
 
   /// Commands are only available when cloud is enabled (authenticated + connected).
   bool get hardwareControlsAvailable => _cloudEnabled;
   DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
+
+  /// Dynamically updates cloud execution authority.
+  void setCloudEnabled(bool enabled) {
+    if (_cloudEnabled == enabled) return;
+    _cloudEnabled = enabled;
+    if (!enabled) {
+      _cloudDeviceConnection = DeviceConnection.offline;
+      _lightCommandPending = false;
+      _mistingCommandPending = false;
+    }
+    notifyListeners();
+  }
+
+  /// Sets the active resolved home identifier.
+  void setActiveHomeId(String? homeId) {
+    if (_activeHomeId == homeId) return;
+    _activeHomeId = homeId;
+    notifyListeners();
+  }
+
+  /// Attaches or re-attaches a RealtimeEventService subscription.
+  void attachRealtimeService(RealtimeEventService service) {
+    _sseSubscription?.cancel();
+    _subscribeToRealtime(service);
+  }
+
+  /// Resets all session and cloud state upon logout or session invalidation.
+  void resetSession() {
+    _cloudEnabled = false;
+    _activeHomeId = null;
+    _cloudDeviceConnection = DeviceConnection.offline;
+    _lightCommandPending = false;
+    _mistingCommandPending = false;
+    _lightConfidence = ActuatorConfidence.unknown;
+    _deviceConfidences.clear();
+    notifyListeners();
+  }
 
   List<Room> get rooms {
     final List<Room> result = [];
@@ -488,23 +529,27 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
 
     if (!_cloudEnabled) {
-      try {
-        final receipt = await _repository.sendCommand(
-          deviceId: deviceId,
-          action: 'set_power',
-          parameters: {'channel': channelIndex, 'enabled': value},
-          idempotencyKey:
-              'cmd-$deviceId-ch$channelIndex-${DateTime.now().microsecondsSinceEpoch}',
-        );
-        if (receipt.state == CommandState.succeeded) {
-          _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
-        } else if (receipt.state == CommandState.failed) {
+      if (_repository is FakeHomeRepository) {
+        try {
+          final receipt = await _repository.sendCommand(
+            deviceId: deviceId,
+            action: 'set_power',
+            parameters: {'channel': channelIndex, 'enabled': value},
+            idempotencyKey:
+                'cmd-$deviceId-ch$channelIndex-${DateTime.now().microsecondsSinceEpoch}',
+          );
+          if (receipt.state == CommandState.succeeded) {
+            _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
+          } else if (receipt.state == CommandState.failed) {
+            _deviceConfidences[deviceId] = ActuatorConfidence.failed;
+          } else {
+            _deviceConfidences[deviceId] = ActuatorConfidence.pending;
+          }
+        } catch (_) {
           _deviceConfidences[deviceId] = ActuatorConfidence.failed;
-        } else {
-          _deviceConfidences[deviceId] = ActuatorConfidence.pending;
         }
-      } catch (_) {
-        _deviceConfidences[deviceId] = ActuatorConfidence.failed;
+      } else {
+        _deviceConfidences[deviceId] = ActuatorConfidence.unavailable;
       }
       notifyListeners();
       return;
@@ -628,8 +673,17 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _sseSubscription?.cancel();
     super.dispose();
   }
