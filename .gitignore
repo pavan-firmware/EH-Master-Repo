@@ -31,6 +31,7 @@ $RECYCLE.BIN/
 tools/manufacturing/*.html
 tools/manufacturing/*.svg
 tools/manufacturing/out/
+tools/manufacturing/.local_pki/
 var/
 
 

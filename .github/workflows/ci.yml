@@ -51,8 +51,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python Cryptography
-        run: pip install cryptography
+      - name: Install Python Manufacturing & Cryptography Dependencies
+        run: pip install -r tools/manufacturing/requirements.txt
 
       # ----------------------------------------------------------
       # 3c. Setup Java & Flutter SDK for Monorepo Suite

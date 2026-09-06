@@ -183,8 +183,11 @@ runStep('48. Phase 38 Remote Backup Storage Tests', `${nodeBin} backend/tests/ph
 // 49. Phase 39 Product Catalog Expansion Tests
 runStep('49. Phase 39 Product Catalog Expansion Tests', `${nodeBin} backend/tests/phase39-product-catalog.test.js`);
 
+// 50. Phase 40 Manufacturing Flasher & Hardware Validation Tests
+runStep('50. Phase 40 Manufacturing Flasher & Hardware Validation Tests', 'python tools/manufacturing/tests/test_flash_device.py');
+
 console.log('\n===============================================================');
-console.log(`  49 SUITES ATTEMPTED. ${failedSuites === 0 ? '49/49' : (49 - failedSuites) + '/49'} PASSED.`);
+console.log(`  50 SUITES ATTEMPTED. ${failedSuites === 0 ? '50/50' : (50 - failedSuites) + '/50'} PASSED.`);
 if (failedSuites === 0) {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');
