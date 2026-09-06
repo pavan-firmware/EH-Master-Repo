@@ -55,15 +55,150 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
     supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
   );
 
+  static const _smartFan1x = ProductVariantDefinition(
+    schemaVersion: 1,
+    productVariantId: 'eh-smart-fan-1x',
+    productFamily: 'smart_fan',
+    displayName: 'EH Smart Fan 1X',
+    channelCount: 1,
+    channels: [
+      ProductChannelDefinition(
+        channelIndex: 1,
+        defaultLabel: 'Ceiling Fan',
+        capabilities: ['switch', 'relay', 'fan_speed', 'local_switch', 'energy', 'ota'],
+      ),
+    ],
+    capabilities: [
+      'switch',
+      'relay',
+      'fan_speed',
+      'local_switch',
+      'energy',
+      'voltage',
+      'current',
+      'power',
+      'ota',
+      'automation',
+      'scene',
+      'schedule',
+    ],
+    images: {
+      'hero': 'assets/products/smart_fan_1x/hero.png',
+      'front': 'assets/products/smart_fan_1x/front.png',
+      'thumbnail': 'assets/products/smart_fan_1x/thumb.png',
+    },
+    firmwareFamily: 'esp32c6-fan-platform',
+    supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
+  );
+
+  static const _smartLightCct = ProductVariantDefinition(
+    schemaVersion: 1,
+    productVariantId: 'eh-smart-light-cct',
+    productFamily: 'smart_lighting',
+    displayName: 'EH Smart Light CCT',
+    channelCount: 1,
+    channels: [
+      ProductChannelDefinition(
+        channelIndex: 1,
+        defaultLabel: 'Light',
+        capabilities: ['switch', 'brightness', 'cct', 'energy', 'ota'],
+      ),
+    ],
+    capabilities: [
+      'switch',
+      'brightness',
+      'cct',
+      'energy',
+      'voltage',
+      'current',
+      'power',
+      'ota',
+      'automation',
+      'scene',
+      'schedule',
+    ],
+    images: {
+      'hero': 'assets/products/smart_light_cct/hero.png',
+      'front': 'assets/products/smart_light_cct/front.png',
+      'thumbnail': 'assets/products/smart_light_cct/thumb.png',
+    },
+    firmwareFamily: 'esp32c6-light-platform',
+    supportedHardwareRevisions: ['HW_1_0'],
+  );
+
+  static const _smartHubV1 = ProductVariantDefinition(
+    schemaVersion: 1,
+    productVariantId: 'eh-smart-hub-v1',
+    productFamily: 'smart_controller',
+    displayName: 'EH Smart Hub Gateway V1',
+    channelCount: 1,
+    channels: [
+      ProductChannelDefinition(
+        channelIndex: 1,
+        defaultLabel: 'Gateway Controller',
+        capabilities: ['switch', 'ota', 'automation', 'schedule'],
+      ),
+    ],
+    capabilities: [
+      'switch',
+      'ota',
+      'automation',
+      'schedule',
+    ],
+    images: {
+      'hero': 'assets/products/smart_hub_v1/hero.png',
+      'front': 'assets/products/smart_hub_v1/front.png',
+      'thumbnail': 'assets/products/smart_hub_v1/thumb.png',
+    },
+    firmwareFamily: 'esp32s3-hub-platform',
+    supportedHardwareRevisions: ['HW_1_0'],
+  );
+
+  static const _sensorNodeV1 = ProductVariantDefinition(
+    schemaVersion: 1,
+    productVariantId: 'eh-sensor-node-v1',
+    productFamily: 'smart_sensor',
+    displayName: 'EH Environmental Sensor Node V1',
+    channelCount: 1,
+    channels: [
+      ProductChannelDefinition(
+        channelIndex: 1,
+        defaultLabel: 'Environmental Sensor',
+        capabilities: ['switch', 'ota', 'automation'],
+      ),
+    ],
+    capabilities: [
+      'switch',
+      'ota',
+      'automation',
+      'schedule',
+    ],
+    images: {
+      'hero': 'assets/products/sensor_node_v1/hero.png',
+      'front': 'assets/products/sensor_node_v1/front.png',
+      'thumbnail': 'assets/products/sensor_node_v1/thumb.png',
+    },
+    firmwareFamily: 'esp32c6-sensor-platform',
+    supportedHardwareRevisions: ['HW_1_0'],
+  );
+
+  static const _allVariants = [
+    _smartSwitch3x,
+    _smartFan1x,
+    _smartLightCct,
+    _smartHubV1,
+    _sensorNodeV1,
+  ];
+
   @override
   Future<List<ProductVariantDefinition>> getProductVariants() async {
-    return [_smartSwitch3x];
+    return _allVariants;
   }
 
   @override
   Future<ProductVariantDefinition?> getProductVariant(String variantId) async {
-    if (variantId == _smartSwitch3x.productVariantId) {
-      return _smartSwitch3x;
+    for (final v in _allVariants) {
+      if (v.productVariantId == variantId) return v;
     }
     return null;
   }
@@ -105,6 +240,27 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
         displayName: 'Energy Monitoring',
         description: 'Fixed-point metering',
         uiComponentHint: 'EHEnergyCard',
+      ),
+      CanonicalCapability(
+        capabilityId: 'ota',
+        version: 1,
+        displayName: 'Firmware Updates',
+        description: 'Over-the-air firmware updates',
+        uiComponentHint: 'EHOTAStatusBadge',
+      ),
+      CanonicalCapability(
+        capabilityId: 'automation',
+        version: 1,
+        displayName: 'Local Automation',
+        description: 'Edge automation target',
+        uiComponentHint: 'EHAutomationBadge',
+      ),
+      CanonicalCapability(
+        capabilityId: 'schedule',
+        version: 1,
+        displayName: 'On-Device Scheduler',
+        description: 'Device scheduler',
+        uiComponentHint: 'EHScheduleManager',
       ),
     ];
   }

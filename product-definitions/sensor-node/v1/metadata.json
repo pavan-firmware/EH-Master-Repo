@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "productVariantId": "eh-sensor-node-v1",
+  "productFamily": "smart_sensor",
+  "displayName": "EH Environmental Sensor Node V1",
+  "channelCount": 1,
+  "channels": [
+    {
+      "channelIndex": 1,
+      "defaultLabel": "Environmental Sensor",
+      "capabilities": ["switch", "ota", "automation"]
+    }
+  ],
+  "hardwareProfile": {
+    "schemaVersion": 1,
+    "mcuFamily": "esp32-c6",
+    "flashSizeBytes": 4194304,
+    "psramSizeBytes": null,
+    "hasEnergyMetering": false,
+    "energyMeterChip": null,
+    "maxRelayAmpsPerChannel": 0.0,
+    "maxTotalAmps": 0.0,
+    "gpioMap": {
+      "i2c_sda": 6,
+      "i2c_scl": 7,
+      "dht_pin": 4
+    }
+  },
+  "connectivityProfile": {
+    "schemaVersion": 1,
+    "supportsWifi": true,
+    "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"],
+    "supportsBle": true,
+    "bleVersion": "5.0",
+    "supportsThread": true,
+    "threadVersion": "1.3",
+    "supportsMatter": true,
+    "matterDeviceType": "0x0302"
+  },
+  "capabilities": [
+    "switch",
+    "ota",
+    "automation",
+    "schedule"
+  ],
+  "electricalSpecifications": {
+    "voltageRange": "3.3V - 5V DC Battery / USB",
+    "frequencyHz": "DC",
+    "maxCurrentPerChannelAmps": 0.5,
+    "maxTotalCurrentAmps": 0.5
+  },
+  "images": {
+    "hero": "assets/products/sensor_node_v1/hero.png",
+    "front": "assets/products/sensor_node_v1/front.png",
+    "thumbnail": "assets/products/sensor_node_v1/thumb.png"
+  },
+  "firmwareFamily": "esp32c6-sensor-platform",
+  "supportedHardwareRevisions": ["HW_1_0"]
+}
