@@ -240,6 +240,10 @@ runStep('56. Phase 46 Final Production Acceptance Tests', `${nodeBin} backend/te
 // 57. Phase 47 Stage 1 Prototype Product Definition & ESP32 Dev-Board Target Tests
 runStep('57. Phase 47 Stage 1 Prototype Product Definition & ESP32 Target Tests', `${nodeBin} backend/tests/phase47-stage1-prototype.test.js`);
 
+// 58. Phase 47 Stage 2 Physical ESP32 Verification Tests
+runStep('58. Phase 47 Stage 2 Physical ESP32 Verification Tests', `${nodeBin} backend/tests/phase47-stage2-physical-verification.test.js`);
+
+
 
 const passedSuites = totalSuites - failedSuites;
 console.log('\n===============================================================');
