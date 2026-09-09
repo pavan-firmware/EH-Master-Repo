@@ -248,9 +248,52 @@ static void on_telemetry_ready(const bl0942_data_t* data)
     }
 }
 
+#ifndef EH_FIRMWARE_VERSION
+#define EH_FIRMWARE_VERSION "1.0.0"
+#endif
+
+#ifndef EH_PRODUCT_TYPE
+#define EH_PRODUCT_TYPE "SMART_SOCKET"
+#endif
+
+#ifndef EH_PRODUCT_VARIANT
+#define EH_PRODUCT_VARIANT "3X"
+#endif
+
+#if defined(CONFIG_IDF_TARGET_ESP32)
+#define EH_HARDWARE_TARGET "ESP32_DEV_BOARD"
+#elif defined(CONFIG_IDF_TARGET_ESP32C6)
+#define EH_HARDWARE_TARGET "ESP32C6_PROD_BOARD"
+#elif defined(CONFIG_IDF_TARGET_ESP32C3)
+#define EH_HARDWARE_TARGET "ESP32C3_PROD_BOARD"
+#else
+#define EH_HARDWARE_TARGET "ESP32_DEV_BOARD"
+#endif
+
+static void log_diagnostic_banner(const factory_identity_v2_t* id)
+{
+    ESP_LOGI(TAG, "==================================================");
+    ESP_LOGI(TAG, "EH SMART HOME PROTOTYPE");
+    ESP_LOGI(TAG, "==================================================");
+    ESP_LOGI(TAG, "Product      : %s", EH_PRODUCT_TYPE);
+    ESP_LOGI(TAG, "Variant      : %s", EH_PRODUCT_VARIANT);
+    ESP_LOGI(TAG, "Hardware     : %s", EH_HARDWARE_TARGET);
+    ESP_LOGI(TAG, "Firmware     : %s", EH_FIRMWARE_VERSION);
+    ESP_LOGI(TAG, "Device ID    : %s", id ? id->device_id : "UNKNOWN");
+    ESP_LOGI(TAG, "Serial       : %s", id ? id->serial_number : "UNKNOWN");
+    ESP_LOGI(TAG, "Relay Count  : %d", EH_RELAY_CHANNEL_COUNT);
+    ESP_LOGI(TAG, "Switch Count : %d", EH_SWITCH_CHANNEL_COUNT);
+    ESP_LOGI(TAG, "Energy       : ENABLED");
+    ESP_LOGI(TAG, "BLE          : ENABLED");
+    ESP_LOGI(TAG, "WiFi         : ENABLED");
+    ESP_LOGI(TAG, "MQTT         : ENABLED");
+    ESP_LOGI(TAG, "OTA          : ENABLED");
+    ESP_LOGI(TAG, "==================================================");
+}
+
 void app_main(void)
 {
-    ESP_LOGI(TAG, "=== EH Home Smart Switch 3X Starting (ESP32-C6 / ESP32-C3) ===");
+    ESP_LOGI(TAG, "=== EH Home Smart Switch/Socket 3X Starting ===");
 
 #ifdef ESP_PLATFORM
     // 1. Initialize NVS Flash
@@ -279,12 +322,9 @@ void app_main(void)
 
     log_memory_diagnostics();
 
-    // 4. Log Device Identity
+    // 4. Log Deterministic Diagnostic Identity Banner
     const factory_identity_v2_t* id = factory_identity_v2_get();
-    if (id) {
-        ESP_LOGI(TAG, "Device Identity: ID=%s, Serial=%s (DEV=%d)",
-                 id->device_id, id->serial_number, id->is_development);
-    }
+    log_diagnostic_banner(id);
 
     // 5. Deterministic Startup Route: Check for Persisted NVS Wi-Fi Credentials
     if (!wifi_manager_has_credentials()) {

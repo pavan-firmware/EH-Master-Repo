@@ -55,6 +55,51 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
     supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
   );
 
+  static const _smartSocket3x = ProductVariantDefinition(
+    schemaVersion: 1,
+    productVariantId: 'eh-smart-socket-3x',
+    productFamily: 'smart_socket',
+    displayName: 'EH Smart Socket 3X',
+    channelCount: 3,
+    channels: [
+      ProductChannelDefinition(
+        channelIndex: 1,
+        defaultLabel: 'Socket 1',
+        capabilities: ['switch', 'relay', 'local_switch', 'energy', 'ota'],
+      ),
+      ProductChannelDefinition(
+        channelIndex: 2,
+        defaultLabel: 'Socket 2',
+        capabilities: ['switch', 'relay', 'local_switch', 'energy', 'ota'],
+      ),
+      ProductChannelDefinition(
+        channelIndex: 3,
+        defaultLabel: 'Socket 3',
+        capabilities: ['switch', 'relay', 'local_switch', 'energy', 'ota'],
+      ),
+    ],
+    capabilities: [
+      'switch',
+      'relay',
+      'local_switch',
+      'energy',
+      'voltage',
+      'current',
+      'power',
+      'ota',
+      'automation',
+      'scene',
+      'schedule',
+    ],
+    images: {
+      'hero': 'assets/products/smart_socket_3x/hero.png',
+      'front': 'assets/products/smart_socket_3x/front.png',
+      'thumbnail': 'assets/products/smart_socket_3x/thumb.png',
+    },
+    firmwareFamily: 'esp32c6-socket-platform',
+    supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
+  );
+
   static const _smartFan1x = ProductVariantDefinition(
     schemaVersion: 1,
     productVariantId: 'eh-smart-fan-1x',
@@ -184,6 +229,7 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
 
   static const _allVariants = [
     _smartSwitch3x,
+    _smartSocket3x,
     _smartFan1x,
     _smartLightCct,
     _smartHubV1,

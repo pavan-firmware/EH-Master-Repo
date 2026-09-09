@@ -216,11 +216,11 @@ class _SmartHomeAppState extends State<SmartHomeApp>
                 child: child ?? const SizedBox.shrink(),
               );
             },
-            home: widget.authController != null
+            home: _authController != null
                 ? ListenableBuilder(
-                    listenable: widget.authController!,
+                    listenable: _authController!,
                     builder: (context, _) {
-                      final authState = widget.authController!.state;
+                      final authState = _authController!.state;
 
                       // Still restoring persisted session
                       if (authState == AuthState.unknown) {
@@ -229,10 +229,10 @@ class _SmartHomeAppState extends State<SmartHomeApp>
                         );
                       }
 
-                      // Not authenticated in test harness → show login
+                      // Not authenticated → show real login
                       if (authState == AuthState.unauthenticated ||
                           authState == AuthState.failure) {
-                        return LoginScreen(controller: widget.authController!);
+                        return LoginScreen(controller: _authController!);
                       }
 
                       // Authenticated → show splash → home shell
