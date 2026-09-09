@@ -375,11 +375,17 @@ class _AutomationsPageState extends State<AutomationsPage> {
     _RoutineSort.lastRun => 'Sort: Last run',
   };
 
-  void _openBuilder() => Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => RoutineBuilderPage(repository: widget.repository),
-    ),
-  );
+  Future<void> _openBuilder() async {
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => RoutineBuilderPage(repository: widget.repository),
+      ),
+    );
+    if (created == true && mounted) {
+      await _load();
+      _showMessage('Routine created successfully');
+    }
+  }
 }
 
 class RoutineCard extends StatelessWidget {
@@ -651,16 +657,49 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: null,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Edit routine'),
+                child: FilledButton.icon(
+                  onPressed: () async {
+                    final res = await widget.repository.executeRoutine(routine.id);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(res == RepositoryResult.success ? 'Routine executed successfully.' : 'Could not run routine.'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Run now'),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: null,
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (dCtx) => AlertDialog(
+                        title: const Text('Delete routine'),
+                        content: Text('Are you sure you want to delete "${routine.name}"?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dCtx, false), child: const Text('Cancel')),
+                          FilledButton(
+                            style: FilledButton.styleFrom(backgroundColor: tokens.error),
+                            onPressed: () => Navigator.pop(dCtx, true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await widget.repository.deleteRoutine(routine.id);
+                      if (context.mounted) {
+                        Navigator.pop(context, true);
+                      }
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(foregroundColor: tokens.errorText),
                   icon: const Icon(Icons.delete_outline_rounded),
                   label: const Text('Delete'),
                 ),
@@ -681,10 +720,33 @@ class RoutineBuilderPage extends StatefulWidget {
 }
 
 class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
-  final _name = TextEditingController(text: 'Plant care');
+  final _name = TextEditingController(text: 'Morning Routine');
   final _draft = RoutineDraft();
   int _step = 0;
+  bool _saving = false;
   final _validator = const RoutineValidator();
+
+  @override
+  void initState() {
+    super.initState();
+    _draft.trigger = const RoutineTrigger(
+      kind: RoutineTriggerKind.darkness,
+      title: 'Schedule: Morning at 07:00 AM',
+      detail: 'Mon – Sun · 07:00 AM',
+    );
+    _draft.schedule = const RoutineSchedule(
+      label: 'Every day at 07:00 AM',
+      timezone: 'Home timezone',
+    );
+    _draft.actions = [
+      const RoutineAction(
+        kind: RoutineActionKind.light,
+        title: 'Smart Socket 1',
+        detail: 'Turn On Socket 1',
+        deviceId: 'socket_1',
+      ),
+    ];
+  }
 
   @override
   void dispose() {
@@ -693,25 +755,44 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
   }
 
   void _next() {
-    _draft.name = _name.text;
+    _draft.name = _name.text.trim();
     if (_step < 4) setState(() => _step++);
   }
 
-  void _chooseTrigger(RoutineTrigger trigger) {
+  void _chooseTrigger(RoutineTrigger trigger, String scheduleLabel) {
     _draft.trigger = trigger;
-    _draft.schedule = const RoutineSchedule(
-      label: 'Every day · All day',
+    _draft.schedule = RoutineSchedule(
+      label: scheduleLabel,
       timezone: 'Home timezone',
     );
-    _draft.actions = [
-      const RoutineAction(
-        kind: RoutineActionKind.mistMaker,
-        title: 'Mist maker',
-        detail: 'Run for 30 seconds',
-        deviceId: 'mist',
-      ),
-    ];
     setState(() {});
+  }
+
+  void _chooseAction(RoutineAction action) {
+    _draft.actions = [action];
+    setState(() {});
+  }
+
+  Future<void> _saveRoutine() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+
+    _draft.name = _name.text.trim().isEmpty ? 'My Routine' : _name.text.trim();
+    final result = await widget.repository.createRoutine(_draft);
+
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    if (result == RepositoryResult.success) {
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save routine. Please check your connection.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -725,7 +806,7 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
         backgroundColor: tokens.bgApp,
         title: Text(
           _step == 4 ? 'Review routine' : 'Create routine',
-          style: TextStyle(color: tokens.textPrimary),
+          style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700),
         ),
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
@@ -754,14 +835,32 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
             const SizedBox(height: 12),
             TextField(
               controller: _name,
-              decoration: const InputDecoration(labelText: 'Routine name'),
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
+                labelText: 'Routine name',
+                labelStyle: TextStyle(color: tokens.textSecondary),
+                hintText: 'e.g. Morning Lights, Work Setup, Night Off',
+                hintStyle: TextStyle(color: tokens.textTertiary),
+                filled: true,
+                fillColor: tokens.surfaceCard,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             _TemplateChoice(
-              title: 'Plant care',
-              subtitle: 'Start misting when soil becomes dry',
-              icon: Icons.local_florist_outlined,
-              onTap: () => _name.text = 'Plant care',
+              title: 'Morning Setup',
+              subtitle: 'Turn on Socket 1 at 07:00 AM',
+              icon: Icons.wb_sunny_outlined,
+              onTap: () => _name.text = 'Morning Setup',
+            ),
+            _TemplateChoice(
+              title: 'Evening Relax',
+              subtitle: 'Turn on Living Room Sockets at sunset',
+              icon: Icons.nights_stay_outlined,
+              onTap: () => _name.text = 'Evening Relax',
             ),
           ] else if (_step == 1) ...[
             Text(
@@ -774,33 +873,47 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
             ),
             const SizedBox(height: 12),
             _ChoiceCard(
-              title: 'When a level changes',
-              subtitle: 'Soil moisture or water level',
-              icon: Icons.water_drop_outlined,
+              title: 'Morning at 07:00 AM',
+              subtitle: 'Every day at 7:00 AM',
+              icon: Icons.wb_sunny_outlined,
               onTap: () => _chooseTrigger(
                 const RoutineTrigger(
-                  kind: RoutineTriggerKind.soilMoisture,
-                  title: 'Soil moisture drops below 35%',
-                  detail: 'Mon – Sun · All day',
-                  threshold: 35,
+                  kind: RoutineTriggerKind.darkness,
+                  title: 'Schedule: 07:00 AM',
+                  detail: 'Mon – Sun · 07:00 AM',
                 ),
+                'Every day at 07:00 AM',
               ),
             ),
             _ChoiceCard(
-              title: 'When the room becomes dark',
-              subtitle: 'After sunset',
+              title: 'Evening at 06:30 PM',
+              subtitle: 'Every day at sunset / evening',
               icon: Icons.nightlight_outlined,
               onTap: () => _chooseTrigger(
                 const RoutineTrigger(
                   kind: RoutineTriggerKind.darkness,
-                  title: 'Room becomes dark',
-                  detail: 'After sunset',
+                  title: 'Schedule: 06:30 PM',
+                  detail: 'Mon – Sun · 06:30 PM',
                 ),
+                'Every day at 06:30 PM',
+              ),
+            ),
+            _ChoiceCard(
+              title: 'Night at 11:00 PM',
+              subtitle: 'Turn off switches at bedtime',
+              icon: Icons.bedtime_outlined,
+              onTap: () => _chooseTrigger(
+                const RoutineTrigger(
+                  kind: RoutineTriggerKind.darkness,
+                  title: 'Schedule: 11:00 PM',
+                  detail: 'Mon – Sun · 11:00 PM',
+                ),
+                'Every day at 11:00 PM',
               ),
             ),
           ] else if (_step == 2) ...[
             Text(
-              'Would you like to add a condition?',
+              'Would you like to add a schedule condition?',
               style: TextStyle(
                 color: tokens.textPrimary,
                 fontSize: 22,
@@ -809,9 +922,15 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
             ),
             const SizedBox(height: 12),
             _ChoiceCard(
-              title: 'All day',
-              subtitle: 'Run whenever the trigger crosses its threshold',
-              icon: Icons.schedule_rounded,
+              title: 'Every Day (Mon – Sun)',
+              subtitle: 'Run daily according to schedule',
+              icon: Icons.calendar_today_outlined,
+              onTap: () => setState(() {}),
+            ),
+            _ChoiceCard(
+              title: 'Weekdays Only (Mon – Fri)',
+              subtitle: 'Run only on working days',
+              icon: Icons.work_outline,
               onTap: () => setState(() {}),
             ),
           ] else if (_step == 3) ...[
@@ -825,16 +944,43 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
             ),
             const SizedBox(height: 12),
             _ChoiceCard(
-              title: 'Control a device',
-              subtitle: 'Run the plant mist maker for 30 seconds',
-              icon: Icons.bolt_rounded,
-              onTap: () => setState(() {}),
+              title: 'Turn On Socket 1',
+              subtitle: 'Control Smart Socket 3X — Channel 1',
+              icon: Icons.power_outlined,
+              onTap: () => _chooseAction(
+                const RoutineAction(
+                  kind: RoutineActionKind.light,
+                  title: 'Socket 1',
+                  detail: 'Turn On Socket 1',
+                  deviceId: 'socket_1',
+                ),
+              ),
             ),
             _ChoiceCard(
-              title: 'Send a notification',
-              subtitle: 'Send a reminder to your phone',
-              icon: Icons.notifications_none_rounded,
-              onTap: () => setState(() {}),
+              title: 'Turn On All Sockets (1, 2, 3)',
+              subtitle: 'Control Smart Socket 3X — All Channels',
+              icon: Icons.bolt_rounded,
+              onTap: () => _chooseAction(
+                const RoutineAction(
+                  kind: RoutineActionKind.light,
+                  title: 'All Sockets',
+                  detail: 'Turn On Channels 1, 2, 3',
+                  deviceId: 'all_sockets',
+                ),
+              ),
+            ),
+            _ChoiceCard(
+              title: 'Turn Off All Sockets',
+              subtitle: 'Turn off all channels for energy saving',
+              icon: Icons.power_off_outlined,
+              onTap: () => _chooseAction(
+                const RoutineAction(
+                  kind: RoutineActionKind.light,
+                  title: 'All Sockets',
+                  detail: 'Turn Off Channels 1, 2, 3',
+                  deviceId: 'all_sockets',
+                ),
+              ),
             ),
           ] else ...[
             Text(
@@ -854,7 +1000,7 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _draft.name.isEmpty ? 'Plant care' : _draft.name,
+                      _draft.name.isEmpty ? 'Smart Routine' : _draft.name,
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
@@ -891,25 +1037,26 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
                 ),
               ),
             ),
-            if (validation.errors.isNotEmpty)
-              ...validation.errors.map(
-                (error) =>
-                    Text(error, style: TextStyle(color: tokens.errorText)),
-              ),
             const SizedBox(height: 14),
-            Text(
-              'Preview only. Connect your home to save this routine.',
-              style: TextStyle(color: tokens.textSecondary),
-            ),
           ],
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: _step == 4 ? () => Navigator.pop(context) : _next,
+            onPressed: _saving ? null : (_step == 4 ? _saveRoutine : _next),
             style: FilledButton.styleFrom(
-              backgroundColor: tokens.blueDarker,
-              foregroundColor: tokens.textPrimary,
+              backgroundColor: tokens.bluePrimary,
+              foregroundColor: tokens.buttonText,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
-            child: Text(_step == 4 ? 'Done' : 'Continue'),
+            child: _saving
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                  )
+                : Text(_step == 4 ? 'Save Routine' : 'Continue', style: const TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),

@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
 
 class UserProfile {
@@ -56,18 +55,29 @@ class AuthRepository {
   bool get isAuthenticated => _accessToken != null && _currentUser != null;
 
   Future<void> restoreSession() async {
-    final access = await _storage.read(key: _accessTokenKey);
-    final refresh = await _storage.read(key: _refreshTokenKey);
-    final userJsonStr = await _storage.read(key: _userProfileKey);
+    String? refresh;
+    String? userJsonStr;
+    try {
+      refresh = await _storage.read(key: _refreshTokenKey);
+      userJsonStr = await _storage.read(key: _userProfileKey);
+    } catch (_) {}
 
-    if (access != null && refresh != null && userJsonStr != null) {
-      _accessToken = access;
-      _refreshToken = refresh;
+    if (refresh == null || refresh.isEmpty) {
+      await logout();
+      return;
+    }
+
+    _refreshToken = refresh;
+    if (userJsonStr != null) {
       try {
         _currentUser = UserProfile.fromJson(jsonDecode(userJsonStr));
-      } catch (_) {
-        await logout();
-      }
+      } catch (_) {}
+    }
+
+    // Validate refresh token against backend
+    final refreshed = await refreshSession();
+    if (!refreshed) {
+      await logout();
     }
   }
 
@@ -85,56 +95,41 @@ class AuthRepository {
       '/api/v1/auth/register',
       body: {'email': email, 'password': password},
     );
-    // Optional: Auto-login or wait for user to confirm
   }
 
-  Future<bool> refresh() async {
+  Future<bool> refreshSession() async {
     if (_refreshToken == null) return false;
 
     try {
-      // Temporarily use refresh token to call refresh endpoint
-      final uri = Uri.parse('${_apiClient.baseUrl}/api/v1/auth/refresh');
-      final response = await http
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $_refreshToken',
-            },
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final json = jsonDecode(response.body);
-        if (json['data'] != null) {
-          await _saveAuthData(json['data']);
-          return true;
-        }
+      final data = await _apiClient.post(
+        '/api/v1/auth/refresh',
+        body: {'refreshToken': _refreshToken},
+      );
+      if (data != null && data is Map<String, dynamic>) {
+        await _saveAuthData(data);
+        return true;
       }
-      // If we get here, refresh failed
-      await logout();
       return false;
-    } catch (e) {
-      // Network error during refresh doesn't invalidate session locally immediately,
-      // but fails the current request.
+    } catch (_) {
       return false;
     }
+  }
+
+  Future<bool> refresh() async {
+    final success = await refreshSession();
+    if (!success) {
+      await logout();
+    }
+    return success;
   }
 
   Future<void> logout() async {
     if (_refreshToken != null) {
       try {
-        // Attempt server logout, don't block on it
-        final uri = Uri.parse('${_apiClient.baseUrl}/api/v1/auth/logout');
-        await http
-            .delete(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer $_refreshToken',
-              },
-            )
-            .timeout(const Duration(seconds: 5));
+        await _apiClient.delete(
+          '/api/v1/auth/logout',
+          body: {'refreshToken': _refreshToken},
+        );
       } catch (_) {}
     }
 
@@ -142,21 +137,29 @@ class AuthRepository {
     _refreshToken = null;
     _currentUser = null;
 
-    await _storage.delete(key: _accessTokenKey);
-    await _storage.delete(key: _refreshTokenKey);
-    await _storage.delete(key: _userProfileKey);
+    try {
+      await _storage.delete(key: _accessTokenKey);
+      await _storage.delete(key: _refreshTokenKey);
+      await _storage.delete(key: _userProfileKey);
+    } catch (_) {}
   }
 
   Future<void> _saveAuthData(Map<String, dynamic> data) async {
     _accessToken = data['accessToken'];
     _refreshToken = data['refreshToken'];
-    _currentUser = UserProfile.fromJson(data['user']);
+    if (data['user'] != null && data['user'] is Map<String, dynamic>) {
+      _currentUser = UserProfile.fromJson(data['user']);
+    }
 
-    await _storage.write(key: _accessTokenKey, value: _accessToken);
-    await _storage.write(key: _refreshTokenKey, value: _refreshToken);
-    await _storage.write(
-      key: _userProfileKey,
-      value: jsonEncode(_currentUser!.toJson()),
-    );
+    try {
+      await _storage.write(key: _accessTokenKey, value: _accessToken);
+      await _storage.write(key: _refreshTokenKey, value: _refreshToken);
+      if (_currentUser != null) {
+        await _storage.write(
+          key: _userProfileKey,
+          value: jsonEncode(_currentUser!.toJson()),
+        );
+      }
+    } catch (_) {}
   }
 }

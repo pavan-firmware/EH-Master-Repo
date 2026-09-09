@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../api/api_client.dart';
 import '../models/energy_models.dart';
 
 /// EH Home — Energy Intelligence & Telemetry Client Service (Phase 19)
 class EnergyService extends ChangeNotifier {
   final String baseUrl;
   final http.Client? httpClient;
+  final ApiClient? apiClient;
   final String? Function()? getAuthToken;
 
   EnergyUsageSummary? _cachedHomeSummary;
@@ -36,18 +38,27 @@ class EnergyService extends ChangeNotifier {
   EnergyService({
     this.baseUrl = 'http://127.0.0.1:3000',
     this.httpClient,
+    this.apiClient,
     this.getAuthToken,
     EnergyUsageSummary? initialSummary,
   }) : _cachedHomeSummary = initialSummary;
 
-  Map<String, String> _buildHeaders() {
+  Future<Map<String, String>> _buildHeadersAsync() async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
     };
     if (getAuthToken != null) {
       final token = getAuthToken!();
-      if (token != null) {
+      if (token != null && token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
+        return headers;
+      }
+    }
+    if (apiClient?.getAccessToken != null) {
+      final token = await apiClient!.getAccessToken!();
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+        return headers;
       }
     }
     return headers;
@@ -60,7 +71,7 @@ class EnergyService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/devices/$deviceId/latest')
           .replace(queryParameters: {'channelIndex': channelIndex.toString()});
 
-      final response = await client.get(uri, headers: _buildHeaders());
+      final response = await client.get(uri, headers: await _buildHeadersAsync());
       if (response.statusCode != 200) {
         throw Exception('Failed to load device latest telemetry: ${response.body}');
       }
@@ -82,7 +93,7 @@ class EnergyService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/devices/$deviceId/summary')
           .replace(queryParameters: {'period': period});
 
-      final response = await client.get(uri, headers: _buildHeaders());
+      final response = await client.get(uri, headers: await _buildHeadersAsync());
       if (response.statusCode != 200) {
         throw Exception('Failed to load device energy summary: ${response.body}');
       }
@@ -108,7 +119,7 @@ class EnergyService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/summary')
           .replace(queryParameters: {'period': period});
 
-      final response = await client.get(uri, headers: _buildHeaders());
+      final response = await client.get(uri, headers: await _buildHeadersAsync());
       if (response.statusCode != 200) {
         throw Exception('Failed to load home energy summary: ${response.body}');
       }
@@ -134,7 +145,7 @@ class EnergyService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/trends')
           .replace(queryParameters: {'period': period, 'interval': interval});
 
-      final response = await client.get(uri, headers: _buildHeaders());
+      final response = await client.get(uri, headers: await _buildHeadersAsync());
       if (response.statusCode != 200) {
         throw Exception('Failed to load home energy trends: ${response.body}');
       }
@@ -161,7 +172,7 @@ class EnergyService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/top-consumers')
           .replace(queryParameters: {'period': period, 'limit': limit.toString()});
 
-      final response = await client.get(uri, headers: _buildHeaders());
+      final response = await client.get(uri, headers: await _buildHeadersAsync());
       if (response.statusCode != 200) {
         throw Exception('Failed to load top consumers: ${response.body}');
       }
@@ -191,7 +202,7 @@ class EnergyService extends ChangeNotifier {
       final client = httpClient ?? http.Client();
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/thresholds');
 
-      final response = await client.get(uri, headers: _buildHeaders());
+      final response = await client.get(uri, headers: await _buildHeadersAsync());
       if (response.statusCode != 200) {
         throw Exception('Failed to load thresholds: ${response.body}');
       }
@@ -218,7 +229,7 @@ class EnergyService extends ChangeNotifier {
 
       final response = await client.post(
         uri,
-        headers: _buildHeaders(),
+        headers: await _buildHeadersAsync(),
         body: json.encode(config.toJson()),
       );
 
@@ -242,7 +253,7 @@ class EnergyService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/events')
           .replace(queryParameters: {'limit': limit.toString()});
 
-      final response = await client.get(uri, headers: _buildHeaders());
+      final response = await client.get(uri, headers: await _buildHeadersAsync());
       if (response.statusCode != 200) {
         throw Exception('Failed to load energy events: ${response.body}');
       }

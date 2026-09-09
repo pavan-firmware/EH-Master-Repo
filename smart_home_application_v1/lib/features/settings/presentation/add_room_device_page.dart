@@ -4,6 +4,7 @@ import '../../../core/models/device_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/settings_repository.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../connection/presentation/connection_page.dart';
 import 'settings_ui.dart';
 
@@ -31,15 +32,13 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
       .getNearbyDevices();
   bool _refreshing = false;
 
-  Future<void> _refresh() async {
-    setState(() => _refreshing = true);
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-    if (mounted) {
-      setState(() {
-        _devices = widget.repository.getNearbyDevices();
-        _refreshing = false;
+  void _refresh() {
+    setState(() {
+      _refreshing = true;
+      _devices = widget.repository.getNearbyDevices().whenComplete(() {
+        if (mounted) setState(() => _refreshing = false);
       });
-    }
+    });
   }
 
   void _openSecureSetup() {
@@ -60,7 +59,7 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -103,26 +102,28 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
   }
 
   @override
-  Widget build(BuildContext context) => NestedSettingsScaffold(
-    title: 'Add a room device',
-    subtitle: 'Set up a nearby EH Home device.',
-    actions: [
-      IconButton(
-        tooltip: 'Setup help',
-        onPressed: () => _showHelp(context),
-        icon: const Icon(Icons.help_outline_rounded),
-      ),
-    ],
-    child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 32),
-      children: [
-        const _SetupStepper(),
-        const SizedBox(height: 22),
-        SettingsSurface(
-          color: const Color(0xFFF3F7FF),
-          borderColor: const Color(0xFFD9E5FF),
-          padding: const EdgeInsets.all(18),
-          child: Row(
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return NestedSettingsScaffold(
+      title: 'Add a room device',
+      subtitle: 'Set up a nearby EH Home device.',
+      actions: [
+        IconButton(
+          tooltip: 'Setup help',
+          onPressed: () => _showHelp(context),
+          icon: const Icon(Icons.help_outline_rounded),
+        ),
+      ],
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 32),
+        children: [
+          const _SetupStepper(),
+          const SizedBox(height: 22),
+          SettingsSurface(
+            color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
+            borderColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD9E5FF),
+            padding: const EdgeInsets.all(18),
+            child: Row(
             children: [
               const _ScanningRadar(),
               const SizedBox(width: 18),
@@ -130,18 +131,19 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Finding nearby devices…',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 7),
-                    const Text(
+                    Text(
                       'Make sure your device is powered on and nearby.',
                       style: TextStyle(
-                        color: SettingsColors.muted,
+                        color: tokens.textSecondary,
                         height: 1.3,
                       ),
                     ),
@@ -162,8 +164,8 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
                                 : 'Ready to scan',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: SettingsColors.blue,
+                            style: TextStyle(
+                              color: tokens.bluePrimary,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -179,10 +181,14 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
         const SizedBox(height: 22),
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
                 'Nearby devices',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
               ),
             ),
             TextButton.icon(
@@ -218,23 +224,19 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
         ),
         const SizedBox(height: 16),
         SettingsSurface(
-          color: const Color(0xFFF3F7FF),
-          borderColor: const Color(0xFFD9E5FF),
+          color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
+          borderColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD9E5FF),
           child: SettingsListItem(
             icon: Icons.qr_code_scanner_rounded,
             title: 'Other ways to add',
             subtitle: 'Scan a QR code or enter a setup code',
-            onTap: () => showSettingsUnavailable(
-              context,
-              message:
-                  'QR setup will be available with the secure device identity service.',
-            ),
+            onTap: _openSecureSetup,
           ),
         ),
         const SizedBox(height: 24),
         const SettingsSectionTitle('Need help?'),
-        SettingsSurface(
-          child: const Column(
+        const SettingsSurface(
+          child: Column(
             children: [
               _HelpRow(
                 icon: Icons.bluetooth_rounded,
@@ -261,6 +263,7 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
       ],
     ),
   );
+  }
 
   void _showHelp(BuildContext context) => showModalBottomSheet<void>(
     context: context,
@@ -291,11 +294,11 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
 class _SetupStepper extends StatelessWidget {
   const _SetupStepper();
   @override
-  Widget build(BuildContext context) => FittedBox(
+  Widget build(BuildContext context) => const FittedBox(
     alignment: Alignment.centerLeft,
     fit: BoxFit.scaleDown,
     child: Row(
-      children: const [
+      children: [
         _Step(number: '1', label: 'Discover', active: true),
         _StepLine(),
         _Step(number: '2', label: 'Connect'),
@@ -314,68 +317,84 @@ class _Step extends StatelessWidget {
   final String label;
   final bool active;
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      CircleAvatar(
-        radius: 18,
-        backgroundColor: active ? SettingsColors.blue : Colors.white,
-        foregroundColor: active ? Colors.white : SettingsColors.ink,
-        child: Text(
-          number,
-          style: const TextStyle(fontWeight: FontWeight.w800),
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: active ? tokens.bluePrimary : (tokens.isDark ? tokens.surfaceCard : Colors.white),
+          foregroundColor: active ? Colors.white : tokens.textPrimary,
+          child: Text(
+            number,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
         ),
-      ),
-      const SizedBox(height: 7),
-      Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          color: active ? SettingsColors.blue : SettingsColors.muted,
-          fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+        const SizedBox(height: 7),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: active ? tokens.bluePrimary : tokens.textSecondary,
+            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _StepLine extends StatelessWidget {
   const _StepLine();
   @override
-  Widget build(BuildContext context) => const SizedBox(
-    width: 28,
-    child: Padding(
-      padding: EdgeInsets.only(bottom: 21),
-      child: Divider(color: Color(0xFFD7DFEC), thickness: 1.5),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return SizedBox(
+      width: 28,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 21),
+        child: Divider(
+          color: tokens.isDark ? tokens.borderControl : const Color(0xFFD7DFEC),
+          thickness: 1.5,
+        ),
+      ),
+    );
+  }
 }
 
 class _ScanningRadar extends StatelessWidget {
   const _ScanningRadar();
   @override
-  Widget build(BuildContext context) => Container(
-    width: 92,
-    height: 92,
-    alignment: Alignment.center,
-    decoration: const BoxDecoration(
-      shape: BoxShape.circle,
-      color: Color(0xFFDDE8FF),
-    ),
-    child: Container(
-      width: 62,
-      height: 62,
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Container(
+      width: 92,
+      height: 92,
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Color(0xFFCBDBFF),
+        color: tokens.isDark
+            ? tokens.bluePrimary.withValues(alpha: 0.15)
+            : const Color(0xFFDDE8FF),
       ),
-      child: const Icon(
-        Icons.radar_rounded,
-        color: SettingsColors.blue,
-        size: 34,
+      child: Container(
+        width: 62,
+        height: 62,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: tokens.isDark
+              ? tokens.bluePrimary.withValues(alpha: 0.28)
+              : const Color(0xFFCBDBFF),
+        ),
+        child: Icon(
+          Icons.radar_rounded,
+          color: tokens.bluePrimary,
+          size: 34,
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _NearbyDeviceRow extends StatelessWidget {

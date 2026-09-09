@@ -564,7 +564,10 @@ class _SettingsContent extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => IntelligenceCenterPage(
                       homeId: effectiveHomeId,
-                      service: HomeIntelligenceService(baseUrl: effectiveClient.baseUrl),
+                      service: HomeIntelligenceService(
+                        baseUrl: effectiveClient.baseUrl,
+                        apiClient: effectiveClient,
+                      ),
                     ),
                   ),
                 ),
@@ -579,7 +582,10 @@ class _SettingsContent extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => PresenceDashboardPage(
                       homeId: effectiveHomeId,
-                      service: ContextPresenceService(baseUrl: effectiveClient.baseUrl),
+                      service: ContextPresenceService(
+                        baseUrl: effectiveClient.baseUrl,
+                        apiClient: effectiveClient,
+                      ),
                     ),
                   ),
                 ),
@@ -594,7 +600,10 @@ class _SettingsContent extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => HomeContextPage(
                       homeId: effectiveHomeId,
-                      service: ContextPresenceService(baseUrl: effectiveClient.baseUrl),
+                      service: ContextPresenceService(
+                        baseUrl: effectiveClient.baseUrl,
+                        apiClient: effectiveClient,
+                      ),
                     ),
                   ),
                 ),
@@ -713,7 +722,10 @@ class _SettingsContent extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (_) => SyncCenterPage(
-                      syncService: SyncService(baseUrl: effectiveClient.baseUrl),
+                      syncService: SyncService(
+                        baseUrl: effectiveClient.baseUrl,
+                        apiClient: effectiveClient,
+                      ),
                     ),
                   ),
                 ),

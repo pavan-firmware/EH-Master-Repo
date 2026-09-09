@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../api/api_client.dart';
 import '../models/context_presence_models.dart';
 
 /// Client Service for EH Home Presence and Context Intelligence (Phase 23)
 class ContextPresenceService extends ChangeNotifier {
   final String baseUrl;
   final http.Client _client;
+  final ApiClient? apiClient;
   String? authToken;
 
   PresenceSnapshotModel? _currentSnapshot;
@@ -20,6 +22,7 @@ class ContextPresenceService extends ChangeNotifier {
   ContextPresenceService({
     this.baseUrl = 'http://localhost:3000',
     http.Client? client,
+    this.apiClient,
     this.authToken,
   }) : _client = client ?? http.Client();
 
@@ -31,10 +34,18 @@ class ContextPresenceService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (authToken != null) 'Authorization': 'Bearer $authToken',
-      };
+  Future<Map<String, String>> _getHeaders() async {
+    String? token = authToken;
+    if (token == null || token.isEmpty) {
+      if (apiClient?.getAccessToken != null) {
+        token = await apiClient!.getAccessToken!();
+      }
+    }
+    return {
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
 
   void updateAuthToken(String? token) {
     authToken = token;
@@ -51,9 +62,10 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.get(
         Uri.parse('$baseUrl/api/v1/context/homes/$homeId/presence'),
-        headers: _headers,
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -96,9 +108,10 @@ class ContextPresenceService extends ChangeNotifier {
         'evidence': evidence,
       };
 
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/context/homes/$homeId/presence'),
-        headers: _headers,
+        headers: headers,
         body: json.encode(payload),
       );
 
@@ -132,9 +145,10 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.get(
         Uri.parse('$baseUrl/api/v1/context/homes/$homeId/context'),
-        headers: _headers,
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -173,9 +187,10 @@ class ContextPresenceService extends ChangeNotifier {
         'durationHours': ?durationHours,
       };
 
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/context/homes/$homeId/override'),
-        headers: _headers,
+        headers: headers,
         body: json.encode(payload),
       );
 
@@ -204,9 +219,10 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.delete(
         Uri.parse('$baseUrl/api/v1/context/homes/$homeId/override'),
-        headers: _headers,
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -247,9 +263,10 @@ class ContextPresenceService extends ChangeNotifier {
         'reason': reason,
       };
 
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/context/homes/$homeId/vacation'),
-        headers: _headers,
+        headers: headers,
         body: json.encode(payload),
       );
 
@@ -278,9 +295,10 @@ class ContextPresenceService extends ChangeNotifier {
 
   Future<List<ContextTransitionModel>> fetchTransitions(String homeId, {int limit = 50}) async {
     try {
+      final headers = await _getHeaders();
       final response = await _client.get(
         Uri.parse('$baseUrl/api/v1/context/homes/$homeId/transitions?limit=$limit'),
-        headers: _headers,
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -304,9 +322,10 @@ class ContextPresenceService extends ChangeNotifier {
       var url = '$baseUrl/api/v1/context/homes/$homeId/signals?limit=$limit';
       if (userId != null) url += '&userId=$userId';
 
+      final headers = await _getHeaders();
       final response = await _client.get(
         Uri.parse(url),
-        headers: _headers,
+        headers: headers,
       );
 
       if (response.statusCode == 200) {

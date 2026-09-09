@@ -7,10 +7,26 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
 
   final ApiClient _apiClient;
 
+  List<dynamic> _extractList(dynamic response) {
+    if (response is List) return response;
+    if (response is Map && response['data'] is List) return response['data'] as List;
+    return const [];
+  }
+
+  Map<String, dynamic> _extractMap(dynamic response) {
+    if (response is Map<String, dynamic>) {
+      if (response['data'] is Map<String, dynamic>) {
+        return response['data'] as Map<String, dynamic>;
+      }
+      return response;
+    }
+    return const {};
+  }
+
   @override
   Future<UserAccountProfile> getAccountProfile() async {
     final response = await _apiClient.get('/api/v1/account/me');
-    final data = response['data'] as Map<String, dynamic>? ?? response;
+    final data = _extractMap(response);
     return UserAccountProfile.fromJson(data);
   }
 
@@ -28,7 +44,7 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
     if (timezone != null) body['timezone'] = timezone;
 
     final response = await _apiClient.patch('/api/v1/account/profile', body: body);
-    final data = response['data'] as Map<String, dynamic>? ?? response;
+    final data = _extractMap(response);
     return UserAccountProfile.fromJson(data);
   }
 
@@ -46,7 +62,7 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
   @override
   Future<List<AccountSessionItem>> listSessions() async {
     final response = await _apiClient.get('/api/v1/account/sessions');
-    final list = response['data'] as List<dynamic>? ?? const [];
+    final list = _extractList(response);
     return list.map((e) => AccountSessionItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -63,7 +79,7 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
   @override
   Future<List<HomeSummaryItem>> listHomes() async {
     final response = await _apiClient.get('/api/v1/homes');
-    final list = response['data'] as List<dynamic>? ?? const [];
+    final list = _extractList(response);
     return list.map((e) => HomeSummaryItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -78,14 +94,14 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
     if (address != null) body['address'] = address;
 
     final response = await _apiClient.post('/api/v1/homes', body: body);
-    final data = response['data'] as Map<String, dynamic>? ?? response;
+    final data = _extractMap(response);
     return HomeSummaryItem.fromJson(data);
   }
 
   @override
   Future<HomeSummaryItem> getHomeDetails(String homeId) async {
     final response = await _apiClient.get('/api/v1/homes/$homeId');
-    final data = response['data'] as Map<String, dynamic>? ?? response;
+    final data = _extractMap(response);
     return HomeSummaryItem.fromJson(data);
   }
 
@@ -101,7 +117,7 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
     if (address != null) body['address'] = address;
 
     final response = await _apiClient.patch('/api/v1/homes/$homeId', body: body);
-    final data = response['data'] as Map<String, dynamic>? ?? response;
+    final data = _extractMap(response);
     return HomeSummaryItem.fromJson(data);
   }
 
@@ -125,7 +141,7 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
   @override
   Future<List<HomeMemberItem>> listMembers(String homeId) async {
     final response = await _apiClient.get('/api/v1/homes/$homeId/members');
-    final list = response['data'] as List<dynamic>? ?? const [];
+    final list = _extractList(response);
     return list.map((e) => HomeMemberItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -153,14 +169,14 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
       'email': email,
       'role': role,
     });
-    final data = response['data'] as Map<String, dynamic>? ?? response;
+    final data = _extractMap(response);
     return HomeInviteItem.fromJson(data);
   }
 
   @override
   Future<List<HomeInviteItem>> listHomeInvitations(String homeId) async {
     final response = await _apiClient.get('/api/v1/homes/$homeId/invitations');
-    final list = response['data'] as List<dynamic>? ?? const [];
+    final list = _extractList(response);
     return list.map((e) => HomeInviteItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -172,7 +188,7 @@ class CloudAccountHomeRepository implements AccountHomeRepository {
   @override
   Future<List<HomeInviteItem>> listPendingInvitations() async {
     final response = await _apiClient.get('/api/v1/invitations/pending');
-    final list = response['data'] as List<dynamic>? ?? const [];
+    final list = _extractList(response);
     return list.map((e) => HomeInviteItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 

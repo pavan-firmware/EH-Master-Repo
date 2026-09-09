@@ -5,13 +5,14 @@ import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/settings_repository.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../connection/presentation/connection_page.dart';
 import '../../rooms/presentation/room_context_page.dart';
 import 'home_details_page.dart';
 import 'people_page.dart';
 import 'settings_ui.dart';
 
-class HomeProfilePage extends StatelessWidget {
+class HomeProfilePage extends StatefulWidget {
   const HomeProfilePage({
     super.key,
     required this.home,
@@ -26,21 +27,25 @@ class HomeProfilePage extends StatelessWidget {
   final Future<ConnectionResult> Function()? onConnectHome;
 
   @override
+  State<HomeProfilePage> createState() => _HomeProfilePageState();
+}
+
+class _HomeProfilePageState extends State<HomeProfilePage> {
+  late Future<List<DiscoveredRoomDevice>> _devices = widget.repository.getNearbyDevices();
+
+  void _reload() {
+    setState(() {
+      _devices = widget.repository.getNearbyDevices();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     final rooms = RoomCatalog.preview;
-    final deviceCount = rooms.fold<int>(
-      0,
-      (sum, room) => sum + room.deviceCount,
-    );
-    final attention = rooms
-        .where((room) => room.needsAttention)
-        .fold<int>(0, (sum, room) => sum + room.deviceCount);
-    final online = rooms
-        .where((room) => room.isOnline)
-        .fold<int>(0, (sum, room) => sum + room.deviceCount);
 
     return NestedSettingsScaffold(
-      title: home.name,
+      title: widget.home.name,
       actions: [
         PopupMenuButton<_HomeProfileAction>(
           tooltip: 'Home actions',
@@ -51,15 +56,15 @@ class HomeProfilePage extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (_) =>
-                        HomeDetailsPage(home: home, repository: repository),
+                        HomeDetailsPage(home: widget.home, repository: widget.repository),
                   ),
-                );
+                ).then((_) => _reload());
               case _HomeProfileAction.people:
                 Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) =>
-                        PeoplePage(repository: repository, home: home),
+                        PeoplePage(repository: widget.repository, home: widget.home),
                   ),
                 );
             }
@@ -76,178 +81,167 @@ class HomeProfilePage extends StatelessWidget {
           ],
         ),
       ],
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-        children: [
-          _HomeIdentityCard(
-            home: home,
-            connectionState: connectionState,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    HomeDetailsPage(home: home, repository: repository),
+      child: FutureBuilder<List<DiscoveredRoomDevice>>(
+        future: _devices,
+        builder: (context, snapshot) {
+          final devices = snapshot.data ?? [];
+          final online = devices.where((d) => d.signal == DeviceConnection.online).length;
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            children: [
+              _HomeIdentityCard(
+                home: widget.home,
+                connectionState: widget.connectionState,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        HomeDetailsPage(home: widget.home, repository: widget.repository),
+                  ),
+                ).then((_) => _reload()),
+                roomCount: rooms.length,
+                deviceCount: devices.length,
               ),
-            ),
-            roomCount: rooms.length,
-            deviceCount: deviceCount,
-          ),
-          const SizedBox(height: 24),
-          const SettingsSectionTitle('Home overview'),
-          _OverviewStats(
-            roomCount: rooms.length,
-            deviceCount: deviceCount,
-            onlineCount: online,
-            attentionCount: attention,
-          ),
-          const SizedBox(height: 24),
-          SettingsSectionTitle(
-            'Rooms',
-            trailing: TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('View all rooms'),
-            ),
-          ),
-          SettingsSurface(
-            child: Column(
-              children: [
-                for (var index = 0; index < rooms.length; index++)
-                  _RoomSummaryRow(
-                    room: rooms[index],
-                    showDivider: index != rooms.length - 1,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => RoomContextPage(room: rooms[index]),
+              const SizedBox(height: 24),
+              const SettingsSectionTitle('Home overview'),
+              _OverviewStats(
+                roomCount: rooms.length,
+                deviceCount: devices.length,
+                onlineCount: online,
+                attentionCount: devices.length - online,
+              ),
+              const SizedBox(height: 24),
+              SettingsSectionTitle(
+                'Rooms',
+                trailing: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('View all rooms'),
+                ),
+              ),
+              SettingsSurface(
+                child: Column(
+                  children: [
+                    for (var index = 0; index < rooms.length; index++)
+                      _RoomSummaryRow(
+                        room: rooms[index],
+                        showDivider: index != rooms.length - 1,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => RoomContextPage(room: rooms[index]),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          SettingsSectionTitle(
-            'Devices',
-            trailing: TextButton(
-              onPressed: () => showSettingsUnavailable(
-                context,
-                message:
-                    'Device management will be available after secure home setup.',
-              ),
-              child: const Text('View all devices'),
-            ),
-          ),
-          SettingsSurface(
-            child: SettingsListItem(
-              icon: Icons.devices_other_rounded,
-              title: '$deviceCount devices',
-              subtitle:
-                  '$online online · $attention need${attention == 1 ? 's' : ''} attention',
-              onTap: () => showSettingsUnavailable(
-                context,
-                message:
-                    'Device management will be available after secure home setup.',
-              ),
-              trailing: const Icon(
-                Icons.chevron_right_rounded,
-                color: SettingsColors.muted,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          const SettingsSectionTitle('People'),
-          SettingsSurface(
-            child: SettingsListItem(
-              icon: Icons.groups_rounded,
-              title: 'People at home',
-              subtitle: 'Manage access and invitations',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      PeoplePage(repository: repository, home: home),
+                  ],
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          const SettingsSectionTitle('Home connection'),
-          _ConnectionSummary(
-            connectionState: connectionState,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ConnectionPage(
-                  onStart: onConnectHome,
-                  connectionState: connectionState,
+              const SizedBox(height: 24),
+              const SettingsSectionTitle('Devices'),
+              SettingsSurface(
+                child: Column(
+                  children: [
+                    if (devices.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'No devices connected yet.',
+                          style: TextStyle(color: tokens.textSecondary),
+                        ),
+                      )
+                    else
+                      for (var i = 0; i < devices.length; i++)
+                        SettingsListItem(
+                          icon: Icons.power_rounded,
+                          title: devices[i].name,
+                          subtitle: '${devices[i].model} · ${devices[i].signalLabel}',
+                          onTap: () {},
+                          showDivider: i != devices.length - 1,
+                        ),
+                  ],
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          const SettingsSectionTitle('Preferences'),
-          SettingsSurface(
-            child: Column(
-              children: [
-                SettingsListItem(
-                  icon: Icons.thermostat_rounded,
-                  title: 'Temperature unit',
-                  subtitle: home.preferences.temperatureUnit,
+              const SizedBox(height: 24),
+              const SettingsSectionTitle('People'),
+              SettingsSurface(
+                child: SettingsListItem(
+                  icon: Icons.groups_rounded,
+                  title: 'People at home',
+                  subtitle: 'Manage access and invitations',
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) =>
-                          HomeDetailsPage(home: home, repository: repository),
-                    ),
-                  ),
-                  showDivider: true,
-                ),
-                SettingsListItem(
-                  icon: Icons.notifications_none_rounded,
-                  title: 'Home notifications',
-                  subtitle: home.preferences.notificationsEnabled
-                      ? 'Enabled'
-                      : 'Disabled',
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          HomeDetailsPage(home: home, repository: repository),
-                    ),
-                  ),
-                  showDivider: true,
-                ),
-                SettingsListItem(
-                  icon: Icons.schedule_rounded,
-                  title: 'Time zone',
-                  subtitle: home.timezone,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          HomeDetailsPage(home: home, repository: repository),
+                          PeoplePage(repository: widget.repository, home: widget.home),
                     ),
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          const SettingsSectionTitle('Advanced'),
-          SettingsSurface(
-            child: SettingsListItem(
-              icon: Icons.remove_circle_outline_rounded,
-              title: 'Remove home',
-              subtitle: 'Remove this home from the app',
-              onTap: () => showSettingsUnavailable(
-                context,
-                message:
-                    'Home management is unavailable until your home is securely connected.',
               ),
-              destructive: true,
-            ),
-          ),
-        ],
+              const SizedBox(height: 24),
+              const SettingsSectionTitle('Home connection'),
+              _ConnectionSummary(
+                connectionState: widget.connectionState,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ConnectionPage(
+                      onStart: widget.onConnectHome,
+                      connectionState: widget.connectionState,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const SettingsSectionTitle('Preferences'),
+              SettingsSurface(
+                child: Column(
+                  children: [
+                    SettingsListItem(
+                      icon: Icons.thermostat_rounded,
+                      title: 'Temperature unit',
+                      subtitle: widget.home.preferences.temperatureUnit,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              HomeDetailsPage(home: widget.home, repository: widget.repository),
+                        ),
+                      ).then((_) => _reload()),
+                      showDivider: true,
+                    ),
+                    SettingsListItem(
+                      icon: Icons.notifications_none_rounded,
+                      title: 'Home notifications',
+                      subtitle: widget.home.preferences.notificationsEnabled
+                          ? 'Enabled'
+                          : 'Disabled',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              HomeDetailsPage(home: widget.home, repository: widget.repository),
+                        ),
+                      ).then((_) => _reload()),
+                      showDivider: true,
+                    ),
+                    SettingsListItem(
+                      icon: Icons.schedule_rounded,
+                      title: 'Time zone',
+                      subtitle: widget.home.timezone,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              HomeDetailsPage(home: widget.home, repository: widget.repository),
+                        ),
+                      ).then((_) => _reload()),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -272,6 +266,7 @@ class _HomeIdentityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     final connection = _connectionPresentation(connectionState);
     return SettingsSurface(
       child: InkWell(
@@ -290,16 +285,17 @@ class _HomeIdentityCard extends StatelessWidget {
                   children: [
                     Text(
                       home.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 3),
-                    const Text(
-                      'Home owner',
+                    Text(
+                      home.ownerName,
                       style: TextStyle(
-                        color: SettingsColors.muted,
+                        color: tokens.textSecondary,
                         fontSize: 15,
                       ),
                     ),
@@ -326,16 +322,16 @@ class _HomeIdentityCard extends StatelessWidget {
                     const SizedBox(height: 10),
                     Text(
                       '$roomCount rooms   |   $deviceCount devices',
-                      style: const TextStyle(color: SettingsColors.muted),
+                      style: TextStyle(color: tokens.textSecondary),
                     ),
                   ],
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.only(top: 27),
+              Padding(
+                padding: const EdgeInsets.only(top: 27),
                 child: Icon(
                   Icons.chevron_right_rounded,
-                  color: SettingsColors.muted,
+                  color: tokens.chevron,
                 ),
               ),
             ],
@@ -411,38 +407,45 @@ class _Stat extends StatelessWidget {
   final Color color;
   final Color background;
   @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      height: 115,
-      margin: const EdgeInsets.symmetric(horizontal: 3),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(14),
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Expanded(
+      child: Container(
+        height: 115,
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: tokens.isDark ? tokens.surfaceElevated : background,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            Icon(icon, color: tokens.isDark ? tokens.bluePrimary : color, size: 23),
+            const SizedBox(height: 10),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                color: tokens.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+            ),
+          ],
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 23),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: SettingsColors.muted, fontSize: 12),
-          ),
-        ],
-      ),
-    ),
-  );
+    );
+  }
 }
 
 class _RoomSummaryRow extends StatelessWidget {

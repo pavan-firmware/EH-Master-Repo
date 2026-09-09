@@ -243,6 +243,9 @@ runStep('57. Phase 47 Stage 1 Prototype Product Definition & ESP32 Target Tests'
 // 58. Phase 47 Stage 2 Physical ESP32 Verification Tests
 runStep('58. Phase 47 Stage 2 Physical ESP32 Verification Tests', `${nodeBin} backend/tests/phase47-stage2-physical-verification.test.js`);
 
+// 59. Phase 47 Stage 4 Product UI, Features, Settings & Backend Persistence Tests
+runStep('59. Phase 47 Stage 4 Product Integration & Persistence Tests', `${nodeBin} backend/tests/phase47-stage4-product-integration.test.js`);
+
 
 
 const passedSuites = totalSuites - failedSuites;
