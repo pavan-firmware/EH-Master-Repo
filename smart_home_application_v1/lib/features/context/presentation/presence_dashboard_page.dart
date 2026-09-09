@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/context_presence_models.dart';
 import '../../../core/services/context_presence_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 class PresenceDashboardPage extends StatefulWidget {
   final String homeId;
@@ -30,6 +31,7 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     return AnimatedBuilder(
       animation: widget.service,
       builder: (context, _) {
@@ -55,29 +57,37 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       // 1. Whole-Home Occupancy Card
-                      _buildOccupancyHeroCard(snapshot, homeContext),
+                      _buildOccupancyHeroCard(context, snapshot, homeContext, tokens),
                       const SizedBox(height: 16),
 
                       // 2. Quick Manual Presence Overrides
-                      _buildQuickPresenceActions(),
+                      _buildQuickPresenceActions(context, snapshot?.state, tokens),
                       const SizedBox(height: 20),
 
                       // 3. User Presence Breakdown
-                      const Text(
+                      Text(
                         'Family & Member Presence',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: tokens.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      _buildUserStatesList(snapshot),
+                      _buildUserStatesList(context, snapshot, tokens),
                       const SizedBox(height: 20),
 
                       // 4. Inferred Room Presence
-                      const Text(
+                      Text(
                         'Inferred Room Occupancy',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: tokens.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      _buildInferredRoomsList(snapshot),
+                      _buildInferredRoomsList(context, snapshot, tokens),
                     ],
                   ),
           ),
@@ -86,37 +96,49 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
     );
   }
 
-  Widget _buildOccupancyHeroCard(PresenceSnapshotModel? snapshot, HomeContextModel? homeContext) {
+  Widget _buildOccupancyHeroCard(
+    BuildContext context,
+    PresenceSnapshotModel? snapshot,
+    HomeContextModel? homeContext,
+    EHThemeTokens tokens,
+  ) {
     final state = snapshot?.state ?? PresenceState.unknown;
     final confidence = snapshot?.confidence ?? 0.0;
 
-    Color stateColor = Colors.orange;
-    IconData stateIcon = Icons.help_outline;
+    Color stateColor = tokens.warning;
+    IconData stateIcon = Icons.help_outline_rounded;
     String stateLabel = 'UNKNOWN';
 
     if (state == PresenceState.home) {
-      stateColor = Colors.green;
-      stateIcon = Icons.home;
+      stateColor = tokens.success;
+      stateIcon = Icons.home_rounded;
       stateLabel = 'HOME (OCCUPIED)';
     } else if (state == PresenceState.away) {
-      stateColor = Colors.blueGrey;
+      stateColor = tokens.isDark ? Colors.blueGrey.shade300 : Colors.blueGrey;
       stateIcon = Icons.sensor_door_outlined;
       stateLabel = 'AWAY (EMPTY)';
     } else if (state == PresenceState.sleep) {
-      stateColor = Colors.indigo;
-      stateIcon = Icons.bedtime;
+      stateColor = tokens.isDark ? const Color(0xFF9FA8DA) : Colors.indigo;
+      stateIcon = Icons.bedtime_rounded;
       stateLabel = 'SLEEPING';
     }
 
     return Card(
       elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
-            colors: [stateColor.withValues(alpha: 0.15), stateColor.withValues(alpha: 0.05)],
+            colors: [
+              stateColor.withValues(alpha: tokens.isDark ? 0.22 : 0.12),
+              stateColor.withValues(alpha: tokens.isDark ? 0.06 : 0.02),
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -137,38 +159,65 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
                     children: [
                       Text(
                         stateLabel,
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: stateColor),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: stateColor,
+                        ),
                       ),
+                      const SizedBox(height: 3),
                       Text(
                         'Active Members Present: ${snapshot?.activeUserCount ?? 0}',
-                        style: const TextStyle(color: Colors.black87),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 14,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-            const Divider(height: 24),
+            Divider(height: 24, color: tokens.borderControl),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Reconciliation Confidence', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    Text(
+                      'Reconciliation Confidence',
+                      style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                    ),
+                    const SizedBox(height: 2),
                     Text(
                       '${(confidence * 100).toStringAsFixed(0)}%',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: tokens.textPrimary,
+                      ),
                     ),
                   ],
                 ),
                 if (homeContext != null)
-                  Chip(
-                    label: Text(
-                      'Mode: ${homeContext.mode.toApiValue()}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: tokens.isDark
+                          ? tokens.surfaceCard
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: tokens.borderControl),
                     ),
-                    backgroundColor: Colors.white,
+                    child: Text(
+                      'Mode: ${homeContext.mode.toApiValue()}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -178,36 +227,87 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
     );
   }
 
-  Widget _buildQuickPresenceActions() {
+  Widget _buildQuickPresenceActions(
+    BuildContext context,
+    PresenceState? currentState,
+    EHThemeTokens tokens,
+  ) {
+    final isHome = currentState == PresenceState.home;
+    final isAway = currentState == PresenceState.away;
+
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.home_outlined),
-                label: const Text("I'm Home"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green.shade700,
-                  foregroundColor: Colors.white,
+            Row(
+              children: [
+                Icon(Icons.touch_app_rounded, size: 16, color: tokens.textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  'Manual App Override',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: tokens.textSecondary,
+                  ),
                 ),
-                onPressed: () => _submitSignal(PresenceState.home),
-              ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.sensor_door),
-                label: const Text("I'm Away"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueGrey.shade700,
-                  foregroundColor: Colors.white,
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: FilledButton.icon(
+                      icon: Icon(
+                        isHome ? Icons.check_circle_rounded : Icons.home_rounded,
+                        size: 20,
+                      ),
+                      label: const Text('Home', style: TextStyle(fontWeight: FontWeight.w700)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: isHome
+                            ? tokens.success
+                            : (tokens.isDark ? const Color(0xFF1E3A2F) : Colors.green.shade100),
+                        foregroundColor: isHome
+                            ? Colors.white
+                            : (tokens.isDark ? const Color(0xFF81C784) : Colors.green.shade900),
+                      ),
+                      onPressed: () => _submitSignal(PresenceState.home),
+                    ),
+                  ),
                 ),
-                onPressed: () => _submitSignal(PresenceState.away),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: FilledButton.icon(
+                      icon: Icon(
+                        isAway ? Icons.check_circle_rounded : Icons.exit_to_app_rounded,
+                        size: 20,
+                      ),
+                      label: const Text('Away', style: TextStyle(fontWeight: FontWeight.w700)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: isAway
+                            ? (tokens.isDark ? Colors.blueGrey.shade600 : Colors.blueGrey.shade700)
+                            : (tokens.isDark ? const Color(0xFF263238) : Colors.blueGrey.shade100),
+                        foregroundColor: isAway
+                            ? Colors.white
+                            : (tokens.isDark ? Colors.blueGrey.shade200 : Colors.blueGrey.shade900),
+                      ),
+                      onPressed: () => _submitSignal(PresenceState.away),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -218,23 +318,41 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
   Future<void> _submitSignal(PresenceState state) async {
     final success = await widget.service.submitPresenceSignal(
       homeId: widget.homeId,
-      source: PresenceSource.manual,
+      source: PresenceSource.mobileApp,
       state: state,
       confidence: 1.0,
     );
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(success ? 'Presence updated to ${state.toApiValue()}' : 'Failed to update presence')),
-      );
+    if (!mounted) return;
+    if (success) {
+      await _refreshData();
     }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? 'Presence updated to ${state.toApiValue()}' : 'Failed to update presence'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
-  Widget _buildUserStatesList(PresenceSnapshotModel? snapshot) {
+  Widget _buildUserStatesList(
+    BuildContext context,
+    PresenceSnapshotModel? snapshot,
+    EHThemeTokens tokens,
+  ) {
     if (snapshot == null || snapshot.userStates.isEmpty) {
-      return const Card(
+      return Card(
+        color: tokens.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: tokens.borderControl),
+        ),
         child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('No user presence signals recorded yet.'),
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'No user presence signals recorded yet.',
+            style: TextStyle(color: tokens.textSecondary),
+          ),
         ),
       );
     }
@@ -242,19 +360,33 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
     return Column(
       children: snapshot.userStates.entries.map((e) {
         final u = e.value;
+        final isHome = u.state == PresenceState.home;
         return Card(
+          color: tokens.surfaceCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: tokens.borderControl),
+          ),
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: u.state == PresenceState.home ? Colors.green.shade100 : Colors.blueGrey.shade100,
+              backgroundColor: isHome
+                  ? (tokens.isDark ? const Color(0xFF1E3A2F) : Colors.green.shade100)
+                  : (tokens.isDark ? const Color(0xFF263238) : Colors.blueGrey.shade100),
               child: Icon(
-                u.state == PresenceState.home ? Icons.person : Icons.person_outline,
-                color: u.state == PresenceState.home ? Colors.green : Colors.blueGrey,
+                isHome ? Icons.person_rounded : Icons.person_outline_rounded,
+                color: isHome
+                    ? (tokens.isDark ? const Color(0xFF81C784) : Colors.green)
+                    : (tokens.isDark ? Colors.blueGrey.shade300 : Colors.blueGrey),
               ),
             ),
-            title: Text('User: ${u.userId}'),
+            title: Text(
+              'User: ${u.userId}',
+              style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary),
+            ),
             subtitle: Text(
               'State: ${u.state.toApiValue()} • Source: ${u.source.toApiValue()}${u.isStale ? ' (STALE)' : ''}',
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
             ),
             trailing: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -262,11 +394,15 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
               children: [
                 Text(
                   '${(u.confidence * 100).toStringAsFixed(0)}%',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: tokens.textPrimary),
                 ),
                 Text(
                   u.isStale ? 'Expired' : 'Active',
-                  style: TextStyle(fontSize: 10, color: u.isStale ? Colors.red : Colors.green),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: u.isStale ? tokens.error : tokens.success,
+                  ),
                 ),
               ],
             ),
@@ -276,12 +412,24 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
     );
   }
 
-  Widget _buildInferredRoomsList(PresenceSnapshotModel? snapshot) {
+  Widget _buildInferredRoomsList(
+    BuildContext context,
+    PresenceSnapshotModel? snapshot,
+    EHThemeTokens tokens,
+  ) {
     if (snapshot == null || snapshot.inferredRooms.isEmpty) {
-      return const Card(
+      return Card(
+        color: tokens.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: tokens.borderControl),
+        ),
         child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('No room telemetry available for inference.'),
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'No room telemetry available for inference.',
+            style: TextStyle(color: tokens.textSecondary),
+          ),
         ),
       );
     }
@@ -289,24 +437,44 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
     return Column(
       children: snapshot.inferredRooms.map((r) {
         return Card(
+          color: tokens.surfaceCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: tokens.borderControl),
+          ),
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: Icon(
-              r.isOccupied ? Icons.meeting_room : Icons.no_meeting_room_outlined,
-              color: r.isOccupied ? Colors.green : Colors.grey,
+              r.isOccupied ? Icons.meeting_room_rounded : Icons.no_meeting_room_outlined,
+              color: r.isOccupied ? tokens.success : tokens.textSecondary,
             ),
-            title: Text('Room: ${r.roomId}'),
-            subtitle: Text(r.inferenceReason.isNotEmpty ? r.inferenceReason : 'Device activity analysis'),
+            title: Text(
+              'Room: ${r.roomId}',
+              style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary),
+            ),
+            subtitle: Text(
+              r.inferenceReason.isNotEmpty ? r.inferenceReason : 'Device activity analysis',
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            ),
             trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: r.isOccupied ? Colors.green.shade50 : Colors.grey.shade100,
+                color: r.isOccupied
+                    ? (tokens.isDark ? const Color(0xFF1E3A2F) : Colors.green.shade50)
+                    : (tokens.isDark ? const Color(0xFF263238) : Colors.grey.shade100),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: r.isOccupied
+                      ? (tokens.isDark ? const Color(0xFF2E7D32) : Colors.green.shade200)
+                      : tokens.borderControl,
+                ),
               ),
               child: Text(
                 r.isOccupied ? 'Occupied' : 'Vacant',
                 style: TextStyle(
-                  color: r.isOccupied ? Colors.green.shade800 : Colors.grey.shade700,
+                  color: r.isOccupied
+                      ? (tokens.isDark ? const Color(0xFF81C784) : Colors.green.shade800)
+                      : tokens.textSecondary,
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
                 ),

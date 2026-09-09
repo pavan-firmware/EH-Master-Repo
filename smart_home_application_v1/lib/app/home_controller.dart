@@ -6,6 +6,7 @@ import '../core/models/device_models.dart';
 import '../core/models/home_dashboard_models.dart';
 import '../core/models/room_models.dart';
 import '../core/repositories/home_repository.dart';
+import '../core/repositories/cloud_home_repository.dart';
 import '../core/repositories/fake_home_repository.dart';
 import '../core/repositories/connection_repository.dart';
 import '../core/repositories/ble_connection_repository.dart';
@@ -129,9 +130,50 @@ class HomeController extends ChangeNotifier {
 
   /// Sets the active resolved home identifier.
   void setActiveHomeId(String? homeId) {
-    if (_activeHomeId == homeId) return;
-    _activeHomeId = homeId;
+    if (_activeHomeId != homeId) {
+      _activeHomeId = homeId;
+      if (_repository is CloudHomeRepository && homeId != null) {
+        _repository.setActiveHomeId(homeId);
+      }
+      loadRooms();
+    }
     notifyListeners();
+  }
+
+  /// Loads persisted rooms from repository for the active home.
+  Future<void> loadRooms() async {
+    try {
+      final rawRooms = await _repository.getRooms(homeId: _activeHomeId);
+      for (final r in rawRooms) {
+        final name = (r['name'] ?? r['label'] ?? '').toString().trim();
+        final id = (r['id'] ?? name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')).toString();
+        final iconKey = (r['iconKey'] ?? r['icon_key'] ?? 'living').toString();
+        if (name.isNotEmpty && !rooms.any((existing) => existing.name.toLowerCase() == name.toLowerCase())) {
+          _customEmptyRooms.add(
+            Room(
+              id: id,
+              name: name,
+              iconKey: iconKey,
+              deviceCount: 0,
+              connectivity: ConnectivityCause.online,
+              telemetryFreshness: TelemetryFreshness.current,
+              summary: '0 devices · Configured',
+              status: RoomStatus.normal,
+              capabilities: const [],
+              devices: const [],
+              insights: const RoomInsights(
+                energyKwh: '0.0 kWh',
+                energyChange: '0.0 kWh',
+                activeWindow: 'Today',
+                averageTemperature: '24°C',
+                averageHumidity: '55%',
+              ),
+            ),
+          );
+        }
+      }
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// Attaches or re-attaches a RealtimeEventService subscription.
@@ -710,43 +752,21 @@ class HomeController extends ChangeNotifier {
     final trimmed = roomName.trim();
     if (trimmed.isEmpty) return;
 
-    if (_cloudEnabled) {
-      final created = await _repository.createRoom(
+    Map<String, dynamic>? createdData;
+    try {
+      createdData = await _repository.createRoom(
         name: trimmed,
         homeId: _activeHomeId,
         iconKey: iconKey,
       );
-      final roomId = (created['id'] ??
-              created['roomId'] ??
-              trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_'))
-          .toString();
-      _backendRooms.add(
-        Room(
-          id: roomId,
-          name: trimmed,
-          iconKey: iconKey,
-          deviceCount: 0,
-          connectivity: ConnectivityCause.online,
-          telemetryFreshness: TelemetryFreshness.current,
-          summary: '0 devices · Configured',
-          status: RoomStatus.normal,
-          capabilities: const [],
-          devices: const [],
-          insights: const RoomInsights(
-            energyKwh: '0.0 kWh',
-            energyChange: '0.0 kWh',
-            activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
-          ),
-        ),
-      );
-      notifyListeners();
-      return;
+    } catch (e) {
+      debugPrint('[HOME] Failed to persist room to cloud: $e');
     }
 
     await _storageService.addRoom(trimmed);
-    final roomId = trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+    final roomId = (createdData != null && createdData['id'] != null)
+        ? createdData['id'].toString()
+        : trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
 
     final exists = rooms.any((r) => r.name.toLowerCase() == trimmed.toLowerCase());
     if (!exists) {

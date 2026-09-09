@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../api/api_client.dart';
 import '../models/intelligence_models.dart';
 
 /// Client Service for EH Home Intelligence & Unified Decision Engine (Phase 24)
 class HomeIntelligenceService extends ChangeNotifier {
   final String baseUrl;
   final http.Client _client;
+  final ApiClient? apiClient;
   String? authToken;
 
   IntelligenceSummary? _currentSummary;
@@ -20,6 +22,7 @@ class HomeIntelligenceService extends ChangeNotifier {
   HomeIntelligenceService({
     this.baseUrl = 'http://localhost:3000',
     http.Client? client,
+    this.apiClient,
     this.authToken,
   }) : _client = client ?? http.Client();
 
@@ -31,10 +34,18 @@ class HomeIntelligenceService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (authToken != null) 'Authorization': 'Bearer $authToken',
-      };
+  Future<Map<String, String>> _getHeaders() async {
+    String? token = authToken;
+    if (token == null || token.isEmpty) {
+      if (apiClient?.getAccessToken != null) {
+        token = await apiClient!.getAccessToken!();
+      }
+    }
+    return {
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
 
   void updateAuthToken(String? token) {
     authToken = token;
@@ -51,9 +62,10 @@ class HomeIntelligenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.get(
         Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/summary'),
-        headers: _headers,
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -100,7 +112,8 @@ class HomeIntelligenceService extends ChangeNotifier {
       };
 
       final uri = Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/recommendations').replace(queryParameters: queryParams);
-      final response = await _client.get(uri, headers: _headers);
+      final headers = await _getHeaders();
+      final response = await _client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         final body = json.decode(response.body);
@@ -140,7 +153,8 @@ class HomeIntelligenceService extends ChangeNotifier {
       };
 
       final uri = Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/decisions').replace(queryParameters: queryParams);
-      final response = await _client.get(uri, headers: _headers);
+      final headers = await _getHeaders();
+      final response = await _client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         final body = json.decode(response.body);
@@ -172,9 +186,10 @@ class HomeIntelligenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/recommendations/$recommendationId/accept'),
-        headers: _headers,
+        headers: headers,
         body: json.encode({}),
       );
 
@@ -199,9 +214,10 @@ class HomeIntelligenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/recommendations/$recommendationId/reject'),
-        headers: _headers,
+        headers: headers,
         body: json.encode({'reason': reason ?? 'Rejected by user'}),
       );
 
@@ -226,9 +242,10 @@ class HomeIntelligenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/decisions/$decisionId/execute'),
-        headers: _headers,
+        headers: headers,
         body: json.encode({}),
       );
 
@@ -257,9 +274,10 @@ class HomeIntelligenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/evaluate'),
-        headers: _headers,
+        headers: headers,
         body: json.encode({}),
       );
 
@@ -284,9 +302,10 @@ class HomeIntelligenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.post(
         Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/auto-execute'),
-        headers: _headers,
+        headers: headers,
         body: json.encode({}),
       );
 
@@ -315,9 +334,10 @@ class HomeIntelligenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final headers = await _getHeaders();
       final response = await _client.get(
         Uri.parse('$baseUrl/api/v1/intelligence/homes/$homeId/history?limit=$limit'),
-        headers: _headers,
+        headers: headers,
       );
 
       if (response.statusCode == 200) {

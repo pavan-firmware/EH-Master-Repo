@@ -184,7 +184,6 @@ class _RoomsPageState extends State<RoomsPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to create room: ${e.toString().replaceFirst('ApiException: ', '')}'),
-              backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
             ),
           );

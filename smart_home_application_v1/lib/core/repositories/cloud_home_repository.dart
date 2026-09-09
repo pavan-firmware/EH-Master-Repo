@@ -196,6 +196,10 @@ class CloudHomeRepository implements HomeRepository {
     String? homeId,
     String? iconKey,
   }) async {
+    if (name.trim().isEmpty) {
+      throw ApiException(statusCode: 400, message: 'Room name cannot be empty');
+    }
+
     String resolvedHomeId = homeId ?? _activeHomeId ?? '';
     if (resolvedHomeId.isEmpty) {
       final homesResponse = await _apiClient.get('/api/v1/homes');
@@ -212,9 +216,13 @@ class CloudHomeRepository implements HomeRepository {
       }
     }
 
+    if (resolvedHomeId.isEmpty) {
+      throw ApiException(statusCode: 400, message: 'Please create or select an active home first');
+    }
+
     final response = await _apiClient.post(
       '/api/v1/homes/$resolvedHomeId/rooms',
-      body: {'name': name, 'iconKey': iconKey ?? 'living'},
+      body: {'name': name.trim(), 'iconKey': iconKey ?? 'living'},
     );
     if (response is Map<String, dynamic>) {
       if (response['data'] is Map<String, dynamic>) {

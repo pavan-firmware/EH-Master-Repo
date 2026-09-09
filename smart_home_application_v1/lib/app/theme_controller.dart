@@ -67,8 +67,10 @@ class ThemeScope extends InheritedWidget {
 
   final ThemeController controller;
 
-  static ThemeController of(BuildContext context) {
-    final scope = context.dependOnInheritedWidgetOfExactType<ThemeScope>();
+  static ThemeController of(BuildContext context, {bool listen = true}) {
+    final scope = listen
+        ? context.dependOnInheritedWidgetOfExactType<ThemeScope>()
+        : context.getInheritedWidgetOfExactType<ThemeScope>();
     if (scope == null) {
       throw FlutterError(
         'ThemeScope.of() called with a context that does not contain a ThemeScope.',
@@ -77,12 +79,15 @@ class ThemeScope extends InheritedWidget {
     return scope.controller;
   }
 
-  static ThemeController? maybeOf(BuildContext context) {
-    final scope = context.dependOnInheritedWidgetOfExactType<ThemeScope>();
+  static ThemeController? maybeOf(BuildContext context, {bool listen = false}) {
+    final scope = listen
+        ? context.dependOnInheritedWidgetOfExactType<ThemeScope>()
+        : context.getInheritedWidgetOfExactType<ThemeScope>();
     return scope?.controller;
   }
 
   @override
   bool updateShouldNotify(ThemeScope oldWidget) =>
+      controller.themeMode != oldWidget.controller.themeMode ||
       controller != oldWidget.controller;
 }

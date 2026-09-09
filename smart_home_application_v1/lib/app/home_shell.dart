@@ -13,6 +13,12 @@ import '../features/dashboard/presentation/home_page.dart';
 import '../features/rooms/presentation/rooms_page.dart';
 import '../features/rooms/presentation/room_context_page.dart';
 import '../core/api/api_client.dart';
+import '../core/models/routine_models.dart';
+import '../core/models/activity_models.dart';
+import '../core/repositories/settings_repository.dart';
+import '../core/repositories/cloud_routine_repository.dart';
+import '../core/repositories/cloud_activity_repository.dart';
+import '../core/repositories/cloud_settings_repository.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/settings/presentation/settings_page.dart';
 import 'home_controller.dart';
@@ -346,8 +352,15 @@ class _HomeShellState extends State<HomeShell> {
                 Navigator(
                   key: _navigatorKeys[2],
                   onGenerateRoute: (_) => MaterialPageRoute(
-                    builder: (_) =>
-                        AutomationsPage(onConnectHome: _openConnection),
+                    builder: (_) => AutomationsPage(
+                      repository: widget.apiClient != null
+                          ? CloudRoutineRepository(
+                              widget.apiClient!,
+                              activeHomeId: _homeController.activeHomeId ?? widget.homeId,
+                            )
+                          : const PreviewRoutineRepository(),
+                      onConnectHome: _openConnection,
+                    ),
                   ),
                 ),
 
@@ -355,7 +368,20 @@ class _HomeShellState extends State<HomeShell> {
                 Navigator(
                   key: _navigatorKeys[3],
                   onGenerateRoute: (_) => MaterialPageRoute(
-                    builder: (_) => const ActivityPage(),
+                    builder: (_) => ActivityPage(
+                      repository: widget.apiClient != null
+                          ? CloudActivityRepository(
+                              widget.apiClient!,
+                              activeHomeId: _homeController.activeHomeId ?? widget.homeId,
+                            )
+                          : const PreviewActivityRepository(),
+                      routineRepository: widget.apiClient != null
+                          ? CloudRoutineRepository(
+                              widget.apiClient!,
+                              activeHomeId: _homeController.activeHomeId ?? widget.homeId,
+                            )
+                          : const PreviewRoutineRepository(),
+                    ),
                   ),
                 ),
 
@@ -364,6 +390,12 @@ class _HomeShellState extends State<HomeShell> {
                   key: _navigatorKeys[4],
                   onGenerateRoute: (_) => MaterialPageRoute(
                     builder: (_) => SettingsPage(
+                      repository: widget.apiClient != null
+                          ? CloudSettingsRepository(
+                              widget.apiClient!,
+                              activeHomeId: _homeController.activeHomeId ?? widget.homeId,
+                            )
+                          : const PreviewSettingsRepository(),
                       onConnectHome: _homeController.startConnectionSetup,
                       connectionState: _homeController.connectionState,
                       connectionMessage: _homeController.connectionMessage,

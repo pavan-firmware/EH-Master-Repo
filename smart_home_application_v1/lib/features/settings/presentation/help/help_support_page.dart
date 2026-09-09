@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/models/help_models.dart';
 import '../../../../core/repositories/help_repository.dart';
 import '../../../../core/repositories/settings_repository.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../connection/presentation/home_connection_page.dart';
 import '../../../diagnostics/presentation/device_health_page.dart';
 import '../../../updates/presentation/system_update_page.dart';
@@ -73,12 +74,14 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
           return const Center(child: CircularProgressIndicator());
         }
         final data = snapshot.data!;
+        final tokens = context.ehColors;
         return ListView(
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
           children: [
             TextField(
               readOnly: true,
+              style: TextStyle(color: tokens.textPrimary),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -88,22 +91,35 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
               decoration: InputDecoration(
                 hintText:
                     'Search for help (e.g. device offline, Wi-Fi, routine)',
-                prefixIcon: const Icon(Icons.search_rounded),
+                hintStyle: TextStyle(color: tokens.textSecondary),
+                prefixIcon: Icon(Icons.search_rounded, color: tokens.textSecondary),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: tokens.isDark ? tokens.surfaceCard : Colors.white,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
+                  borderSide: BorderSide(
+                    color: tokens.isDark ? tokens.borderControl : Colors.transparent,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: tokens.isDark ? tokens.borderControl : Colors.transparent,
+                  ),
                 ),
               ),
             ),
             const SizedBox(height: 24),
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Quick help',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: tokens.textPrimary,
+                    ),
                   ),
                 ),
                 SettingsSectionLink(
@@ -114,7 +130,7 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 184,
+              height: 196,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: data.quick.length,
@@ -266,60 +282,70 @@ class _QuickHelpCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 160,
-    child: Material(
-      color: Color(card.backgroundColor),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SettingsIconBadge(
-                icon: _icon(card.icon),
-                color: Color(card.iconColor),
-                background: Colors.white,
-                size: 40,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                card.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return SizedBox(
+      width: 168,
+      child: Material(
+        color: tokens.isDark ? tokens.surfaceCard : Color(card.backgroundColor),
+        borderRadius: tokens.isDark ? null : BorderRadius.circular(18),
+        shape: tokens.isDark
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: tokens.borderControl),
+              )
+            : null,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SettingsIconBadge(
+                  icon: _icon(card.icon),
+                  color: Color(card.iconColor),
+                  background: tokens.isDark ? tokens.surfaceNav : Colors.white,
+                  size: 40,
                 ),
-              ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: Text(
-                  card.subtitle,
-                  maxLines: 3,
+                const SizedBox(height: 10),
+                Text(
+                  card.title,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: SettingsColors.muted,
-                    fontSize: 12,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: tokens.textPrimary,
                   ),
                 ),
-              ),
-              const Align(
-                alignment: Alignment.bottomRight,
-                child: Icon(
-                  Icons.chevron_right_rounded,
-                  color: SettingsColors.muted,
+                const SizedBox(height: 4),
+                Expanded(
+                  child: Text(
+                    card.subtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: tokens.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
   IconData _icon(String key) => switch (key) {
     'bluetooth' => Icons.bluetooth_rounded,

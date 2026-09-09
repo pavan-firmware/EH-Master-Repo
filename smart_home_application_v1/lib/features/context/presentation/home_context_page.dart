@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/context_presence_models.dart';
 import '../../../core/services/context_presence_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 class HomeContextPage extends StatefulWidget {
   final String homeId;
@@ -30,6 +31,7 @@ class _HomeContextPageState extends State<HomeContextPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     return AnimatedBuilder(
       animation: widget.service,
       builder: (context, _) {
@@ -55,29 +57,37 @@ class _HomeContextPageState extends State<HomeContextPage> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       // 1. Context Hero Card
-                      _buildCurrentContextCard(currentContext),
+                      _buildCurrentContextCard(context, currentContext, tokens),
                       const SizedBox(height: 20),
 
                       // 2. Mode Selector Chips
-                      const Text(
+                      Text(
                         'Set Home Context Mode',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: tokens.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 10),
-                      _buildModeSelector(currentContext?.mode),
+                      _buildModeSelector(context, currentContext?.mode, tokens),
                       const SizedBox(height: 20),
 
                       // 3. Precedence Hierarchy Legend
-                      _buildPrecedenceCard(currentContext?.precedenceTier),
+                      _buildPrecedenceCard(context, currentContext?.precedenceTier, tokens),
                       const SizedBox(height: 20),
 
                       // 4. Transitions Timeline
-                      const Text(
+                      Text(
                         'Context Transitions History',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: tokens.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 10),
-                      _buildTransitionsList(transitions),
+                      _buildTransitionsList(context, transitions, tokens),
                     ],
                   ),
           ),
@@ -86,50 +96,61 @@ class _HomeContextPageState extends State<HomeContextPage> {
     );
   }
 
-  Widget _buildCurrentContextCard(HomeContextModel? contextModel) {
+  Widget _buildCurrentContextCard(
+    BuildContext context,
+    HomeContextModel? contextModel,
+    EHThemeTokens tokens,
+  ) {
     final mode = contextModel?.mode ?? ContextMode.home;
     final precedence = contextModel?.precedenceTier ?? PrecedenceTier.defaultFallback;
     final isOverride = precedence == PrecedenceTier.manualOverride;
 
-    Color color = Colors.blue;
+    Color color = tokens.bluePrimary;
     IconData icon = Icons.home;
 
     switch (mode) {
       case ContextMode.home:
-        color = Colors.green;
-        icon = Icons.home;
+        color = tokens.success;
+        icon = Icons.home_rounded;
         break;
       case ContextMode.away:
-        color = Colors.blueGrey;
-        icon = Icons.exit_to_app;
+        color = tokens.isDark ? Colors.blueGrey.shade300 : Colors.blueGrey;
+        icon = Icons.exit_to_app_rounded;
         break;
       case ContextMode.sleep:
-        color = Colors.indigo;
+        color = tokens.isDark ? const Color(0xFF9FA8DA) : Colors.indigo;
         icon = Icons.nightlight_round;
         break;
       case ContextMode.vacation:
-        color = Colors.deepOrange;
-        icon = Icons.beach_access;
+        color = tokens.isDark ? const Color(0xFFFFAB91) : Colors.deepOrange;
+        icon = Icons.beach_access_rounded;
         break;
       case ContextMode.guest:
-        color = Colors.purple;
-        icon = Icons.people_outline;
+        color = tokens.isDark ? const Color(0xFFCE93D8) : Colors.purple;
+        icon = Icons.people_outline_rounded;
         break;
       case ContextMode.quietHours:
-        color = Colors.teal;
-        icon = Icons.volume_off;
+        color = tokens.isDark ? const Color(0xFF80CBC4) : Colors.teal;
+        icon = Icons.volume_off_rounded;
         break;
     }
 
     return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 3,
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
-            colors: [color.withValues(alpha: 0.2), color.withValues(alpha: 0.05)],
+            colors: [
+              color.withValues(alpha: tokens.isDark ? 0.25 : 0.15),
+              color.withValues(alpha: tokens.isDark ? 0.08 : 0.03),
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -151,11 +172,18 @@ class _HomeContextPageState extends State<HomeContextPage> {
                     children: [
                       Text(
                         mode.toApiValue(),
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
                       ),
                       Text(
                         isOverride ? 'Manual Override Active' : 'Automatic Reconciled State',
-                        style: const TextStyle(color: Colors.black54),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 14,
+                        ),
                       ),
                     ],
                   ),
@@ -163,13 +191,19 @@ class _HomeContextPageState extends State<HomeContextPage> {
               ],
             ),
             if (isOverride) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: tokens.isDark
+                      ? const Color(0xFF2A2016)
+                      : Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.orange.shade200),
+                  border: Border.all(
+                    color: tokens.isDark
+                        ? Colors.orange.shade800
+                        : Colors.orange.shade200,
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -180,12 +214,15 @@ class _HomeContextPageState extends State<HomeContextPage> {
                         contextModel?.activeOverride?.reason.isNotEmpty == true
                             ? 'Reason: ${contextModel!.activeOverride!.reason}'
                             : 'Manual override suppresses automatic presence reconciliation.',
-                        style: const TextStyle(fontSize: 12),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: tokens.textPrimary,
+                        ),
                       ),
                     ),
                     TextButton(
                       onPressed: _clearOverride,
-                      child: const Text('Clear', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                      child: const Text('Clear', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
                     ),
                   ],
                 ),
@@ -197,16 +234,36 @@ class _HomeContextPageState extends State<HomeContextPage> {
     );
   }
 
-  Widget _buildModeSelector(ContextMode? activeMode) {
+  Widget _buildModeSelector(
+    BuildContext context,
+    ContextMode? activeMode,
+    EHThemeTokens tokens,
+  ) {
     final modes = ContextMode.values;
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: 10,
+      runSpacing: 10,
       children: modes.map((m) {
         final isSelected = m == activeMode;
         return ChoiceChip(
-          label: Text(m.toApiValue()),
+          label: Text(
+            m.toApiValue(),
+            style: TextStyle(
+              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+              color: isSelected
+                  ? Colors.white
+                  : tokens.textPrimary,
+            ),
+          ),
           selected: isSelected,
+          selectedColor: tokens.bluePrimary,
+          backgroundColor: tokens.surfaceCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(
+              color: isSelected ? tokens.bluePrimary : tokens.borderControl,
+            ),
+          ),
           onSelected: (selected) {
             if (selected) _selectMode(m);
           },
@@ -217,61 +274,90 @@ class _HomeContextPageState extends State<HomeContextPage> {
 
   Future<void> _selectMode(ContextMode mode) async {
     final success = await widget.service.setQuickMode(widget.homeId, mode);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(success ? 'Context set to ${mode.toApiValue()}' : 'Failed to set mode')),
-      );
+    if (!mounted) return;
+    if (success) {
+      await _refresh();
     }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? 'Context set to ${mode.toApiValue()}' : 'Failed to set mode'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<void> _clearOverride() async {
     final success = await widget.service.clearContextOverride(widget.homeId);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(success ? 'Override cleared' : 'Failed to clear override')),
-      );
+    if (!mounted) return;
+    if (success) {
+      await _refresh();
     }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? 'Override cleared' : 'Failed to clear override'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
-  Widget _buildPrecedenceCard(PrecedenceTier? tier) {
+  Widget _buildPrecedenceCard(
+    BuildContext context,
+    PrecedenceTier? tier,
+    EHThemeTokens tokens,
+  ) {
     return Card(
       elevation: 2,
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Precedence State Machine Hierarchy',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: tokens.textPrimary,
+              ),
             ),
-            const SizedBox(height: 8),
-            _buildTierRow('1. Manual Overrides (Highest)', tier == PrecedenceTier.manualOverride),
-            _buildTierRow('2. Scheduled Windows (Quiet/Sleep)', tier == PrecedenceTier.scheduledWindow),
-            _buildTierRow('3. Reconciled Presence (Sensors/App)', tier == PrecedenceTier.reconciledPresence),
-            _buildTierRow('4. Default Fallback (Baseline)', tier == PrecedenceTier.defaultFallback),
+            const SizedBox(height: 10),
+            _buildTierRow('1. Manual Overrides (Highest)', tier == PrecedenceTier.manualOverride, tokens),
+            _buildTierRow('2. Scheduled Windows (Quiet/Sleep)', tier == PrecedenceTier.scheduledWindow, tokens),
+            _buildTierRow('3. Reconciled Presence (Sensors/App)', tier == PrecedenceTier.reconciledPresence, tokens),
+            _buildTierRow('4. Default Fallback (Baseline)', tier == PrecedenceTier.defaultFallback, tokens),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTierRow(String title, bool isCurrent) {
+  Widget _buildTierRow(String title, bool isCurrent, EHThemeTokens tokens) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
           Icon(
-            isCurrent ? Icons.check_circle : Icons.radio_button_unchecked,
-            size: 16,
-            color: isCurrent ? Colors.green : Colors.grey,
+            isCurrent ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+            size: 18,
+            color: isCurrent ? tokens.success : tokens.textSecondary,
           ),
-          const SizedBox(width: 8),
-          Text(
-            title,
-            style: TextStyle(
-              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-              color: isCurrent ? Colors.green.shade800 : Colors.black87,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontWeight: isCurrent ? FontWeight.w800 : FontWeight.normal,
+                color: isCurrent
+                    ? (tokens.isDark ? const Color(0xFF81C784) : Colors.green.shade800)
+                    : tokens.textPrimary,
+              ),
             ),
           ),
         ],
@@ -279,12 +365,24 @@ class _HomeContextPageState extends State<HomeContextPage> {
     );
   }
 
-  Widget _buildTransitionsList(List<ContextTransitionModel> transitions) {
+  Widget _buildTransitionsList(
+    BuildContext context,
+    List<ContextTransitionModel> transitions,
+    EHThemeTokens tokens,
+  ) {
     if (transitions.isEmpty) {
-      return const Card(
+      return Card(
+        color: tokens.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: tokens.borderControl),
+        ),
         child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('No transitions recorded yet.'),
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'No transitions recorded yet.',
+            style: TextStyle(color: tokens.textSecondary),
+          ),
         ),
       );
     }
@@ -292,15 +390,26 @@ class _HomeContextPageState extends State<HomeContextPage> {
     return Column(
       children: transitions.take(10).map((t) {
         return Card(
+          color: tokens.surfaceCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: tokens.borderControl),
+          ),
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
-            leading: const Icon(Icons.swap_horiz, color: Colors.blue),
-            title: Text('${t.fromMode?.toApiValue() ?? 'INITIAL'} → ${t.toMode.toApiValue()}'),
-            subtitle: Text('Source: ${t.triggerSource}\n${t.reason}'),
+            leading: Icon(Icons.swap_horiz_rounded, color: tokens.bluePrimary),
+            title: Text(
+              '${t.fromMode?.toApiValue() ?? 'INITIAL'} → ${t.toMode.toApiValue()}',
+              style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary),
+            ),
+            subtitle: Text(
+              'Source: ${t.triggerSource}\n${t.reason}',
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            ),
             isThreeLine: true,
             trailing: Text(
               '${t.createdAt.hour.toString().padLeft(2, '0')}:${t.createdAt.minute.toString().padLeft(2, '0')}',
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
+              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
             ),
           ),
         );

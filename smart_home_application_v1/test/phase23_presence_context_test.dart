@@ -312,8 +312,8 @@ void main() {
 
       expect(find.text('Presence & Occupancy'), findsOneWidget);
       expect(find.text('HOME (OCCUPIED)'), findsOneWidget);
-      expect(find.text("I'm Home"), findsOneWidget);
-      expect(find.text("I'm Away"), findsOneWidget);
+      expect(find.text("Home"), findsWidgets);
+      expect(find.text("Away"), findsWidgets);
       expect(find.text('Family & Member Presence'), findsOneWidget);
       expect(find.text('Inferred Room Occupancy'), findsOneWidget);
     });

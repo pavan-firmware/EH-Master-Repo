@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../api/api_client.dart';
 import '../models/sync_models.dart';
 
 /// EH Home — Client Synchronization & Local Offline Cache Service (Phase 17)
 class SyncService extends ChangeNotifier {
   final String baseUrl;
   final http.Client? httpClient;
+  final ApiClient? apiClient;
   final String? Function()? getAuthToken;
 
   SyncStatus _status = SyncStatus.synced;
@@ -30,9 +32,22 @@ class SyncService extends ChangeNotifier {
   SyncService({
     this.baseUrl = 'http://127.0.0.1:3000',
     this.httpClient,
+    this.apiClient,
     this.getAuthToken,
     SyncBootstrapBundle? initialCachedBundle,
   }) : _cachedBundle = initialCachedBundle;
+
+  Future<String?> _resolveToken() async {
+    if (getAuthToken != null) {
+      final token = getAuthToken!();
+      if (token != null && token.isNotEmpty) return token;
+    }
+    if (apiClient?.getAccessToken != null) {
+      final token = await apiClient!.getAccessToken!();
+      if (token != null && token.isNotEmpty) return token;
+    }
+    return null;
+  }
 
   void setOnlineStatus(bool online) {
     if (_isOnline == online) return;
@@ -91,7 +106,7 @@ class SyncService extends ChangeNotifier {
 
     try {
       final client = httpClient ?? http.Client();
-      final token = getAuthToken != null ? getAuthToken!() : null;
+      final token = await _resolveToken();
 
       final queryParams = <String, String>{
         'clientDeviceId': clientDeviceId,
@@ -158,7 +173,7 @@ class SyncService extends ChangeNotifier {
 
     try {
       final client = httpClient ?? http.Client();
-      final token = getAuthToken != null ? getAuthToken!() : null;
+      final token = await _resolveToken();
 
       final uri = Uri.parse('$baseUrl/api/v1/sync/reconcile');
       final headers = <String, String>{
@@ -217,7 +232,7 @@ class SyncService extends ChangeNotifier {
   /// Request sanitized data export from cloud
   Future<Map<String, dynamic>> exportData({String? homeId}) async {
     final client = httpClient ?? http.Client();
-    final token = getAuthToken != null ? getAuthToken!() : null;
+    final token = await _resolveToken();
 
     final queryParams = <String, String>{};
     if (homeId != null) {

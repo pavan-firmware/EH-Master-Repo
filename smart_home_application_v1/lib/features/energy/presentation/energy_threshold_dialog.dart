@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/energy_models.dart';
 import '../../../core/services/energy_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 /// Dialog for editing high power alerts and energy budget thresholds
 class EnergyThresholdDialog extends StatefulWidget {
@@ -80,14 +81,33 @@ class _EnergyThresholdDialogState extends State<EnergyThresholdDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     return AlertDialog(
-      title: const Text('Energy Thresholds & Budget'),
+      backgroundColor: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: tokens.borderControl),
+      ),
+      title: Text(
+        'Energy Thresholds & Budget',
+        style: TextStyle(
+          color: tokens.textPrimary,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SwitchListTile(
-              title: const Text('Enable Energy Alerts'),
+              title: Text(
+                'Enable Energy Alerts',
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              activeTrackColor: tokens.bluePrimary,
               value: _isEnabled,
               onChanged: (v) => setState(() => _isEnabled = v),
             ),
@@ -95,33 +115,66 @@ class _EnergyThresholdDialogState extends State<EnergyThresholdDialog> {
             TextField(
               controller: _highPowerCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
                 labelText: 'High Load Alert Limit (Watts)',
+                labelStyle: TextStyle(color: tokens.textSecondary),
                 hintText: 'e.g. 2500',
+                hintStyle: TextStyle(color: tokens.textSecondary),
                 suffixText: 'W',
-                border: OutlineInputBorder(),
+                suffixStyle: TextStyle(color: tokens.textSecondary),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: tokens.borderControl),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: tokens.bluePrimary, width: 2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _dailyEnergyCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
                 labelText: 'Daily Energy Budget (kWh)',
+                labelStyle: TextStyle(color: tokens.textSecondary),
                 hintText: 'e.g. 25.0',
+                hintStyle: TextStyle(color: tokens.textSecondary),
                 suffixText: 'kWh',
-                border: OutlineInputBorder(),
+                suffixStyle: TextStyle(color: tokens.textSecondary),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: tokens.borderControl),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: tokens.bluePrimary, width: 2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _tariffRateCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
                 labelText: 'Electricity Tariff Rate (\$/kWh)',
+                labelStyle: TextStyle(color: tokens.textSecondary),
                 hintText: 'e.g. 0.15',
+                hintStyle: TextStyle(color: tokens.textSecondary),
                 suffixText: '\$/kWh',
-                border: OutlineInputBorder(),
+                suffixStyle: TextStyle(color: tokens.textSecondary),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: tokens.borderControl),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: tokens.bluePrimary, width: 2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ],
@@ -130,12 +183,19 @@ class _EnergyThresholdDialogState extends State<EnergyThresholdDialog> {
       actions: [
         TextButton(
           onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(
+            'Cancel',
+            style: TextStyle(color: tokens.textSecondary),
+          ),
         ),
-        ElevatedButton(
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: tokens.bluePrimary,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _isSaving ? null : _save,
           child: _isSaving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Text('Save'),
         ),
       ],

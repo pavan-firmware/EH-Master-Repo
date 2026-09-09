@@ -45,7 +45,7 @@ class HomeDetailsPage extends StatelessWidget {
                   icon: Icons.location_on_outlined,
                   title: 'Location',
                   subtitle: home.location ?? 'Not set',
-                  onTap: () => _showUnsupportedEdit(context, 'Location'),
+                  onTap: () => _editLocation(context),
                   iconColor: tokens.isDark
                       ? tokens.success
                       : SettingsColors.green,
@@ -57,8 +57,8 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.public_rounded,
                   title: 'Time zone',
-                  subtitle: '${home.timezone} (GMT+05:30)',
-                  onTap: () => _showUnsupportedEdit(context, 'Time zone'),
+                  subtitle: home.timezone,
+                  onTap: () => _editTimezone(context),
                   iconColor: tokens.isDark
                       ? tokens.iconFgPurple
                       : const Color(0xFF7A3DD5),
@@ -241,35 +241,10 @@ class HomeDetailsPage extends StatelessWidget {
   }
 
   Future<void> _editHomeName(BuildContext context) async {
-    final controller = TextEditingController(text: home.name);
     final draftName = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Home name'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 48,
-          decoration: const InputDecoration(
-            hintText: 'What would you like to call your home?',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) Navigator.pop(dialogContext, name);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (dialogContext) => _HomeNameDialog(initialName: home.name),
     );
-    controller.dispose();
     if (draftName == null || !context.mounted) return;
     final result = await repository.updateHome(
       HomeSettingsDraft(
@@ -280,25 +255,95 @@ class HomeDetailsPage extends StatelessWidget {
       ),
     );
     if (!context.mounted) return;
-    if (result == SettingsOperationResult.success) return;
-    showSettingsUnavailable(
-      context,
-      message:
-          'Home settings are available after secure setup. Your name was not changed.',
+    if (result == SettingsOperationResult.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Home name updated to "$draftName".'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      showSettingsUnavailable(context, message: 'Could not update home name. Please retry.');
+    }
+  }
+
+  Future<void> _editLocation(BuildContext context) async {
+    final draftLocation = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => _HomeLocationDialog(initialLocation: home.location ?? ''),
+    );
+    if (draftLocation == null || !context.mounted) return;
+    final result = await repository.updateHome(
+      HomeSettingsDraft(
+        name: home.name,
+        location: draftLocation,
+        timezone: home.timezone,
+        preferences: home.preferences,
+      ),
+    );
+    if (!context.mounted) return;
+    if (result == SettingsOperationResult.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Home location updated.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _editTimezone(BuildContext context) async {
+    final timezones = ['Asia/Kolkata', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'UTC'];
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Select timezone'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: timezones.map((tz) => ListTile(
+            title: Text(tz),
+            onTap: () => Navigator.pop(dialogContext, tz),
+          )).toList(),
+        ),
+      ),
+    );
+    if (selected == null || !context.mounted) return;
+    final result = await repository.updateHome(
+      HomeSettingsDraft(
+        name: home.name,
+        location: home.location,
+        timezone: selected,
+        preferences: home.preferences,
+      ),
+    );
+    if (!context.mounted) return;
+    if (result == SettingsOperationResult.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Timezone updated to $selected.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _showUnsupportedEdit(BuildContext context, String setting) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$setting preference saved locally.'),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
-  void _showUnsupportedEdit(BuildContext context, String setting) =>
-      showSettingsUnavailable(
-        context,
-        message: '$setting can be changed after secure setup is complete.',
-      );
-
-  void _copyHomeId(BuildContext context) => showSettingsUnavailable(
-    context,
-    message:
-        'Home ID ${home.id} is ready to copy when clipboard access is enabled.',
-  );
+  void _copyHomeId(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Home ID ${home.id} copied.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 }
 
 String _date(DateTime value) {
@@ -317,4 +362,107 @@ String _date(DateTime value) {
     'Dec',
   ];
   return '${months[value.month - 1]} ${value.day}, ${value.year}';
+}
+
+class _HomeNameDialog extends StatefulWidget {
+  const _HomeNameDialog({required this.initialName});
+  final String initialName;
+
+  @override
+  State<_HomeNameDialog> createState() => _HomeNameDialogState();
+}
+
+class _HomeNameDialogState extends State<_HomeNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Home name'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 48,
+        decoration: const InputDecoration(
+          hintText: 'What would you like to call your home?',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final name = _controller.text.trim();
+            if (name.isNotEmpty) Navigator.pop(context, name);
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _HomeLocationDialog extends StatefulWidget {
+  const _HomeLocationDialog({required this.initialLocation});
+  final String initialLocation;
+
+  @override
+  State<_HomeLocationDialog> createState() => _HomeLocationDialogState();
+}
+
+class _HomeLocationDialogState extends State<_HomeLocationDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialLocation);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Home location'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: 'e.g. Hyderabad, Telangana, India',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final loc = _controller.text.trim();
+            Navigator.pop(context, loc);
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
 }

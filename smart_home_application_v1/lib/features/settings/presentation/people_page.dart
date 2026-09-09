@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/settings_repository.dart';
+import '../../../core/theme/app_theme.dart';
 import 'settings_ui.dart';
 
 class PeoplePage extends StatefulWidget {
@@ -16,7 +16,13 @@ class PeoplePage extends StatefulWidget {
 }
 
 class _PeoplePageState extends State<PeoplePage> {
-  late final Future<_PeopleData> _data = _load();
+  late Future<_PeopleData> _data = _load();
+
+  void _reload() {
+    setState(() {
+      _data = _load();
+    });
+  }
 
   Future<_PeopleData> _load() async => _PeopleData(
     members: await widget.repository.getMembers(),
@@ -48,7 +54,7 @@ class _PeoplePageState extends State<PeoplePage> {
           return const _PeopleLoading();
         }
         if (snapshot.hasError || !snapshot.hasData) {
-          return _PeopleError(onRetry: () => setState(() {}));
+          return _PeopleError(onRetry: _reload);
         }
         return _PeopleContent(
           data: snapshot.data!,
@@ -59,22 +65,45 @@ class _PeoplePageState extends State<PeoplePage> {
     ),
   );
 
-  void _invite() => showSettingsUnavailable(
-    context,
-    message: 'Connect your home to invite people and manage household access.',
-  );
+  Future<void> _invite() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => const _InviteDialog(),
+    );
+
+    if (result == null || result.isEmpty || !mounted) return;
+
+    final op = await widget.repository.invitePerson(result);
+    if (!mounted) return;
+    if (op == SettingsOperationResult.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invitation sent to $result')),
+      );
+      _reload();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send invitation. Please try again.')),
+      );
+    }
+  }
 
   Future<void> _handleInvitation(HomeInvitation invitation, bool resend) async {
     final result = resend
         ? await widget.repository.resendInvitation(invitation.id)
         : await widget.repository.cancelInvitation(invitation.id);
     if (!mounted) return;
-    if (result == SettingsOperationResult.success) return;
+    if (result == SettingsOperationResult.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(resend ? 'Invitation resent' : 'Invitation canceled')),
+      );
+      _reload();
+      return;
+    }
     showSettingsUnavailable(
       context,
       message: resend
-          ? 'Connect your home to resend invitations.'
-          : 'Connect your home to cancel invitations.',
+          ? 'Could not resend invitation.'
+          : 'Could not cancel invitation.',
     );
   }
 }
@@ -100,13 +129,7 @@ class _PeopleContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final deviceCount = RoomCatalog.preview.fold<int>(
-      0,
-      (sum, room) => sum + room.deviceCount,
-    );
-    final onlineCount = RoomCatalog.preview
-        .where((room) => room.isOnline)
-        .fold<int>(0, (sum, room) => sum + room.deviceCount);
+    final tokens = context.ehColors;
     final ownerCount = data.members
         .where((member) => member.role == HomeMemberRole.owner)
         .length;
@@ -123,16 +146,17 @@ class _PeopleContent extends StatelessWidget {
               const SizedBox(height: 14),
               Text(
                 '${data.members.length} people have access',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
                 ),
               ),
               const SizedBox(height: 5),
               Text(
                 '$ownerCount home owner · $memberCount members',
-                style: const TextStyle(
-                  color: SettingsColors.muted,
+                style: TextStyle(
+                  color: tokens.textSecondary,
                   fontSize: 15,
                 ),
               ),
@@ -143,15 +167,17 @@ class _PeopleContent extends StatelessWidget {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: SettingsColors.paleGreen,
+                  color: tokens.isDark
+                      ? const Color(0xFF1E3A2F)
+                      : SettingsColors.paleGreen,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.circle,
-                      color: SettingsColors.green,
+                      color: tokens.success,
                       size: 12,
                     ),
                     const SizedBox(width: 8),
@@ -161,7 +187,7 @@ class _PeopleContent extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: SettingsColors.green,
+                          color: tokens.success,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -170,27 +196,27 @@ class _PeopleContent extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 18),
-              const Divider(color: SettingsColors.line),
+              Divider(color: tokens.borderControl),
               const SizedBox(height: 12),
               Row(
                 children: [
                   _AccessStat(
-                    icon: Icons.meeting_room_outlined,
-                    value: '${RoomCatalog.preview.length}',
-                    label: 'Rooms',
-                    color: SettingsColors.blue,
+                    icon: Icons.people_outline_rounded,
+                    value: '${data.members.length}',
+                    label: 'Members',
+                    color: tokens.bluePrimary,
                   ),
                   _AccessStat(
-                    icon: Icons.inventory_2_outlined,
-                    value: '$deviceCount',
-                    label: 'Devices',
-                    color: SettingsColors.green,
+                    icon: Icons.admin_panel_settings_outlined,
+                    value: '$ownerCount',
+                    label: 'Owners',
+                    color: tokens.success,
                   ),
                   _AccessStat(
-                    icon: Icons.check_circle_outline_rounded,
-                    value: '$onlineCount',
-                    label: 'Online',
-                    color: const Color(0xFF7A3DD5),
+                    icon: Icons.mail_outline_rounded,
+                    value: '${data.invitations.length}',
+                    label: 'Pending',
+                    color: tokens.isDark ? const Color(0xFFCE93D8) : const Color(0xFF7A3DD5),
                   ),
                 ],
               ),
@@ -199,22 +225,22 @@ class _PeopleContent extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         SettingsSurface(
-          color: const Color(0xFFF3F7FF),
-          borderColor: const Color(0xFFD8E5FF),
+          color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
+          borderColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD8E5FF),
           child: InkWell(
             onTap: onInvite,
             borderRadius: BorderRadius.circular(18),
-            child: const Padding(
-              padding: EdgeInsets.all(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: SettingsColors.blue,
+                    backgroundColor: tokens.bluePrimary,
                     foregroundColor: Colors.white,
                     radius: 24,
-                    child: Icon(Icons.add_rounded, size: 28),
+                    child: const Icon(Icons.add_rounded, size: 28),
                   ),
-                  SizedBox(width: 14),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -224,17 +250,18 @@ class _PeopleContent extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
+                            color: tokens.textPrimary,
                           ),
                         ),
-                        SizedBox(height: 3),
+                        const SizedBox(height: 3),
                         Text(
                           'Give family or friends access to this home',
-                          style: TextStyle(color: SettingsColors.muted),
+                          style: TextStyle(color: tokens.textSecondary),
                         ),
                       ],
                     ),
                   ),
-                  Icon(Icons.chevron_right_rounded, color: SettingsColors.ink),
+                  Icon(Icons.chevron_right_rounded, color: tokens.textSecondary),
                 ],
               ),
             ),
@@ -274,14 +301,14 @@ class _PeopleContent extends StatelessWidget {
         ],
         const SizedBox(height: 24),
         SettingsSurface(
-          color: const Color(0xFFF2F6FF),
-          borderColor: const Color(0xFFD8E5FF),
-          child: const Padding(
-            padding: EdgeInsets.all(17),
+          color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF2F6FF),
+          borderColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD8E5FF),
+          child: Padding(
+            padding: const EdgeInsets.all(17),
             child: Row(
               children: [
-                SettingsIconBadge(icon: Icons.verified_user_outlined, size: 54),
-                SizedBox(width: 14),
+                const SettingsIconBadge(icon: Icons.verified_user_outlined, size: 54),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,13 +318,14 @@ class _PeopleContent extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
+                          color: tokens.textPrimary,
                         ),
                       ),
-                      SizedBox(height: 4),
+                      const SizedBox(height: 4),
                       Text(
                         'Only people you invite can access and control supported devices in your home.',
                         style: TextStyle(
-                          color: SettingsColors.muted,
+                          color: tokens.textSecondary,
                           height: 1.3,
                         ),
                       ),
@@ -578,4 +606,67 @@ class _PeopleError extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _InviteDialog extends StatefulWidget {
+  const _InviteDialog();
+
+  @override
+  State<_InviteDialog> createState() => _InviteDialogState();
+}
+
+class _InviteDialogState extends State<_InviteDialog> {
+  late final TextEditingController _emailCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Invite to Home'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Enter the email address of the person you want to invite.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _emailCtrl,
+            keyboardType: TextInputType.emailAddress,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Email address',
+              hintText: 'member@example.com',
+              prefixIcon: Icon(Icons.email_outlined),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final text = _emailCtrl.text.trim();
+            if (text.isNotEmpty) Navigator.pop(context, text);
+          },
+          child: const Text('Send Invite'),
+        ),
+      ],
+    );
+  }
 }
