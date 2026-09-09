@@ -348,7 +348,45 @@ jobs:
         run: node backend/tests/phase34-production-operational-readiness.test.js
 
       # ----------------------------------------------------------
-      # 19h. Complete Monorepo Full Regression Runner
+      # 19h. Clean & Prepare ESP32 Firmware Workspace
+      # ----------------------------------------------------------
+      - name: Clean ESP32 Firmware Build Directory
+        run: |
+          rm -rf firmware/platforms/esp32/smart-switch-app/build
+          rm -rf firmware/platforms/esp32/smart-switch-app/sdkconfig
+
+      # ----------------------------------------------------------
+      # 19i. Deterministic ESP-IDF 5.4.1 Firmware Build
+      #      Builds real ESP32 smart-switch-app prototype firmware
+      #      Generating bootloader, partition table, and application binaries
+      # ----------------------------------------------------------
+      - name: Build ESP32 Prototype Firmware with ESP-IDF 5.4.1
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: 'v5.4.1'
+          target: 'esp32'
+          path: 'firmware/platforms/esp32/smart-switch-app'
+
+      # ----------------------------------------------------------
+      # 19j. Verify ESP32 Prototype Firmware Artifacts
+      # ----------------------------------------------------------
+      - name: Verify ESP32 Firmware Build Output
+        run: |
+          echo "=== ESP-IDF BUILD ARTIFACTS ==="
+          sudo chmod -R a+rX firmware/platforms/esp32/smart-switch-app/build
+          find firmware/platforms/esp32/smart-switch-app/build -maxdepth 3 -type f | sort
+          test -f firmware/platforms/esp32/smart-switch-app/build/eh-smart-switch-app.bin
+          test -f firmware/platforms/esp32/smart-switch-app/build/bootloader/bootloader.bin || test -f firmware/platforms/esp32/smart-switch-app/build/bootloader.bin
+          test -f firmware/platforms/esp32/smart-switch-app/build/partition_table/partition-table.bin || test -f firmware/platforms/esp32/smart-switch-app/build/partition-table.bin
+
+      # ----------------------------------------------------------
+      # 19k. Phase 47 Stage 2 Physical ESP32 Verification Tests
+      # ----------------------------------------------------------
+      - name: Run Phase 47 Stage 2 Physical ESP32 Verification Tests
+        run: node backend/tests/phase47-stage2-physical-verification.test.js
+
+      # ----------------------------------------------------------
+      # 19l. Complete Monorepo Full Regression Runner
       # ----------------------------------------------------------
       - name: Run Complete Monorepo Full Validation Runner
         run: node scripts/validate-repo.js
