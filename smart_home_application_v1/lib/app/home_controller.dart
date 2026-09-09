@@ -72,7 +72,10 @@ class HomeController extends ChangeNotifier {
   ConnectedDeviceSummary? _connectedDeviceSummary;
   List<ConnectedDeviceSummary> _devices = [];
   final List<Room> _customEmptyRooms = [];
+  List<Room> _backendRooms = [];
   List<String> _selectedQuickControlIds = [];
+  bool _isLoading = false;
+  String? _errorMessage;
   Map<String, bool> _notificationPrefs = {
     'pushEnabled': true,
     'criticalAlerts': true,
@@ -105,6 +108,8 @@ class HomeController extends ChangeNotifier {
   String? get activeSerialNumber => _activeSerialNumber;
   String? get activeHomeId => _activeHomeId;
   bool get cloudEnabled => _cloudEnabled;
+  bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
 
   /// Commands are only available when cloud is enabled (authenticated + connected).
   bool get hardwareControlsAvailable => _cloudEnabled;
@@ -144,7 +149,89 @@ class HomeController extends ChangeNotifier {
     _mistingCommandPending = false;
     _lightConfidence = ActuatorConfidence.unknown;
     _deviceConfidences.clear();
+    _devices.clear();
+    _backendRooms.clear();
+    _connectedDeviceSummary = null;
+    _activeDeviceId = null;
+    _activeDisplayName = null;
+    _activeSerialNumber = null;
+    _connectionState = HomeConnectionState.notConfigured;
+    _connectionMessage = null;
+    _isLoading = false;
+    _errorMessage = null;
     notifyListeners();
+  }
+
+  /// Loads real device and room state from backend for the active home.
+  Future<void> loadHomeData({String? homeId}) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final targetHomeId = homeId ?? _activeHomeId;
+      final rawDevices = await _repository.getDevices(homeId: targetHomeId);
+      final rawRooms = await _repository.getRooms(homeId: targetHomeId);
+
+      _backendRooms = rawRooms.map((r) {
+        return Room(
+          id: (r['id'] ?? r['roomId'] ?? '').toString(),
+          name: (r['name'] ?? 'Room').toString(),
+          iconKey: (r['iconKey'] ?? 'living').toString(),
+          deviceCount: 0,
+          connectivity: ConnectivityCause.online,
+          telemetryFreshness: TelemetryFreshness.current,
+          summary: 'Configured',
+          status: RoomStatus.normal,
+          capabilities: const [],
+          devices: const [],
+          insights: const RoomInsights(
+            energyKwh: '0.0 kWh',
+            energyChange: '0.0 kWh',
+            activeWindow: 'Today',
+            averageTemperature: '24°C',
+            averageHumidity: '55%',
+          ),
+        );
+      }).toList();
+
+      if (rawDevices.isNotEmpty) {
+        _devices = rawDevices.map((d) {
+          final isOnline = d.connection == DeviceConnection.online;
+          return ConnectedDeviceSummary(
+            id: d.id,
+            name: d.name,
+            model: d.productVariantId ?? d.hardwareRevision,
+            firmware: d.firmwareVersion,
+            connectedVia: 'Wi-Fi (2.4 GHz)',
+            signalLabel: isOnline ? 'Strong' : 'Offline',
+            roomName: d.roomName,
+            online: isOnline,
+          );
+        }).toList();
+
+        _connectedDeviceSummary = _devices.first;
+        _activeDeviceId = _devices.first.id;
+        _activeDisplayName = _devices.first.name;
+        _activeSerialNumber = _devices.first.model;
+        _connectionState = _devices.any((d) => d.online)
+            ? HomeConnectionState.connected
+            : HomeConnectionState.offline;
+        _connectionMessage = '${_devices.first.name} is connected and online.';
+      } else {
+        _devices = [];
+        _connectedDeviceSummary = null;
+        _activeDeviceId = null;
+        _connectionState = HomeConnectionState.notConfigured;
+        _connectionMessage = null;
+      }
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = e.toString().replaceFirst('ApiException: ', '');
+      notifyListeners();
+    }
   }
 
   List<Room> get rooms {
@@ -173,6 +260,9 @@ class HomeController extends ChangeNotifier {
           status: RoomStatus.normal,
           capabilities: roomDevices.expand((d) {
             final opName = formatOperatingName(d.name);
+            final isSocket = d.name.toLowerCase().contains('socket') ||
+                d.model.toLowerCase().contains('socket');
+            final channelPrefix = isSocket ? 'Socket' : 'Switch';
             final ch1On = getDeviceChannelPower(
               d.id,
               1,
@@ -183,19 +273,19 @@ class HomeController extends ChangeNotifier {
             return [
               RoomCapability(
                 id: '${d.id}_ch1',
-                label: '$opName Switch 1',
+                label: '$opName $channelPrefix 1',
                 value: ch1On ? 'On' : 'Off',
                 kind: RoomCapabilityKind.light,
               ),
               RoomCapability(
                 id: '${d.id}_ch2',
-                label: '$opName Switch 2',
+                label: '$opName $channelPrefix 2',
                 value: ch2On ? 'On' : 'Off',
                 kind: RoomCapabilityKind.light,
               ),
               RoomCapability(
                 id: '${d.id}_ch3',
-                label: '$opName Switch 3',
+                label: '$opName $channelPrefix 3',
                 value: ch3On ? 'On' : 'Off',
                 kind: RoomCapabilityKind.light,
               ),
@@ -203,6 +293,10 @@ class HomeController extends ChangeNotifier {
           }).toList(),
           devices: roomDevices.map((d) {
             final opName = formatOperatingName(d.name);
+            final isSocket = d.name.toLowerCase().contains('socket') ||
+                d.model.toLowerCase().contains('socket');
+            final devType =
+                isSocket ? 'Smart Socket 3X' : 'Smart Switch 3X';
             final ch1On = getDeviceChannelPower(
               d.id,
               1,
@@ -211,7 +305,7 @@ class HomeController extends ChangeNotifier {
             return RoomDevice(
               id: d.id,
               name: opName,
-              type: 'Smart Switch 3X',
+              type: devType,
               value: ch1On ? 'On' : 'Off',
               kind: RoomCapabilityKind.light,
               confidence:
@@ -227,6 +321,13 @@ class HomeController extends ChangeNotifier {
           ),
         );
       }));
+    }
+
+    // Include backend rooms that don't have devices assigned yet
+    for (final bRoom in _backendRooms) {
+      if (!result.any((r) => r.name.toLowerCase() == bRoom.name.toLowerCase())) {
+        result.add(bRoom);
+      }
     }
 
     // Include custom rooms that don't have devices assigned yet
@@ -608,6 +709,41 @@ class HomeController extends ChangeNotifier {
   Future<void> addCustomRoom(String roomName, {String iconKey = 'living'}) async {
     final trimmed = roomName.trim();
     if (trimmed.isEmpty) return;
+
+    if (_cloudEnabled) {
+      final created = await _repository.createRoom(
+        name: trimmed,
+        homeId: _activeHomeId,
+        iconKey: iconKey,
+      );
+      final roomId = (created['id'] ??
+              created['roomId'] ??
+              trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_'))
+          .toString();
+      _backendRooms.add(
+        Room(
+          id: roomId,
+          name: trimmed,
+          iconKey: iconKey,
+          deviceCount: 0,
+          connectivity: ConnectivityCause.online,
+          telemetryFreshness: TelemetryFreshness.current,
+          summary: '0 devices · Configured',
+          status: RoomStatus.normal,
+          capabilities: const [],
+          devices: const [],
+          insights: const RoomInsights(
+            energyKwh: '0.0 kWh',
+            energyChange: '0.0 kWh',
+            activeWindow: 'Today',
+            averageTemperature: '24°C',
+            averageHumidity: '55%',
+          ),
+        ),
+      );
+      notifyListeners();
+      return;
+    }
 
     await _storageService.addRoom(trimmed);
     final roomId = trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');

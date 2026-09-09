@@ -57,21 +57,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         decoration: BoxDecoration(
                           color: Colors.red.withAlpha(26),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withAlpha(80)),
                         ),
-                        child: Text(
-                          error,
-                          style: const TextStyle(color: Colors.red),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: Colors.red),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                error,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     TextFormField(
                       controller: _emailController,
                       decoration: const InputDecoration(
                         labelText: 'Email',
+                        hintText: 'user@example.com',
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.emailAddress,
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Email is required';
+                        if (!v.contains('@') || !v.contains('.')) return 'Enter a valid email address';
+                        return null;
+                      },
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 16),
@@ -79,11 +92,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       controller: _passwordController,
                       decoration: const InputDecoration(
                         labelText: 'Password',
+                        hintText: 'At least 8 characters',
                         border: OutlineInputBorder(),
                       ),
                       obscureText: true,
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Password is required';
+                        if (v.length < 8) return 'Password must be at least 8 characters';
+                        return null;
+                      },
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 24),

@@ -14,15 +14,29 @@ class AuthController extends ChangeNotifier {
 
   AuthState _state = AuthState.unknown;
   String? _errorMessage;
+  Future<void>? _restoreFuture;
 
   AuthController(this._authRepository) {
-    _authRepository.restoreSession().then((_) {
-      _state = _authRepository.isAuthenticated
-          ? AuthState.authenticated
-          : AuthState.unauthenticated;
-      notifyListeners();
-    });
+    _restoreFuture = _authRepository
+        .restoreSession()
+        .timeout(const Duration(seconds: 10))
+        .then((_) {
+          if (_state == AuthState.unknown) {
+            _state = _authRepository.isAuthenticated
+                ? AuthState.authenticated
+                : AuthState.unauthenticated;
+            notifyListeners();
+          }
+        })
+        .catchError((_) {
+          if (_state == AuthState.unknown) {
+            _state = AuthState.unauthenticated;
+            notifyListeners();
+          }
+        });
   }
+
+  Future<void>? get restoreFuture => _restoreFuture;
 
   AuthState get state => _state;
   String? get errorMessage => _errorMessage;

@@ -168,15 +168,27 @@ class _RoomsPageState extends State<RoomsPage> {
     );
 
     if (createdName != null && createdName.isNotEmpty) {
-      await widget.homeController?.addCustomRoom(createdName);
-      if (mounted) {
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Room "$createdName" created successfully.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      try {
+        await widget.homeController?.addCustomRoom(createdName);
+        if (mounted) {
+          setState(() {});
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Room "$createdName" created successfully.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to create room: ${e.toString().replaceFirst('ApiException: ', '')}'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       }
     }
   }

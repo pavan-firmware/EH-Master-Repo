@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../app/home_controller.dart';
-import '../splash/presentation/splash_screen.dart';
 import 'auth_controller.dart';
 import 'register_screen.dart';
 
@@ -30,7 +28,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _emailController.text.trim(),
       _passwordController.text,
     );
-    // On success, AuthController notifies listeners → root app switches to Home.
   }
 
   @override
@@ -58,21 +55,34 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: BoxDecoration(
                           color: Colors.red.withAlpha(26),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withAlpha(80)),
                         ),
-                        child: Text(
-                          error,
-                          style: const TextStyle(color: Colors.red),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: Colors.red),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                error,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     TextFormField(
                       controller: _emailController,
                       decoration: const InputDecoration(
                         labelText: 'Email',
+                        hintText: 'user@example.com',
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.emailAddress,
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Email is required';
+                        if (!v.contains('@') || !v.contains('.')) return 'Enter a valid email address';
+                        return null;
+                      },
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 16),
@@ -83,8 +93,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: OutlineInputBorder(),
                       ),
                       obscureText: true,
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Password is required';
+                        if (v.length < 8) return 'Password must be at least 8 characters';
+                        return null;
+                      },
                       enabled: !isLoading,
                     ),
                     const SizedBox(height: 24),
@@ -112,19 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               );
                             },
                       child: const Text('Create an account'),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                SplashScreen(homeController: HomeController()),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.home_rounded),
-                      label: const Text('Continue to Local Home'),
                     ),
                   ],
                 ),

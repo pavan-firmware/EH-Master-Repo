@@ -72,6 +72,9 @@ class DeviceSnapshot {
     required this.capabilities,
     required this.reportedAt,
     this.firmwareVersion = '1.0.0',
+    this.channels = const [],
+    this.productVariantId,
+    this.serialNumber,
   });
 
   final String id;
@@ -82,6 +85,9 @@ class DeviceSnapshot {
   final List<DeviceCapability> capabilities;
   final DateTime reportedAt;
   final String firmwareVersion;
+  final List<Map<String, dynamic>> channels;
+  final String? productVariantId;
+  final String? serialNumber;
 }
 
 class CommandReceipt {

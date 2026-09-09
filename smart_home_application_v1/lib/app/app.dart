@@ -127,18 +127,23 @@ class _SmartHomeAppState extends State<SmartHomeApp>
 
     try {
       if (_accountHomeRepository != null) {
-        final homes = await _accountHomeRepository!.listHomes();
+        final homes = await _accountHomeRepository!
+            .listHomes()
+            .timeout(const Duration(seconds: 10));
         if (homes.isNotEmpty) {
           final resolvedHome = homes.first;
           _activeHomeId = resolvedHome.id;
           _homeController.setActiveHomeId(resolvedHome.id);
+          await _homeController.loadHomeData(homeId: resolvedHome.id);
           _realtimeService?.connect(resolvedHome.id);
         } else {
           _activeHomeId = null;
           _homeController.setActiveHomeId(null);
+          await _homeController.loadHomeData(homeId: null);
         }
       } else if (_homeController.activeHomeId != null) {
         _activeHomeId = _homeController.activeHomeId;
+        await _homeController.loadHomeData(homeId: _activeHomeId);
         _realtimeService?.connect(_activeHomeId!);
       }
     } catch (_) {
