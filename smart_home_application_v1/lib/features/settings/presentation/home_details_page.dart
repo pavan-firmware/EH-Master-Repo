@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import 'people_page.dart';
 import 'settings_ui.dart';
 
 class HomeDetailsPage extends StatelessWidget {
@@ -11,19 +13,22 @@ class HomeDetailsPage extends StatelessWidget {
     super.key,
     required this.home,
     required this.repository,
+    this.homeController,
   });
 
   final HomeSettingsData home;
   final SettingsRepository repository;
+  final HomeController? homeController;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final roomCount = RoomCatalog.preview.length;
-    final deviceCount = RoomCatalog.preview.fold<int>(
-      0,
-      (sum, room) => sum + room.deviceCount,
-    );
+    final roomCount = homeController?.rooms.length ?? RoomCatalog.preview.length;
+    final deviceCount = homeController?.devices.length ??
+        RoomCatalog.preview.fold<int>(
+          0,
+          (sum, room) => sum + room.deviceCount,
+        );
     return NestedSettingsScaffold(
       title: 'Home details',
       subtitle: "Manage your home's basic information and preferences.",
@@ -182,20 +187,21 @@ class HomeDetailsPage extends StatelessWidget {
                   icon: Icons.groups_outlined,
                   title: 'People',
                   subtitle: 'People with access',
-                  onTap: () => showSettingsUnavailable(context),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PeoplePage(repository: repository, home: home),
+                    ),
+                  ),
                   iconColor: tokens.isDark
                       ? tokens.iconFgPurple
                       : const Color(0xFF7A3DD5),
                   iconBackground: tokens.isDark
                       ? tokens.iconBgPurple
                       : const Color(0xFFF3ECFF),
-                  trailing: Text(
-                    '3',
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
+                  trailing: Icon(
+                    Icons.chevron_right_rounded,
+                    color: tokens.chevron,
                   ),
                 ),
               ],

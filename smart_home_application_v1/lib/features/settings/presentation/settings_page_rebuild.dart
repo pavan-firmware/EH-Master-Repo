@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../app/theme_controller.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/config/app_config.dart';
@@ -69,6 +70,7 @@ import 'settings_ui.dart';
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
+    this.homeController,
     this.onConnectHome,
     this.connectionState,
     this.connectionMessage,
@@ -83,6 +85,7 @@ class SettingsPage extends StatefulWidget {
     this.onLogout,
   });
 
+  final HomeController? homeController;
   final Future<ConnectionResult> Function()? onConnectHome;
   final HomeConnectionState? connectionState;
   final String? connectionMessage;
@@ -148,6 +151,7 @@ class _SettingsPageState extends State<SettingsPage> {
             return _SettingsContent(
               home: home,
               system: system,
+              homeController: widget.homeController,
               repository: widget.repository,
               connectionRepository: widget.connectionRepository,
               onConnectHome: widget.onConnectHome,
@@ -182,6 +186,7 @@ class _SettingsContent extends StatelessWidget {
   const _SettingsContent({
     required this.home,
     required this.system,
+    this.homeController,
     required this.repository,
     required this.connectionRepository,
     required this.onConnectHome,
@@ -196,6 +201,7 @@ class _SettingsContent extends StatelessWidget {
 
   final HomeSettingsData home;
   final _SystemSummary system;
+  final HomeController? homeController;
   final SettingsRepository repository;
   final HomeConnectionRepository connectionRepository;
   final Future<ConnectionResult> Function()? onConnectHome;
@@ -282,11 +288,15 @@ class _SettingsContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final roomCount = RoomCatalog.preview.length;
-    final deviceCount = RoomCatalog.preview.fold<int>(
-      0,
-      (sum, room) => sum + room.deviceCount,
-    );
+    final roomCount = homeController != null && homeController!.rooms.isNotEmpty
+        ? homeController!.rooms.length
+        : RoomCatalog.preview.length;
+    final deviceCount = homeController != null && homeController!.devices.isNotEmpty
+        ? homeController!.devices.length
+        : RoomCatalog.preview.fold<int>(
+            0,
+            (sum, room) => sum + room.deviceCount,
+          );
     final connection = _RootConnectionStatus.fromOverview(
       system.connection,
       tokens,
@@ -356,6 +366,7 @@ class _SettingsContent extends StatelessWidget {
                 repository: repository,
                 connectionState: connectionState,
                 onConnectHome: onConnectHome,
+                homeController: homeController,
               ),
             ),
           ),

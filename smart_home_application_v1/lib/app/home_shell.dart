@@ -390,6 +390,7 @@ class _HomeShellState extends State<HomeShell> {
                   key: _navigatorKeys[4],
                   onGenerateRoute: (_) => MaterialPageRoute(
                     builder: (_) => SettingsPage(
+                      homeController: _homeController,
                       repository: widget.apiClient != null
                           ? CloudSettingsRepository(
                               widget.apiClient!,

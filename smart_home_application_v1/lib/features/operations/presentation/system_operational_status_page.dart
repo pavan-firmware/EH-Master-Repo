@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/operational_readiness_models.dart';
 import '../../../core/repositories/operational_readiness_repository.dart';
+import '../../../core/theme/app_theme.dart';
 
 class SystemOperationalStatusPage extends StatefulWidget {
   const SystemOperationalStatusPage({
@@ -58,30 +59,32 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
     }
   }
 
-  Color _getStatusColor(String status) {
+  Color _getStatusColor(String status, EHThemeTokens tokens) {
     switch (status.toUpperCase()) {
       case 'READY':
       case 'PASS':
       case 'HEALTHY':
       case 'CONNECTED':
       case 'RUNNING':
-        return Colors.green;
+        return tokens.success;
       case 'DEGRADED':
       case 'STANDBY':
-        return Colors.amber;
+        return tokens.warning;
       case 'NOT_READY':
       case 'FAIL':
       case 'UNAVAILABLE':
       case 'DISCONNECTED':
       case 'SHUTTING_DOWN':
-        return Colors.red;
+        return tokens.error;
       default:
-        return Colors.blueGrey;
+        return tokens.textSecondary;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('System Operational Status'),
@@ -96,29 +99,29 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? _buildErrorView()
-              : _buildContentView(),
+              ? _buildErrorView(tokens)
+              : _buildContentView(tokens),
     );
   }
 
-  Widget _buildErrorView() {
+  Widget _buildErrorView(EHThemeTokens tokens) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 56),
+            Icon(Icons.error_outline, color: tokens.error, size: 56),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Failed to retrieve system status',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: tokens.textPrimary),
             ),
             const SizedBox(height: 8),
             Text(
               _errorMessage ?? 'Unknown error',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
+              style: TextStyle(color: tokens.textSecondary),
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
@@ -132,11 +135,11 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
     );
   }
 
-  Widget _buildContentView() {
+  Widget _buildContentView(EHThemeTokens tokens) {
     final readiness = _readiness;
     if (readiness == null) return const SizedBox.shrink();
 
-    final statusColor = _getStatusColor(readiness.status);
+    final statusColor = _getStatusColor(readiness.status, tokens);
 
     return RefreshIndicator(
       onRefresh: _fetchStatus,
@@ -145,7 +148,7 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
         children: [
           // Banner
           Card(
-            color: statusColor.withAlpha(30),
+            color: statusColor.withValues(alpha: tokens.isDark ? 0.22 : 0.12),
             shape: RoundedRectangleBorder(
               side: BorderSide(color: statusColor, width: 1.5),
               borderRadius: BorderRadius.circular(12),
@@ -175,7 +178,7 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
                         const SizedBox(height: 4),
                         Text(
                           'Service: ${readiness.service} (${readiness.version})',
-                          style: const TextStyle(fontSize: 13, color: Colors.grey),
+                          style: TextStyle(fontSize: 13, color: tokens.textSecondary),
                         ),
                       ],
                     ),
@@ -187,39 +190,43 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
           const SizedBox(height: 16),
 
           // Subsystems Status
-          const Text(
+          Text(
             'Core Infrastructure Dependencies',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.textPrimary),
           ),
           const SizedBox(height: 8),
-          _buildDependencyCard('Database (PostgreSQL)', readiness.databaseCheck, Icons.storage),
-          _buildDependencyCard('Cache & Lock (Redis)', readiness.redisCheck, Icons.memory),
-          _buildDependencyCard('Messaging Broker (MQTT)', readiness.mqttCheck, Icons.swap_horiz),
-          _buildDependencyCard('Background Workers', readiness.workersCheck, Icons.engineering),
+          _buildDependencyCard('Database (PostgreSQL)', readiness.databaseCheck, Icons.storage, tokens),
+          _buildDependencyCard('Cache & Lock (Redis)', readiness.redisCheck, Icons.memory, tokens),
+          _buildDependencyCard('Messaging Broker (MQTT)', readiness.mqttCheck, Icons.swap_horiz, tokens),
+          _buildDependencyCard('Background Workers', readiness.workersCheck, Icons.engineering, tokens),
 
           const SizedBox(height: 16),
 
           // Platform & Migration Metadata
-          const Text(
+          Text(
             'Release & Schema Metadata',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.textPrimary),
           ),
           const SizedBox(height: 8),
           Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            color: tokens.surfaceCard,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: tokens.borderControl),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  _buildMetadataRow('Backend Version', readiness.version),
-                  _buildMetadataRow('Schema Level', 'v${readiness.schemaVersionNumber ?? 26}'),
-                  _buildMetadataRow('Latest Migration', readiness.latestMigration ?? '026_disaster_recovery_state_resilience'),
+                  _buildMetadataRow('Backend Version', readiness.version, tokens),
+                  _buildMetadataRow('Schema Level', 'v${readiness.schemaVersionNumber ?? 26}', tokens),
+                  _buildMetadataRow('Latest Migration', readiness.latestMigration ?? '026_disaster_recovery_state_resilience', tokens),
                   if (_diagnostics != null) ...[
-                    _buildMetadataRow('Environment', _diagnostics!.environment),
-                    _buildMetadataRow('Lifecycle State', _diagnostics!.lifecycleState),
-                    _buildMetadataRow('Uptime (Seconds)', '${_diagnostics!.uptimeSeconds}s'),
+                    _buildMetadataRow('Environment', _diagnostics!.environment, tokens),
+                    _buildMetadataRow('Lifecycle State', _diagnostics!.lifecycleState, tokens),
+                    _buildMetadataRow('Uptime (Seconds)', '${_diagnostics!.uptimeSeconds}s', tokens),
                   ],
-                  _buildMetadataRow('Last Checked', readiness.timestamp),
+                  _buildMetadataRow('Last Checked', readiness.timestamp, tokens),
                 ],
               ),
             ),
@@ -229,18 +236,22 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
     );
   }
 
-  Widget _buildDependencyCard(String name, String status, IconData icon) {
-    final color = _getStatusColor(status);
+  Widget _buildDependencyCard(String name, String status, IconData icon, EHThemeTokens tokens) {
+    final color = _getStatusColor(status, tokens);
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: ListTile(
         leading: Icon(icon, color: color),
-        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+        title: Text(name, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: tokens.textPrimary)),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
-            color: color.withAlpha(40),
+            color: color.withValues(alpha: tokens.isDark ? 0.25 : 0.12),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: color, width: 1),
           ),
@@ -253,14 +264,35 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
     );
   }
 
-  Widget _buildMetadataRow(String label, String value) {
+  Widget _buildMetadataRow(String label, String value, EHThemeTokens tokens) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: tokens.textPrimary,
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/intelligence_models.dart';
 import '../../../core/services/intelligence_service.dart';
+import '../../../core/widgets/eh_action_button.dart';
 import 'intelligence_recommendations_page.dart';
 import 'intelligence_decision_details_page.dart';
 import 'intelligence_history_page.dart';
@@ -20,6 +21,9 @@ class IntelligenceCenterPage extends StatefulWidget {
 }
 
 class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
+  bool _isEvaluating = false;
+  bool _isAutoExecuting = false;
+
   @override
   void initState() {
     super.initState();
@@ -28,6 +32,44 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
 
   Future<void> _refresh() async {
     await widget.service.fetchSummary(widget.homeId);
+  }
+
+  Future<void> _handleEvaluateRules() async {
+    if (_isEvaluating || _isAutoExecuting) return;
+    setState(() => _isEvaluating = true);
+    final ok = await widget.service.triggerEvaluation(widget.homeId);
+    if (mounted) {
+      setState(() => _isEvaluating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? 'Intelligence evaluation cycle completed.'
+                : (widget.service.errorMessage ?? 'Evaluation failed'),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleAutoExecuteSafe() async {
+    if (_isEvaluating || _isAutoExecuting) return;
+    setState(() => _isAutoExecuting = true);
+    final ok = await widget.service.triggerAutoExecution(widget.homeId);
+    if (mounted) {
+      setState(() => _isAutoExecuting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? 'Safe auto-execution executed successfully.'
+                : (widget.service.errorMessage ?? 'Auto-execution failed'),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -43,7 +85,10 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Home Intelligence Center'),
+            title: const Text(
+              'Home Intelligence Center',
+              overflow: TextOverflow.ellipsis,
+            ),
             actions: [
               IconButton(
                 icon: const Icon(Icons.history),
@@ -132,6 +177,7 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
   Widget _buildUnifiedStateCard(HomeIntelligenceSnapshot? snapshot) {
     if (snapshot == null) return const SizedBox.shrink();
 
+    final theme = Theme.of(context);
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -141,8 +187,8 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
             colors: [
-              Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.6),
-              Theme.of(context).colorScheme.surface,
+              theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+              theme.colorScheme.surface,
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -158,13 +204,13 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
                   children: [
                     Icon(
                       snapshot.isOccupied ? Icons.home : Icons.door_front_door_outlined,
-                      color: Theme.of(context).colorScheme.primary,
+                      color: theme.colorScheme.primary,
                       size: 28,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       'Mode: ${snapshot.homeContext}',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
@@ -194,9 +240,10 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
   }
 
   Widget _buildStatMetric(String label, String value, IconData icon, {bool isAlert = false}) {
+    final theme = Theme.of(context);
     return Column(
       children: [
-        Icon(icon, size: 20, color: isAlert ? Colors.red : Theme.of(context).colorScheme.primary),
+        Icon(icon, size: 20, color: isAlert ? Colors.red : theme.colorScheme.primary),
         const SizedBox(height: 4),
         Text(
           value,
@@ -208,7 +255,7 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
         ),
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
         ),
       ],
     );
@@ -218,40 +265,22 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
     return Row(
       children: [
         Expanded(
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.psychology_outlined),
-            label: const Text('Evaluate Rules'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () async {
-              final ok = await widget.service.triggerEvaluation(widget.homeId);
-              if (mounted && ok) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Intelligence evaluation cycle completed.')),
-                );
-              }
-            },
+          child: EHSelectionButton(
+            label: 'Evaluate Rules',
+            icon: Icons.psychology_outlined,
+            isSelected: _isEvaluating,
+            isLoading: _isEvaluating,
+            onPressed: _handleEvaluateRules,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.flash_auto),
-            label: const Text('Auto-Execute Safe'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () async {
-              final ok = await widget.service.triggerAutoExecution(widget.homeId);
-              if (mounted && ok) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Safe auto-execution executed.')),
-                );
-              }
-            },
+          child: EHSelectionButton(
+            label: 'Auto-Execute Safe',
+            icon: Icons.flash_auto,
+            isSelected: _isAutoExecuting,
+            isLoading: _isAutoExecuting,
+            onPressed: _handleAutoExecuteSafe,
           ),
         ),
       ],

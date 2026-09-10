@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
@@ -19,12 +20,14 @@ class HomeProfilePage extends StatefulWidget {
     required this.repository,
     this.connectionState,
     this.onConnectHome,
+    this.homeController,
   });
 
   final HomeSettingsData home;
   final SettingsRepository repository;
   final HomeConnectionState? connectionState;
   final Future<ConnectionResult> Function()? onConnectHome;
+  final HomeController? homeController;
 
   @override
   State<HomeProfilePage> createState() => _HomeProfilePageState();
@@ -42,7 +45,9 @@ class _HomeProfilePageState extends State<HomeProfilePage> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final rooms = RoomCatalog.preview;
+    final rooms = widget.homeController != null && widget.homeController!.rooms.isNotEmpty
+        ? widget.homeController!.rooms
+        : RoomCatalog.preview;
 
     return NestedSettingsScaffold(
       title: widget.home.name,
@@ -55,8 +60,11 @@ class _HomeProfilePageState extends State<HomeProfilePage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) =>
-                        HomeDetailsPage(home: widget.home, repository: widget.repository),
+                    builder: (_) => HomeDetailsPage(
+                      home: widget.home,
+                      repository: widget.repository,
+                      homeController: widget.homeController,
+                    ),
                   ),
                 ).then((_) => _reload());
               case _HomeProfileAction.people:
@@ -96,8 +104,11 @@ class _HomeProfilePageState extends State<HomeProfilePage> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) =>
-                        HomeDetailsPage(home: widget.home, repository: widget.repository),
+                    builder: (_) => HomeDetailsPage(
+                      home: widget.home,
+                      repository: widget.repository,
+                      homeController: widget.homeController,
+                    ),
                   ),
                 ).then((_) => _reload()),
                 roomCount: rooms.length,

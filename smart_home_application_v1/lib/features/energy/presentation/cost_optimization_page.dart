@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/energy_cost_models.dart';
 import '../../../core/services/energy_cost_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 /// Cost Optimization Hub — Load Shifting, Peak Avoidance & Savings Opportunities
 class CostOptimizationPage extends StatefulWidget {
@@ -39,19 +40,26 @@ class _CostOptimizationPageState extends State<CostOptimizationPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     final cheapest = widget.costService.cheapestPeriods;
     final opts = widget.costService.optimizations;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121418),
+      backgroundColor: tokens.bgApp,
       appBar: AppBar(
-        title: const Text('Cost Optimization Hub', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF1E222B),
+        title: Text(
+          'Cost Optimization Hub',
+          style: TextStyle(fontWeight: FontWeight.bold, color: tokens.textPrimary),
+        ),
+        backgroundColor: tokens.bgApp,
         elevation: 0,
+        iconTheme: IconThemeData(color: tokens.headerAction),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.amberAccent))
+          ? Center(child: CircularProgressIndicator(color: tokens.bluePrimary))
           : RefreshIndicator(
+              color: tokens.bluePrimary,
+              backgroundColor: tokens.surfaceElevated,
               onRefresh: _loadOptimizations,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -59,17 +67,17 @@ class _CostOptimizationPageState extends State<CostOptimizationPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (cheapest != null) _buildCheapestPeriodHero(cheapest),
+                    if (cheapest != null) _buildCheapestPeriodHero(cheapest, tokens),
                     const SizedBox(height: 20),
-                    const Text(
+                    Text(
                       'Load-Shifting Recommendations',
-                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(color: tokens.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     if (opts.isEmpty)
-                      _buildNoRecommendationsCard()
+                      _buildNoRecommendationsCard(tokens)
                     else
-                      ...opts.map((rec) => _buildRecommendationCard(rec)),
+                      ...opts.map((rec) => _buildRecommendationCard(rec, tokens)),
                   ],
                 ),
               ),
@@ -77,17 +85,13 @@ class _CostOptimizationPageState extends State<CostOptimizationPage> {
     );
   }
 
-  Widget _buildCheapestPeriodHero(CheapestPeriodModel cheapest) {
+  Widget _buildCheapestPeriodHero(CheapestPeriodModel cheapest, EHThemeTokens tokens) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF064E3B), Color(0xFF065F46)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: tokens.successContainer,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.4)),
+        border: Border.all(color: tokens.success.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -95,65 +99,85 @@ class _CostOptimizationPageState extends State<CostOptimizationPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.schedule, color: Colors.greenAccent, size: 20),
-                  SizedBox(width: 8),
-                  Text('Cheapest Next 24h Window', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Icon(Icons.schedule, color: tokens.success, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Cheapest Next 24h Window',
+                    style: TextStyle(color: tokens.success, fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
-                child: Text('SAVE ${cheapest.potentialSavingsPercent.toInt()}%',
-                    style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+                decoration: BoxDecoration(
+                  color: tokens.isDark ? Colors.black26 : Colors.white.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'SAVE ${cheapest.potentialSavingsPercent.toInt()}%',
+                  style: TextStyle(color: tokens.success, fontWeight: FontWeight.bold, fontSize: 11),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             '${cheapest.cheapestWindow.periodType} • ${cheapest.currency} ${cheapest.cheapestWindow.avgPricePerKwh.toStringAsFixed(2)}/kWh',
-            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+            style: TextStyle(color: tokens.textPrimary, fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
             'Recommended for EV charging, laundry, and dishwasher cycles',
-            style: const TextStyle(color: Colors.white70, fontSize: 13),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildNoRecommendationsCard() {
+  Widget _buildNoRecommendationsCard(EHThemeTokens tokens) {
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: const Padding(
-        padding: EdgeInsets.all(24.0),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 48),
-            SizedBox(height: 12),
-            Text('No High Peak Loads Detected', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-            SizedBox(height: 6),
-            Text('Your devices are running efficiently within low-cost tariff periods.',
-                textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 12)),
+            Icon(Icons.check_circle_outline, color: tokens.success, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              'No High Peak Loads Detected',
+              style: TextStyle(color: tokens.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Your devices are running efficiently within low-cost tariff periods.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildRecommendationCard(CostOptimizationRecommendationModel rec) {
+  Widget _buildRecommendationCard(CostOptimizationRecommendationModel rec, EHThemeTokens tokens) {
     final savings = rec.estimatedSavings;
     final monthlyCost = savings?['monthlyCostSavings'] ?? 0.0;
     final currency = savings?['currency'] ?? 'USD';
 
     return Card(
-      color: const Color(0xFF1E222B),
+      color: tokens.surfaceCard,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -163,29 +187,41 @@ class _CostOptimizationPageState extends State<CostOptimizationPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Text(rec.title, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    rec.title,
+                    style: TextStyle(color: tokens.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.amberAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-                  child: Text(rec.priority, style: const TextStyle(color: Colors.amberAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                  decoration: BoxDecoration(
+                    color: tokens.warningContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    rec.priority,
+                    style: TextStyle(color: tokens.warning, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(rec.description, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(
+              rec.description,
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
-                const Icon(Icons.savings_outlined, color: Colors.greenAccent, size: 18),
+                Icon(Icons.savings_outlined, color: tokens.success, size: 18),
                 const SizedBox(width: 6),
                 Text(
                   'Est. Savings: $currency ${monthlyCost.toString()} / mo',
-                  style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                  style: TextStyle(color: tokens.success, fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ],
             ),
-            const Divider(color: Colors.white10, height: 24),
+            Divider(color: tokens.borderSubtle, height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
@@ -193,7 +229,7 @@ class _CostOptimizationPageState extends State<CostOptimizationPage> {
                   onPressed: () async {
                     await widget.costService.dismissCostOptimization(widget.homeId, rec.id);
                   },
-                  child: const Text('Dismiss', style: TextStyle(color: Colors.white54)),
+                  child: Text('Dismiss', style: TextStyle(color: tokens.textSecondary)),
                 ),
               ],
             ),
