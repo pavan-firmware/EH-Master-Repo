@@ -73,14 +73,80 @@ class _OtaRolloutsPageState extends State<OtaRolloutsPage> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
+            final errStr = snapshot.error.toString();
+            final isForbidden = errStr.contains('403') ||
+                errStr.toLowerCase().contains('forbidden') ||
+                errStr.toLowerCase().contains('administrative privilege');
+
             return Center(
-              child: Text('Error loading rollouts: ${snapshot.error}'),
+              child: Padding(
+                padding: const EdgeInsets.all(28.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: (isForbidden ? tokens.bluePrimary : tokens.error)
+                            .withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isForbidden
+                            ? Icons.admin_panel_settings_outlined
+                            : Icons.error_outline,
+                        size: 48,
+                        color: isForbidden ? tokens.bluePrimary : tokens.error,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      isForbidden
+                          ? 'Administrator Access Required'
+                          : 'Unable to Load Rollouts',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      isForbidden
+                          ? 'OTA rollout campaign deployment and staging are restricted to platform administrators with firmware management permissions.'
+                          : 'Could not retrieve OTA rollout campaigns. Please check your connection and retry.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: _loadRollouts,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Retry'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tokens.bluePrimary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
           final rollouts = snapshot.data ?? [];
           if (rollouts.isEmpty) {
-            return const Center(
-              child: Text('No active rollout campaigns'),
+            return Center(
+              child: Text(
+                'No active rollout campaigns',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 15),
+              ),
             );
           }
           return ListView.builder(

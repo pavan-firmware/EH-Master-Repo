@@ -137,6 +137,42 @@ class _RolloutDetailsPageState extends State<RolloutDetailsPage> {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snapshot.hasError) {
+            final errStr = snapshot.error.toString();
+            final isForbidden = errStr.contains('403') ||
+                errStr.toLowerCase().contains('forbidden') ||
+                errStr.toLowerCase().contains('administrative privilege');
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(28.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      isForbidden ? Icons.admin_panel_settings_outlined : Icons.error_outline,
+                      size: 48,
+                      color: isForbidden ? tokens.bluePrimary : tokens.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      isForbidden ? 'Administrator Access Required' : 'Unable to Load Campaign',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: tokens.textPrimary),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isForbidden
+                          ? 'Rollout details and actions are restricted to platform administrators.'
+                          : 'Failed to retrieve rollout campaign data.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton(onPressed: _loadDetails, child: const Text('Retry')),
+                  ],
+                ),
+              ),
+            );
+          }
           final rollout = snapshot.data;
           if (rollout == null) {
             return const Center(child: Text('Rollout details not found'));

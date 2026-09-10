@@ -97,6 +97,7 @@ class AuthService {
     const payload = {
       sub: user.id,
       email: user.email,
+      role: user.role || 'USER',
       type: 'access',
       iss: 'eh-home-auth',
       aud: 'eh-home-api',
@@ -205,6 +206,7 @@ class AuthService {
       schemaVersion: 1,
       id: user.id,
       email: user.email,
+      role: user.role || 'USER',
       emailVerified: user.email_verified || false,
       createdAt: user.created_at
     };
@@ -252,6 +254,7 @@ class AuthService {
         schemaVersion: 1,
         id: user.id,
         email: user.email,
+        role: user.role || 'USER',
         emailVerified: user.email_verified || false,
         createdAt: user.created_at
       }
@@ -315,6 +318,7 @@ class AuthService {
         schemaVersion: 1,
         id: user.id,
         email: user.email,
+        role: user.role || 'USER',
         emailVerified: user.email_verified || false,
         createdAt: user.created_at
       }

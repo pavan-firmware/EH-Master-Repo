@@ -271,7 +271,7 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 110,
             child: Text(
               label,
               style: TextStyle(
@@ -286,6 +286,9 @@ class _SystemOperationalStatusPageState extends State<SystemOperationalStatusPag
             child: Text(
               value,
               textAlign: TextAlign.right,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              softWrap: true,
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: 13,

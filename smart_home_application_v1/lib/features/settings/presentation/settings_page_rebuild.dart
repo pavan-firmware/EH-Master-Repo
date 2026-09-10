@@ -331,7 +331,12 @@ class _SettingsContent extends StatelessWidget {
             ThemeMode.light => 'Light theme',
           };
 
-    final effectiveHomeId = homeId ?? home.id;
+    final effectiveHomeId = (homeId != null && homeId!.isNotEmpty)
+        ? homeId!
+        : (homeController?.activeHomeId != null &&
+                homeController!.activeHomeId!.isNotEmpty)
+            ? homeController!.activeHomeId!
+            : (home.id.isNotEmpty ? home.id : 'home_01');
     final effectiveClient = apiClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
 
     return ListView(

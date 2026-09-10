@@ -16,10 +16,19 @@ class CloudRoutineRepository implements RoutineRepository {
       return _activeHomeId;
     }
     try {
-      final homes = await _apiClient.get('/api/v1/homes');
-      if (homes is List && homes.isNotEmpty) {
-        _activeHomeId = homes.first['id']?.toString();
-        return _activeHomeId;
+      final res = await _apiClient.get('/api/v1/homes');
+      List<dynamic>? list;
+      if (res is List) {
+        list = res;
+      } else if (res is Map && res['data'] is List) {
+        list = res['data'] as List<dynamic>;
+      }
+      if (list != null && list.isNotEmpty) {
+        final first = list.first;
+        if (first is Map && first['id'] != null) {
+          _activeHomeId = first['id'].toString();
+          return _activeHomeId;
+        }
       }
     } catch (_) {}
     return null;
