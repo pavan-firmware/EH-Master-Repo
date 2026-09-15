@@ -115,19 +115,25 @@ if (require.main === module) {
   const port = process.env.PORT || 3000;
   const host = process.env.HOST || '0.0.0.0';
 
-  try {
-    const server = createServer();
-    setupGracefulShutdown(server);
+  (async () => {
+    try {
+      const server = createServer();
+      const appDb = (server.appInstance && (server.appInstance.db || (server.appInstance.services && server.appInstance.services.db)));
+      if (appDb && typeof appDb.connect === 'function') {
+        await appDb.connect();
+      }
+      setupGracefulShutdown(server);
 
-    server.listen(port, host, () => {
-      console.log(`[EH Home Backend] Server running in ${process.env.NODE_ENV || 'development'} mode at http://${host}:${port}/`);
-      console.log(`[EH Home Backend] Liveness check available at http://${host}:${port}/api/v1/health/liveness`);
-      console.log(`[EH Home Backend] Readiness check available at http://${host}:${port}/api/v1/health/readiness`);
-    });
-  } catch (err) {
-    console.error(`[EH Home Backend Startup Failed]:`, err.message);
-    process.exit(1);
-  }
+      server.listen(port, host, () => {
+        console.log(`[EH Home Backend] Server running in ${process.env.NODE_ENV || 'development'} mode at http://${host}:${port}/`);
+        console.log(`[EH Home Backend] Liveness check available at http://${host}:${port}/api/v1/health/liveness`);
+        console.log(`[EH Home Backend] Readiness check available at http://${host}:${port}/api/v1/health/readiness`);
+      });
+    } catch (err) {
+      console.error(`[EH Home Backend Startup Failed]:`, err.message);
+      process.exit(1);
+    }
+  })();
 }
 
 module.exports = { createServer, setupGracefulShutdown };

@@ -16,9 +16,11 @@
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const { createApp } = require('../src/app');
+const { createDatabaseClient } = require('../src/shared/db-client');
 const { ROLE_PERMISSIONS, checkPermission } = require('../src/shared/home-authorization');
 
 let app;
+let dbClient;
 
 async function request(method, path, body = null, token = null, headers = {}) {
   return new Promise((resolve) => {
@@ -99,14 +101,20 @@ async function runPhase48Tests() {
   console.log('  RUNNING PHASE 48 — HOME OWNERSHIP, MEMBERSHIP & RBAC SUITE   ');
   console.log('================================================================\n');
 
+  dbClient = createDatabaseClient({
+    connectionString: process.env.DATABASE_URL
+  });
+  await dbClient.connect();
+
   app = createApp({
-    databaseUrl: process.env.DATABASE_URL,
+    db: dbClient
   });
 
-  // ------------------------------------------------------------------
-  // 1. UNIT EVALUATION: Canonical Home Authorization Engine
-  // ------------------------------------------------------------------
-  console.log('[1. Canonical Home Authorization Engine]');
+  try {
+    // ------------------------------------------------------------------
+    // 1. UNIT EVALUATION: Canonical Home Authorization Engine
+    // ------------------------------------------------------------------
+    console.log('[1. Canonical Home Authorization Engine]');
   assert(ROLE_PERMISSIONS.OWNER.canManageHome === true, 'OWNER can manage home');
   assert(ROLE_PERMISSIONS.OWNER.canManageMembers === true, 'OWNER can manage members');
   assert(ROLE_PERMISSIONS.OWNER.canDeleteHome === true, 'OWNER can delete home');
@@ -358,6 +366,11 @@ async function runPhase48Tests() {
   console.log('\n================================================================');
   console.log('  PHASE 48 BACKEND TEST SUITE: ALL 35+ SCENARIOS VERIFIED ✅   ');
   console.log('================================================================\n');
+  } finally {
+    if (dbClient && typeof dbClient.close === 'function') {
+      await dbClient.close();
+    }
+  }
 }
 
 if (require.main === module) {

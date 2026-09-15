@@ -828,8 +828,8 @@ class RefreshTokenRepository {
   }
 
   async listActiveSessions(userId) {
-    const now = new Date().toISOString();
-    const tokens = await this.db.find('refresh_tokens', t => t.user_id === userId && t.expires_at > now);
+    const now = new Date();
+    const tokens = await this.db.find('refresh_tokens', t => t.user_id === userId && new Date(t.expires_at) > now);
     return tokens.map(t => ({
       id: t.id,
       userId: t.user_id,
@@ -894,13 +894,13 @@ class InvitationRepository {
   }
 
   async findPendingByHome(homeId) {
-    const now = new Date().toISOString();
-    return this.db.find('home_invitations', i => i.home_id === homeId && i.status === 'PENDING' && i.expires_at > now);
+    const now = new Date();
+    return this.db.find('home_invitations', i => i.home_id === homeId && i.status === 'PENDING' && new Date(i.expires_at) > now);
   }
 
   async findPendingByEmail(email) {
-    const now = new Date().toISOString();
-    return this.db.find('home_invitations', i => i.invitee_email.toLowerCase() === email.toLowerCase() && i.status === 'PENDING' && i.expires_at > now);
+    const now = new Date();
+    return this.db.find('home_invitations', i => i.invitee_email.toLowerCase() === email.toLowerCase() && i.status === 'PENDING' && new Date(i.expires_at) > now);
   }
 
   async updateStatus(id, status, acceptedAt = null) {

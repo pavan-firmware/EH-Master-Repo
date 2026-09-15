@@ -17,15 +17,15 @@ CREATE TABLE IF NOT EXISTS product_models (
 
 -- 2. Device Add Sessions Table
 CREATE TABLE IF NOT EXISTS device_add_sessions (
-    id UUID PRIMARY KEY,
-    home_id UUID NOT NULL REFERENCES homes(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id VARCHAR(64) PRIMARY KEY,
+    home_id VARCHAR(64) NOT NULL REFERENCES homes(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     entry_mode VARCHAR(32) NOT NULL CHECK (entry_mode IN ('QR_SCAN', 'NEARBY_DISCOVERY', 'MANUAL_CATALOG', 'RE_ADD_RESET', 'MATTER_COMMISSIONING')),
     stage VARCHAR(32) NOT NULL CHECK (stage IN ('PRODUCT_SELECTED', 'COMPATIBILITY_CHECKED', 'DISCOVERING_DEVICE', 'COMMISSIONING', 'REGISTERED', 'CLAIMED', 'CONFIGURED', 'VERIFIED', 'COMPLETED', 'FAILED', 'CANCELLED')),
     product_variant_id VARCHAR(64) REFERENCES product_variants(id) ON DELETE SET NULL,
-    device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
+    device_id VARCHAR(64) REFERENCES devices(id) ON DELETE SET NULL,
     commissioning_session_id VARCHAR(64),
-    selected_room_id UUID REFERENCES rooms(id) ON DELETE SET NULL,
+    selected_room_id VARCHAR(64) REFERENCES rooms(id) ON DELETE SET NULL,
     custom_device_name VARCHAR(128),
     channel_labels JSONB DEFAULT '{}'::jsonb,
     compatibility_status VARCHAR(32),

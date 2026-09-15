@@ -6,6 +6,9 @@ console.log('=== VERIFYING FULL SQL MIGRATION LIFECYCLE ===\n');
 const migrations = [
   { up: '001_initial_schema.sql', down: '001_initial_schema.down.sql' },
   { up: '002_capabilities_network_audit_outbox.sql', down: '002_capabilities_network_audit_outbox.down.sql' },
+  { up: '003_seed_dev_catalog.sql', down: '003_seed_dev_catalog.down.sql' },
+  { up: '004_seed_missing_capabilities.sql', down: '004_seed_missing_capabilities.down.sql' },
+  { up: '005_create_provisioning_sessions.sql', down: '005_create_provisioning_sessions.down.sql' },
   { up: '006_automations_scenes_schedules.sql', down: '006_automations_scenes_schedules.down.sql' },
   { up: '007_device_management_health_observability.sql', down: '007_device_management_health_observability.down.sql' },
   { up: '008_notifications_alerts.sql', down: '008_notifications_alerts.down.sql' },

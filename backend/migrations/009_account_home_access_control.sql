@@ -4,7 +4,7 @@
 
 -- 1. User Profiles & Account Metadata
 CREATE TABLE IF NOT EXISTS user_profiles (
-    id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    id VARCHAR(64) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     full_name VARCHAR(128),
     phone_number VARCHAR(32),
     avatar_url TEXT,
@@ -17,9 +17,9 @@ CREATE INDEX IF NOT EXISTS idx_user_profiles_updated_at ON user_profiles(updated
 
 -- 2. Home Invitations
 CREATE TABLE IF NOT EXISTS home_invitations (
-    id UUID PRIMARY KEY,
-    home_id UUID NOT NULL REFERENCES homes(id) ON DELETE CASCADE,
-    inviter_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id VARCHAR(64) PRIMARY KEY,
+    home_id VARCHAR(64) NOT NULL REFERENCES homes(id) ON DELETE CASCADE,
+    inviter_user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     invitee_email VARCHAR(255) NOT NULL,
     role VARCHAR(32) NOT NULL CHECK (role IN ('ADMIN', 'MEMBER', 'GUEST', 'VIEWER')),
     invite_code VARCHAR(128) NOT NULL UNIQUE,
