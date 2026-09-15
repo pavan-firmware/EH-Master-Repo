@@ -59,6 +59,7 @@ class _PeoplePageState extends State<PeoplePage> {
         return _PeopleContent(
           data: snapshot.data!,
           onInvite: _invite,
+          onRemoveMember: _removeMember,
           onInvitationAction: _handleInvitation,
         );
       },
@@ -66,23 +67,70 @@ class _PeoplePageState extends State<PeoplePage> {
   );
 
   Future<void> _invite() async {
-    final result = await showDialog<String>(
+    final result = await showDialog<({String email, String role})>(
       context: context,
       builder: (ctx) => const _InviteDialog(),
     );
 
-    if (result == null || result.isEmpty || !mounted) return;
+    if (result == null || result.email.isEmpty || !mounted) return;
 
-    final op = await widget.repository.invitePerson(result);
+    final op = await widget.repository.invitePersonWithRole(
+      result.email,
+      role: result.role,
+    );
     if (!mounted) return;
     if (op == SettingsOperationResult.success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invitation sent to $result')),
+        SnackBar(content: Text('Invitation sent to ${result.email}')),
       );
       _reload();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to send invitation. Please try again.')),
+      );
+    }
+  }
+
+  Future<void> _removeMember(HomeMember member) async {
+    if (member.role == HomeMemberRole.owner) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cannot remove the home owner.')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Member'),
+        content: Text('Are you sure you want to remove ${member.displayName} from this home? They will lose all access immediately.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD92D20)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final res = await widget.repository.removeMember(member.id);
+    if (!mounted) return;
+
+    if (res == SettingsOperationResult.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${member.displayName} was removed from this home.')),
+      );
+      _reload();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not remove member. Please try again.')),
       );
     }
   }
@@ -120,10 +168,12 @@ class _PeopleContent extends StatelessWidget {
   const _PeopleContent({
     required this.data,
     required this.onInvite,
+    required this.onRemoveMember,
     required this.onInvitationAction,
   });
   final _PeopleData data;
   final VoidCallback onInvite;
+  final ValueChanged<HomeMember> onRemoveMember;
   final Future<void> Function(HomeInvitation invitation, bool resend)
   onInvitationAction;
 
@@ -152,13 +202,10 @@ class _PeopleContent extends StatelessWidget {
                   color: tokens.textPrimary,
                 ),
               ),
-              const SizedBox(height: 5),
+              const SizedBox(height: 6),
               Text(
-                '$ownerCount home owner · $memberCount members',
-                style: TextStyle(
-                  color: tokens.textSecondary,
-                  fontSize: 15,
-                ),
+                'Owners and admins can configure the home, invite household members, and organize rooms.',
+                style: TextStyle(color: tokens.textSecondary, height: 1.3),
               ),
               const SizedBox(height: 13),
               Container(
@@ -201,15 +248,15 @@ class _PeopleContent extends StatelessWidget {
               Row(
                 children: [
                   _AccessStat(
-                    icon: Icons.people_outline_rounded,
-                    value: '${data.members.length}',
-                    label: 'Members',
+                    icon: Icons.verified_user_rounded,
+                    value: '$ownerCount',
+                    label: 'Owner',
                     color: tokens.bluePrimary,
                   ),
                   _AccessStat(
-                    icon: Icons.admin_panel_settings_outlined,
-                    value: '$ownerCount',
-                    label: 'Owners',
+                    icon: Icons.group_rounded,
+                    value: '$memberCount',
+                    label: 'Members',
                     color: tokens.success,
                   ),
                   _AccessStat(
@@ -276,6 +323,9 @@ class _PeopleContent extends StatelessWidget {
                 _MemberRow(
                   member: data.members[index],
                   showDivider: index != data.members.length - 1,
+                  onRemove: data.members[index].role != HomeMemberRole.owner
+                      ? () => onRemoveMember(data.members[index])
+                      : null,
                 ),
             ],
           ),
@@ -372,12 +422,20 @@ class _AccessStat extends StatelessWidget {
 }
 
 class _MemberRow extends StatelessWidget {
-  const _MemberRow({required this.member, required this.showDivider});
+  const _MemberRow({
+    required this.member,
+    required this.showDivider,
+    this.onRemove,
+  });
   final HomeMember member;
   final bool showDivider;
+  final VoidCallback? onRemove;
   @override
   Widget build(BuildContext context) {
-    final owner = member.role == HomeMemberRole.owner;
+    final isOwner = member.role == HomeMemberRole.owner;
+    final isAdmin = member.role == HomeMemberRole.admin;
+    final isGuest = member.role == HomeMemberRole.guest;
+
     return Column(
       children: [
         Padding(
@@ -386,12 +444,12 @@ class _MemberRow extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 25,
-                backgroundColor: owner
+                backgroundColor: isOwner
                     ? SettingsColors.paleBlue
-                    : SettingsColors.paleGreen,
-                foregroundColor: owner
+                    : (isAdmin ? SettingsColors.paleOrange : SettingsColors.paleGreen),
+                foregroundColor: isOwner
                     ? SettingsColors.blue
-                    : SettingsColors.green,
+                    : (isAdmin ? SettingsColors.orange : SettingsColors.green),
                 child: Text(
                   member.initials,
                   style: const TextStyle(
@@ -416,7 +474,7 @@ class _MemberRow extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (owner) ...[
+                        if (isOwner) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -436,27 +494,58 @@ class _MemberRow extends StatelessWidget {
                               ),
                             ),
                           ),
+                        ] else if (isAdmin) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: SettingsColors.paleOrange,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Text(
+                              'Home Admin',
+                              style: TextStyle(
+                                color: SettingsColors.orange,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                         ],
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      owner
+                      isOwner
                           ? 'Home owner'
-                          : 'Member · ${member.lastActiveLabel ?? 'Access active'}',
+                          : (isAdmin
+                              ? 'Home Admin · ${member.lastActiveLabel ?? 'Access active'}'
+                              : (isGuest
+                                  ? 'Guest · Restricted'
+                                  : 'Member · ${member.lastActiveLabel ?? 'Access active'}')),
                       style: TextStyle(
-                        color: owner
+                        color: isOwner
                             ? SettingsColors.muted
-                            : SettingsColors.green,
+                            : (isAdmin ? SettingsColors.orange : SettingsColors.green),
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                owner ? Icons.more_vert_rounded : Icons.chevron_right_rounded,
-                color: SettingsColors.muted,
-              ),
+              if (!isOwner && onRemove != null)
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline_rounded, color: SettingsColors.red),
+                  tooltip: 'Remove member access',
+                  onPressed: onRemove,
+                )
+              else
+                Icon(
+                  isOwner ? Icons.verified_user_rounded : Icons.chevron_right_rounded,
+                  color: isOwner ? SettingsColors.blue : SettingsColors.muted,
+                ),
             ],
           ),
         ),
@@ -502,9 +591,11 @@ class _InvitationRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Invitation pending',
-                style: TextStyle(color: SettingsColors.muted),
+              Text(
+                invitation.role == HomeMemberRole.admin
+                    ? 'Home Admin invitation pending'
+                    : 'Invitation pending',
+                style: const TextStyle(color: SettingsColors.muted),
               ),
               const SizedBox(height: 8),
               Text(
@@ -617,6 +708,7 @@ class _InviteDialog extends StatefulWidget {
 
 class _InviteDialogState extends State<_InviteDialog> {
   late final TextEditingController _emailCtrl;
+  String _selectedRole = 'MEMBER';
 
   @override
   void initState() {
@@ -639,7 +731,7 @@ class _InviteDialogState extends State<_InviteDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Enter the email address of the person you want to invite.',
+            'Enter the email address and access role for this person.',
           ),
           const SizedBox(height: 16),
           TextField(
@@ -652,6 +744,31 @@ class _InviteDialogState extends State<_InviteDialog> {
               prefixIcon: Icon(Icons.email_outlined),
             ),
           ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            initialValue: _selectedRole,
+            decoration: const InputDecoration(
+              labelText: 'Access Level',
+              prefixIcon: Icon(Icons.shield_outlined),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: 'HOME_ADMIN',
+                child: Text('Home Admin'),
+              ),
+              DropdownMenuItem(
+                value: 'MEMBER',
+                child: Text('Member'),
+              ),
+              DropdownMenuItem(
+                value: 'GUEST',
+                child: Text('Guest'),
+              ),
+            ],
+            onChanged: (val) {
+              if (val != null) setState(() => _selectedRole = val);
+            },
+          ),
         ],
       ),
       actions: [
@@ -662,7 +779,9 @@ class _InviteDialogState extends State<_InviteDialog> {
         FilledButton(
           onPressed: () {
             final text = _emailCtrl.text.trim();
-            if (text.isNotEmpty) Navigator.pop(context, text);
+            if (text.isNotEmpty) {
+              Navigator.pop(context, (email: text, role: _selectedRole));
+            }
           },
           child: const Text('Send Invite'),
         ),

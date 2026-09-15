@@ -15,6 +15,7 @@ import '../features/auth/auth_controller.dart';
 import '../features/auth/login_screen.dart';
 import 'home_controller.dart';
 import 'theme_controller.dart';
+import '../features/onboarding/presentation/home_onboarding_screen.dart';
 import '../features/splash/presentation/splash_screen.dart';
 
 class SmartHomeApp extends StatefulWidget {
@@ -124,6 +125,7 @@ class _SmartHomeAppState extends State<SmartHomeApp>
   Future<void> _resolveHomeAndConnect() async {
     if (_isResolvingHome) return;
     _isResolvingHome = true;
+    if (mounted) setState(() {});
 
     try {
       if (_accountHomeRepository != null) {
@@ -150,6 +152,7 @@ class _SmartHomeAppState extends State<SmartHomeApp>
       // Graceful error recovery: avoid crashing and avoid fake fallback
     } finally {
       _isResolvingHome = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -183,6 +186,35 @@ class _SmartHomeAppState extends State<SmartHomeApp>
       _realtimeService?.dispose();
     }
     super.dispose();
+  }
+
+  Widget _buildAuthenticatedHome() {
+    if (_isResolvingHome) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_activeHomeId == null && _accountHomeRepository != null) {
+      return HomeOnboardingScreen(
+        accountHomeRepository: _accountHomeRepository!,
+        homeController: _homeController,
+        onHomeCreated: (homeId) async {
+          _activeHomeId = homeId;
+          _homeController.setActiveHomeId(homeId);
+          await _homeController.loadHomeData(homeId: homeId);
+          _realtimeService?.connect(homeId);
+          if (mounted) setState(() {});
+        },
+      );
+    }
+
+    return SplashScreen(
+      homeController: _homeController,
+      authController: _authController,
+      apiClient: _apiClient,
+      homeId: _activeHomeId,
+    );
   }
 
   @override
@@ -240,13 +272,8 @@ class _SmartHomeAppState extends State<SmartHomeApp>
                         return LoginScreen(controller: _authController!);
                       }
 
-                      // Authenticated → show splash → home shell
-                      return SplashScreen(
-                        homeController: _homeController,
-                        authController: _authController,
-                        apiClient: _apiClient,
-                        homeId: _activeHomeId,
-                      );
+                      // Authenticated → show onboarding if no home, or splash → home shell
+                      return _buildAuthenticatedHome();
                     },
                   )
                 : SplashScreen(

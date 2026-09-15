@@ -32,8 +32,17 @@ class HomeDeviceApiRouter {
       }
 
       if (method === 'POST' && path === '/api/v1/homes') {
-        const ownerId = body.ownerId || actorUserId;
-        const home = await this.homeService.createHome({ ...body, ownerId, actorUserId });
+        const ownerId = actorUserId;
+        if (!ownerId) {
+          return { status: 401, body: { success: false, error: 'Authentication required to create a home' } };
+        }
+        const home = await this.homeService.createHome({
+          name: body.name,
+          timezone: body.timezone || 'UTC',
+          address: body.address || null,
+          ownerId,
+          actorUserId
+        });
         return { status: 201, body: { success: true, data: home } };
       }
 

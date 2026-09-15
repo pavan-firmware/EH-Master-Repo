@@ -24,8 +24,10 @@ class InvitationService {
   }
 
   async createInvitation({ homeId, inviterUserId, inviteeEmail, role = 'MEMBER', customCode = null }) {
+    let normalizedRole = (role || 'MEMBER').toUpperCase();
+    if (normalizedRole === 'HOME_ADMIN') normalizedRole = 'ADMIN';
+
     const validRoles = ['ADMIN', 'MEMBER', 'GUEST', 'VIEWER'];
-    const normalizedRole = (role || 'MEMBER').toUpperCase();
     if (!validRoles.includes(normalizedRole)) {
       throw new Error(`Invalid invitation role '${role}'. Allowed: ${validRoles.join(', ')}`);
     }
@@ -116,7 +118,10 @@ class InvitationService {
 
   async acceptInvitation({ inviteCode, userId, email }) {
     if (!inviteCode) throw new Error('Invite code is required');
-    const inv = await this.invitationRepo.findByCode(inviteCode);
+    let inv = await this.invitationRepo.findByCode(inviteCode);
+    if (!inv && this.invitationRepo.findById) {
+      inv = await this.invitationRepo.findById(inviteCode);
+    }
     if (!inv) throw new Error('Invalid invitation code');
 
     if (inv.status !== 'PENDING') {
@@ -160,7 +165,10 @@ class InvitationService {
 
   async rejectInvitation({ inviteCode, email }) {
     if (!inviteCode) throw new Error('Invite code is required');
-    const inv = await this.invitationRepo.findByCode(inviteCode);
+    let inv = await this.invitationRepo.findByCode(inviteCode);
+    if (!inv && this.invitationRepo.findById) {
+      inv = await this.invitationRepo.findById(inviteCode);
+    }
     if (!inv) throw new Error('Invalid invitation code');
 
     if (inv.status !== 'PENDING') {

@@ -1008,9 +1008,13 @@ function createApp(options = {}) {
           requiredCapability = 'canControlDevices';
         } else if (pathname.includes('/scenes') && method === 'POST' && pathname.endsWith('/execute')) {
           requiredCapability = 'canExecuteAutomations';
+        } else if (pathname.startsWith('/api/v1/homes/') && pathname.endsWith('/transfer-ownership') && method === 'POST') {
+          requiredCapability = 'canTransferOwnership';
         } else if (pathname.startsWith('/api/v1/homes/') && !pathname.includes('/', 15) && method === 'DELETE') {
           requiredCapability = 'canDeleteHome';
         } else if (pathname.startsWith('/api/v1/homes/') && !pathname.includes('/', 15) && method === 'PATCH') {
+          requiredCapability = 'canManageHome';
+        } else if ((pathname.includes('/rooms') || pathname.includes('/floors')) && method === 'POST') {
           requiredCapability = 'canManageHome';
         } else if (pathname.includes('/members') && (method === 'POST' || method === 'PATCH' || method === 'DELETE')) {
           requiredCapability = 'canManageMembers';

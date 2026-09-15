@@ -246,6 +246,9 @@ runStep('58. Phase 47 Stage 2 Physical ESP32 Verification Tests', `${nodeBin} ba
 // 59. Phase 47 Stage 4 Product UI, Features, Settings & Backend Persistence Tests
 runStep('59. Phase 47 Stage 4 Product Integration & Persistence Tests', `${nodeBin} backend/tests/phase47-stage4-product-integration.test.js`);
 
+// 60. Phase 48 Home Ownership, Invitation, Membership & RBAC Tests
+runStep('60. Phase 48 Home Ownership, Membership & RBAC Tests', `${nodeBin} backend/tests/phase48-home-lifecycle-rbac.test.js`);
+
 
 
 const passedSuites = totalSuites - failedSuites;

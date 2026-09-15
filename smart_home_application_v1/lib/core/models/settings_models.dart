@@ -8,7 +8,25 @@ enum HomeConnectionAvailability {
   unavailable,
 }
 
-enum HomeMemberRole { owner, member }
+enum HomeMemberRole {
+  owner,
+  admin,
+  member,
+  guest;
+
+  String get label {
+    switch (this) {
+      case HomeMemberRole.owner:
+        return 'Owner';
+      case HomeMemberRole.admin:
+        return 'Home Admin';
+      case HomeMemberRole.member:
+        return 'Member';
+      case HomeMemberRole.guest:
+        return 'Guest';
+    }
+  }
+}
 
 enum HomeMemberStatus { active, pending, unavailable }
 
@@ -79,6 +97,7 @@ class HomeMember {
     required this.role,
     required this.status,
     required this.initials,
+    this.email,
     this.lastActiveLabel,
   });
 
@@ -87,6 +106,7 @@ class HomeMember {
   final HomeMemberRole role;
   final HomeMemberStatus status;
   final String initials;
+  final String? email;
   final String? lastActiveLabel;
 }
 
@@ -97,6 +117,8 @@ class HomeInvitation {
     required this.initials,
     required this.invitedLabel,
     required this.expiresLabel,
+    this.role = HomeMemberRole.member,
+    this.code,
   });
 
   final String id;
@@ -104,6 +126,8 @@ class HomeInvitation {
   final String initials;
   final String invitedLabel;
   final String expiresLabel;
+  final HomeMemberRole role;
+  final String? code;
 }
 
 class DiscoveredRoomDevice {

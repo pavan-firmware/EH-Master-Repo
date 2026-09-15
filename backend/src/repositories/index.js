@@ -107,27 +107,35 @@ class HomeRepository {
   async createHome({ id, name, timezone = 'UTC', address = null, ownerId, owner_id }) {
     const targetOwnerId = ownerId || owner_id;
     const homeId = id || require('crypto').randomUUID();
-    // Verify owner exists
-    const owner = await this.db.findById('users', targetOwnerId);
-    if (!owner) throw new Error(`Owner user ${targetOwnerId} does not exist`);
 
-    const home = await this.db.insert('homes', homeId, {
-      name,
-      timezone,
-      address,
-      owner_id: targetOwnerId
+    return this.db.withTransaction(async (trxDb) => {
+      const activeDb = trxDb || this.db;
+      // Verify owner exists
+      const owner = await activeDb.findById('users', targetOwnerId);
+      if (!owner) throw new Error(`Owner user ${targetOwnerId} does not exist`);
+
+      const home = await activeDb.insert('homes', homeId, {
+        name,
+        timezone,
+        address,
+        owner_id: targetOwnerId
+      });
+
+      // Auto-create owner membership atomically
+      const membershipId = `${homeId}_${targetOwnerId}`;
+      const existing = await activeDb.find('home_memberships', m => m.home_id === homeId && m.user_id === targetOwnerId);
+      if (existing.length === 0) {
+        await activeDb.insert('home_memberships', membershipId, {
+          home_id: homeId,
+          user_id: targetOwnerId,
+          role: 'OWNER',
+          invited_at: new Date().toISOString(),
+          accepted_at: new Date().toISOString()
+        });
+      }
+
+      return home;
     });
-
-    // Auto-create owner membership
-    await this.addMembership({
-      id: `${homeId}_${targetOwnerId}`,
-      homeId: homeId,
-      userId: targetOwnerId,
-      role: 'OWNER',
-      acceptedAt: new Date().toISOString()
-    });
-
-    return home;
   }
 
   async updateHome(homeId, { name, timezone, address }) {
