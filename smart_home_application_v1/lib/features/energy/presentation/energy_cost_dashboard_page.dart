@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/energy_cost_models.dart';
 import '../../../core/services/energy_cost_service.dart';
+import '../../../core/theme/app_theme.dart';
 import 'tariff_management_page.dart';
 import 'energy_budget_page.dart';
 import 'cost_optimization_page.dart';
@@ -47,16 +48,25 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF121418),
+      backgroundColor: tokens.bgApp,
       appBar: AppBar(
-        title: const Text('Energy Cost & Optimization', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF1E222B),
+        title: Text(
+          'Energy Cost & Optimization',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: tokens.textPrimary,
+          ),
+        ),
+        backgroundColor: tokens.bgApp,
         elevation: 0,
+        iconTheme: IconThemeData(color: tokens.headerAction),
         actions: [
           IconButton(
             key: const Key('btn_manage_tariffs'),
-            icon: const Icon(Icons.price_change_outlined),
+            icon: Icon(Icons.price_change_outlined, color: tokens.headerAction),
             tooltip: 'Tariffs',
             onPressed: () {
               Navigator.push(
@@ -72,7 +82,7 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
           ),
           IconButton(
             key: const Key('btn_manage_budget'),
-            icon: const Icon(Icons.account_balance_wallet_outlined),
+            icon: Icon(Icons.account_balance_wallet_outlined, color: tokens.headerAction),
             tooltip: 'Budget',
             onPressed: () {
               Navigator.push(
@@ -88,14 +98,16 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
           ),
           IconButton(
             key: const Key('btn_refresh_cost'),
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh, color: tokens.headerAction),
             onPressed: _loadAllData,
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.amberAccent))
+          ? Center(child: CircularProgressIndicator(color: tokens.bluePrimary))
           : RefreshIndicator(
+              color: tokens.bluePrimary,
+              backgroundColor: tokens.surfaceElevated,
               onRefresh: _loadAllData,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -103,19 +115,19 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _buildPeriodSelector(),
+                    _buildPeriodSelector(tokens),
                     const SizedBox(height: 16),
-                    _buildCostHeroCard(),
+                    _buildCostHeroCard(tokens),
                     const SizedBox(height: 16),
-                    _buildForecastCard(),
+                    _buildForecastCard(tokens),
                     const SizedBox(height: 16),
-                    _buildBudgetProgressCard(),
+                    _buildBudgetProgressCard(tokens),
                     const SizedBox(height: 16),
-                    _buildPeakBreakdownCard(),
+                    _buildPeakBreakdownCard(tokens),
                     const SizedBox(height: 16),
-                    _buildCheapestWindowBanner(),
+                    _buildCheapestWindowBanner(tokens),
                     const SizedBox(height: 16),
-                    _buildCarbonFootprintCard(),
+                    _buildCarbonFootprintCard(tokens),
                   ],
                 ),
               ),
@@ -123,7 +135,7 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
     );
   }
 
-  Widget _buildPeriodSelector() {
+  Widget _buildPeriodSelector(EHThemeTokens tokens) {
     return SegmentedButton<String>(
       segments: const [
         ButtonSegment(value: 'today', label: Text('Today')),
@@ -138,21 +150,22 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
       style: ButtonStyle(
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return Colors.amberAccent.withValues(alpha: 0.2);
+            return tokens.blueSelectedBg;
           }
-          return const Color(0xFF1E222B);
+          return tokens.surfaceCard;
         }),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return Colors.amberAccent;
+            return tokens.blueSelectedText;
           }
-          return Colors.white70;
+          return tokens.textSecondary;
         }),
+        side: WidgetStateProperty.all(BorderSide(color: tokens.borderControl)),
       ),
     );
   }
 
-  Widget _buildCostHeroCard() {
+  Widget _buildCostHeroCard(EHThemeTokens tokens) {
     final cost = widget.costService.costSummary;
     final currency = cost?.currency ?? 'USD';
     final totalCost = cost?.totalCost ?? 0.0;
@@ -162,15 +175,20 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            const Color(0xFF1E293B),
-            const Color(0xFF0F172A),
-          ],
+          colors: tokens.isDark
+              ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
+              : [const Color(0xFF2563EB), const Color(0xFF1D4ED8)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: (tokens.isDark ? Colors.black : const Color(0xFF2563EB)).withValues(alpha: 0.25),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,18 +198,18 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
             children: [
               Text(
                 'Energy Cost (${_selectedPeriod.toUpperCase()})',
-                style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold),
+                style: const TextStyle(color: Color(0xFFD9E8FF), fontSize: 13, fontWeight: FontWeight.bold),
               ),
               if (cost?.effectiveTariffName != null)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.blueAccent.withValues(alpha: 0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     cost!.effectiveTariffName!,
-                    style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
                   ),
                 ),
             ],
@@ -204,21 +222,24 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
           const SizedBox(height: 6),
           Text(
             '${totalKwh.toStringAsFixed(2)} kWh consumed',
-            style: const TextStyle(color: Colors.white60, fontSize: 14),
+            style: const TextStyle(color: Color(0xFFD9E8FF), fontSize: 14),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildForecastCard() {
+  Widget _buildForecastCard(EHThemeTokens tokens) {
     final forecast = widget.costService.forecast;
     if (forecast == null) return const SizedBox.shrink();
 
     final currency = forecast.currency;
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -227,20 +248,26 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.trending_up, color: Colors.orangeAccent, size: 20),
-                    SizedBox(width: 8),
-                    Text('Monthly Cost Projection', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    Icon(Icons.trending_up, color: tokens.warning, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Monthly Cost Projection',
+                      style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.orangeAccent.withValues(alpha: 0.2),
+                    color: tokens.warningContainer,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text('ESTIMATE', style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'ESTIMATE',
+                    style: TextStyle(color: tokens.warning, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),
@@ -251,28 +278,34 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Actual to Date', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    Text('Actual to Date', style: TextStyle(color: tokens.textSecondary, fontSize: 12)),
                     const SizedBox(height: 4),
-                    Text('$currency ${forecast.actualCostToDate.toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                    Text(
+                      '$currency ${forecast.actualCostToDate.toStringAsFixed(2)}',
+                      style: TextStyle(color: tokens.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Est. Remaining', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    Text('Est. Remaining', style: TextStyle(color: tokens.textSecondary, fontSize: 12)),
                     const SizedBox(height: 4),
-                    Text('$currency ${forecast.estimatedRemainingCost.toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                    Text(
+                      '$currency ${forecast.estimatedRemainingCost.toStringAsFixed(2)}',
+                      style: TextStyle(color: tokens.textPrimary, fontSize: 16),
+                    ),
                   ],
                 ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Text('Projected Total', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    Text('Projected Total', style: TextStyle(color: tokens.textSecondary, fontSize: 12)),
                     const SizedBox(height: 4),
-                    Text('$currency ${forecast.projectedTotalCost.toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.orangeAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(
+                      '$currency ${forecast.projectedTotalCost.toStringAsFixed(2)}',
+                      style: TextStyle(color: tokens.warning, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
               ],
@@ -280,37 +313,51 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
             const SizedBox(height: 12),
             LinearProgressIndicator(
               value: forecast.confidenceScore,
-              backgroundColor: Colors.white10,
-              color: Colors.orangeAccent,
+              backgroundColor: tokens.isDark ? Colors.white10 : Colors.black12,
+              color: tokens.warning,
               minHeight: 4,
             ),
             const SizedBox(height: 4),
-            Text('Confidence: ${(forecast.confidenceScore * 100).toInt()}% based on ${forecast.daysElapsed} days of data',
-                style: const TextStyle(color: Colors.white38, fontSize: 11)),
+            Text(
+              'Confidence: ${(forecast.confidenceScore * 100).toInt()}% based on ${forecast.daysElapsed} days of data',
+              style: TextStyle(color: tokens.textTertiary, fontSize: 11),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBudgetProgressCard() {
+  Widget _buildBudgetProgressCard(EHThemeTokens tokens) {
     final status = widget.costService.budgetStatus;
     if (status == null || !status.configured) {
       return Card(
-        color: const Color(0xFF1E222B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        color: tokens.surfaceCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: tokens.borderSubtle),
+        ),
         child: ListTile(
-          leading: const Icon(Icons.account_balance_wallet, color: Colors.greenAccent),
-          title: const Text('Set Monthly Budget', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          subtitle: const Text('Track spending and get projected overrun alerts', style: TextStyle(color: Colors.white60, fontSize: 12)),
-          trailing: ElevatedButton(
+          leading: Icon(Icons.account_balance_wallet, color: tokens.success),
+          title: Text(
+            'Set Monthly Budget',
+            style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+          ),
+          subtitle: Text(
+            'Track spending and get projected overrun alerts',
+            style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+          ),
+          trailing: FilledButton(
             onPressed: () {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => EnergyBudgetPage(homeId: widget.homeId, costService: widget.costService)),
               );
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.amberAccent, foregroundColor: Colors.black),
+            style: FilledButton.styleFrom(
+              backgroundColor: tokens.bluePrimary,
+              foregroundColor: tokens.buttonText,
+            ),
             child: const Text('Configure'),
           ),
         ),
@@ -321,8 +368,11 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
     final isExceeded = status.isProjectedToExceed;
 
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -331,21 +381,29 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Monthly Budget Progress', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text(
+                  'Monthly Budget Progress',
+                  style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+                ),
                 if (isExceeded)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.redAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-                    child: Text('Overrun: ${status.currency} ${status.projectedOverrun.toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                    decoration: BoxDecoration(
+                      color: tokens.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Overrun: ${status.currency} ${status.projectedOverrun.toStringAsFixed(2)}',
+                      style: TextStyle(color: tokens.error, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
                   ),
               ],
             ),
             const SizedBox(height: 12),
             LinearProgressIndicator(
               value: percent,
-              backgroundColor: Colors.white10,
-              color: isExceeded ? Colors.redAccent : Colors.greenAccent,
+              backgroundColor: tokens.isDark ? Colors.white10 : Colors.black12,
+              color: isExceeded ? tokens.error : tokens.success,
               minHeight: 8,
               borderRadius: BorderRadius.circular(4),
             ),
@@ -353,8 +411,14 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${status.percentConsumed.toStringAsFixed(1)}% consumed', style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                Text('Budget: ${status.currency} ${status.budgetAmount.toStringAsFixed(2)}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                Text(
+                  '${status.percentConsumed.toStringAsFixed(1)}% consumed',
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                ),
+                Text(
+                  'Budget: ${status.currency} ${status.budgetAmount.toStringAsFixed(2)}',
+                  style: TextStyle(color: tokens.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ],
@@ -363,7 +427,7 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
     );
   }
 
-  Widget _buildPeakBreakdownCard() {
+  Widget _buildPeakBreakdownCard(EHThemeTokens tokens) {
     final cost = widget.costService.costSummary;
     if (cost == null) return const SizedBox.shrink();
 
@@ -373,21 +437,27 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
     final currency = cost.currency;
 
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Tariff Period Breakdown', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Text(
+              'Tariff Period Breakdown',
+              style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildBreakdownColumn('Off-Peak', offPeak, Colors.greenAccent, currency),
-                _buildBreakdownColumn('Standard', standard, Colors.blueAccent, currency),
-                _buildBreakdownColumn('Peak', peak, Colors.redAccent, currency),
+                _buildBreakdownColumn('Off-Peak', offPeak, tokens.success, currency, tokens),
+                _buildBreakdownColumn('Standard', standard, tokens.bluePrimary, currency, tokens),
+                _buildBreakdownColumn('Peak', peak, tokens.error, currency, tokens),
               ],
             ),
           ],
@@ -396,41 +466,56 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
     );
   }
 
-  Widget _buildBreakdownColumn(String title, CostBreakdownItem item, Color color, String currency) {
+  Widget _buildBreakdownColumn(
+    String title,
+    CostBreakdownItem item,
+    Color color,
+    String currency,
+    EHThemeTokens tokens,
+  ) {
     return Column(
       children: [
         Text(title, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
-        Text('$currency ${item.cost.toStringAsFixed(2)}', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-        Text('${item.kwh.toStringAsFixed(1)} kWh', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        Text(
+          '$currency ${item.cost.toStringAsFixed(2)}',
+          style: TextStyle(color: tokens.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        Text(
+          '${item.kwh.toStringAsFixed(1)} kWh',
+          style: TextStyle(color: tokens.textTertiary, fontSize: 11),
+        ),
       ],
     );
   }
 
-  Widget _buildCheapestWindowBanner() {
+  Widget _buildCheapestWindowBanner(EHThemeTokens tokens) {
     final cheapest = widget.costService.cheapestPeriods;
     if (cheapest == null) return const SizedBox.shrink();
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.greenAccent.withValues(alpha: 0.1),
+        color: tokens.successContainer,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.3)),
+        border: Border.all(color: tokens.success.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.bolt, color: Colors.greenAccent, size: 28),
+          Icon(Icons.bolt, color: tokens.success, size: 28),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Cheapest Upcoming Window', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(
+                  'Cheapest Upcoming Window',
+                  style: TextStyle(color: tokens.success, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '${cheapest.currency} ${cheapest.cheapestWindow.avgPricePerKwh.toStringAsFixed(2)}/kWh (${cheapest.cheapestWindow.periodType}) • Save up to ${cheapest.potentialSavingsPercent.toInt()}%',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  style: TextStyle(color: tokens.textPrimary, fontSize: 12),
                 ),
               ],
             ),
@@ -442,34 +527,45 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
                 MaterialPageRoute(builder: (_) => CostOptimizationPage(homeId: widget.homeId, costService: widget.costService)),
               );
             },
-            child: const Text('Optimize', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+            child: Text(
+              'Optimize',
+              style: TextStyle(color: tokens.bluePrimary, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildCarbonFootprintCard() {
+  Widget _buildCarbonFootprintCard(EHThemeTokens tokens) {
     final carbon = widget.costService.carbonFootprint;
     if (carbon == null) return const SizedBox.shrink();
 
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Row(
           children: [
-            const Icon(Icons.eco, color: Colors.tealAccent, size: 30),
+            Icon(Icons.eco, color: tokens.iconFgPlant, size: 30),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Estimated Carbon Footprint', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text(
+                    'Estimated Carbon Footprint',
+                    style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 2),
-                  Text('${carbon.totalKgCO2.toStringAsFixed(2)} kg CO₂ (${carbon.carbonIntensityGPerKwh.toInt()} g/kWh)',
-                      style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  Text(
+                    '${carbon.totalKgCO2.toStringAsFixed(2)} kg CO₂ (${carbon.carbonIntensityGPerKwh.toInt()} g/kWh)',
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                  ),
                 ],
               ),
             ),

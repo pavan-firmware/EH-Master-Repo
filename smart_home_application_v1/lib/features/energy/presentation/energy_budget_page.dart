@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/energy_cost_models.dart';
 import '../../../core/services/energy_cost_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 /// Energy Budget Management Page — Configure spending budgets and alerts
 class EnergyBudgetPage extends StatefulWidget {
@@ -57,36 +58,41 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     final status = widget.costService.budgetStatus;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121418),
+      backgroundColor: tokens.bgApp,
       appBar: AppBar(
-        title: const Text('Energy Budget & Alerts', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF1E222B),
+        title: Text(
+          'Energy Budget & Alerts',
+          style: TextStyle(fontWeight: FontWeight.bold, color: tokens.textPrimary),
+        ),
+        backgroundColor: tokens.bgApp,
         elevation: 0,
+        iconTheme: IconThemeData(color: tokens.headerAction),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.amberAccent))
+          ? Center(child: CircularProgressIndicator(color: tokens.bluePrimary))
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildPeriodSelector(),
+                  _buildPeriodSelector(tokens),
                   const SizedBox(height: 16),
                   if (status != null && status.configured) ...[
-                    _buildCurrentStatusCard(status),
+                    _buildCurrentStatusCard(status, tokens),
                     const SizedBox(height: 16),
                   ],
-                  _buildBudgetForm(),
+                  _buildBudgetForm(tokens),
                 ],
               ),
             ),
     );
   }
 
-  Widget _buildPeriodSelector() {
+  Widget _buildPeriodSelector(EHThemeTokens tokens) {
     return SegmentedButton<BudgetPeriodType>(
       segments: const [
         ButtonSegment(value: BudgetPeriodType.daily, label: Text('Daily')),
@@ -101,27 +107,31 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
       style: ButtonStyle(
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return Colors.amberAccent.withValues(alpha: 0.2);
+            return tokens.blueSelectedBg;
           }
-          return const Color(0xFF1E222B);
+          return tokens.surfaceCard;
         }),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return Colors.amberAccent;
+            return tokens.blueSelectedText;
           }
-          return Colors.white70;
+          return tokens.textSecondary;
         }),
+        side: WidgetStateProperty.all(BorderSide(color: tokens.borderControl)),
       ),
     );
   }
 
-  Widget _buildCurrentStatusCard(BudgetStatusModel status) {
+  Widget _buildCurrentStatusCard(BudgetStatusModel status, EHThemeTokens tokens) {
     final percent = (status.percentConsumed / 100).clamp(0.0, 1.0);
     final isOverrun = status.isProjectedToExceed;
 
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -130,21 +140,29 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${status.periodType.displayName} Spending Status',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text(
+                  '${status.periodType.displayName} Spending Status',
+                  style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+                ),
                 if (isOverrun)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.redAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-                    child: const Text('PROJECTED OVERRUN', style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                    decoration: BoxDecoration(
+                      color: tokens.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'PROJECTED OVERRUN',
+                      style: TextStyle(color: tokens.error, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
                   ),
               ],
             ),
             const SizedBox(height: 12),
             LinearProgressIndicator(
               value: percent,
-              backgroundColor: Colors.white10,
-              color: isOverrun ? Colors.redAccent : Colors.greenAccent,
+              backgroundColor: tokens.isDark ? Colors.white10 : Colors.black12,
+              color: isOverrun ? tokens.error : tokens.success,
               minHeight: 10,
               borderRadius: BorderRadius.circular(5),
             ),
@@ -155,25 +173,35 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Spent So Far', style: TextStyle(color: Colors.white54, fontSize: 11)),
-                    Text('${status.currency} ${status.actualCostToDate.toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                    Text('Spent So Far', style: TextStyle(color: tokens.textSecondary, fontSize: 11)),
+                    Text(
+                      '${status.currency} ${status.actualCostToDate.toStringAsFixed(2)}',
+                      style: TextStyle(color: tokens.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Remaining Budget', style: TextStyle(color: Colors.white54, fontSize: 11)),
-                    Text('${status.currency} ${status.budgetRemaining.toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.greenAccent, fontSize: 15, fontWeight: FontWeight.bold)),
+                    Text('Remaining Budget', style: TextStyle(color: tokens.textSecondary, fontSize: 11)),
+                    Text(
+                      '${status.currency} ${status.budgetRemaining.toStringAsFixed(2)}',
+                      style: TextStyle(color: tokens.success, fontSize: 15, fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Text('Forecasted Total', style: TextStyle(color: Colors.white54, fontSize: 11)),
-                    Text('${status.currency} ${status.projectedTotalCost.toStringAsFixed(2)}',
-                        style: TextStyle(color: isOverrun ? Colors.redAccent : Colors.white70, fontSize: 15, fontWeight: FontWeight.bold)),
+                    Text('Forecasted Total', style: TextStyle(color: tokens.textSecondary, fontSize: 11)),
+                    Text(
+                      '${status.currency} ${status.projectedTotalCost.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: isOverrun ? tokens.error : tokens.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -184,10 +212,13 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
     );
   }
 
-  Widget _buildBudgetForm() {
+  Widget _buildBudgetForm(EHThemeTokens tokens) {
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -195,7 +226,10 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Set ${_periodType.displayName} Target', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(
+                'Set ${_periodType.displayName} Target',
+                style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -204,13 +238,20 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
                       key: const Key('field_budget_amount'),
                       controller: _budgetAmountCtrl,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(color: tokens.textPrimary),
+                      decoration: InputDecoration(
                         labelText: 'Budget Amount',
-                        labelStyle: TextStyle(color: Colors.white60),
+                        labelStyle: TextStyle(color: tokens.textSecondary),
                         filled: true,
-                        fillColor: Color(0xFF121418),
-                        border: OutlineInputBorder(),
+                        fillColor: tokens.bgApp,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
                       ),
                       validator: (val) {
                         final d = double.tryParse(val ?? '');
@@ -225,13 +266,20 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
                     child: TextFormField(
                       key: const Key('field_budget_currency'),
                       controller: _currencyCtrl,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(color: tokens.textPrimary),
+                      decoration: InputDecoration(
                         labelText: 'Currency',
-                        labelStyle: TextStyle(color: Colors.white60),
+                        labelStyle: TextStyle(color: tokens.textSecondary),
                         filled: true,
-                        fillColor: Color(0xFF121418),
-                        border: OutlineInputBorder(),
+                        fillColor: tokens.bgApp,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
                       ),
                     ),
                   ),
@@ -241,8 +289,11 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Alert Threshold', style: TextStyle(color: Colors.white70)),
-                  Text('${_alertThreshold.toInt()}%', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                  Text('Alert Threshold', style: TextStyle(color: tokens.textSecondary)),
+                  Text(
+                    '${_alertThreshold.toInt()}%',
+                    style: TextStyle(color: tokens.bluePrimary, fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               Slider(
@@ -250,29 +301,36 @@ class _EnergyBudgetPageState extends State<EnergyBudgetPage> {
                 min: 50,
                 max: 100,
                 divisions: 10,
-                activeColor: Colors.amberAccent,
+                activeColor: tokens.bluePrimary,
                 onChanged: (val) => setState(() => _alertThreshold = val),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Enable Overrun Notifications', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                subtitle: const Text('Receive push alerts when forecast exceeds budget', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                title: Text(
+                  'Enable Overrun Notifications',
+                  style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  'Receive push alerts when forecast exceeds budget',
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                ),
                 value: _isEnabled,
-                activeThumbColor: Colors.amberAccent,
+                activeTrackColor: tokens.switchTrackOn,
+                activeThumbColor: tokens.switchThumbOn,
                 onChanged: (val) => setState(() => _isEnabled = val),
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
+              FilledButton(
                 key: const Key('btn_save_budget'),
                 onPressed: _isSaving ? null : _saveBudget,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.amberAccent,
-                  foregroundColor: Colors.black,
+                style: FilledButton.styleFrom(
+                  backgroundColor: tokens.bluePrimary,
+                  foregroundColor: tokens.buttonText,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: _isSaving
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                    ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: tokens.buttonText))
                     : const Text('Save Budget', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ],

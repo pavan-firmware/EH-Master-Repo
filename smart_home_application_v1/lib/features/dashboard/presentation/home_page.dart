@@ -615,18 +615,21 @@ class _SetupOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+    const heroPrimary = Colors.white;
+    const heroSecondary = Color(0xFFD9E8FF);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.hub_outlined, color: tokens.textPrimary, size: 27),
+            const Icon(Icons.hub_outlined, color: heroPrimary, size: 27),
             const SizedBox(width: 8),
-            Expanded(
+            const Expanded(
               child: Text(
                 'DEVICE SETUP',
                 style: TextStyle(
-                  color: tokens.textPrimary,
+                  color: heroPrimary,
                   fontSize: 13,
                   letterSpacing: .7,
                   fontWeight: FontWeight.w800,
@@ -645,15 +648,15 @@ class _SetupOverview extends StatelessWidget {
                   ? const Color(0xFF67B7FF)
                   : (data.state == HomeDashboardState.offline
                         ? tokens.warning
-                        : tokens.gold),
+                        : tokens.goldBright),
             ),
           ],
         ),
         const SizedBox(height: 18),
         Text(
           data.primaryTitle ?? 'Set up your home',
-          style: TextStyle(
-            color: tokens.textPrimary,
+          style: const TextStyle(
+            color: heroPrimary,
             fontSize: 24,
             fontWeight: FontWeight.w800,
           ),
@@ -661,8 +664,8 @@ class _SetupOverview extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           data.primaryMessage ?? 'Your home is ready for its first device.',
-          style: TextStyle(
-            color: tokens.textSecondary,
+          style: const TextStyle(
+            color: heroSecondary,
             fontSize: 14,
             height: 1.35,
           ),
@@ -865,6 +868,9 @@ class _SetupMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+    const heroPrimary = Colors.white;
+    const heroSecondary = Color(0xFFD9E8FF);
+
     return Container(
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
@@ -887,16 +893,16 @@ class _SetupMetric extends StatelessWidget {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: tokens.textPrimary,
+            style: const TextStyle(
+              color: heroPrimary,
               fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 3),
           Text(
             label,
-            style: TextStyle(
-              color: tokens.textSecondary,
+            style: const TextStyle(
+              color: heroSecondary,
               fontSize: 9,
               letterSpacing: .6,
               fontWeight: FontWeight.w800,

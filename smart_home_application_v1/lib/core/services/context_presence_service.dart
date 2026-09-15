@@ -52,6 +52,23 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<String> _resolveHomeId(String homeId) async {
+    if ((homeId.isEmpty || homeId == 'HN-7A28F91C' || homeId == 'home_preview') && apiClient != null) {
+      try {
+        final homes = await apiClient!.get('/api/v1/homes');
+        if (homes != null) {
+          final list = homes is List
+              ? homes
+              : (homes is Map && homes['data'] is List ? homes['data'] as List : []);
+          if (list.isNotEmpty && list[0]['id'] != null) {
+            return list[0]['id'].toString();
+          }
+        }
+      } catch (_) {}
+    }
+    return homeId;
+  }
+
   // ---------------------------------------------------------------------------
   // 1. Presence Snapshot & Signal Ingestion
   // ---------------------------------------------------------------------------
@@ -62,9 +79,10 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
       final headers = await _getHeaders();
       final response = await _client.get(
-        Uri.parse('$baseUrl/api/v1/context/homes/$homeId/presence'),
+        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/presence'),
         headers: headers,
       );
 
@@ -77,7 +95,12 @@ class ContextPresenceService extends ChangeNotifier {
           return _currentSnapshot;
         }
       }
-      _errorMessage = 'Failed to load presence snapshot: ${response.statusCode}';
+      try {
+        final body = json.decode(response.body);
+        _errorMessage = body['error']?.toString() ?? 'Failed to load presence snapshot (${response.statusCode})';
+      } catch (_) {
+        _errorMessage = 'Failed to load presence snapshot: ${response.statusCode}';
+      }
     } catch (e) {
       _errorMessage = 'Network error: $e';
     } finally {
@@ -100,6 +123,7 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
       final payload = {
         'userId': ?userId,
         'source': source.toApiValue(),
@@ -110,7 +134,7 @@ class ContextPresenceService extends ChangeNotifier {
 
       final headers = await _getHeaders();
       final response = await _client.post(
-        Uri.parse('$baseUrl/api/v1/context/homes/$homeId/presence'),
+        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/presence'),
         headers: headers,
         body: json.encode(payload),
       );
@@ -121,11 +145,16 @@ class ContextPresenceService extends ChangeNotifier {
           if (body['data']?['context'] != null) {
             _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(body['data']['context']));
           }
-          await fetchPresenceSnapshot(homeId);
+          await fetchPresenceSnapshot(effectiveHomeId);
           return true;
         }
       }
-      _errorMessage = 'Failed to submit presence signal: ${response.statusCode}';
+      try {
+        final body = json.decode(response.body);
+        _errorMessage = body['error']?.toString() ?? 'Failed to submit presence signal (${response.statusCode})';
+      } catch (_) {
+        _errorMessage = 'Failed to submit presence signal: ${response.statusCode}';
+      }
     } catch (e) {
       _errorMessage = 'Network error: $e';
     } finally {

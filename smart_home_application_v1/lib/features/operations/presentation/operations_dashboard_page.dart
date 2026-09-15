@@ -129,30 +129,77 @@ class _OperationsDashboardPageState extends State<OperationsDashboardPage> with 
   }
 
   Widget _buildErrorView(EHThemeTokens tokens) {
+    final isForbidden = _errorMessage != null &&
+        (_errorMessage!.contains('403') ||
+            _errorMessage!.toLowerCase().contains('forbidden') ||
+            _errorMessage!.toLowerCase().contains('unauthorized'));
+
+    final isNoHome = _errorMessage != null &&
+        _errorMessage!.toLowerCase().contains('no active home');
+
+    final icon = isForbidden
+        ? Icons.admin_panel_settings_outlined
+        : (isNoHome ? Icons.home_work_outlined : Icons.error_outline);
+    final iconColor = isForbidden ? tokens.bluePrimary : tokens.error;
+
+    final title = isForbidden
+        ? 'Operations Access Restricted'
+        : (isNoHome
+            ? 'No Active Home Configured'
+            : 'Unable to Load Operations Data');
+
+    final description = isForbidden
+        ? 'Viewing home operations and telemetry metrics requires authorized home membership or platform administrative privileges.'
+        : (isNoHome
+            ? 'Please select or configure an active home in Settings to monitor operational health and subsystem metrics.'
+            : 'Could not connect to the operations service. Please check your network connection and try again.');
+
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(28.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 48, color: tokens.error),
-            const SizedBox(height: 16),
-            Text(
-              'Failed to load operations data',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: tokens.textPrimary),
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 48, color: iconColor),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 20),
             Text(
-              _errorMessage ?? '',
+              title,
               textAlign: TextAlign.center,
-              style: TextStyle(color: tokens.textSecondary),
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: tokens.textPrimary,
+              ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
+            const SizedBox(height: 10),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: tokens.textSecondary,
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 28),
+            FilledButton.icon(
               onPressed: _loadAllOperationsData,
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh_rounded, size: 18),
               label: const Text('Retry'),
-            )
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
           ],
         ),
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/energy_models.dart';
 import '../../../core/services/energy_service.dart';
+import '../../../core/theme/app_theme.dart';
 import 'device_energy_details_page.dart';
 import 'energy_threshold_dialog.dart';
 
@@ -57,6 +58,8 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+
     return AnimatedBuilder(
       animation: widget.energyService,
       builder: (context, _) {
@@ -89,22 +92,22 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                     padding: const EdgeInsets.all(16.0),
                     children: [
                       // Active Power & Consumption Card
-                      if (summary != null) _buildLiveGaugeCard(summary),
+                      if (summary != null) _buildLiveGaugeCard(summary, tokens),
                       const SizedBox(height: 16),
 
                       // Period Selector
-                      _buildPeriodSelector(),
+                      _buildPeriodSelector(tokens),
                       const SizedBox(height: 16),
 
                       // Anomaly Alert Banner
-                      if (events.isNotEmpty) _buildAlertsBanner(events),
+                      if (events.isNotEmpty) _buildAlertsBanner(events, tokens),
 
                       // Consumption Trend Card
-                      _buildTrendsCard(trends),
+                      _buildTrendsCard(trends, tokens),
                       const SizedBox(height: 16),
 
                       // Top Consuming Devices
-                      _buildTopConsumersCard(topDevices),
+                      _buildTopConsumersCard(topDevices, tokens),
                     ],
                   ),
                 ),
@@ -113,31 +116,62 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
     );
   }
 
-  Widget _buildPeriodSelector() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: EnergyPeriod.values.map((p) {
-        final isSelected = _selectedPeriod == p;
-        return ChoiceChip(
-          label: Text(p.displayName),
-          selected: isSelected,
-          onSelected: (selected) {
-            if (selected) {
-              setState(() => _selectedPeriod = p);
-              _loadAllData();
-            }
-          },
-        );
-      }).toList(),
+  Widget _buildPeriodSelector(EHThemeTokens tokens) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: EnergyPeriod.values.map((p) {
+          final isSelected = _selectedPeriod == p;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: ChoiceChip(
+              label: Text(
+                p.displayName,
+                style: TextStyle(
+                  color: isSelected
+                      ? (tokens.isDark ? tokens.buttonText : tokens.blueSelectedText)
+                      : tokens.textSecondary,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              selected: isSelected,
+              selectedColor: tokens.isDark ? tokens.blueSelectedBg : tokens.blueSelectedBg,
+              backgroundColor: tokens.isDark ? tokens.surfaceElevated : tokens.surfaceCard,
+              side: BorderSide(
+                color: isSelected ? tokens.bluePrimary : tokens.borderControl,
+                width: isSelected ? 1.4 : 1.0,
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              showCheckmark: isSelected,
+              checkmarkColor: isSelected
+                  ? (tokens.isDark ? tokens.buttonText : tokens.blueSelectedText)
+                  : null,
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _selectedPeriod = p);
+                  _loadAllData();
+                }
+              },
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
-  Widget _buildLiveGaugeCard(EnergyUsageSummary s) {
+  Widget _buildLiveGaugeCard(EnergyUsageSummary s, EHThemeTokens tokens) {
     final comp = s.comparison;
 
     return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 2,
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -148,41 +182,41 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Total Current Load', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                    Text('Total Current Load', style: TextStyle(color: tokens.textSecondary, fontSize: 13)),
                     const SizedBox(height: 4),
                     Text(
                       '${s.currentPowerW.toStringAsFixed(0)} W',
-                      style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                      style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: tokens.textPrimary),
                     ),
                   ],
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.amber.withAlpha(40),
+                    color: tokens.warningContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.bolt, color: Colors.amber, size: 20),
+                      Icon(Icons.bolt, color: tokens.warning, size: 20),
                       const SizedBox(width: 4),
                       Text(
                         '${s.devicesCount} devices active',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: tokens.warning),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-            const Divider(height: 32),
+            Divider(height: 32, color: tokens.borderSubtle),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildStatItem('Total Energy', '${s.totalEnergyKwh.toStringAsFixed(2)} kWh'),
-                _buildStatItem('Est. Cost', '${s.currency} \$${s.costEstimate?.toStringAsFixed(2) ?? "0.00"}'),
-                _buildStatItem('Peak Demand', '${s.peakPowerW.toStringAsFixed(0)} W'),
+                _buildStatItem('Total Energy', '${s.totalEnergyKwh.toStringAsFixed(2)} kWh', tokens),
+                _buildStatItem('Est. Cost', '${s.currency} \$${s.costEstimate?.toStringAsFixed(2) ?? "0.00"}', tokens),
+                _buildStatItem('Peak Demand', '${s.peakPowerW.toStringAsFixed(0)} W', tokens),
               ],
             ),
             if (comp != null) ...[
@@ -191,8 +225,8 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: comp.trendDirection == TrendDirection.up
-                      ? Colors.red.withAlpha(20)
-                      : (comp.trendDirection == TrendDirection.down ? Colors.green.withAlpha(20) : Colors.grey.withAlpha(20)),
+                      ? tokens.errorContainer
+                      : (comp.trendDirection == TrendDirection.down ? tokens.successContainer : tokens.surfaceElevated),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
@@ -204,8 +238,8 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                           : (comp.trendDirection == TrendDirection.down ? Icons.trending_down : Icons.trending_flat),
                       size: 18,
                       color: comp.trendDirection == TrendDirection.up
-                          ? Colors.red
-                          : (comp.trendDirection == TrendDirection.down ? Colors.green : Colors.grey),
+                          ? tokens.error
+                          : (comp.trendDirection == TrendDirection.down ? tokens.success : tokens.textSecondary),
                     ),
                     const SizedBox(width: 6),
                     Text(
@@ -214,8 +248,8 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         color: comp.trendDirection == TrendDirection.up
-                            ? Colors.red
-                            : (comp.trendDirection == TrendDirection.down ? Colors.green : Colors.black87),
+                            ? tokens.error
+                            : (comp.trendDirection == TrendDirection.down ? tokens.success : tokens.textPrimary),
                       ),
                     ),
                   ],
@@ -228,36 +262,36 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
     );
   }
 
-  Widget _buildStatItem(String label, String value) {
+  Widget _buildStatItem(String label, String value, EHThemeTokens tokens) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: tokens.textPrimary)),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Text(label, style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
       ],
     );
   }
 
-  Widget _buildAlertsBanner(List<EnergyAnomalyEvent> events) {
+  Widget _buildAlertsBanner(List<EnergyAnomalyEvent> events, EHThemeTokens tokens) {
     final latestEvent = events.first;
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.orange.withAlpha(30),
+        color: tokens.warningContainer,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withAlpha(80)),
+        border: Border.all(color: tokens.warning.withValues(alpha: 0.5)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber, color: Colors.orange),
+          Icon(Icons.warning_amber, color: tokens.warning),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(latestEvent.eventType, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                Text(latestEvent.message, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                Text(latestEvent.eventType, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: tokens.warning)),
+                Text(latestEvent.message, style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
               ],
             ),
           ),
@@ -266,22 +300,26 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
     );
   }
 
-  Widget _buildTrendsCard(List<EnergyTrendPoint> points) {
+  Widget _buildTrendsCard(List<EnergyTrendPoint> points, EHThemeTokens tokens) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Consumption Trends', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Consumption Trends', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.textPrimary)),
             const SizedBox(height: 12),
             if (points.isEmpty)
-              const Center(
+              Center(
                 child: Padding(
-                  padding: EdgeInsets.all(24.0),
-                  child: Text('No historical interval data available yet.', style: TextStyle(color: Colors.grey)),
+                  padding: const EdgeInsets.all(24.0),
+                  child: Text('No historical interval data available yet.', style: TextStyle(color: tokens.textSecondary)),
                 ),
               )
             else
@@ -296,20 +334,20 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                     return Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        Text('${p.energyKwh.toStringAsFixed(1)}k', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                        Text('${p.energyKwh.toStringAsFixed(1)}k', style: TextStyle(fontSize: 10, color: tokens.textSecondary)),
                         const SizedBox(height: 4),
                         Container(
                           width: 24,
                           height: (p.energyKwh * 30).clamp(10, 80).toDouble(),
                           decoration: BoxDecoration(
-                            color: Colors.blueAccent,
+                            color: tokens.bluePrimary,
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           '${p.timestamp.hour}:00',
-                          style: const TextStyle(fontSize: 10, color: Colors.black87),
+                          style: TextStyle(fontSize: 10, color: tokens.textSecondary),
                         ),
                       ],
                     );
@@ -322,43 +360,47 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
     );
   }
 
-  Widget _buildTopConsumersCard(List<TopEnergyConsumer> consumers) {
+  Widget _buildTopConsumersCard(List<TopEnergyConsumer> consumers, EHThemeTokens tokens) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderControl),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Top Consuming Devices', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Top Consuming Devices', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.textPrimary)),
             const SizedBox(height: 12),
             if (consumers.isEmpty)
-              const Center(
+              Center(
                 child: Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text('No device consumption data yet.', style: TextStyle(color: Colors.grey)),
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text('No device consumption data yet.', style: TextStyle(color: tokens.textSecondary)),
                 ),
               )
             else
               ...consumers.map((c) {
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(
-                    backgroundColor: Colors.blueGrey,
-                    child: Icon(Icons.devices, color: Colors.white, size: 20),
+                  leading: CircleAvatar(
+                    backgroundColor: tokens.iconBgBlue,
+                    child: Icon(Icons.devices, color: tokens.iconFgBlue, size: 20),
                   ),
-                  title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Text(c.name, style: TextStyle(fontWeight: FontWeight.bold, color: tokens.textPrimary)),
                   subtitle: Text(
                     '${c.roomName ?? "Unassigned"} • ${c.currentPowerW.toStringAsFixed(0)} W',
-                    style: const TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: 12, color: tokens.textSecondary),
                   ),
                   trailing: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('${c.energyKwh.toStringAsFixed(2)} kWh', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('${c.percentageOfTotal.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      Text('${c.energyKwh.toStringAsFixed(2)} kWh', style: TextStyle(fontWeight: FontWeight.bold, color: tokens.textPrimary)),
+                      Text('${c.percentageOfTotal.toStringAsFixed(1)}%', style: TextStyle(fontSize: 11, color: tokens.textSecondary)),
                     ],
                   ),
                   onTap: () {

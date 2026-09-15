@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/context_presence_models.dart';
 import '../../../core/services/context_presence_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/eh_action_button.dart';
 
 class PresenceDashboardPage extends StatefulWidget {
   final String homeId;
@@ -18,6 +19,9 @@ class PresenceDashboardPage extends StatefulWidget {
 }
 
 class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
+  bool _isSubmittingHome = false;
+  bool _isSubmittingAway = false;
+
   @override
   void initState() {
     super.initState();
@@ -265,46 +269,26 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
             Row(
               children: [
                 Expanded(
-                  child: SizedBox(
-                    height: 46,
-                    child: FilledButton.icon(
-                      icon: Icon(
-                        isHome ? Icons.check_circle_rounded : Icons.home_rounded,
-                        size: 20,
-                      ),
-                      label: const Text('Home', style: TextStyle(fontWeight: FontWeight.w700)),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: isHome
-                            ? tokens.success
-                            : (tokens.isDark ? const Color(0xFF1E3A2F) : Colors.green.shade100),
-                        foregroundColor: isHome
-                            ? Colors.white
-                            : (tokens.isDark ? const Color(0xFF81C784) : Colors.green.shade900),
-                      ),
-                      onPressed: () => _submitSignal(PresenceState.home),
-                    ),
+                  child: EHSelectionButton(
+                    label: 'Home',
+                    icon: isHome ? Icons.check_circle_rounded : Icons.home_rounded,
+                    isSelected: isHome,
+                    isLoading: _isSubmittingHome,
+                    selectedBackgroundColor: tokens.success,
+                    selectedForegroundColor: Colors.white,
+                    onPressed: () => _submitSignal(PresenceState.home),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: SizedBox(
-                    height: 46,
-                    child: FilledButton.icon(
-                      icon: Icon(
-                        isAway ? Icons.check_circle_rounded : Icons.exit_to_app_rounded,
-                        size: 20,
-                      ),
-                      label: const Text('Away', style: TextStyle(fontWeight: FontWeight.w700)),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: isAway
-                            ? (tokens.isDark ? Colors.blueGrey.shade600 : Colors.blueGrey.shade700)
-                            : (tokens.isDark ? const Color(0xFF263238) : Colors.blueGrey.shade100),
-                        foregroundColor: isAway
-                            ? Colors.white
-                            : (tokens.isDark ? Colors.blueGrey.shade200 : Colors.blueGrey.shade900),
-                      ),
-                      onPressed: () => _submitSignal(PresenceState.away),
-                    ),
+                  child: EHSelectionButton(
+                    label: 'Away',
+                    icon: isAway ? Icons.check_circle_rounded : Icons.exit_to_app_rounded,
+                    isSelected: isAway,
+                    isLoading: _isSubmittingAway,
+                    selectedBackgroundColor: tokens.bluePrimary,
+                    selectedForegroundColor: Colors.white,
+                    onPressed: () => _submitSignal(PresenceState.away),
                   ),
                 ),
               ],
@@ -316,20 +300,43 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
   }
 
   Future<void> _submitSignal(PresenceState state) async {
+    if (_isSubmittingHome || _isSubmittingAway) return;
+
+    setState(() {
+      if (state == PresenceState.home) {
+        _isSubmittingHome = true;
+      } else {
+        _isSubmittingAway = true;
+      }
+    });
+
     final success = await widget.service.submitPresenceSignal(
       homeId: widget.homeId,
       source: PresenceSource.mobileApp,
       state: state,
       confidence: 1.0,
     );
+
     if (!mounted) return;
+
+    setState(() {
+      _isSubmittingHome = false;
+      _isSubmittingAway = false;
+    });
+
     if (success) {
       await _refreshData();
     }
+
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Presence updated to ${state.toApiValue()}' : 'Failed to update presence'),
+        content: Text(
+          success
+              ? 'Presence updated to ${state.toApiValue()}'
+              : (widget.service.errorMessage ?? 'Failed to update presence'),
+        ),
         behavior: SnackBarBehavior.floating,
       ),
     );

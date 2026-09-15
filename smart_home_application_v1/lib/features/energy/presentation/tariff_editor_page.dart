@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/energy_cost_models.dart';
 import '../../../core/services/energy_cost_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 /// Interactive Tariff Editor Page with TOU Period Builder
 class TariffEditorPage extends StatefulWidget {
@@ -60,14 +61,22 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     final isEditing = widget.tariff != null;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121418),
+      backgroundColor: tokens.bgApp,
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit Tariff' : 'New Electricity Tariff', style: const TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF1E222B),
+        title: Text(
+          isEditing ? 'Edit Tariff' : 'New Electricity Tariff',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: tokens.textPrimary,
+          ),
+        ),
+        backgroundColor: tokens.bgApp,
         elevation: 0,
+        iconTheme: IconThemeData(color: tokens.headerAction),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -76,25 +85,32 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildGeneralSection(),
+              _buildGeneralSection(tokens),
               const SizedBox(height: 16),
-              if (_selectedType == TariffType.flat) _buildFlatRateSection(),
-              if (_selectedType == TariffType.timeOfUse) _buildTouPeriodsSection(),
+              if (_selectedType == TariffType.flat) _buildFlatRateSection(tokens),
+              if (_selectedType == TariffType.timeOfUse) _buildTouPeriodsSection(tokens),
               const SizedBox(height: 16),
-              _buildCarbonSection(),
+              _buildCarbonSection(tokens),
               const SizedBox(height: 24),
-              ElevatedButton(
+              FilledButton(
                 key: const Key('btn_save_tariff'),
                 onPressed: _isSaving ? null : _saveTariff,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.amberAccent,
-                  foregroundColor: Colors.black,
+                style: FilledButton.styleFrom(
+                  backgroundColor: tokens.bluePrimary,
+                  foregroundColor: tokens.buttonText,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: _isSaving
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                    : Text(isEditing ? 'Save Changes' : 'Create Tariff', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    ? SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: tokens.buttonText),
+                      )
+                    : Text(
+                        isEditing ? 'Save Changes' : 'Create Tariff',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
               ),
             ],
           ),
@@ -103,27 +119,40 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
     );
   }
 
-  Widget _buildGeneralSection() {
+  Widget _buildGeneralSection(EHThemeTokens tokens) {
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Tariff Configuration', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              'Tariff Configuration',
+              style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 16),
             TextFormField(
               key: const Key('field_tariff_name'),
               controller: _nameCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
                 labelText: 'Tariff Plan Name',
-                labelStyle: TextStyle(color: Colors.white60),
+                labelStyle: TextStyle(color: tokens.textSecondary),
                 filled: true,
-                fillColor: Color(0xFF121418),
-                border: OutlineInputBorder(),
+                fillColor: tokens.bgApp,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
               ),
               validator: (val) => val == null || val.trim().isEmpty ? 'Name is required' : null,
             ),
@@ -131,17 +160,27 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
             DropdownButtonFormField<TariffType>(
               key: const Key('dropdown_tariff_type'),
               initialValue: _selectedType,
-              dropdownColor: const Color(0xFF1E222B),
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
+              dropdownColor: tokens.surfaceElevated,
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
                 labelText: 'Tariff Type',
-                labelStyle: TextStyle(color: Colors.white60),
+                labelStyle: TextStyle(color: tokens.textSecondary),
                 filled: true,
-                fillColor: Color(0xFF121418),
-                border: OutlineInputBorder(),
+                fillColor: tokens.bgApp,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
               ),
               items: TariffType.values.map((t) {
-                return DropdownMenuItem(value: t, child: Text(t.displayName));
+                return DropdownMenuItem(
+                  value: t,
+                  child: Text(t.displayName, style: TextStyle(color: tokens.textPrimary)),
+                );
               }).toList(),
               onChanged: (val) {
                 if (val != null) setState(() => _selectedType = val);
@@ -154,13 +193,20 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                   child: TextFormField(
                     key: const Key('field_tariff_currency'),
                     controller: _currencyCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Currency (e.g. USD, EUR)',
-                      labelStyle: TextStyle(color: Colors.white60),
+                    style: TextStyle(color: tokens.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'Currency (e.g. USD)',
+                      labelStyle: TextStyle(color: tokens.textSecondary),
                       filled: true,
-                      fillColor: Color(0xFF121418),
-                      border: OutlineInputBorder(),
+                      fillColor: tokens.bgApp,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: tokens.borderControl),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: tokens.borderControl),
+                      ),
                     ),
                     validator: (val) => val == null || val.trim().length != 3 ? '3-letter code' : null,
                   ),
@@ -171,13 +217,20 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                     key: const Key('field_fixed_daily_charge'),
                     controller: _fixedDailyChargeCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
+                    style: TextStyle(color: tokens.textPrimary),
+                    decoration: InputDecoration(
                       labelText: 'Fixed Daily Charge',
-                      labelStyle: TextStyle(color: Colors.white60),
+                      labelStyle: TextStyle(color: tokens.textSecondary),
                       filled: true,
-                      fillColor: Color(0xFF121418),
-                      border: OutlineInputBorder(),
+                      fillColor: tokens.bgApp,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: tokens.borderControl),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: tokens.borderControl),
+                      ),
                     ),
                   ),
                 ),
@@ -186,10 +239,17 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Set as Active Tariff', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              subtitle: const Text('Used for live cost calculation and automation triggers', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              title: Text(
+                'Set as Active Tariff',
+                style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                'Used for live cost calculation and automation triggers',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+              ),
               value: _isActive,
-              activeThumbColor: Colors.amberAccent,
+              activeTrackColor: tokens.switchTrackOn,
+              activeThumbColor: tokens.switchThumbOn,
               onChanged: (val) => setState(() => _isActive = val),
             ),
           ],
@@ -198,28 +258,41 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
     );
   }
 
-  Widget _buildFlatRateSection() {
+  Widget _buildFlatRateSection(EHThemeTokens tokens) {
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Flat Rate Pricing', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              'Flat Rate Pricing',
+              style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 12),
             TextFormField(
               key: const Key('field_flat_rate'),
               controller: _flatRateCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: tokens.textPrimary),
               decoration: InputDecoration(
                 labelText: 'Price per kWh (${_currencyCtrl.text})',
-                labelStyle: const TextStyle(color: Colors.white60),
+                labelStyle: TextStyle(color: tokens.textSecondary),
                 filled: true,
-                fillColor: const Color(0xFF121418),
-                border: const OutlineInputBorder(),
+                fillColor: tokens.bgApp,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
               ),
               validator: (val) {
                 final d = double.tryParse(val ?? '');
@@ -233,10 +306,13 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
     );
   }
 
-  Widget _buildTouPeriodsSection() {
+  Widget _buildTouPeriodsSection(EHThemeTokens tokens) {
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -245,36 +321,42 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Time-of-Use Periods', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(
+                  'Time-of-Use Periods',
+                  style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
                 TextButton.icon(
                   key: const Key('btn_add_period'),
-                  icon: const Icon(Icons.add, size: 16, color: Colors.amberAccent),
-                  label: const Text('Add Period', style: TextStyle(color: Colors.amberAccent)),
-                  onPressed: _openAddPeriodDialog,
+                  icon: Icon(Icons.add, size: 16, color: tokens.bluePrimary),
+                  label: Text('Add Period', style: TextStyle(color: tokens.bluePrimary)),
+                  onPressed: () => _openAddPeriodDialog(tokens),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             if (_periods.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12.0),
-                child: Text('No TOU periods defined. Add at least one period (e.g. Peak, Off-Peak).',
-                    style: TextStyle(color: Colors.white54, fontSize: 12)),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                child: Text(
+                  'No TOU periods defined. Add at least one period (e.g. Peak, Off-Peak).',
+                  style: TextStyle(color: tokens.textTertiary, fontSize: 12),
+                ),
               ),
-            ..._periods.map((p) => _buildPeriodTile(p)),
+            ..._periods.map((p) => _buildPeriodTile(p, tokens)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildPeriodTile(TariffPeriodModel p) {
+  Widget _buildPeriodTile(TariffPeriodModel p, EHThemeTokens tokens) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF121418),
+        color: tokens.bgApp,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: tokens.borderControl),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -284,17 +366,17 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
             children: [
               Text(
                 '${p.periodType.displayName} • ${_currencyCtrl.text} ${p.pricePerKwh.toStringAsFixed(2)} / kWh',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
               ),
               const SizedBox(height: 2),
               Text(
                 'Time: ${p.startTime} - ${p.endTime}',
-                style: const TextStyle(color: Colors.white54, fontSize: 11),
+                style: TextStyle(color: tokens.textSecondary, fontSize: 11),
               ),
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+            icon: Icon(Icons.delete_outline, size: 18, color: tokens.error),
             onPressed: () {
               setState(() => _periods.remove(p));
             },
@@ -304,7 +386,7 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
     );
   }
 
-  void _openAddPeriodDialog() {
+  void _openAddPeriodDialog(EHThemeTokens tokens) {
     TariffPeriodType type = TariffPeriodType.offPeak;
     String startTime = '22:00';
     String endTime = '06:00';
@@ -314,17 +396,35 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1E222B),
-          title: const Text('Add TOU Period', style: TextStyle(color: Colors.white)),
+          backgroundColor: tokens.surfaceElevated,
+          title: Text('Add TOU Period', style: TextStyle(color: tokens.textPrimary)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<TariffPeriodType>(
                 initialValue: type,
-                dropdownColor: const Color(0xFF1E222B),
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Period Type', labelStyle: TextStyle(color: Colors.white60)),
-                items: TariffPeriodType.values.map((v) => DropdownMenuItem(value: v, child: Text(v.displayName))).toList(),
+                dropdownColor: tokens.surfaceElevated,
+                style: TextStyle(color: tokens.textPrimary),
+                decoration: InputDecoration(
+                  labelText: 'Period Type',
+                  labelStyle: TextStyle(color: tokens.textSecondary),
+                  filled: true,
+                  fillColor: tokens.bgApp,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: tokens.borderControl),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: tokens.borderControl),
+                  ),
+                ),
+                items: TariffPeriodType.values
+                    .map((v) => DropdownMenuItem(
+                          value: v,
+                          child: Text(v.displayName, style: TextStyle(color: tokens.textPrimary)),
+                        ))
+                    .toList(),
                 onChanged: (val) {
                   if (val != null) setDialogState(() => type = val);
                 },
@@ -335,8 +435,21 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                   Expanded(
                     child: TextFormField(
                       initialValue: startTime,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(labelText: 'Start (HH:MM)', labelStyle: TextStyle(color: Colors.white60)),
+                      style: TextStyle(color: tokens.textPrimary),
+                      decoration: InputDecoration(
+                        labelText: 'Start (HH:MM)',
+                        labelStyle: TextStyle(color: tokens.textSecondary),
+                        filled: true,
+                        fillColor: tokens.bgApp,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
+                      ),
                       onChanged: (val) => startTime = val,
                     ),
                   ),
@@ -344,8 +457,21 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                   Expanded(
                     child: TextFormField(
                       initialValue: endTime,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(labelText: 'End (HH:MM)', labelStyle: TextStyle(color: Colors.white60)),
+                      style: TextStyle(color: tokens.textPrimary),
+                      decoration: InputDecoration(
+                        labelText: 'End (HH:MM)',
+                        labelStyle: TextStyle(color: tokens.textSecondary),
+                        filled: true,
+                        fillColor: tokens.bgApp,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: tokens.borderControl),
+                        ),
+                      ),
                       onChanged: (val) => endTime = val,
                     ),
                   ),
@@ -355,15 +481,28 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
               TextFormField(
                 controller: priceCtrl,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Price per kWh', labelStyle: TextStyle(color: Colors.white60)),
+                style: TextStyle(color: tokens.textPrimary),
+                decoration: InputDecoration(
+                  labelText: 'Price per kWh',
+                  labelStyle: TextStyle(color: tokens.textSecondary),
+                  filled: true,
+                  fillColor: tokens.bgApp,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: tokens.borderControl),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: tokens.borderControl),
+                  ),
+                ),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+              child: Text('Cancel', style: TextStyle(color: tokens.textSecondary)),
             ),
             ElevatedButton(
               onPressed: () {
@@ -379,7 +518,10 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                 setState(() => _periods.add(newPeriod));
                 Navigator.pop(ctx);
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.amberAccent, foregroundColor: Colors.black),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                foregroundColor: tokens.buttonText,
+              ),
               child: const Text('Add'),
             ),
           ],
@@ -388,28 +530,41 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
     );
   }
 
-  Widget _buildCarbonSection() {
+  Widget _buildCarbonSection(EHThemeTokens tokens) {
     return Card(
-      color: const Color(0xFF1E222B),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: tokens.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tokens.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Grid Carbon Intensity (Optional)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              'Grid Carbon Intensity (Optional)',
+              style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 8),
             TextFormField(
               key: const Key('field_carbon_intensity'),
               controller: _carbonIntensityCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
                 labelText: 'Intensity (grams CO₂ per kWh)',
-                labelStyle: TextStyle(color: Colors.white60),
+                labelStyle: TextStyle(color: tokens.textSecondary),
                 filled: true,
-                fillColor: Color(0xFF121418),
-                border: OutlineInputBorder(),
+                fillColor: tokens.bgApp,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: tokens.borderControl),
+                ),
               ),
             ),
           ],

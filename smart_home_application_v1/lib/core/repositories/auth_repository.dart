@@ -15,7 +15,8 @@ class UserProfile {
     this.role = 'USER',
   });
 
-  bool get isAdmin => role.toUpperCase() == 'ADMIN';
+  bool get isAdmin =>
+      role.toUpperCase() == 'ADMIN' || role.toUpperCase() == 'SYSTEM_ADMIN';
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
