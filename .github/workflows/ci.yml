@@ -100,7 +100,7 @@ jobs:
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE=/opt/emqx/etc/local-certs/server.key \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY=verify_peer \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT=true \
-            -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PEER_CERT_AS_CLIENTID=cn \
+            -e EMQX_MQTT__PEER_CERT_AS_CLIENTID=cn \
             -e EMQX_AUTHORIZATION__NO_MATCH=deny \
             -e EMQX_AUTHORIZATION__CACHE__ENABLE=false \
             -e EMQX_AUTHORIZATION__SOURCES__1__TYPE=file \
@@ -299,9 +299,9 @@ jobs:
           echo "--- Effective ACL file in /opt/emqx/data/authz/acl.conf ---"
           docker exec eh_emqx cat /opt/emqx/data/authz/acl.conf 2>/dev/null || echo "(not present)"
 
-          echo "--- EMQX listener peer_cert_as_clientid setting ---"
+          echo "--- EMQX mqtt.peer_cert_as_clientid setting ---"
           docker exec eh_emqx emqx eval \
-            "emqx_config:get([listeners, ssl, default, ssl_options, peer_cert_as_clientid])." \
+            "emqx_config:get([mqtt, peer_cert_as_clientid])." \
             || true
 
           echo "=========================================================="
