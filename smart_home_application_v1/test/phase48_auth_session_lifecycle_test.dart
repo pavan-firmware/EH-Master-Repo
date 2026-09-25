@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -222,6 +223,10 @@ class LifecycleMockAuthRepository extends AuthRepository {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
 
   group('Phase 48: Authentication & Session Lifecycle Hardening', () {
     test('1. ApiClient exempts /auth/ endpoints from onRefreshToken and does not throw Session expired on login 401', () async {

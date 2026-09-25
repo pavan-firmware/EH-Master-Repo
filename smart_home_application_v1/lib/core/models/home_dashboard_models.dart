@@ -665,11 +665,12 @@ class HomeDashboardData {
 
       for (int ch = 1; ch <= channelCount; ch++) {
         final isChOn = channelStates?[d.id]?[ch] ?? (ch == 1 ? lightOn : false);
-        final chPrefix = isSocket ? 'Socket' : 'Switch';
+        final chPrefix = isSocket ? 'Socket' : 'Sw';
         final customName = channelLabels?[d.id]?[ch];
+        final defaultTitle = isSocket ? 'Socket $ch' : '$cleanName $chPrefix$ch';
         final title = (customName != null && customName.trim().isNotEmpty)
             ? customName.trim()
-            : '$chPrefix $ch';
+            : defaultTitle;
         final kind = inferKind(cleanName, modelStr, title);
         allControls.add(
           QuickControlPreview(

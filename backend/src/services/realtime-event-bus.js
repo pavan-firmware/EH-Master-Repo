@@ -62,8 +62,9 @@ class RealtimeEventBus {
    * @param {Object}  opts.payload
    * @returns {Object} the SSEEventEnvelope that was emitted
    */
-  publish({ homeId, type, deviceId = null, payload }) {
-    if (!type || payload === undefined) {
+  publish({ homeId, type, deviceId = null, payload, data }) {
+    const eventPayload = payload !== undefined ? payload : data;
+    if (!type || eventPayload === undefined) {
       throw new Error('type and payload are required to publish an event');
     }
 
@@ -74,8 +75,8 @@ class RealtimeEventBus {
       type,
       occurredAt: new Date().toISOString(),
       homeId: targetHomeId,
-      deviceId: deviceId || (payload && payload.deviceId) || null,
-      payload,
+      deviceId: deviceId || (eventPayload && eventPayload.deviceId) || null,
+      payload: eventPayload,
       _seq: 1
     };
 

@@ -59,7 +59,6 @@ class _SmartHomeAppState extends State<SmartHomeApp>
   String? _activeHomeId;
   List<HomeSummaryItem>? _accessibleHomes;
   bool _isResolvingHome = false;
-  bool _splashDone = false;
 
   @override
   void initState() {
@@ -111,6 +110,7 @@ class _SmartHomeAppState extends State<SmartHomeApp>
             repository: CloudHomeRepository(_apiClient!),
             realtimeEventService: _realtimeService,
             cloudEnabled: false, // Will be dynamically enabled upon authentication
+            autoSync: true,
           );
 
       if (_authController!.state == AuthState.authenticated) {
@@ -130,7 +130,6 @@ class _SmartHomeAppState extends State<SmartHomeApp>
   }
 
   Future<void> _onAuthenticated() async {
-    _splashDone = false;
     _homeController.setCloudEnabled(true);
     await _resolveHomeAndConnect();
   }
@@ -151,8 +150,8 @@ class _SmartHomeAppState extends State<SmartHomeApp>
           _activeHomeId = resolvedHome.id;
           await _homeController.syncBackendHomes(homes);
           _homeController.setActiveHomeId(resolvedHome.id);
-          await _homeController.loadHomeData(homeId: resolvedHome.id);
           _realtimeService?.connect(resolvedHome.id);
+          await _homeController.loadHomeData(homeId: resolvedHome.id);
         } else {
           _activeHomeId = null;
           _homeController.setActiveHomeId(null);
@@ -163,14 +162,15 @@ class _SmartHomeAppState extends State<SmartHomeApp>
         _accessibleHomes = [
           HomeSummaryItem(id: _activeHomeId!, name: 'Current Home'),
         ];
-        await _homeController.loadHomeData(homeId: _activeHomeId);
         _realtimeService?.connect(_activeHomeId!);
+        await _homeController.loadHomeData(homeId: _activeHomeId);
       } else {
         final activeId = _homeController.activeHomeId ?? 'local-home';
         _activeHomeId = activeId;
         _accessibleHomes = [
           HomeSummaryItem(id: activeId, name: 'My Home'),
         ];
+        _realtimeService?.connect(activeId);
         await _homeController.loadHomeData(homeId: activeId);
       }
     } catch (_) {
@@ -180,6 +180,7 @@ class _SmartHomeAppState extends State<SmartHomeApp>
       _accessibleHomes = [
         HomeSummaryItem(id: activeId, name: 'My Home'),
       ];
+      _realtimeService?.connect(activeId);
       _homeController.loadHomeData(homeId: activeId);
     } finally {
       _isResolvingHome = false;
@@ -198,7 +199,6 @@ class _SmartHomeAppState extends State<SmartHomeApp>
     _activeHomeId = null;
     _accessibleHomes = null;
     _isResolvingHome = false;
-    _splashDone = false;
 
     // 4. Pop any pushed routes or modal sheets back to root
     _navigatorKey.currentState?.popUntil((route) => route.isFirst);
@@ -225,6 +225,9 @@ class _SmartHomeAppState extends State<SmartHomeApp>
     if (widget.themeController == null) {
       _themeController.dispose();
     }
+    if (widget.homeController == null) {
+      _homeController.dispose();
+    }
     if (widget.authController == null) {
       _authController?.dispose();
       _realtimeService?.dispose();
@@ -244,16 +247,12 @@ class _SmartHomeAppState extends State<SmartHomeApp>
       );
     }
 
-    // Guard 1: Splash animation is currently playing
-    if (!_splashDone) {
-      return SplashScreen(
-        homeController: _homeController,
-        authController: _authController,
-        apiClient: _apiClient,
-        homeId: _activeHomeId,
-        onFinished: () {
-          if (mounted) setState(() => _splashDone = true);
-        },
+    // Guard 1: Home resolution in progress
+    if (_isResolvingHome) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
       );
     }
 
@@ -330,40 +329,21 @@ class _SmartHomeAppState extends State<SmartHomeApp>
                     builder: (context, _) {
                       final authState = _authController!.state;
 
-                      // 1. Splash screen plays first on app launch
-                      if (!_splashDone) {
-                        return SplashScreen(
-                          homeController: _homeController,
-                          authController: _authController,
-                          apiClient: _apiClient,
-                          homeId: _activeHomeId,
-                          onFinished: () {
-                            if (mounted) setState(() => _splashDone = true);
-                          },
-                        );
-                      }
-
-                      // 2. Still restoring persisted session after splash
+                      // 1. Still restoring persisted session
                       if (authState == AuthState.unknown) {
-                        return SplashScreen(
-                          homeController: _homeController,
-                          authController: _authController,
-                          apiClient: _apiClient,
-                          homeId: _activeHomeId,
-                          onFinished: () {
-                            if (mounted) setState(() => _splashDone = true);
-                          },
+                        return const Scaffold(
+                          body: Center(child: CircularProgressIndicator()),
                         );
                       }
 
-                      // 3. Not authenticated or authenticating → show real login
+                      // 2. Not authenticated or authenticating → show real login
                       if (authState == AuthState.unauthenticated ||
                           authState == AuthState.failure ||
                           authState == AuthState.authenticating) {
                         return LoginScreen(controller: _authController!);
                       }
 
-                      // 4. Authenticated → show onboarding if 0 homes, or home shell
+                      // 3. Authenticated → show onboarding if 0 homes, or home shell
                       return _buildAuthenticatedHome();
                     },
                   )
@@ -372,9 +352,6 @@ class _SmartHomeAppState extends State<SmartHomeApp>
                     authController: _authController,
                     apiClient: _apiClient,
                     homeId: _activeHomeId,
-                    onFinished: () {
-                      if (mounted) setState(() => _splashDone = true);
-                    },
                   ),
           ),
         );

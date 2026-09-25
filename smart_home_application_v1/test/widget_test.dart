@@ -21,6 +21,13 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.notifications_none_rounded));
     await tester.pumpAndSettle();
+    expect(find.text('Notifications'), findsWidgets);
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.history_outlined));
+    await tester.pumpAndSettle();
     expect(find.text('Activity'), findsWidgets);
 
     controller.dispose();

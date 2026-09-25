@@ -726,11 +726,13 @@ class _RoomHero extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  room.status == RoomStatus.normal
-                      ? 'Comfortable'
-                      : (room.isOffline ? 'Offline' : 'Attention needed'),
+                  current
+                      ? (room.status == RoomStatus.normal
+                          ? 'Comfortable'
+                          : (room.isOffline ? 'Offline' : 'Attention needed'))
+                      : 'State unavailable',
                   style: TextStyle(
-                    color: room.status == RoomStatus.normal
+                    color: current && room.status == RoomStatus.normal
                         ? tokens.success
                         : (room.isOffline ? tokens.textSecondary : tokens.warning),
                     fontSize: 13,

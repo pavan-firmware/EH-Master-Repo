@@ -31,6 +31,7 @@ class HomeController extends ChangeNotifier {
     RealtimeEventService? realtimeEventService,
     DeviceStorageService? storageService,
     this._cloudEnabled = false,
+    this.autoSync = false,
   }) : _repository = repository ?? FakeHomeRepository(),
        _connectionRepository =
            connectionRepository ?? BleConnectionRepository(),
@@ -51,7 +52,9 @@ class HomeController extends ChangeNotifier {
     }
     _subscribeToLocalUdpBroadcasts();
     _hydrateFromStorage();
-    _startAutoSyncTimer();
+    if (autoSync) {
+      _startAutoSyncTimer();
+    }
   }
 
   void _subscribeToLocalUdpBroadcasts() {
@@ -95,6 +98,7 @@ class HomeController extends ChangeNotifier {
   final HomeRepository _repository;
   final ConnectionRepository _connectionRepository;
   final DeviceStorageService _storageService;
+  final bool autoSync;
 
   /// True when a real authenticated backend is powering this controller.
   bool _cloudEnabled;
@@ -168,7 +172,7 @@ class HomeController extends ChangeNotifier {
   bool get mistingCommandPending => _mistingCommandPending;
   bool get cloudEnabled => _cloudEnabled;
   ActuatorConfidence get lightConfidence => _lightConfidence;
-  String? get activeHomeId => _activeHomeId ?? _activeSpaceId;
+  String? get activeHomeId => _activeHomeId;
   HomeConnectionState get connectionState => _connectionState;
   String? get connectionMessage => _connectionMessage;
   ConnectedDeviceSummary? get connectedDeviceSummary => _connectedDeviceSummary;
@@ -835,6 +839,7 @@ class HomeController extends ChangeNotifier {
   Timer? _autoSyncTimer;
 
   void _startAutoSyncTimer() {
+    if (!autoSync) return;
     _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
       _quietSyncDeviceStates();
@@ -1773,11 +1778,19 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setLivingRoomLight(bool value) async {
+  Future<void> setLivingRoomLight(bool value) {
+    if (!_cloudEnabled) {
+      _lightConfidence = ActuatorConfidence.unavailable;
+      _lightCommandPending = false;
+      notifyListeners();
+      return Future.value();
+    }
+    _lightCommandPending = true;
+    notifyListeners();
     final targetId =
         _activeDeviceId ??
         (_devices.isNotEmpty ? _devices.first.id : 'ce196211-91cf-496a-9403-709d8589eb15');
-    await setDeviceChannelPower(
+    return setDeviceChannelPower(
       deviceId: targetId,
       channelIndex: 1,
       value: value,
@@ -1797,6 +1810,7 @@ class HomeController extends ChangeNotifier {
       _livingRoomLightOn = value;
     }
     _deviceConfidences[deviceId] = ActuatorConfidence.pending;
+    _lightCommandPending = true;
     debugPrint(
       '[DEVICE] COMMAND_SENT deviceId=$deviceId channel=$channelIndex enabled=$value (isLocalMode=$_isLocalMode)',
     );

@@ -151,17 +151,21 @@ Flutter cross-platform application (Android, iOS, Web, Desktop) using Flutter 3.
 ## 8. Known Limitations & Test Observability
 
 ### Current Validation Metrics:
-- **Repository Validation (`scripts/validate-repo.js`):** 60 / 64 test suites passing.
+- **Repository Validation (`scripts/validate-repo.js`):** 64 / 64 test suites passing (100% PASS).
 - **Flutter Analyzer:** 0 issues found (clean pass).
-- **Backend Tests:** 100% pass on Phase 48 Auth/Timezone/RBAC, Contracts, Catalog, OTA, Migrations, and Domain models.
+- **Flutter Test Suite (`smart_home_application_v1`):** 425 / 425 tests passing across all 61 test files (100% PASS).
+- **Backend Test Suite:** 100% pass across all phases (including Phase 7B Realtime Worker / `DeviceStaleDetector` 20/20, Phase 24 Intelligence 30/30, and Phase 48 Auth & RBAC suites).
+- **Firmware Hardware Tests:** 100% pass across ESP32 pin map invariants, factory reset, BL0942 telemetry, and toolchain guards.
 
-### Known Test Observability Notes:
-1. **Realtime Stale Detector (Phase 7B Unit Test):**
-   - `DeviceStaleDetector` threshold edge case in isolated mock test (Suite 14 #13) where mock clock tick expectation differs slightly from runtime interval.
-2. **Flutter Widget Isolation Tests (Phase 48 Lifecycle Mock Tests):**
-   - 4 widget tests in `phase48_auth_session_lifecycle_test.dart` and `phase48_account_profile_timezone_test.dart` require test harness mock adjustments for navigation pump timings and platform channel stubs under pure headless CLI test runner.
-3. **Host Socket Behavior on Windows:**
-   - Non-fatal Dart VM warning: `reusePort not supported for Windows` during local test socket binds.
+### Test Failure Resolution Summary (Pre-PR Triage & Fix):
+1. **DeviceStaleDetector (Backend Priority 1):** Resolved stale transition logic to assign `connection_state: 'STALE'`, extract `homeId`, adapt table names for mock vs DB adapters, and map state record IDs.
+2. **Phase 24 Intelligence Evaluate (Backend):** Resolved `realtimeEventBus.publish` property mismatch (`payload` vs `data`) in both `intelligence.service.js` and `realtime-event-bus.js`.
+3. **Flutter Analyzer:** Removed unused `_splashDone` field in `app.dart` and migrated `HomeController.autoSync` to initializing formal.
+4. **Flutter UI Layout Overflow:** Fixed `home_page.dart` space-selector header Row by wrapping in `Flexible` and ellipsizing on compact (<380dp) viewports.
+5. **Flutter Controller Concurrency:** Added `autoSync: false` by default in `HomeController` to eliminate timer leaks across test suites while keeping background sync enabled in production.
+6. **Flutter Actuator Command Isolation:** Guarded cloud-only actuators in `setLivingRoomLight` while preserving local multi-channel actuators in `setDeviceChannelPower`.
+7. **Flutter Settings & Rooms Synchronization:** Dynamic fallback for room/device counts in `settings_page_rebuild.dart` and room freshness rendering in `room_context_page.dart`.
+8. **Stale Widget Expectations:** Updated `widget_test.dart` to verify Notifications navigation on bell tap and Activity on bottom navigation bar tap.
 
 ---
 

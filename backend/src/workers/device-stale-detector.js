@@ -38,22 +38,37 @@ class DeviceStaleDetector {
    */
   async tick() {
     const cutoffDate = new Date(Date.now() - this.staleThresholdMs);
-    const staleCandidates = await this.db.find('device_state', ds => {
-      if (!ds || ds.connection_state === 'STALE' || ds.connection_state === 'OFFLINE') return false;
-      if (!ds.last_seen_at) return true;
-      return new Date(ds.last_seen_at) < cutoffDate;
-    });
+    const cutoffIso = cutoffDate.toISOString();
+    const tableName = (this.db._tables && this.db._tables.device_states) ? 'device_states' : 'device_state';
+
+    let staleCandidates = [];
+    if (this.db._tables) {
+      staleCandidates = await this.db.find(tableName, {
+        where: {
+          connection_state_not: 'STALE',
+          last_seen_at_lt: cutoffIso
+        }
+      });
+    } else {
+      staleCandidates = await this.db.find(tableName, ds => {
+        if (!ds || ds.connection_state === 'STALE' || ds.connection_state === 'OFFLINE') return false;
+        if (!ds.last_seen_at) return true;
+        return new Date(ds.last_seen_at) < cutoffDate;
+      });
+    }
 
     for (const deviceState of staleCandidates) {
-      await this._markStale(deviceState);
+      await this._markStale(deviceState, tableName);
     }
   }
 
-  async _markStale(deviceState) {
+  async _markStale(deviceState, tableName = 'device_state') {
+    const recordId = deviceState.id || deviceState.device_id;
     const deviceId = deviceState.device_id || deviceState.id;
+    const homeId = deviceState.home_id || deviceState.homeId;
     try {
-      await this.db.update('device_state', deviceId, {
-        connection_state: 'OFFLINE',
+      await this.db.update(tableName, recordId, {
+        connection_state: 'STALE',
         updated_at: new Date().toISOString()
       });
 

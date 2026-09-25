@@ -393,56 +393,63 @@ class _HomeHeader extends StatelessWidget {
             Expanded(
               child: Row(
                 children: [
-                  InkWell(
-                    onTap: () => _showSpaceSelector(context),
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: tokens.isDark
-                            ? const Color(0xFF1E293B)
-                            : const Color(0xFFEFF4FB),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: tokens.borderSubtle),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            activeSpaceName.toLowerCase().contains('office')
-                                ? Icons.business_rounded
-                                : activeSpaceName.toLowerCase().contains('shop')
-                                    ? Icons.storefront_rounded
-                                    : Icons.home_rounded,
-                            color: tokens.bluePrimary,
-                            size: 17,
-                          ),
-                          const SizedBox(width: 6),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 130),
-                            child: Text(
-                              activeSpaceName,
-                              style: TextStyle(
-                                color: tokens.textPrimary,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                  Flexible(
+                    child: InkWell(
+                      onTap: () => _showSpaceSelector(context),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: compact ? 8 : 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: tokens.isDark
+                              ? const Color(0xFF1E293B)
+                              : const Color(0xFFEFF4FB),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: tokens.borderSubtle),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              activeSpaceName.toLowerCase().contains('office')
+                                  ? Icons.business_rounded
+                                  : activeSpaceName.toLowerCase().contains('shop')
+                                      ? Icons.storefront_rounded
+                                      : Icons.home_rounded,
+                              color: tokens.bluePrimary,
+                              size: 17,
                             ),
-                          ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            Icons.keyboard_arrow_down_rounded,
-                            color: tokens.textSecondary,
-                            size: 16,
-                          ),
-                        ],
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                activeSpaceName,
+                                style: TextStyle(
+                                  color: tokens.textPrimary,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: tokens.textSecondary,
+                              size: 16,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: compact ? 6 : 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 6 : 8,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: isLocalMode
                           ? const Color(0xFFF59E0B).withValues(alpha: 0.15)
