@@ -203,8 +203,8 @@ function writeAclFile() {
   "eh/v1/devices/${DEVICE_B_ID}/availability"
 ]}.
 
-%% 5. Development Fallback Allow
-{allow, all}.
+%% 5. Final Deny All (Fail-Closed)
+{deny, all}.
 `;
 
   const tmpAcl = path.join(LOCAL_CERTS_DIR, 'acl.conf');
