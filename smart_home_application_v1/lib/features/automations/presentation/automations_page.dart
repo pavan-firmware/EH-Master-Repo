@@ -167,10 +167,18 @@ class _AutomationsPageState extends State<AutomationsPage> {
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-            child: ListView(
-              key: const PageStorageKey<String>('routines-scroll'),
-              padding: const EdgeInsets.fromLTRB(20, 22, 20, 106),
-              children: [
+            child: RefreshIndicator(
+              onRefresh: _load,
+              color: tokens.bluePrimary,
+              backgroundColor: tokens.surfaceCard,
+              displacement: 24,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                key: const PageStorageKey<String>('routines-scroll'),
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 106),
+                children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -365,7 +373,8 @@ class _AutomationsPageState extends State<AutomationsPage> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   String get _sortLabel => switch (_sort) {

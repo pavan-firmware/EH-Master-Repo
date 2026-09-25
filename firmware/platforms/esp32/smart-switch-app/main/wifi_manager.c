@@ -49,7 +49,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         char ip_str[16];
         esp_ip4addr_ntoa(&event->ip_info.ip, ip_str, sizeof(ip_str));
         s_is_connected = true;
-        ESP_LOGI(TAG, "Wi-Fi connected successfully. Got IP: %s", ip_str);
+
+        // Disable Wi-Fi modem sleep power saving to eliminate the 1-1.5s DTIM wake latency
+        esp_wifi_set_ps(WIFI_PS_NONE);
+
+        ESP_LOGI(TAG, "Wi-Fi connected successfully. Got IP: %s (PowerSave: DISABLED for ultra-low latency)", ip_str);
         if (s_on_connected) {
             s_on_connected(ip_str);
         }

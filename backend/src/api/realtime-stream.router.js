@@ -47,7 +47,7 @@ class RealtimeStreamRouter {
       : urlToken;
 
     if (!tokenString) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.writeHead(401, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Authentication required: missing Authorization header or ?token=' }
@@ -60,7 +60,7 @@ class RealtimeStreamRouter {
     try {
       userPayload = this.authService.verifyAccessToken(tokenString);
     } catch (err) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.writeHead(401, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({
         success: false,
         error: { code: 'UNAUTHORIZED', message: `Authentication failed: ${err.message}` }
@@ -73,7 +73,7 @@ class RealtimeStreamRouter {
     // 3. Enforce Home Membership authorization
     const authCheck = await this.homeAuthService.authorizeRequest({ userId, homeId });
     if (!authCheck.isAuthorized) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({
         success: false,
         error: { code: 'FORBIDDEN', message: authCheck.message }
@@ -84,7 +84,7 @@ class RealtimeStreamRouter {
     // 4. Soft cap per home to prevent resource exhaustion
     const currentCount = this._clientCounts.get(homeId) || 0;
     if (currentCount >= MAX_CLIENTS_PER_HOME) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({
         success: false,
         error: { code: 'SERVICE_UNAVAILABLE', message: 'Home stream capacity exceeded, try again later' }
@@ -109,8 +109,17 @@ class RealtimeStreamRouter {
     const writeSseEvent = (event) => {
       if (isClosed) return;
       try {
+        const envelope = {
+          schemaVersion: event.schemaVersion || 1,
+          eventId: event.eventId || require('crypto').randomUUID(),
+          type: event.type,
+          occurredAt: event.occurredAt || new Date().toISOString(),
+          homeId,
+          deviceId: event.deviceId || (event.payload && event.payload.deviceId) || null,
+          payload: event.payload || {}
+        };
         const eventId = `${homeId}:${event._seq || Date.now()}`;
-        const dataLine = `data: ${JSON.stringify(event)}\n`;
+        const dataLine = `data: ${JSON.stringify(envelope)}\n`;
         const idLine = `id: ${eventId}\n`;
         const typeLine = `event: ${event.type}\n`;
         res.write(`${idLine}${typeLine}${dataLine}\n`);

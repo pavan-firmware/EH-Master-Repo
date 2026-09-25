@@ -89,6 +89,18 @@ class DatabaseAdapter {
   }
 
   /**
+   * Atomically insert or update record by primary key or unique constraint
+   * @param {string} table
+   * @param {string} id
+   * @param {Object} data
+   * @param {string} [conflictTarget='id']
+   * @returns {Promise<Object>} Upserted record
+   */
+  async upsert(table, id, data, conflictTarget = 'id') {
+    throw new Error('DatabaseAdapter.upsert() must be implemented by subclass');
+  }
+
+  /**
    * Execute callback within an atomic database transaction
    * @param {Function} callback - async (txAdapter) => Promise<any>
    * @returns {Promise<any>}

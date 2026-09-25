@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/energy_cost_models.dart';
 
 /// Client Service for Electricity Tariffs, Cost Analytics, Budgets & Optimizations
@@ -20,10 +21,11 @@ class EnergyCostService extends ChangeNotifier {
   String? _errorMessage;
 
   EnergyCostService({
-    this.baseUrl = 'http://localhost:3000',
+    String? baseUrl,
     http.Client? client,
     this.authToken,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   List<ElectricityTariffModel> get tariffs => _tariffs;
   EnergyCostSummaryModel? get costSummary => _costSummary;

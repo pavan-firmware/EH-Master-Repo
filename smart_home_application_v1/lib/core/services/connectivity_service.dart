@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/connectivity_models.dart';
 
 /// Phase 26 — Multi-Protocol Connectivity Client Service
@@ -13,9 +14,10 @@ class ConnectivityService extends ChangeNotifier {
   String? _authToken;
 
   ConnectivityService({
-    required this.baseUrl,
+    String? baseUrl,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   void updateToken(String? token) {
     _authToken = token;

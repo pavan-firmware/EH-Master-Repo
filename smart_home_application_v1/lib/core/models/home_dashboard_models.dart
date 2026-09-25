@@ -107,6 +107,7 @@ class RoomPreview {
     required this.id,
     required this.name,
     required this.deviceCount,
+    this.devicesOnCount = 0,
     required this.summary,
     required this.status,
     required this.isAttention,
@@ -117,6 +118,7 @@ class RoomPreview {
   final String id;
   final String name;
   final int deviceCount;
+  final int devicesOnCount;
   final String summary;
   final String status;
   final bool isAttention;
@@ -124,7 +126,143 @@ class RoomPreview {
   final String iconKey;
 }
 
-enum QuickControlKind { light, fan, mistMaker, curtain }
+class SpaceOnSummary {
+  const SpaceOnSummary({
+    required this.spaceId,
+    required this.spaceName,
+    required this.icon,
+    required this.devicesOnCount,
+    required this.onDeviceNames,
+  });
+
+  final String spaceId;
+  final String spaceName;
+  final String icon;
+  final int devicesOnCount;
+  final List<String> onDeviceNames;
+}
+
+class SpaceAlertItem {
+  const SpaceAlertItem({
+    required this.id,
+    required this.spaceId,
+    required this.spaceName,
+    required this.title,
+    required this.message,
+    required this.severity,
+    required this.timestamp,
+    this.roomId,
+    this.deviceId,
+  });
+
+  final String id;
+  final String spaceId;
+  final String spaceName;
+  final String title;
+  final String message;
+  final AlertSeverity severity;
+  final DateTime timestamp;
+  final String? roomId;
+  final String? deviceId;
+}
+
+class UpcomingRoutineItem {
+  const UpcomingRoutineItem({
+    required this.id,
+    required this.spaceId,
+    required this.spaceName,
+    required this.spaceIcon,
+    required this.title,
+    required this.timeLabel,
+    required this.iconKey,
+    required this.isEnabled,
+  });
+
+  final String id;
+  final String spaceId;
+  final String spaceName;
+  final String spaceIcon;
+  final String title;
+  final String timeLabel;
+  final String iconKey;
+  final bool isEnabled;
+}
+
+class GroupControlItem {
+  const GroupControlItem({
+    required this.id,
+    required this.spaceId,
+    required this.label,
+    required this.kind,
+    required this.targetControlIds,
+    this.isEnabled = true,
+    this.isOn = false,
+    this.value = 0.0,
+  });
+
+  final String id;
+  final String spaceId;
+  final String label;
+  final QuickControlKind kind;
+  final List<String> targetControlIds;
+  final bool isEnabled;
+  final bool isOn;
+  final double value;
+
+  GroupControlItem copyWith({
+    String? id,
+    String? spaceId,
+    String? label,
+    QuickControlKind? kind,
+    List<String>? targetControlIds,
+    bool? isEnabled,
+    bool? isOn,
+    double? value,
+  }) {
+    return GroupControlItem(
+      id: id ?? this.id,
+      spaceId: spaceId ?? this.spaceId,
+      label: label ?? this.label,
+      kind: kind ?? this.kind,
+      targetControlIds: targetControlIds ?? this.targetControlIds,
+      isEnabled: isEnabled ?? this.isEnabled,
+      isOn: isOn ?? this.isOn,
+      value: value ?? this.value,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'spaceId': spaceId,
+        'label': label,
+        'kind': kind.name,
+        'targetControlIds': targetControlIds,
+        'isEnabled': isEnabled,
+        'isOn': isOn,
+        'value': value,
+      };
+
+  factory GroupControlItem.fromJson(Map<String, dynamic> json) {
+    return GroupControlItem(
+      id: json['id'] as String? ?? '',
+      spaceId: json['spaceId'] as String? ?? 'home_default',
+      label: json['label'] as String? ?? '',
+      kind: QuickControlKind.values.firstWhere(
+        (k) => k.name == json['kind'],
+        orElse: () => QuickControlKind.switchControl,
+      ),
+      targetControlIds: (json['targetControlIds'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      isEnabled: json['isEnabled'] as bool? ?? true,
+      isOn: json['isOn'] as bool? ?? false,
+      value: (json['value'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+enum QuickControlKind { light, fan, mistMaker, curtain, socket, switchControl }
 
 class QuickControlPreview {
   const QuickControlPreview({
@@ -134,6 +272,7 @@ class QuickControlPreview {
     required this.value,
     required this.confidence,
     required this.isEnabled,
+    this.roomName,
   });
 
   final String id;
@@ -142,6 +281,16 @@ class QuickControlPreview {
   final String value;
   final ActuatorConfidence confidence;
   final bool isEnabled;
+  final String? roomName;
+
+  String get label => title;
+  bool get isOn => value.toLowerCase() == 'on';
+  bool get supportsToggle =>
+      kind == QuickControlKind.light ||
+      kind == QuickControlKind.switchControl ||
+      kind == QuickControlKind.socket ||
+      kind == QuickControlKind.fan;
+  bool get isAvailable => confidence != ActuatorConfidence.unavailable;
 }
 
 class RoutinePreview {
@@ -172,6 +321,7 @@ class HomeDashboardData {
     required this.securityDetail,
     required this.rooms,
     required this.controls,
+    this.allControls = const [],
     required this.routine,
     this.alert,
     this.primaryTitle,
@@ -193,6 +343,7 @@ class HomeDashboardData {
   final String securityDetail;
   final List<RoomPreview> rooms;
   final List<QuickControlPreview> controls;
+  final List<QuickControlPreview> allControls;
   final RoutinePreview? routine;
   final DashboardAlert? alert;
   final String? primaryTitle;
@@ -393,7 +544,17 @@ class HomeDashboardData {
       controls: [
         QuickControlPreview(
           id: 'light',
-          kind: QuickControlKind.light,
+          kind: cleanDeviceName.toLowerCase().contains('socket') || cleanDeviceName.toLowerCase().contains('plug')
+              ? QuickControlKind.socket
+              : (cleanDeviceName.toLowerCase().contains('fan')
+                  ? QuickControlKind.fan
+                  : (cleanDeviceName.toLowerCase().contains('curtain')
+                      ? QuickControlKind.curtain
+                      : (cleanDeviceName.toLowerCase().contains('mist')
+                          ? QuickControlKind.mistMaker
+                          : (cleanDeviceName.toLowerCase().contains('light') || cleanDeviceName.toLowerCase().contains('bulb') || cleanDeviceName.toLowerCase().contains('lamp')
+                              ? QuickControlKind.light
+                              : QuickControlKind.switchControl)))),
           title: '$roomName\n$cleanDeviceName',
           value: lightOn ? 'On' : 'Off',
           confidence: lightConfidence,
@@ -410,6 +571,7 @@ class HomeDashboardData {
     required ActuatorConfidence lightConfidence,
     List<String>? selectedControlIds,
     Map<String, Map<int, bool>>? channelStates,
+    Map<String, Map<int, String>>? channelLabels,
   }) {
     if (devices.isEmpty) {
       return HomeDashboardData.setup(
@@ -434,83 +596,127 @@ class HomeDashboardData {
         RegExp(r'[^a-z0-9]'),
         '_',
       );
+      int devicesOnCount = 0;
+      for (final d in roomDevices) {
+        bool isDevOn = false;
+        for (int ch = 1; ch <= 4; ch++) {
+          if (channelStates?[d.id]?[ch] ?? (ch == 1 ? lightOn : false)) {
+            isDevOn = true;
+            break;
+          }
+        }
+        if (isDevOn) devicesOnCount++;
+      }
+      final anyChOnInRoom = devicesOnCount > 0;
+      final allOffline = roomDevices.every((d) => d.online == false);
+
       return RoomPreview(
         id: roomId,
         name: roomName,
         deviceCount: roomDevices.length,
-        summary: lightOn ? 'Active' : 'Standby',
-        status: 'Online',
+        devicesOnCount: devicesOnCount,
+        summary: allOffline ? 'Offline' : (anyChOnInRoom ? '$devicesOnCount ON' : 'Standby'),
+        status: allOffline ? 'Offline' : 'Online',
         isAttention: false,
-        freshness: TelemetryFreshness.current,
+        freshness: allOffline ? TelemetryFreshness.stale : TelemetryFreshness.current,
         iconKey: 'living',
       );
     }).toList();
 
-    List<QuickControlPreview> controls = [];
-    if (selectedControlIds != null && selectedControlIds.isNotEmpty) {
+    QuickControlKind inferKind(String devName, String devModel, String chLabel) {
+      final labelLower = chLabel.toLowerCase();
+      if (labelLower.contains('light') || labelLower.contains('bulb') || labelLower.contains('lamp')) {
+        return QuickControlKind.light;
+      }
+      if (labelLower.contains('fan')) return QuickControlKind.fan;
+      if (labelLower.contains('curtain') || labelLower.contains('blind')) return QuickControlKind.curtain;
+      if (labelLower.contains('mist')) return QuickControlKind.mistMaker;
+      if (labelLower.contains('socket') || labelLower.contains('plug') || labelLower.contains('outlet')) {
+        return QuickControlKind.socket;
+      }
+
+      final devText = '${devName.toLowerCase()} ${devModel.toLowerCase()}';
+      if (devText.contains('socket') || devText.contains('plug') || devText.contains('outlet')) {
+        return QuickControlKind.socket;
+      }
+      if (devText.contains('fan')) return QuickControlKind.fan;
+      if (devText.contains('curtain') || devText.contains('blind')) return QuickControlKind.curtain;
+      if (devText.contains('mist')) return QuickControlKind.mistMaker;
+      if (devText.contains('light') || devText.contains('bulb') || devText.contains('lamp')) {
+        return QuickControlKind.light;
+      }
+      return QuickControlKind.switchControl;
+    }
+
+    final List<QuickControlPreview> allControls = [];
+    for (final d in devices) {
+      final rawName = d.name as String? ?? 'Smart Switch';
+      final cleanName = rawName.startsWith('EH ')
+          ? rawName.substring(3).trim()
+          : rawName;
+      final modelStr = (d.model as String? ?? '').toLowerCase();
+      final nameStr = cleanName.toLowerCase();
+      final isSocket = nameStr.contains('socket') || modelStr.contains('socket');
+      final is4X = nameStr.contains('4x') || modelStr.contains('4x');
+      final is3X = nameStr.contains('3x') || modelStr.contains('3x');
+      final is2X = nameStr.contains('2x') || modelStr.contains('2x');
+      final channelCount = is4X ? 4 : (is3X ? 3 : (is2X ? 2 : 1));
+      final isDevOnline = d.online == true;
+
+      for (int ch = 1; ch <= channelCount; ch++) {
+        final isChOn = channelStates?[d.id]?[ch] ?? (ch == 1 ? lightOn : false);
+        final chPrefix = isSocket ? 'Socket' : 'Sw';
+        final customName = channelLabels?[d.id]?[ch];
+        final defaultTitle = isSocket ? 'Socket $ch' : '$cleanName $chPrefix$ch';
+        final title = (customName != null && customName.trim().isNotEmpty)
+            ? customName.trim()
+            : defaultTitle;
+        final kind = inferKind(cleanName, modelStr, title);
+        allControls.add(
+          QuickControlPreview(
+            id: '${d.id}_ch$ch',
+            kind: kind,
+            title: title,
+            value: isDevOnline ? (isChOn ? 'On' : 'Off') : 'Offline',
+            confidence: isDevOnline ? lightConfidence : ActuatorConfidence.unavailable,
+            isEnabled: isDevOnline,
+            roomName: d.roomName,
+          ),
+        );
+      }
+    }
+
+    final List<QuickControlPreview> controls = [];
+    if (selectedControlIds != null) {
       for (final id in selectedControlIds) {
-        // ID format: either 'devId_chX' or 'devId'
-        final parts = id.split('_ch');
-        final devId = parts[0];
-        final chIdx = parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1;
-        final dev = devices.cast<dynamic>().firstWhere(
-          (d) => d.id == devId,
+        final match = allControls.cast<QuickControlPreview?>().firstWhere(
+          (c) => c?.id == id,
           orElse: () => null,
         );
-        if (dev != null) {
-          final rawName = dev.name as String? ?? 'Switch';
-          final cleanName = rawName.startsWith('EH ')
-              ? rawName.substring(3).trim()
-              : rawName;
-          final roomName = dev.roomName as String? ?? 'Room';
-          final isChOn = channelStates?[devId]?[chIdx] ?? (chIdx == 1 ? lightOn : false);
-          controls.add(
-            QuickControlPreview(
-              id: id,
-              kind: QuickControlKind.light,
-              title: '$roomName\n$cleanName Sw$chIdx',
-              value: isChOn ? 'On' : 'Off',
-              confidence: lightConfidence,
-              isEnabled: true,
-            ),
-          );
+        if (match != null) {
+          controls.add(match);
         }
       }
     }
 
-    if (controls.isEmpty) {
-      controls = devices.map((d) {
-        final rawName = d.name as String? ?? 'Smart Switch 3X';
-        final cleanName = rawName.startsWith('EH ')
-            ? rawName.substring(3).trim()
-            : rawName;
-        final roomName = d.roomName as String? ?? 'Room';
-        return QuickControlPreview(
-          id: d.id as String? ?? 'dev',
-          kind: QuickControlKind.light,
-          title: '$roomName\n$cleanName',
-          value: lightOn ? 'On' : 'Off',
-          confidence: lightConfidence,
-          isEnabled: true,
-        );
-      }).toList();
-    }
+    final onlineCount = devices.where((d) => d.online == true).length;
 
     return HomeDashboardData(
       state: HomeDashboardState.ready,
       source: DashboardDataSource.live,
-      connectivity: ConnectivityCause.online,
-      telemetryFreshness: TelemetryFreshness.current,
-      devicesOnline: devices.where((d) => d.online == true).length,
+      connectivity: onlineCount > 0 ? ConnectivityCause.online : ConnectivityCause.deviceOffline,
+      telemetryFreshness: onlineCount > 0 ? TelemetryFreshness.current : TelemetryFreshness.stale,
+      devicesOnline: onlineCount,
       deviceCount: devices.length,
       roomCount: roomMap.length,
       activeRoomCount: roomMap.length,
       networkLabel: 'Wi-Fi',
-      networkDetail: 'Connected',
+      networkDetail: onlineCount > 0 ? 'Connected' : 'Offline',
       securityLabel: 'Security',
-      securityDetail: 'All devices online',
+      securityDetail: onlineCount == devices.length ? 'All devices online' : '$onlineCount of ${devices.length} online',
       rooms: rooms,
       controls: controls,
+      allControls: allControls,
       routine: null,
     );
   }

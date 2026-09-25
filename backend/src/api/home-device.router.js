@@ -32,8 +32,17 @@ class HomeDeviceApiRouter {
       }
 
       if (method === 'POST' && path === '/api/v1/homes') {
-        const ownerId = body.ownerId || actorUserId;
-        const home = await this.homeService.createHome({ ...body, ownerId, actorUserId });
+        const ownerId = actorUserId;
+        if (!ownerId) {
+          return { status: 401, body: { success: false, error: 'Authentication required to create a home' } };
+        }
+        const home = await this.homeService.createHome({
+          name: body.name,
+          timezone: body.timezone || 'UTC',
+          address: body.address || null,
+          ownerId,
+          actorUserId
+        });
         return { status: 201, body: { success: true, data: home } };
       }
 
@@ -217,6 +226,59 @@ class HomeDeviceApiRouter {
           updated = await this.deviceService.moveDeviceToHome({ deviceId, newHomeId: body.newHomeId, newRoomId: body.newRoomId });
         } else {
           updated = await this.deviceService.moveDeviceToRoom({ deviceId, newRoomId: body.newRoomId });
+        }
+        return { status: 200, body: { success: true, data: updated } };
+      }
+
+      // Specific Room Operations (/api/v1/rooms/:roomId or /api/v1/homes/:homeId/rooms/:roomId)
+      const singleRoomMatch = path.match(/^\/api\/v1\/rooms\/([^\/]+)$/) || path.match(/^\/api\/v1\/homes\/[^\/]+\/rooms\/([^\/]+)$/);
+      if (singleRoomMatch) {
+        const roomId = singleRoomMatch[1];
+        if (method === 'PATCH') {
+          const updated = await this.roomService.renameRoom({
+            roomId,
+            name: body.name || body.roomName,
+            actorUserId
+          });
+          return { status: 200, body: { success: true, data: updated } };
+        }
+        if (method === 'DELETE') {
+          const res = await this.roomService.deleteRoom({ roomId, actorUserId });
+          return { status: 200, body: { success: true, data: res } };
+        }
+      }
+
+      // Channel Rename (/api/v1/devices/:deviceId/channels/:channelIndex)
+      const channelRenameMatch = path.match(/^\/api\/v1\/devices\/([^\/]+)\/channels\/([0-9]+)$/);
+      if (channelRenameMatch && (method === 'PATCH' || method === 'POST')) {
+        const deviceId = channelRenameMatch[1];
+        const channelIndex = parseInt(channelRenameMatch[2], 10);
+        const newName = body.name || body.label || body.newName;
+        const updated = await this.deviceService.renameChannel({
+          deviceId,
+          channelIndex,
+          newName,
+          actorUserId
+        });
+        return { status: 200, body: { success: true, data: updated } };
+      }
+
+      const channelsBatchMatch = path.match(/^\/api\/v1\/devices\/([^\/]+)\/channels$/);
+      if (channelsBatchMatch && (method === 'PATCH' || method === 'POST')) {
+        const deviceId = channelsBatchMatch[1];
+        let updated;
+        if (body.channelIndex && (body.name || body.label)) {
+          updated = await this.deviceService.renameChannel({
+            deviceId,
+            channelIndex: parseInt(body.channelIndex, 10),
+            newName: body.name || body.label,
+            actorUserId
+          });
+        } else if (body.channelLabels) {
+          const auth = await this.deviceService.deviceRepo.getDeviceAuthorization(deviceId);
+          const currentLabels = (auth && auth.channel_labels) || {};
+          const merged = { ...currentLabels, ...body.channelLabels };
+          updated = await this.deviceService.deviceRepo.updateDeviceAuthorization(deviceId, { channelLabels: merged });
         }
         return { status: 200, body: { success: true, data: updated } };
       }

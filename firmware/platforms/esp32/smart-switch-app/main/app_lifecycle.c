@@ -23,9 +23,11 @@ static const char* s_state_names[] = {
     "FACTORY_NEW",
     "BLE_COMMISSIONING",
     "WIFI_CONNECTING",
+    "LOCAL_OPERATIONAL",
     "MQTT_CONNECTING",
     "ACTIVE",
-    "ERROR_RECOVERY"
+    "ERROR_RECOVERY",
+    "OTA_UPDATING"
 };
 
 void app_lifecycle_init(void)
@@ -66,16 +68,22 @@ bool app_lifecycle_set_state(app_lifecycle_state_t new_state)
             valid = (new_state == APP_STATE_WIFI_CONNECTING || new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_FACTORY_NEW);
             break;
         case APP_STATE_WIFI_CONNECTING:
-            valid = (new_state == APP_STATE_MQTT_CONNECTING || new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_BLE_COMMISSIONING);
+            valid = (new_state == APP_STATE_LOCAL_OPERATIONAL || new_state == APP_STATE_MQTT_CONNECTING || new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_BLE_COMMISSIONING);
+            break;
+        case APP_STATE_LOCAL_OPERATIONAL:
+            valid = (new_state == APP_STATE_MQTT_CONNECTING || new_state == APP_STATE_ACTIVE || new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_WIFI_CONNECTING || new_state == APP_STATE_OTA_UPDATING || new_state == APP_STATE_FACTORY_NEW);
             break;
         case APP_STATE_MQTT_CONNECTING:
-            valid = (new_state == APP_STATE_ACTIVE || new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_WIFI_CONNECTING);
+            valid = (new_state == APP_STATE_ACTIVE || new_state == APP_STATE_LOCAL_OPERATIONAL || new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_WIFI_CONNECTING || new_state == APP_STATE_OTA_UPDATING);
             break;
         case APP_STATE_ACTIVE:
-            valid = (new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_WIFI_CONNECTING || new_state == APP_STATE_FACTORY_NEW);
+            valid = (new_state == APP_STATE_LOCAL_OPERATIONAL || new_state == APP_STATE_ERROR_RECOVERY || new_state == APP_STATE_WIFI_CONNECTING || new_state == APP_STATE_OTA_UPDATING || new_state == APP_STATE_FACTORY_NEW);
             break;
         case APP_STATE_ERROR_RECOVERY:
-            valid = (new_state == APP_STATE_WIFI_CONNECTING || new_state == APP_STATE_BLE_COMMISSIONING || new_state == APP_STATE_FACTORY_NEW);
+            valid = (new_state == APP_STATE_LOCAL_OPERATIONAL || new_state == APP_STATE_MQTT_CONNECTING || new_state == APP_STATE_ACTIVE || new_state == APP_STATE_WIFI_CONNECTING || new_state == APP_STATE_BLE_COMMISSIONING || new_state == APP_STATE_FACTORY_NEW);
+            break;
+        case APP_STATE_OTA_UPDATING:
+            valid = (new_state == APP_STATE_ACTIVE || new_state == APP_STATE_LOCAL_OPERATIONAL || new_state == APP_STATE_ERROR_RECOVERY);
             break;
         default:
             valid = false;

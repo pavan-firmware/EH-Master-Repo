@@ -155,6 +155,15 @@ class InMemoryDatabaseAdapter extends DatabaseAdapter {
     return tbl.delete(id);
   }
 
+  async upsert(table, id, data = {}, conflictTarget = 'id') {
+    const tbl = this.getTable(table);
+    const existing = tbl.get(id);
+    if (existing) {
+      return this.update(table, id, data);
+    }
+    return this.insert(table, id, data);
+  }
+
   async withTransaction(callback) {
     if (!this.isConnected) {
       throw new Error('Database is closed or disconnected');

@@ -37,7 +37,8 @@ class Room {
       !isOnline || telemetryFreshness == TelemetryFreshness.unknown;
 
   String get connectivityLabel {
-    if (isOffline) return 'Device state unavailable';
+    if (deviceCount == 0) return 'No devices';
+    if (isOffline) return 'Device offline';
     if (needsAttention) return '1 issue detected';
     if (telemetryFreshness == TelemetryFreshness.stale) {
       return 'Telemetry stale';
@@ -56,6 +57,7 @@ class RoomCapability {
     required this.kind,
     this.isWarning = false,
     this.safetyCritical = false,
+    this.isOnline = true,
   });
 
   final String id;
@@ -64,6 +66,7 @@ class RoomCapability {
   final RoomCapabilityKind kind;
   final bool isWarning;
   final bool safetyCritical;
+  final bool isOnline;
 }
 
 enum RoomCapabilityKind {
@@ -77,6 +80,8 @@ enum RoomCapabilityKind {
   fan,
   curtain,
   lamp,
+  socket,
+  switchControl,
 }
 
 class RoomDevice {

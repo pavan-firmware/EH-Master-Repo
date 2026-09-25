@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import '../models/device_models.dart';
 import 'home_repository.dart';
 import '../api/api_client.dart';
@@ -21,6 +22,46 @@ class CloudHomeRepository implements HomeRepository {
     return '${hex(8)}-${hex(4)}-4${hex(3)}-a${hex(3)}-${hex(12)}';
   }
 
+  Future<List<Map<String, dynamic>>> getHomes() async {
+    final response = await _apiClient.get('/api/v1/homes');
+    if (response is List) {
+      return response.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+    }
+    if (response is Map && response['data'] is List) {
+      return (response['data'] as List)
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
+    }
+    return [];
+  }
+
+  Future<Map<String, dynamic>> createHome(String name) async {
+    final response = await _apiClient.post(
+      '/api/v1/homes',
+      body: {'name': name.trim()},
+    );
+    if (response is Map<String, dynamic>) {
+      if (response['data'] is Map<String, dynamic>) {
+        return response['data'] as Map<String, dynamic>;
+      }
+      return response;
+    }
+    return <String, dynamic>{'name': name};
+  }
+
+  Future<void> updateHome(String homeId, String name) async {
+    try {
+      await _apiClient.patch('/api/v1/homes/$homeId', body: {'name': name.trim()});
+    } catch (_) {}
+  }
+
+  Future<void> deleteHome(String homeId) async {
+    try {
+      await _apiClient.delete('/api/v1/homes/$homeId');
+    } catch (_) {}
+  }
+
+
   @override
   Future<List<DeviceSnapshot>> getDevices({String? homeId}) async {
     String resolvedHomeId = homeId ?? _activeHomeId ?? '';
@@ -37,9 +78,17 @@ class CloudHomeRepository implements HomeRepository {
       _activeHomeId = resolvedHomeId;
     }
 
-    final devicesResponse = await _apiClient.get(
-      '/api/v1/homes/$resolvedHomeId/devices',
-    );
+    dynamic devicesResponse;
+    try {
+      devicesResponse = await _apiClient.get(
+        '/api/v1/homes/$resolvedHomeId/devices',
+      );
+    } on ApiException catch (e) {
+      if (e.statusCode == 403 || e.statusCode == 404) {
+        return [];
+      }
+      rethrow;
+    }
     if (devicesResponse == null) return [];
 
     final rawList = devicesResponse is List
@@ -110,12 +159,75 @@ class CloudHomeRepository implements HomeRepository {
     try {
       final lastSeen = DateTime.parse(connectionOrLastSeen.toString());
       final diff = DateTime.now().difference(lastSeen).inSeconds;
-      if (diff > 120) {
+      if (diff > 45) {
         return DeviceConnection.offline;
       }
       return DeviceConnection.online;
     } catch (_) {
       return DeviceConnection.offline;
+    }
+  }
+
+  Future<void> renameChannel({
+    required String deviceId,
+    required int channelIndex,
+    required String newName,
+  }) async {
+    try {
+      await _apiClient.patch(
+        '/api/v1/devices/$deviceId/channels/$channelIndex',
+        body: {'name': newName},
+      );
+    } catch (_) {
+      final homeId = _activeHomeId ?? 'home_01';
+      await claimDevice(
+        deviceId: deviceId,
+        homeId: homeId,
+        channelLabels: {channelIndex.toString(): newName},
+      );
+    }
+  }
+
+  Future<void> renameRoom({
+    required String roomId,
+    required String newName,
+  }) async {
+    try {
+      await _apiClient.patch(
+        '/api/v1/rooms/$roomId',
+        body: {'name': newName.trim()},
+      );
+    } catch (e) {
+      // Fallback to home-scoped room route if needed
+      if (_activeHomeId != null && _activeHomeId!.isNotEmpty) {
+        try {
+          await _apiClient.patch(
+            '/api/v1/homes/$_activeHomeId/rooms/$roomId',
+            body: {'name': newName.trim()},
+          );
+        } catch (innerErr) {
+          debugPrint('[CloudHomeRepo] renameRoom error: $innerErr');
+        }
+      } else {
+        debugPrint('[CloudHomeRepo] renameRoom error: $e');
+      }
+    }
+  }
+
+  Future<void> deleteRoom(String roomId) async {
+    try {
+      await _apiClient.delete('/api/v1/rooms/$roomId');
+    } catch (e) {
+      // Fallback to home-scoped room route if needed
+      if (_activeHomeId != null && _activeHomeId!.isNotEmpty) {
+        try {
+          await _apiClient.delete('/api/v1/homes/$_activeHomeId/rooms/$roomId');
+        } catch (innerErr) {
+          debugPrint('[CloudHomeRepo] deleteRoom error: $innerErr');
+        }
+      } else {
+        debugPrint('[CloudHomeRepo] deleteRoom error: $e');
+      }
     }
   }
 
@@ -176,9 +288,17 @@ class CloudHomeRepository implements HomeRepository {
     }
     if (resolvedHomeId.isEmpty) return [];
 
-    final response = await _apiClient.get(
-      '/api/v1/homes/$resolvedHomeId/rooms',
-    );
+    dynamic response;
+    try {
+      response = await _apiClient.get(
+        '/api/v1/homes/$resolvedHomeId/rooms',
+      );
+    } on ApiException catch (e) {
+      if (e.statusCode == 403 || e.statusCode == 404) {
+        return [];
+      }
+      rethrow;
+    }
     if (response is List) {
       return response.map((r) => Map<String, dynamic>.from(r as Map)).toList();
     }

@@ -177,7 +177,7 @@ class AuthService {
 
   // --- Auth Workflow Methods ---
 
-  async register({ email, password }) {
+  async register({ email, password, fullName, name, phoneNumber, phone_number, avatarUrl, avatar_url, timezone = 'UTC' }) {
     if (!email || typeof email !== 'string' || !email.includes('@')) {
       throw new Error('Invalid email address');
     }
@@ -185,9 +185,10 @@ class AuthService {
       throw new Error('Password must be at least 8 characters long');
     }
 
-    const existing = await this.userRepo.findByEmail(email);
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await this.userRepo.findByEmail(normalizedEmail);
     if (existing) {
-      const err = new Error(`User with email '${email}' already exists`);
+      const err = new Error('An account with this email already exists. Please sign in.');
       err.code = 'DUPLICATE_EMAIL';
       throw err;
     }
@@ -195,12 +196,35 @@ class AuthService {
     const userId = generateUuid();
     const passwordHash = this.hashPassword(password);
 
+    // 1. Create User
     const user = await this.userRepo.createUser({
       id: userId,
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       passwordHash,
       emailVerified: false
     });
+
+    const rawFullName = fullName !== undefined ? fullName : name;
+    const cleanFullName = (rawFullName && typeof rawFullName === 'string' && rawFullName.trim().length > 0)
+      ? rawFullName.trim()
+      : null;
+
+    // 2. Mandatory atomic creation of user_profiles row with rollback on failure
+    try {
+      await this.userRepo.upsertProfile(userId, {
+        fullName: cleanFullName,
+        phoneNumber: phoneNumber || phone_number || null,
+        avatarUrl: avatarUrl || avatar_url || null,
+        timezone: timezone || 'UTC'
+      });
+    } catch (profileErr) {
+      try {
+        await this.userRepo.deleteUser(userId);
+      } catch (_) {}
+      throw new Error(`Failed to initialize user profile: ${profileErr.message}`);
+    }
+
+    const profile = await this.userRepo.getProfile(userId);
 
     return {
       schemaVersion: 1,
@@ -208,6 +232,8 @@ class AuthService {
       email: user.email,
       role: user.role || 'USER',
       emailVerified: user.email_verified || false,
+      fullName: profile ? profile.fullName : cleanFullName,
+      displayName: (profile && profile.fullName) ? profile.fullName : (cleanFullName || user.email),
       createdAt: user.created_at
     };
   }
@@ -217,7 +243,8 @@ class AuthService {
       throw new Error('Email and password are required');
     }
 
-    const user = await this.userRepo.findByEmail(email.toLowerCase().trim());
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await this.userRepo.findByEmail(normalizedEmail);
     if (!user) {
       const err = new Error('Invalid email or password');
       err.code = 'INVALID_CREDENTIALS';
@@ -244,6 +271,8 @@ class AuthService {
       expiresAt
     });
 
+    const profile = await this.userRepo.getProfile(user.id);
+
     return {
       schemaVersion: 1,
       tokenType: 'Bearer',
@@ -256,6 +285,8 @@ class AuthService {
         email: user.email,
         role: user.role || 'USER',
         emailVerified: user.email_verified || false,
+        fullName: profile ? profile.fullName : null,
+        displayName: profile && profile.fullName ? profile.fullName : user.email,
         createdAt: user.created_at
       }
     };
@@ -308,6 +339,8 @@ class AuthService {
       expiresAt
     });
 
+    const profile = await this.userRepo.getProfile(user.id);
+
     return {
       schemaVersion: 1,
       tokenType: 'Bearer',
@@ -320,6 +353,8 @@ class AuthService {
         email: user.email,
         role: user.role || 'USER',
         emailVerified: user.email_verified || false,
+        fullName: profile ? profile.fullName : null,
+        displayName: profile && profile.fullName ? profile.fullName : user.email,
         createdAt: user.created_at
       }
     };

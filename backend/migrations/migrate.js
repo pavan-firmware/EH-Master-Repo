@@ -327,6 +327,12 @@ class MigrationRunner {
   }
 }
 
+function sanitizeError(err) {
+  if (!err) return 'Unknown error';
+  const msg = typeof err === 'string' ? err : (err.message || String(err));
+  return msg.replace(/(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/gi, '$1*****$3');
+}
+
 // CLI Execution Handler
 async function runCli() {
   const args = process.argv.slice(2);
@@ -335,6 +341,12 @@ async function runCli() {
   const runner = new MigrationRunner();
 
   try {
+    try {
+      await runner.db.connect();
+    } catch (connErr) {
+      throw new Error(`Database connection initialization failed: ${sanitizeError(connErr)}`);
+    }
+
     switch (command) {
       case 'up': {
         console.log('=== EH HOME MIGRATION RUNNER — UP ===\n');
@@ -388,10 +400,12 @@ async function runCli() {
       }
     }
   } catch (err) {
-    console.error(`\n[Migration Error]: ${err.message}`);
+    console.error(`\n[Migration Error]: ${sanitizeError(err)}`);
     process.exit(1);
   } finally {
-    await runner.db.close();
+    try {
+      await runner.db.close();
+    } catch (_) {}
   }
 }
 
@@ -399,4 +413,4 @@ if (require.main === module) {
   runCli();
 }
 
-module.exports = { MigrationRunner, computeChecksum, ADVISORY_LOCK_ID };
+module.exports = { MigrationRunner, computeChecksum, ADVISORY_LOCK_ID, sanitizeError };

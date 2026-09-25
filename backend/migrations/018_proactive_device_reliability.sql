@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS reliability_incidents (
   first_observed_at TEXT NOT NULL,
   last_observed_at  TEXT NOT NULL,
   resolved_at       TEXT,
-  created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TEXT
 );
 
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS reliability_diagnostics (
   root_cause        TEXT NOT NULL,
   evidence          TEXT,
   recommended_actions TEXT,
-  created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_reliability_diagnostics_incident
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS reliability_recovery_attempts (
   command_accepted_at   TEXT,
   verification_started_at TEXT,
   completed_at          TEXT,
-  created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at            TEXT
 );
 
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS reliability_health_snapshots (
   factors           TEXT,
   active_incidents  INTEGER NOT NULL DEFAULT 0,
   snapshotted_at    TEXT NOT NULL,
-  created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_reliability_snapshots_home_device
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS maintenance_recommendations (
   approved_by       TEXT,
   approved_at       TEXT,
   completed_at      TEXT,
-  created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TEXT
 );
 

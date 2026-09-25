@@ -13,19 +13,30 @@ class CloudSettingsRepository implements SettingsRepository {
 
   void setActiveHomeId(String? homeId) => _activeHomeId = homeId;
 
+  List<dynamic> _extractList(dynamic response) {
+    if (response is List) return response;
+    if (response is Map && response['data'] is List) return response['data'] as List;
+    return const [];
+  }
+
+  Map<String, dynamic> _extractMap(dynamic response) {
+    if (response is Map<String, dynamic>) {
+      if (response['data'] is Map<String, dynamic>) {
+        return response['data'] as Map<String, dynamic>;
+      }
+      return response;
+    }
+    return const {};
+  }
+
   Future<String?> _resolveHomeId() async {
     if (_activeHomeId != null && _activeHomeId!.isNotEmpty) {
       return _activeHomeId;
     }
     try {
       final res = await _apiClient.get('/api/v1/homes');
-      List<dynamic>? list;
-      if (res is List) {
-        list = res;
-      } else if (res is Map && res['data'] is List) {
-        list = res['data'] as List<dynamic>;
-      }
-      if (list != null && list.isNotEmpty) {
+      final list = _extractList(res);
+      if (list.isNotEmpty) {
         final first = list.first;
         if (first is Map && first['id'] != null) {
           _activeHomeId = first['id'].toString();
@@ -60,7 +71,7 @@ class CloudSettingsRepository implements SettingsRepository {
 
     try {
       final res = await _apiClient.get('/api/v1/homes/$homeId');
-      final Map<String, dynamic> data = res is Map ? Map<String, dynamic>.from(res) : {};
+      final Map<String, dynamic> data = _extractMap(res);
 
       String ownerName = data['owner_name'] ?? data['ownerName'] ?? 'Owner';
       String name = data['name'] ?? 'My Home';
@@ -117,22 +128,45 @@ class CloudSettingsRepository implements SettingsRepository {
 
     try {
       final res = await _apiClient.get('/api/v1/homes/$homeId/members');
-      if (res is List) {
-        return res.map<HomeMember>((m) {
-          final id = m['membershipId'] ?? m['id'] ?? m['userId'] ?? '';
+      final list = _extractList(res);
+      if (list.isNotEmpty) {
+        return list.map<HomeMember>((m) {
+          final id = m['userId'] ?? m['id'] ?? m['membershipId'] ?? '';
+          final name = m['name'] ?? m['fullName'];
           final email = m['email'] ?? m['userId'] ?? 'User';
+          final primaryName = (name != null && name.toString().trim().isNotEmpty)
+              ? name.toString()
+              : email.toString();
           final roleStr = (m['role'] ?? 'MEMBER').toString().toUpperCase();
           final isOwner = roleStr == 'OWNER';
-          final displayName = isOwner ? '$email (Owner)' : email;
-          final initials = email.isNotEmpty ? email[0].toUpperCase() : 'U';
+          final isAdmin = roleStr == 'ADMIN' || roleStr == 'HOME_ADMIN';
+          final isGuest = roleStr == 'GUEST';
+
+          final displayName = isOwner
+              ? '$primaryName (Owner)'
+              : (isAdmin ? '$primaryName (Home Admin)' : primaryName);
+          final initials = primaryName.isNotEmpty ? primaryName[0].toUpperCase() : 'U';
+
+          final HomeMemberRole memberRole = isOwner
+              ? HomeMemberRole.owner
+              : (isAdmin
+                  ? HomeMemberRole.admin
+                  : (isGuest ? HomeMemberRole.guest : HomeMemberRole.member));
+
+          final String activeLabel = isOwner
+              ? 'Home owner'
+              : (isAdmin
+                  ? 'Home Admin · Access active'
+                  : 'Member · Access active');
 
           return HomeMember(
             id: id.toString(),
             displayName: displayName,
-            role: isOwner ? HomeMemberRole.owner : HomeMemberRole.member,
+            role: memberRole,
             status: HomeMemberStatus.active,
             initials: initials,
-            lastActiveLabel: isOwner ? 'Home owner' : 'Active member',
+            email: email.toString(),
+            lastActiveLabel: activeLabel,
           );
         }).toList();
       }
@@ -149,18 +183,36 @@ class CloudSettingsRepository implements SettingsRepository {
 
     try {
       final res = await _apiClient.get('/api/v1/homes/$homeId/invitations');
-      if (res is List) {
-        return res.map<HomeInvitation>((inv) {
+      final list = _extractList(res);
+      if (list.isNotEmpty) {
+        return list.map<HomeInvitation>((inv) {
           final id = inv['id'] ?? inv['code'] ?? '';
           final email = inv['invitee_email'] ?? inv['email'] ?? 'Invited User';
           final initials = email.isNotEmpty ? email[0].toUpperCase() : 'I';
+          final roleStr = (inv['role'] ?? 'MEMBER').toString().toUpperCase();
+          final isOwner = roleStr == 'OWNER';
+          final isAdmin = roleStr == 'ADMIN' || roleStr == 'HOME_ADMIN';
+          final isGuest = roleStr == 'GUEST';
+          final role = isOwner
+              ? HomeMemberRole.owner
+              : (isAdmin
+                  ? HomeMemberRole.admin
+                  : (isGuest ? HomeMemberRole.guest : HomeMemberRole.member));
+
+          final String invitedLabel = isOwner
+              ? 'Owner invitation'
+              : (isAdmin
+                  ? 'Home Admin invitation'
+                  : (isGuest ? 'Guest invitation' : 'Pending invitation'));
 
           return HomeInvitation(
             id: id.toString(),
             recipientName: email,
             initials: initials,
-            invitedLabel: 'Pending invitation',
+            invitedLabel: invitedLabel,
             expiresLabel: 'Valid for 7 days',
+            role: role,
+            code: inv['invite_code'] ?? inv['code'],
           );
         }).toList();
       }
@@ -177,8 +229,9 @@ class CloudSettingsRepository implements SettingsRepository {
 
     try {
       final res = await _apiClient.get('/api/v1/homes/$homeId/devices');
-      if (res is List) {
-        return res.map<DiscoveredRoomDevice>((dev) {
+      final list = _extractList(res);
+      if (list.isNotEmpty) {
+        return list.map<DiscoveredRoomDevice>((dev) {
           final id = dev['deviceId'] ?? dev['id'] ?? '';
           final name = dev['displayName'] ?? dev['label'] ?? dev['customName'] ?? 'Smart Device';
           final model = dev['product_sku'] ?? dev['hardwareRevision'] ?? 'ESP32';
@@ -227,14 +280,38 @@ class CloudSettingsRepository implements SettingsRepository {
 
   @override
   Future<SettingsOperationResult> invitePerson(String recipient) async {
+    return invitePersonWithRole(recipient, role: 'MEMBER');
+  }
+
+  @override
+  Future<SettingsOperationResult> invitePersonWithRole(
+    String recipient, {
+    String role = 'MEMBER',
+  }) async {
     final homeId = await _resolveHomeId();
     if (homeId == null || homeId.isEmpty) return SettingsOperationResult.failed;
 
     try {
       await _apiClient.post(
         '/api/v1/homes/$homeId/invitations',
-        body: {'email': recipient.trim(), 'role': 'MEMBER'},
+        body: {'email': recipient.trim(), 'role': role},
       );
+      return SettingsOperationResult.success;
+    } catch (e) {
+      if (e is ApiException && (e.statusCode == 401 || e.statusCode == 403)) {
+        return SettingsOperationResult.unauthorized;
+      }
+      return SettingsOperationResult.failed;
+    }
+  }
+
+  @override
+  Future<SettingsOperationResult> removeMember(String memberId) async {
+    final homeId = await _resolveHomeId();
+    if (homeId == null || homeId.isEmpty) return SettingsOperationResult.failed;
+
+    try {
+      await _apiClient.delete('/api/v1/homes/$homeId/members/$memberId');
       return SettingsOperationResult.success;
     } catch (e) {
       if (e is ApiException && (e.statusCode == 401 || e.statusCode == 403)) {

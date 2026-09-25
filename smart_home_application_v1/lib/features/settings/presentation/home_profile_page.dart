@@ -45,9 +45,7 @@ class _HomeProfilePageState extends State<HomeProfilePage> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final rooms = widget.homeController != null && widget.homeController!.rooms.isNotEmpty
-        ? widget.homeController!.rooms
-        : RoomCatalog.preview;
+    final rooms = widget.homeController?.rooms ?? const [];
 
     return NestedSettingsScaffold(
       title: widget.home.name,
@@ -133,17 +131,26 @@ class _HomeProfilePageState extends State<HomeProfilePage> {
               SettingsSurface(
                 child: Column(
                   children: [
-                    for (var index = 0; index < rooms.length; index++)
-                      _RoomSummaryRow(
-                        room: rooms[index],
-                        showDivider: index != rooms.length - 1,
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => RoomContextPage(room: rooms[index]),
+                    if (rooms.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'No rooms created yet.',
+                          style: TextStyle(color: tokens.textSecondary),
+                        ),
+                      )
+                    else
+                      for (var index = 0; index < rooms.length; index++)
+                        _RoomSummaryRow(
+                          room: rooms[index],
+                          showDivider: index != rooms.length - 1,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => RoomContextPage(room: rooms[index]),
+                            ),
                           ),
                         ),
-                      ),
                   ],
                 ),
               ),

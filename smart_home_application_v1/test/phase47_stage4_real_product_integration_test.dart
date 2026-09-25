@@ -339,7 +339,8 @@ void main() {
 
       expect(find.text('Join EH Smart Home'), findsOneWidget);
       expect(find.text('Create an account to securely access your home'), findsOneWidget);
-      expect(find.byType(TextFormField), findsNWidgets(3));
+      expect(find.text('Full Name'), findsOneWidget);
+      expect(find.byType(TextFormField), findsNWidgets(4));
       expect(find.widgetWithText(FilledButton, 'Create Account'), findsOneWidget);
     });
 

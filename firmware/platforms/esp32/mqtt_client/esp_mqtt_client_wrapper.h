@@ -64,7 +64,7 @@ extern "C" {
 
 #define EH_MQTT_RECONNECT_INITIAL_MS   1000   /* 1 second initial backoff */
 #define EH_MQTT_RECONNECT_MAX_MS     120000   /* 120 second max backoff */
-#define EH_MQTT_KEEPALIVE_SEC            60   /* MQTT keepalive interval */
+#define EH_MQTT_KEEPALIVE_SEC            15   /* MQTT keepalive interval for fast LWT offline detection */
 #define EH_MQTT_LWT_QOS                   1
 #define EH_MQTT_LWT_RETAIN             true
 

@@ -27,6 +27,37 @@ function sanitizeValue(val) {
   return val;
 }
 
+const TABLE_PRIMARY_KEYS = {
+  device_authorizations: 'device_id',
+  device_credentials: 'device_id',
+  device_state: 'device_id',
+  device_trust_states: 'device_id',
+  device_connection_states: 'device_id',
+  fleet_device_firmware_state: 'device_id',
+  reliability_diagnostics: 'device_id',
+};
+
+const TABLES_WITH_UPDATED_AT = new Set([
+  'schedules', 'homes', 'rooms', 'products', 'devices', 'device_state',
+  'channel_state', 'capabilities', 'network_identity', 'provisioning_sessions',
+  'scenes', 'automations', 'users', 'device_health_metrics', 'push_device_tokens',
+  'notification_delivery_queue', 'sync_checkpoints', 'user_profiles',
+  'home_invitations', 'home_contexts', 'device_connection_states',
+  'device_add_sessions', 'local_route_cache', 'local_discovery_nodes',
+  'matter_devices', 'matter_fabrics', 'matter_endpoints', 'matter_sync_state',
+  'external_platform_links', 'notification_aggregations',
+  'user_notification_preferences', 'device_trust_states', 'platform_incidents',
+  'presence_states', 'ota_rollouts', 'ota_operations', 'telemetry_aggregates',
+  'energy_threshold_configs', 'energy_optimizations', 'energy_tariffs',
+  'energy_budgets', 'cost_optimizations', 'fleet_device_firmware_state',
+  'commissioning_sessions', 'reliability_incidents',
+  'reliability_recovery_attempts', 'maintenance_recommendations', 'device_transports'
+]);
+
+function getPrimaryKeyColumn(table) {
+  return TABLE_PRIMARY_KEYS[table] || 'id';
+}
+
 class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
   /**
    * @param {Object} [opts={}]
@@ -128,9 +159,10 @@ class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
    */
   async insert(table, id, data = {}) {
     const validTable = validateIdentifier(table);
+    const pk = getPrimaryKeyColumn(table);
     const record = { ...data };
     if (id !== undefined && id !== null) {
-      record.id = id;
+      record[pk] = id;
     }
 
     const keys = Object.keys(record);
@@ -155,7 +187,8 @@ class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
    */
   async findById(table, id) {
     const validTable = validateIdentifier(table);
-    const sql = `SELECT * FROM ${validTable} WHERE id = $1 LIMIT 1`;
+    const pk = getPrimaryKeyColumn(table);
+    const sql = `SELECT * FROM ${validTable} WHERE ${pk} = $1 LIMIT 1`;
     const res = await this.query(sql, [id]);
     return res.rows[0] || null;
   }
@@ -230,7 +263,8 @@ class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
    */
   async update(table, id, updates = {}) {
     const validTable = validateIdentifier(table);
-    const keys = Object.keys(updates);
+    const pk = getPrimaryKeyColumn(table);
+    const keys = Object.keys(updates).filter(k => k !== pk);
 
     if (keys.length === 0) {
       const existing = await this.findById(table, id);
@@ -248,11 +282,13 @@ class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
       values.push(sanitizeValue(updates[key]));
     }
 
-    // Automatically touch updated_at if present in table
-    setClauses.push(`updated_at = NOW()`);
+    // Automatically touch updated_at if supported by table and not explicitly passed
+    if (TABLES_WITH_UPDATED_AT.has(validTable) && !Object.keys(updates).some(k => k === 'updated_at' || k === 'updatedAt')) {
+      setClauses.push(`updated_at = NOW()`);
+    }
 
     values.push(id);
-    const sql = `UPDATE ${validTable} SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`;
+    const sql = `UPDATE ${validTable} SET ${setClauses.join(', ')} WHERE ${pk} = $${idx} RETURNING *`;
     const res = await this.query(sql, values);
 
     if (res.rows.length === 0) {
@@ -269,9 +305,52 @@ class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
    */
   async delete(table, id) {
     const validTable = validateIdentifier(table);
-    const sql = `DELETE FROM ${validTable} WHERE id = $1`;
+    const pk = getPrimaryKeyColumn(table);
+    const sql = `DELETE FROM ${validTable} WHERE ${pk} = $1`;
     const res = await this.query(sql, [id]);
     return res.rowCount > 0;
+  }
+
+  /**
+   * Atomically insert or update record by primary key or unique conflict target
+   * @param {string} table
+   * @param {string} id
+   * @param {Object} data
+   * @param {string} [conflictTarget]
+   * @returns {Promise<Object>}
+   */
+  async upsert(table, id, data = {}, conflictTarget = null) {
+    const validTable = validateIdentifier(table);
+    const pk = conflictTarget ? validateIdentifier(conflictTarget) : getPrimaryKeyColumn(table);
+    const record = { ...data };
+    if (id !== undefined && id !== null) {
+      record[pk] = id;
+    }
+
+    const keys = Object.keys(record);
+    if (keys.length === 0) {
+      throw new Error('Cannot upsert empty record');
+    }
+
+    const columns = keys.map(validateIdentifier);
+    const placeholders = keys.map((_, i) => `$${i + 1}`);
+    const values = keys.map(k => sanitizeValue(record[k]));
+
+    const updateColumns = columns.filter(c => c !== pk);
+    let updateClause = '';
+    if (updateColumns.length > 0) {
+      const updatedAtClause = TABLES_WITH_UPDATED_AT.has(validTable) ? ', updated_at = NOW()' : '';
+      updateClause = `DO UPDATE SET ${updateColumns.map(c => `${c} = EXCLUDED.${c}`).join(', ')}${updatedAtClause}`;
+    } else {
+      updateClause = `DO NOTHING`;
+    }
+
+    const sql = `INSERT INTO ${validTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON CONFLICT (${pk}) ${updateClause} RETURNING *`;
+    const res = await this.query(sql, values);
+    if (res.rows.length === 0) {
+      return this.findById(validTable, id);
+    }
+    return res.rows[0];
   }
 
   /**
@@ -463,6 +542,35 @@ class PostgreSQLTransactionAdapter extends DatabaseAdapter {
     const sql = `DELETE FROM ${validTable} WHERE id = $1`;
     const res = await this.query(sql, [id]);
     return res.rowCount > 0;
+  }
+
+  async upsert(table, id, data = {}, conflictTarget = 'id') {
+    const validTable = validateIdentifier(table);
+    const validConflict = validateIdentifier(conflictTarget);
+    const record = { ...data };
+    if (id !== undefined && id !== null) {
+      record.id = id;
+    }
+
+    const keys = Object.keys(record);
+    const columns = keys.map(validateIdentifier);
+    const placeholders = keys.map((_, i) => `$${i + 1}`);
+    const values = keys.map(k => sanitizeValue(record[k]));
+
+    const updateColumns = columns.filter(c => c !== validConflict);
+    let updateClause = '';
+    if (updateColumns.length > 0) {
+      updateClause = `DO UPDATE SET ${updateColumns.map(c => `${c} = EXCLUDED.${c}`).join(', ')}, updated_at = NOW()`;
+    } else {
+      updateClause = `DO NOTHING`;
+    }
+
+    const sql = `INSERT INTO ${validTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON CONFLICT (${validConflict}) ${updateClause} RETURNING *`;
+    const res = await this.query(sql, values);
+    if (res.rows.length === 0) {
+      return this.findById(validTable, id);
+    }
+    return res.rows[0];
   }
 
   async withTransaction(callback) {

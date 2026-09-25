@@ -8,6 +8,16 @@
  *  - Log audit events for membership actions
  */
 
+function isValidIanaTimeZone(tz) {
+  if (!tz || typeof tz !== 'string' || tz.trim() === '') return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz.trim() });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 class HomeService {
   constructor({ homeRepo, userRepo, auditRepo }) {
     this.homeRepo = homeRepo;
@@ -19,15 +29,27 @@ class HomeService {
     if (!name || name.trim() === '') {
       throw new Error('Home name is required');
     }
-    const home = await this.homeRepo.createHome({ id, name, timezone, address, ownerId });
+    const targetTz = (timezone && typeof timezone === 'string' && timezone.trim().length > 0)
+      ? timezone.trim()
+      : 'UTC';
+    if (!isValidIanaTimeZone(targetTz)) {
+      const err = new Error(`Invalid IANA timezone identifier: '${timezone}'. Please select a valid IANA timezone.`);
+      err.code = 'INVALID_TIMEZONE';
+      throw err;
+    }
+    const resolvedOwnerId = actorUserId || ownerId;
+    if (!resolvedOwnerId) {
+      throw new Error('Authenticated owner context is required to create a home');
+    }
+    const home = await this.homeRepo.createHome({ id, name: name.trim(), timezone: targetTz, address, ownerId: resolvedOwnerId });
 
     if (this.auditRepo) {
       await this.auditRepo.log({
-        id: `audit_${id}_created_${require('crypto').randomUUID()}`,
-        actorUserId: actorUserId || ownerId,
-        homeId: id,
+        id: `audit_${home.id || id}_created_${require('crypto').randomUUID()}`,
+        actorUserId: resolvedOwnerId,
+        homeId: home.id || id,
         action: 'HOME_CREATED',
-        payload: { name, timezone, ownerId }
+        payload: { name: name.trim(), timezone: targetTz, ownerId: resolvedOwnerId }
       });
     }
 
@@ -72,8 +94,11 @@ class HomeService {
   }
 
   async addHomeMember({ id, homeId, userId, role = 'MEMBER', actorUserId = null }) {
+    let normalizedRole = (role || 'MEMBER').toUpperCase();
+    if (normalizedRole === 'HOME_ADMIN') normalizedRole = 'ADMIN';
+
     const validRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST'];
-    if (!validRoles.includes(role)) {
+    if (!validRoles.includes(normalizedRole)) {
       throw new Error(`Invalid role '${role}'. Allowed roles: ${validRoles.join(', ')}`);
     }
 
@@ -81,7 +106,7 @@ class HomeService {
       id,
       homeId,
       userId,
-      role,
+      role: normalizedRole,
       acceptedAt: new Date().toISOString()
     });
 
@@ -91,7 +116,7 @@ class HomeService {
         actorUserId: actorUserId || userId,
         homeId,
         action: 'HOME_MEMBER_ADDED',
-        payload: { addedUserId: userId, role }
+        payload: { addedUserId: userId, role: normalizedRole }
       });
     }
 
@@ -99,8 +124,11 @@ class HomeService {
   }
 
   async updateHomeMemberRole({ homeId, userId, newRole, actorUserId = null }) {
+    let normalizedRole = (newRole || '').toUpperCase();
+    if (normalizedRole === 'HOME_ADMIN') normalizedRole = 'ADMIN';
+
     const validRoles = ['OWNER', 'ADMIN', 'MEMBER', 'GUEST'];
-    if (!validRoles.includes(newRole)) {
+    if (!validRoles.includes(normalizedRole)) {
       throw new Error(`Invalid role '${newRole}'`);
     }
 
@@ -111,14 +139,14 @@ class HomeService {
       throw new Error(`User ${userId} is not a member of home ${homeId}`);
     }
 
-    if (targetMembership.role === 'OWNER' && newRole !== 'OWNER') {
+    if (targetMembership.role === 'OWNER' && normalizedRole !== 'OWNER') {
       const ownerCount = currentMemberships.filter(m => m.role === 'OWNER').length;
       if (ownerCount <= 1) {
         throw new Error('Cannot demote the sole OWNER of a Home');
       }
     }
 
-    const updated = await this.homeRepo.updateMembershipRole(homeId, userId, newRole);
+    const updated = await this.homeRepo.updateMembershipRole(homeId, userId, normalizedRole);
 
     if (this.auditRepo) {
       await this.auditRepo.log({
@@ -126,7 +154,7 @@ class HomeService {
         actorUserId,
         homeId,
         action: 'HOME_MEMBER_ROLE_UPDATED',
-        payload: { targetUserId: userId, oldRole: targetMembership.role, newRole }
+        payload: { targetUserId: userId, oldRole: targetMembership.role, newRole: normalizedRole }
       });
     }
 
@@ -163,7 +191,26 @@ class HomeService {
   }
 
   async updateHome({ homeId, name, timezone, address, actorUserId = null }) {
-    const updated = await this.homeRepo.updateHome(homeId, { name, timezone, address });
+    const updates = {};
+    if (name !== undefined) {
+      if (!name || name.trim() === '') {
+        throw new Error('Home name cannot be empty');
+      }
+      updates.name = name.trim();
+    }
+    if (timezone !== undefined) {
+      if (!isValidIanaTimeZone(timezone)) {
+        const err = new Error(`Invalid IANA timezone identifier: '${timezone}'. Please select a valid IANA timezone.`);
+        err.code = 'INVALID_TIMEZONE';
+        throw err;
+      }
+      updates.timezone = timezone.trim();
+    }
+    if (address !== undefined) {
+      updates.address = address;
+    }
+
+    const updated = await this.homeRepo.updateHome(homeId, updates);
 
     if (this.auditRepo) {
       await this.auditRepo.log({
@@ -171,7 +218,7 @@ class HomeService {
         actorUserId,
         homeId,
         action: 'HOME_UPDATED',
-        payload: { name, timezone, address }
+        payload: { ...updates }
       });
     }
 

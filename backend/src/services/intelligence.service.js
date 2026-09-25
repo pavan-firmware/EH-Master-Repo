@@ -442,14 +442,14 @@ class IntelligenceService {
         this.realtimeEventBus.publish({
           type: 'intelligence.recommendation_created',
           homeId,
-          data: r
+          payload: r
         });
       }
       for (const d of generatedDecisions) {
         this.realtimeEventBus.publish({
           type: 'intelligence.decision_created',
           homeId,
-          data: d
+          payload: d
         });
       }
     }

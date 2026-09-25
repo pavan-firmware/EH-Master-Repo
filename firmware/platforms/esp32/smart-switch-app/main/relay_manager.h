@@ -14,17 +14,27 @@ extern "C" {
 
 #define EH_RELAY_CHANNEL_COUNT 3
 
+// Relay Module Trigger Logic:
+// Standard optocoupler 5V relay modules are Active LOW (0 = Relay ON, 1 = Relay OFF)
+#define EH_RELAY_ACTIVE_LEVEL 0
+#define EH_RELAY_POWER_TO_LEVEL(pwr) ((pwr) ? EH_RELAY_ACTIVE_LEVEL : (!EH_RELAY_ACTIVE_LEVEL))
+
 // Target-Specific Hardware Pin Mapping
 #if defined(CONFIG_IDF_TARGET_ESP32)
 // ESP32-D0WD Development Board Profile: GPIO 18, 19, 21
 #define GPIO_RELAY_CH1 18
 #define GPIO_RELAY_CH2 19
 #define GPIO_RELAY_CH3 21
-#elif defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C3)
-// ESP32-C6 / ESP32-C3 Production Profile: GPIO 18, 19, 20
+#elif defined(CONFIG_IDF_TARGET_ESP32C6)
+// ESP32-C6 Production Profile: GPIO 18, 19, 20
 #define GPIO_RELAY_CH1 18
 #define GPIO_RELAY_CH2 19
 #define GPIO_RELAY_CH3 20
+#elif defined(CONFIG_IDF_TARGET_ESP32C3)
+// ESP32-C3 Production Profile: GPIO 18, 19, 10 (GPIO 10 avoids UART0 RX collision on GPIO 20)
+#define GPIO_RELAY_CH1 18
+#define GPIO_RELAY_CH2 19
+#define GPIO_RELAY_CH3 10
 #elif !defined(ESP_PLATFORM)
 // Host simulation fallback
 #define GPIO_RELAY_CH1 18
@@ -37,9 +47,14 @@ extern "C" {
 typedef void (*relay_state_change_cb_t)(uint8_t channel_index, bool new_power, const char* source);
 
 /**
- * Initialize relay GPIOs as outputs in deterministic OFF state.
+ * Initialize relay GPIOs as outputs and restore last persisted NVS states (or default to OFF).
  */
 void relay_manager_init(void);
+
+/**
+ * Clear persisted relay states from NVS (for factory reset).
+ */
+void relay_manager_clear_persisted_states(void);
 
 /**
  * Set power for a specific channel (1-indexed: 1..3).

@@ -69,12 +69,14 @@ class SplashScreen extends StatefulWidget {
     this.authController,
     this.apiClient,
     this.homeId,
+    this.onFinished,
   });
 
   final HomeController? homeController;
   final AuthController? authController;
   final ApiClient? apiClient;
   final String? homeId;
+  final VoidCallback? onFinished;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -187,6 +189,10 @@ class _SplashScreenState extends State<SplashScreen>
 
     _ctrl.forward().then((_) {
       if (!mounted) return;
+      if (widget.onFinished != null) {
+        widget.onFinished!();
+        return;
+      }
       Navigator.of(context).pushReplacement(
         _SplashFadePageRoute(
           builder: (_) => HomeShell(

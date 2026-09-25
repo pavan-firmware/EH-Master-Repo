@@ -22,6 +22,17 @@ const ROLE_PERMISSIONS = {
     canExecuteAutomations: true,
     canViewHome: true
   },
+  HOME_ADMIN: {
+    canManageHome: true,
+    canDeleteHome: false,
+    canManageMembers: true,
+    canTransferOwnership: false,
+    canManageDevices: true,
+    canControlDevices: true,
+    canManageAutomations: true,
+    canExecuteAutomations: true,
+    canViewHome: true
+  },
   ADMIN: {
     canManageHome: true,
     canDeleteHome: false,
@@ -244,4 +255,10 @@ class HomeAuthorizationService {
   }
 }
 
-module.exports = { HomeAuthorizationService, ROLE_PERMISSIONS };
+function checkPermission(role, capability) {
+  const normalized = (role || 'VIEWER').toUpperCase();
+  const perms = ROLE_PERMISSIONS[normalized] || ROLE_PERMISSIONS.VIEWER;
+  return Boolean(perms[capability]);
+}
+
+module.exports = { HomeAuthorizationService, ROLE_PERMISSIONS, checkPermission };

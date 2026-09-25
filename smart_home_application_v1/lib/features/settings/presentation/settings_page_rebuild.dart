@@ -288,10 +288,10 @@ class _SettingsContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final roomCount = homeController != null && homeController!.rooms.isNotEmpty
+    final roomCount = homeController != null
         ? homeController!.rooms.length
         : RoomCatalog.preview.length;
-    final deviceCount = homeController != null && homeController!.devices.isNotEmpty
+    final deviceCount = homeController != null
         ? homeController!.devices.length
         : RoomCatalog.preview.fold<int>(
             0,

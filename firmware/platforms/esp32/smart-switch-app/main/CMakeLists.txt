@@ -7,6 +7,9 @@ idf_component_register(
         "switch_manager.c"
         "telemetry_manager.c"
         "ota_manager.c"
+        "status_led.c"
+        "reset_button.c"
+        "local_server.c"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -19,10 +22,13 @@ idf_component_register(
         app_update
         esp_https_ota
         esp_http_client
+        esp_http_server
         mbedtls
         eh_prov1
         mqtt_transport
         factory_identity_v2
         ble_commissioning
         mqtt_client
+        json
+        lwip
 )

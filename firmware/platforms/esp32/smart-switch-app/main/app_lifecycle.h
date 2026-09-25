@@ -12,9 +12,11 @@ typedef enum {
     APP_STATE_FACTORY_NEW = 0,
     APP_STATE_BLE_COMMISSIONING,
     APP_STATE_WIFI_CONNECTING,
+    APP_STATE_LOCAL_OPERATIONAL,
     APP_STATE_MQTT_CONNECTING,
     APP_STATE_ACTIVE,
-    APP_STATE_ERROR_RECOVERY
+    APP_STATE_ERROR_RECOVERY,
+    APP_STATE_OTA_UPDATING
 } app_lifecycle_state_t;
 
 typedef void (*app_lifecycle_listener_t)(app_lifecycle_state_t old_state, app_lifecycle_state_t new_state);

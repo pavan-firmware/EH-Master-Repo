@@ -55,6 +55,17 @@ static void switch_task(void* arg)
     switch_event_t evt;
     while (1) {
         if (xQueueReceive(s_switch_evt_queue, &evt, portMAX_DELAY)) {
+            // Hardware Validation: delay 25ms to let contact bounce / power transients settle
+            vTaskDelay(pdMS_TO_TICKS(25));
+
+            // Verify the physical pin is genuinely held LOW (active button press)
+            // If the adapter was switched off, voltage drops trigger false interrupts without pin being held LOW
+            int physical_level = gpio_get_level((gpio_num_t)s_switch_gpios[evt.channel_index - 1]);
+            if (physical_level != 0) {
+                // False trigger / transient ripple during power-down - discard safely
+                continue;
+            }
+
             if (switch_manager_feed_event(evt.channel_index, evt.timestamp_ms)) {
                 if (s_toggle_cb) {
                     s_toggle_cb(evt.channel_index);
@@ -77,7 +88,7 @@ void switch_manager_init(void)
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
+        .intr_type = GPIO_INTR_NEGEDGE
     };
     gpio_config(&io_conf);
 
@@ -86,7 +97,7 @@ void switch_manager_init(void)
         gpio_isr_handler_add((gpio_num_t)s_switch_gpios[i], gpio_isr_handler, (void*)s_switch_gpios[i]);
     }
 
-    xTaskCreate(switch_task, "switch_task", 2048, NULL, 10, NULL);
+    xTaskCreate(switch_task, "switch_task", 8192, NULL, 10, NULL);
 #endif
 
     ESP_LOGI(TAG, "Switches initialized (CH1: GPIO%d, CH2: GPIO%d, CH3: GPIO%d) with %dms debounce",

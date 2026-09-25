@@ -39,7 +39,7 @@ class AuthApiRouter {
           };
         }
 
-        const { email, password } = body;
+        const { email, password, fullName, name, phoneNumber, phone_number, avatarUrl, avatar_url, timezone } = body;
         if (!email || !password) {
           return {
             status: 400,
@@ -52,7 +52,14 @@ class AuthApiRouter {
         }
 
         try {
-          const userProfile = await this.authService.register({ email, password });
+          const userProfile = await this.authService.register({
+            email,
+            password,
+            fullName: fullName || name,
+            phoneNumber: phoneNumber || phone_number,
+            avatarUrl: avatarUrl || avatar_url,
+            timezone
+          });
           return {
             status: 201,
             body: {

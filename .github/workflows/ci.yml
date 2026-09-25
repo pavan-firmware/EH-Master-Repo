@@ -100,7 +100,7 @@ jobs:
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE=/opt/emqx/etc/local-certs/server.key \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY=verify_peer \
             -e EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT=true \
-            -e EMQX_LISTENERS__SSL__DEFAULT__PEER_CERT_AS_CLIENTID=cn \
+            -e EMQX_MQTT__PEER_CERT_AS_CLIENTID=cn \
             -e EMQX_AUTHORIZATION__NO_MATCH=deny \
             -e EMQX_AUTHORIZATION__CACHE__ENABLE=false \
             -e EMQX_AUTHORIZATION__SOURCES__1__TYPE=file \
@@ -299,9 +299,10 @@ jobs:
           echo "--- Effective ACL file in /opt/emqx/data/authz/acl.conf ---"
           docker exec eh_emqx cat /opt/emqx/data/authz/acl.conf 2>/dev/null || echo "(not present)"
 
-          echo "--- EMQX listener peer_cert_as_clientid setting ---"
+          echo "--- EMQX mqtt.peer_cert_as_clientid setting ---"
           docker exec eh_emqx emqx eval \
-            "emqx_config:get([listeners, ssl, default, peer_cert_as_clientid])." || true
+            "emqx_config:get([mqtt, peer_cert_as_clientid])." \
+            || true
 
           echo "=========================================================="
 
@@ -373,7 +374,7 @@ jobs:
       - name: Verify ESP32 Firmware Build Output
         run: |
           echo "=== ESP-IDF BUILD ARTIFACTS ==="
-          sudo chmod -R a+rX firmware/platforms/esp32/smart-switch-app/build
+          sudo chmod -R a+rX firmware/platforms/esp32/smart-switch-app
           find firmware/platforms/esp32/smart-switch-app/build -maxdepth 3 -type f | sort
           test -f firmware/platforms/esp32/smart-switch-app/build/eh-smart-switch-app.bin
           test -f firmware/platforms/esp32/smart-switch-app/build/bootloader/bootloader.bin || test -f firmware/platforms/esp32/smart-switch-app/build/bootloader.bin
@@ -398,7 +399,10 @@ jobs:
       #     receipt / telemetry / LWT / reconnect failure → CI FAILS.
       # ----------------------------------------------------------
       - name: Run Phase 6 Real EMQX 5.8.0 Integration Tests
-        run: node backend/tests/phase6-emqx-integration.test.js 2>&1 | tee test-results.log
+        shell: bash
+        run: |
+          set -o pipefail
+          node backend/tests/phase6-emqx-integration.test.js 2>&1 | tee test-results.log
 
       # ----------------------------------------------------------
       # 20. Dump EMQX logs on any failure for diagnosis

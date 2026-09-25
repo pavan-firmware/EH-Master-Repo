@@ -18,8 +18,7 @@ console.log('===============================================================\n')
 
 const fs = require('fs');
 
-let totalSuites = 0;
-let failedSuites = 0;
+const results = [];
 
 let isFlutterTesterBlocked = false;
 if (process.platform === 'win32') {
@@ -40,27 +39,42 @@ if (process.platform === 'win32') {
 }
 
 function runStep(name, command, cwd = rootDir) {
-  totalSuites++;
-  console.log(`\n>>> Running: ${name}`);
-  console.log(`    Command: ${command}`);
-
   if (isFlutterTesterBlocked && name.includes('Flutter Test')) {
-    console.log(`    [SKIPPED - HOST OS RESTRICTION] ${name} (flutter_tester.exe blocked by Windows Application Control policy on host)`);
+    console.log(`  [SKIPPED - HOST OS RESTRICTION] ${name} (flutter_tester.exe blocked by Windows Application Control policy on host)`);
+    results.push({ name, passed: true, skipped: true });
     return;
   }
 
   try {
-    execSync(command, { cwd, stdio: 'inherit' });
-    console.log(`    [PASS] ${name}`);
-  } catch (err) {
-    if (err.status === 2) {
-      console.log(`    [SKIPPED - PENDING DAEMON] ${name} (Exit code: 2 - Docker not running)`);
-    } else if (err.status === 1 && name.includes('Flutter Test') && isFlutterTesterBlocked) {
-      console.log(`    [SKIPPED - HOST OS RESTRICTION] ${name} (flutter_tester.exe blocked by Windows Application Control policy on host)`);
-    } else {
-      console.error(`    [FAIL] ${name} (Exit code: ${err.status})`);
-      failedSuites++;
+    execSync(command, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 });
+    console.log(`  [PASS] ${name}`);
+    results.push({ name, passed: true });
+  } catch (error) {
+    if (error.status === 2) {
+      console.log(`  [SKIPPED - PENDING DAEMON] ${name} (Exit code: 2 - Docker not running)`);
+      results.push({ name, passed: true, skipped: true });
+      return;
     }
+    if (error.status === 1 && name.includes('Flutter Test') && isFlutterTesterBlocked) {
+      console.log(`  [SKIPPED - HOST OS RESTRICTION] ${name} (flutter_tester.exe blocked by Windows Application Control policy on host)`);
+      results.push({ name, passed: true, skipped: true });
+      return;
+    }
+
+    const stdout = error.stdout?.toString() ?? '';
+    const stderr = error.stderr?.toString() ?? '';
+    console.error(`  [FAIL] ${name}`);
+    console.error(`    command: ${command}`);
+    console.error(`    exit code: ${error.status ?? error.code ?? 'unknown'}`);
+    if (stdout) console.error(`    stdout:\n${stdout.trim()}`);
+    if (stderr) console.error(`    stderr:\n${stderr.trim()}`);
+    results.push({
+      name,
+      passed: false,
+      exitCode: error.status ?? error.code,
+      stdout,
+      stderr,
+    });
   }
 }
 
@@ -246,17 +260,38 @@ runStep('58. Phase 47 Stage 2 Physical ESP32 Verification Tests', `${nodeBin} ba
 // 59. Phase 47 Stage 4 Product UI, Features, Settings & Backend Persistence Tests
 runStep('59. Phase 47 Stage 4 Product Integration & Persistence Tests', `${nodeBin} backend/tests/phase47-stage4-product-integration.test.js`);
 
+// 60. Phase 48 Home Ownership, Invitation, Membership & RBAC Tests
+runStep('60. Phase 48 Home Ownership, Membership & RBAC Tests', `${nodeBin} backend/tests/phase48-home-lifecycle-rbac.test.js`);
+
+// 61. Phase 48 Auth Identity, User Profile & Timezone Hardening Tests
+runStep('61. Phase 48 Auth Identity, Profile & Timezone Tests', `${nodeBin} backend/tests/phase48-auth-identity-timezone-hardening.test.js`);
+
+// 62. Phase 48 ESP32 Firmware Hardware Integration Tests
+runStep('62. Phase 48 ESP32 Firmware Hardware Integration Tests', `${nodeBin} firmware/tests/test_phase48_firmware_hardware.js`);
+
+// 63. Phase 48 ESP-IDF Toolchain Drift & Reproducibility Guard
+runStep('63. Phase 48 ESP-IDF Toolchain Drift & Reproducibility Guard', `${nodeBin} scripts/check-esp-idf-toolchain.js`);
 
 
-const passedSuites = totalSuites - failedSuites;
+
+const totalSuites = results.length;
+const passedSuites = results.filter(r => r.passed).length;
+const failed = results.filter(result => !result.passed);
+
 console.log('\n===============================================================');
 console.log(`  ${totalSuites} SUITES ATTEMPTED. ${passedSuites}/${totalSuites} PASSED.`);
-if (failedSuites === 0) {
+
+if (failed.length > 0) {
+  console.error('\nFailed validation suites:');
+  for (const suite of failed) {
+    console.error(
+      `- ${suite.name} (exit code: ${suite.exitCode ?? 'unknown'})`
+    );
+  }
+  console.log('===============================================================');
+  process.exit(1);
+} else {
   console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
   console.log('===============================================================');
   process.exit(0);
-} else {
-  console.error(`  VALIDATION FAILED: ${failedSuites} test suite(s) failed.`);
-  console.log('===============================================================');
-  process.exit(1);
 }

@@ -275,6 +275,9 @@ function sendJsonResponse(res, statusCode, data) {
   if (res.headersSent) return;
   const headers = {
     'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Correlation-ID, X-Request-ID, Accept',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
@@ -388,7 +391,8 @@ function createApp(options = {}) {
   const catalogService = options.catalogService || new ProductCatalogService();
 
   const mqttTransport = options.mqttTransport || null;
-  const eventBus = options.eventBus || null;
+  const { RealtimeEventBus } = require('./services/realtime-event-bus');
+  const eventBus = options.eventBus || new RealtimeEventBus();
   const pushProvider = options.pushProvider || createPushProvider(
     options.pushProviderType || (options.config && options.config.push && options.config.push.providerType) || 'simulated',
     options.pushProviderOptions || (options.config && options.config.push) || {}
@@ -411,7 +415,8 @@ function createApp(options = {}) {
 
   const commandService = new DeviceCommandService({
     commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo,
-    mqttTransport
+    mqttTransport,
+    eventBus
   });
 
   const sceneService = options.sceneService || new SceneService({
@@ -614,8 +619,35 @@ function createApp(options = {}) {
     auditRepo,
     activityLogRepo,
     healthRepo,
-    energyService
+    energyService,
+    eventBus,
+    deviceRepo
   });
+
+  // Activate MqttDeviceTransport if not explicitly supplied and not in test environment
+  let activeMqttTransport = mqttTransport;
+  const isTestEnv = process.env.NODE_ENV === 'test' ||
+                    Boolean(process.env.npm_lifecycle_event && process.env.npm_lifecycle_event.includes('test')) ||
+                    process.execArgv.includes('--test') ||
+                    process.argv.some(a => a.includes('test')) ||
+                    options.disableMqtt === true;
+  if (!activeMqttTransport && !isTestEnv) {
+    try {
+      const { MqttDeviceTransport } = require('./services/mqtt-device-transport');
+      activeMqttTransport = new MqttDeviceTransport({
+        brokerUrl: process.env.MQTT_BROKER_URL || 'mqtt://127.0.0.1:1883',
+        onReceipt: (receipt) => commandService.handleCommandReceipt(receipt),
+        onState: (state) => ingestionService.handleDeviceState(state),
+        onEvent: (event) => ingestionService.handleDeviceEvent(event),
+        onTelemetry: (telem) => ingestionService.handleTelemetry(telem),
+        onAvailability: (id, av) => ingestionService.handleAvailability(id, av),
+      });
+      commandService.mqttTransport = activeMqttTransport;
+      console.log('[EH Home Server] MqttDeviceTransport initialized & connected to MQTT broker.');
+    } catch (mqttErr) {
+      console.warn('[EH Home Server] Failed to initialize MqttDeviceTransport:', mqttErr.message);
+    }
+  }
 
   const otaService = options.otaService || new OtaService({
     firmwareRepo,
@@ -922,6 +954,18 @@ function createApp(options = {}) {
     const method = req.method.toUpperCase();
     const query = parsedUrl.query || {};
 
+    // 0. Handle CORS Preflight (OPTIONS)
+    if (method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Correlation-ID, X-Request-ID, Accept',
+        'Access-Control-Max-Age': '86400',
+        'Content-Length': '0'
+      });
+      return res.end();
+    }
+
     // 0. Operational Readiness & Health Probes
     if (
       pathname === '/health' ||
@@ -953,7 +997,8 @@ function createApp(options = {}) {
 
     // 3. Route to Auth Router if auth path
     if (pathname.startsWith('/api/v1/auth/')) {
-      const result = await authRouter.handle(method, pathname, body, req.headers, req.socket.remoteAddress);
+      const remoteAddress = (req.headers && req.headers['x-forwarded-for']) || (req.socket && req.socket.remoteAddress) || '127.0.0.1';
+      const result = await authRouter.handle(method, pathname, body, req.headers, remoteAddress);
       return sendJsonResponse(res, result.status, result.body);
     }
 
@@ -1008,9 +1053,13 @@ function createApp(options = {}) {
           requiredCapability = 'canControlDevices';
         } else if (pathname.includes('/scenes') && method === 'POST' && pathname.endsWith('/execute')) {
           requiredCapability = 'canExecuteAutomations';
+        } else if (pathname.startsWith('/api/v1/homes/') && pathname.endsWith('/transfer-ownership') && method === 'POST') {
+          requiredCapability = 'canTransferOwnership';
         } else if (pathname.startsWith('/api/v1/homes/') && !pathname.includes('/', 15) && method === 'DELETE') {
           requiredCapability = 'canDeleteHome';
         } else if (pathname.startsWith('/api/v1/homes/') && !pathname.includes('/', 15) && method === 'PATCH') {
+          requiredCapability = 'canManageHome';
+        } else if ((pathname.includes('/rooms') || pathname.includes('/floors')) && method === 'POST') {
           requiredCapability = 'canManageHome';
         } else if (pathname.includes('/members') && (method === 'POST' || method === 'PATCH' || method === 'DELETE')) {
           requiredCapability = 'canManageMembers';
@@ -1096,7 +1145,8 @@ function createApp(options = {}) {
 
     // 8. Route to Provisioning & Claim Router
     if (pathname.startsWith('/api/v1/provisioning/') || (pathname.startsWith('/api/v1/devices/') && (pathname.endsWith('/claim') || pathname.endsWith('/unclaim') || pathname.endsWith('/reset') || pathname.endsWith('/confirm-provisioning')))) {
-      const result = await provisioningRouter.handle(method, pathname, body, req.headers, req.socket.remoteAddress);
+      const remoteAddress = (req.socket && req.socket.remoteAddress) || '127.0.0.1';
+      const result = await provisioningRouter.handle(method, pathname, body, req.headers, remoteAddress);
       return sendJsonResponse(res, result.status, result.body);
     }
 
@@ -1331,7 +1381,12 @@ function createApp(options = {}) {
     }
 
     // 9. Route to Home & Device Domain Router
-    if (pathname.startsWith('/api/v1/homes') || pathname.startsWith('/api/v1/devices')) {
+    if (
+      pathname.startsWith('/api/v1/homes') ||
+      pathname.startsWith('/api/v1/devices') ||
+      pathname.startsWith('/api/v1/rooms') ||
+      pathname.startsWith('/api/v1/floors')
+    ) {
       if (req.user) {
         query.userId = req.user.id;
         query.actorContext = req.actorContext || { userId: req.user.id };
@@ -1362,6 +1417,8 @@ function createApp(options = {}) {
       catalogService,
       commandService,
       ingestionService,
+      mqttTransport: activeMqttTransport,
+      eventBus,
       otaService,
       sceneService,
       automationService,

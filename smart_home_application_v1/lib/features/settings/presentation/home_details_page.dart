@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
-import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/iana_timezones.dart';
 import 'people_page.dart';
 import 'settings_ui.dart';
 
@@ -23,12 +23,8 @@ class HomeDetailsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final roomCount = homeController?.rooms.length ?? RoomCatalog.preview.length;
-    final deviceCount = homeController?.devices.length ??
-        RoomCatalog.preview.fold<int>(
-          0,
-          (sum, room) => sum + room.deviceCount,
-        );
+    final roomCount = homeController?.rooms.length ?? 0;
+    final deviceCount = homeController?.devices.length ?? 0;
     return NestedSettingsScaffold(
       title: 'Home details',
       subtitle: "Manage your home's basic information and preferences.",
@@ -126,7 +122,9 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.wifi_rounded,
                   title: 'Home connection',
-                  subtitle: 'Secure setup required',
+                  subtitle: (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
+                      ? 'Connected'
+                      : 'No home selected',
                   onTap: () => showSettingsUnavailable(
                     context,
                     message:
@@ -139,9 +137,13 @@ class HomeDetailsPage extends StatelessWidget {
                       ? tokens.iconBgGreen
                       : SettingsColors.paleGreen,
                   trailing: Text(
-                    'Set up',
+                    (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
+                        ? 'Online'
+                        : 'Set up',
                     style: TextStyle(
-                      color: tokens.warning,
+                      color: (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
+                          ? tokens.success
+                          : tokens.warning,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -299,19 +301,9 @@ class HomeDetailsPage extends StatelessWidget {
   }
 
   Future<void> _editTimezone(BuildContext context) async {
-    final timezones = ['Asia/Kolkata', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'UTC'];
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Select timezone'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: timezones.map((tz) => ListTile(
-            title: Text(tz),
-            onTap: () => Navigator.pop(dialogContext, tz),
-          )).toList(),
-        ),
-      ),
+    final selected = await showIanaTimezonePicker(
+      context,
+      initialValue: home.timezone,
     );
     if (selected == null || !context.mounted) return;
     final result = await repository.updateHome(

@@ -55,7 +55,7 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
   @override
   void initState() {
     super.initState();
-    _service = widget.catalogService ?? ProductCatalogClientService(baseUrl: 'http://localhost:3000');
+    _service = widget.catalogService ?? ProductCatalogClientService();
     _product = widget.selectedProduct;
 
     if (_product != null) {

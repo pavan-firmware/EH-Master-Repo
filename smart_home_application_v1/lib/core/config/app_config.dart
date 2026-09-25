@@ -1,12 +1,12 @@
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import '../services/device_storage_service.dart';
 
 /// Global Environment Configuration
 ///
 /// Precedence:
 /// 1. Runtime override via [setBaseUrl] (for tests / explicit runtime configuration)
-/// 2. Compile-time `--dart-define=BACKEND_BASE_URL=http://...`
-/// 3. Environment-aware safe defaults (Android emulator loopback, web localhost, or local host)
+/// 2. Persisted custom backend URL in [DeviceStorageService]
+/// 3. Compile-time `--dart-define=BACKEND_BASE_URL=http://...`
+/// 4. Local network production default (http://192.168.55.103:3000)
 class AppConfig {
   AppConfig._();
 
@@ -28,21 +28,15 @@ class AppConfig {
       return _runtimeBaseUrl!;
     }
 
+    final stored = DeviceStorageService.backendUrl;
+    if (stored != null && stored.trim().isNotEmpty) {
+      return stored.trim();
+    }
+
     if (_definedBaseUrl.isNotEmpty) {
       return _definedBaseUrl;
     }
 
-    if (kIsWeb) {
-      return 'http://localhost:3000';
-    }
-
-    try {
-      if (Platform.isAndroid) {
-        // Standard Android emulator loopback alias to host machine
-        return 'http://10.0.2.2:3000';
-      }
-    } catch (_) {}
-
-    return 'http://localhost:3000';
+    return 'http://192.168.55.103:3000';
   }
 }

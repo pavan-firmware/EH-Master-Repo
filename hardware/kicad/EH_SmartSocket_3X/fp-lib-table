@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "SmartSocket") (type "KiCad") (uri "${KIPRJMOD}/Custom_Libs/Footprints/SmartSocket.pretty") (options "") (descr ""))
+)

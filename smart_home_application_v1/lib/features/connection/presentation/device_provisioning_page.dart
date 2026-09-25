@@ -30,6 +30,7 @@ class DeviceProvisioningPage extends StatefulWidget {
     this.onboardingService,
     this.storageService,
     this.onDeviceProvisioned,
+    this.initialRoomName,
   });
 
   final String deviceName;
@@ -38,6 +39,7 @@ class DeviceProvisioningPage extends StatefulWidget {
   final BleCommissioningChannel? channel;
   final OnboardingService? onboardingService;
   final DeviceStorageService? storageService;
+  final String? initialRoomName;
   final void Function({
     required String deviceId,
     required String displayName,
@@ -94,8 +96,13 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     final rooms = await _storageService.loadRooms();
     if (mounted && rooms.isNotEmpty) {
       setState(() {
-        _availableRooms = rooms;
-        if (!_availableRooms.contains(_selectedRoom)) {
+        _availableRooms = List.from(rooms);
+        if (widget.initialRoomName != null && widget.initialRoomName!.isNotEmpty) {
+          _selectedRoom = widget.initialRoomName!;
+          if (!_availableRooms.contains(_selectedRoom)) {
+            _availableRooms.insert(0, _selectedRoom);
+          }
+        } else if (!_availableRooms.contains(_selectedRoom)) {
           _selectedRoom = _availableRooms.first;
         }
       });

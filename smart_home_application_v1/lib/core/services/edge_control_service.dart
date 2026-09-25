@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/edge_control_models.dart';
 
 /// Phase 28 — Local-First Home Control & Edge Execution Service
@@ -13,9 +14,10 @@ class EdgeControlService extends ChangeNotifier {
   String? _authToken;
 
   EdgeControlService({
-    required this.baseUrl,
+    String? baseUrl,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   void updateToken(String? token) {
     _authToken = token;

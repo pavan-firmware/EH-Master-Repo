@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/product_catalog_models.dart';
 
 /// Phase 27 — Consumer Product Discovery, Catalog, Compatibility & Device Add Service
@@ -10,9 +11,10 @@ class ProductCatalogClientService extends ChangeNotifier {
   String? _authToken;
 
   ProductCatalogClientService({
-    required this.baseUrl,
+    String? baseUrl,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   void updateToken(String? token) {
     _authToken = token;

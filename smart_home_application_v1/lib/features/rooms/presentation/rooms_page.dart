@@ -16,6 +16,8 @@ class RoomsPage extends StatefulWidget {
   State<RoomsPage> createState() => _RoomsPageState();
 }
 
+enum RoomViewMode { cards, list }
+
 enum _RoomFilter { all, attention, online, offline }
 
 enum _RoomSort { nameAscending, nameDescending, deviceCount, attentionFirst }
@@ -28,6 +30,7 @@ class _RoomsPageState extends State<RoomsPage> {
   final _searchFocus = FocusNode();
   _RoomFilter _filter = _RoomFilter.all;
   _RoomSort _sort = _RoomSort.nameAscending;
+  RoomViewMode _viewMode = RoomViewMode.cards;
   int _filterPage = 0;
   final _filterController = PageController(
     viewportFraction: _filterViewportFraction,
@@ -41,7 +44,27 @@ class _RoomsPageState extends State<RoomsPage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    widget.homeController?.addListener(_onHomeControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(RoomsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeControllerChanged);
+      widget.homeController?.addListener(_onHomeControllerChanged);
+    }
+  }
+
+  void _onHomeControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    widget.homeController?.removeListener(_onHomeControllerChanged);
     _search.dispose();
     _searchFocus.dispose();
     _filterController.dispose();
@@ -81,7 +104,11 @@ class _RoomsPageState extends State<RoomsPage> {
         .push(
           MaterialPageRoute(
             builder: (_) =>
-                RoomContextPage(room: room, onAddDevice: widget.onAddDevice),
+                RoomContextPage(
+                  room: room,
+                  homeController: widget.homeController,
+                  onAddDevice: widget.onAddDevice,
+                ),
           ),
         )
         .then((_) {
@@ -209,9 +236,19 @@ class _RoomsPageState extends State<RoomsPage> {
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTap: _dismissSearch,
-            child: ListView(
-              key: const PageStorageKey<String>('rooms-scroll'),
-              padding: const EdgeInsets.fromLTRB(20, 22, 20, 106),
+            child: RefreshIndicator(
+              onRefresh: () async {
+                await widget.homeController?.loadHomeData();
+              },
+              color: tokens.bluePrimary,
+              backgroundColor: tokens.surfaceCard,
+              displacement: 24,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                key: const PageStorageKey<String>('rooms-scroll'),
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 106),
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -364,37 +401,82 @@ class _RoomsPageState extends State<RoomsPage> {
                         ),
                       ),
                     ),
+                    Container(
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceCard,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: tokens.isDark
+                              ? tokens.borderSubtle
+                              : const Color(0xFFE1E8F2),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.view_agenda_rounded, size: 18),
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            constraints: const BoxConstraints(minWidth: 34),
+                            color: _viewMode == RoomViewMode.cards
+                                ? tokens.bluePrimary
+                                : tokens.textSecondary,
+                            tooltip: 'Cards view',
+                            onPressed: () =>
+                                setState(() => _viewMode = RoomViewMode.cards),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.view_list_rounded, size: 20),
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            constraints: const BoxConstraints(minWidth: 34),
+                            color: _viewMode == RoomViewMode.list
+                                ? tokens.bluePrimary
+                                : tokens.textSecondary,
+                            tooltip: 'List view',
+                            onPressed: () =>
+                                setState(() => _viewMode = RoomViewMode.list),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Builder(
                       builder: (buttonContext) => InkWell(
                         onTap: () => _openSortMenu(buttonContext),
                         borderRadius: BorderRadius.circular(10),
-                        child: SizedBox(
-                          width: 150,
-                          height: 42,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    _sortLabel(_sort),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: tokens.bluePrimary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  size: 18,
-                                  color: tokens.bluePrimary,
-                                ),
-                              ],
+                        child: Container(
+                          height: 36,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: tokens.surfaceCard,
+                            borderRadius: BorderRadius.circular(9),
+                            border: Border.all(
+                              color: tokens.isDark
+                                  ? tokens.borderSubtle
+                                  : const Color(0xFFE1E8F2),
                             ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _sortLabel(_sort),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: tokens.bluePrimary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                size: 18,
+                                color: tokens.bluePrimary,
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -407,8 +489,12 @@ class _RoomsPageState extends State<RoomsPage> {
                 else
                   ...rooms.map(
                     (room) => Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: RoomCard(room: room, onTap: () => _openRoom(room)),
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: RoomCard(
+                        room: room,
+                        viewMode: _viewMode,
+                        onTap: () => _openRoom(room),
+                      ),
                     ),
                   ),
                 const SizedBox(height: 2),
@@ -418,14 +504,22 @@ class _RoomsPageState extends State<RoomsPage> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
 class RoomCard extends StatelessWidget {
-  const RoomCard({super.key, required this.room, required this.onTap});
+  const RoomCard({
+    super.key,
+    required this.room,
+    required this.onTap,
+    this.viewMode = RoomViewMode.cards,
+  });
+
   final Room room;
   final VoidCallback onTap;
+  final RoomViewMode viewMode;
 
   @override
   Widget build(BuildContext context) {
@@ -436,17 +530,123 @@ class RoomCard extends StatelessWidget {
         : room.isOffline
         ? tokens.textTertiary
         : tokens.success;
+
+    if (viewMode == RoomViewMode.list) {
+      return Semantics(
+        button: true,
+        label: '${room.name}, ${room.summary}',
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(14),
+              border: tokens.isDark
+                  ? Border.all(color: tokens.borderSubtle)
+                  : null,
+              boxShadow: tokens.isDark
+                  ? null
+                  : const [
+                      BoxShadow(
+                        color: Color(0x0C0B2448),
+                        blurRadius: 10,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: palette.background,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        palette.icon,
+                        color: palette.foreground,
+                        size: 24,
+                      ),
+                    ),
+                    Positioned(
+                      right: -2,
+                      top: -2,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: tokens.surfaceCard,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        room.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${room.deviceCount} ${room.deviceCount == 1 ? "device" : "devices"} · ${room.connectivityLabel}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: room.needsAttention
+                              ? tokens.warning
+                              : tokens.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: tokens.chevron,
+                  size: 24,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Card view: full-width responsive layout, no text clipping!
     return Semantics(
       button: true,
       label: '${room.name}, ${room.summary}',
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(16),
         child: Ink(
-          padding: const EdgeInsets.all(13),
+          padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
             color: tokens.surfaceCard,
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(16),
             border: tokens.isDark
                 ? Border.all(color: tokens.borderSubtle)
                 : null,
@@ -456,21 +656,21 @@ class RoomCard extends StatelessWidget {
                     BoxShadow(
                       color: Color(0x100B2448),
                       blurRadius: 18,
-                      offset: Offset(0, 7),
+                      offset: Offset(0, 6),
                     ),
                   ],
           ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 350;
-              return Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
                   Stack(
                     clipBehavior: Clip.none,
                     children: [
                       Container(
-                        width: compact ? 55 : 64,
-                        height: compact ? 64 : 76,
+                        width: 54,
+                        height: 54,
                         decoration: BoxDecoration(
                           color: palette.background,
                           borderRadius: BorderRadius.circular(13),
@@ -478,15 +678,15 @@ class RoomCard extends StatelessWidget {
                         child: Icon(
                           palette.icon,
                           color: palette.foreground,
-                          size: compact ? 28 : 33,
+                          size: 28,
                         ),
                       ),
                       Positioned(
                         right: -3,
                         top: -3,
                         child: Container(
-                          width: 15,
-                          height: 15,
+                          width: 14,
+                          height: 14,
                           decoration: BoxDecoration(
                             color: statusColor,
                             shape: BoxShape.circle,
@@ -501,154 +701,149 @@ class RoomCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 14),
                   Expanded(
-                    flex: compact ? 6 : 5,
-                    child: _RoomSummary(room: room, statusColor: statusColor),
-                  ),
-                  if (!compact)
-                    VerticalDivider(
-                      width: 26,
-                      thickness: 1,
-                      color: tokens.isDark
-                          ? tokens.borderSubtle
-                          : const Color(0xFFE4EAF2),
-                    ),
-                  if (compact)
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: tokens.chevron,
-                      size: 28,
-                    )
-                  else
-                    Expanded(flex: 5, child: _RoomCapabilities(room: room)),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RoomSummary extends StatelessWidget {
-  const _RoomSummary({required this.room, required this.statusColor});
-  final Room room;
-  final Color statusColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.ehColors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          room.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: tokens.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          room.summary,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: room.needsAttention ? tokens.warning : tokens.textSecondary,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 9),
-        Row(
-          children: [
-            Icon(
-              room.needsAttention
-                  ? Icons.warning_amber_rounded
-                  : room.isOffline
-                  ? Icons.info_outline_rounded
-                  : Icons.check_circle_rounded,
-              color: statusColor,
-              size: 17,
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                room.connectivityLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: statusColor,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _RoomCapabilities extends StatelessWidget {
-  const _RoomCapabilities({required this.room});
-  final Room room;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.ehColors;
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: room.capabilities
-                .map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          _capabilityIcon(item.kind),
-                          color: tokens.textSecondary,
-                          size: 21,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            item.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: tokens.textPrimary,
-                            ),
-                          ),
-                        ),
                         Text(
-                          item.value,
+                          room.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: item.isWarning
-                                ? tokens.warning
-                                : tokens.bluePrimary,
+                            color: tokens.textPrimary,
+                            fontSize: 18,
                             fontWeight: FontWeight.w800,
                           ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          room.summary,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: room.needsAttention
+                                ? tokens.warning
+                                : tokens.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
+                          children: [
+                            Icon(
+                              room.needsAttention
+                                  ? Icons.warning_amber_rounded
+                                  : room.isOffline
+                                  ? Icons.info_outline_rounded
+                                  : Icons.check_circle_rounded,
+                              color: statusColor,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                room.connectivityLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                )
-                .toList(),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: tokens.chevron,
+                    size: 26,
+                  ),
+                ],
+              ),
+              if (room.capabilities.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: tokens.isDark
+                        ? tokens.surfaceElevated
+                        : const Color(0xFFF7F9FD),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: tokens.isDark
+                          ? tokens.borderSubtle
+                          : const Color(0xFFE9EEF6),
+                    ),
+                  ),
+                  child: Column(
+                    children: room.capabilities
+                        .map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _capabilityIcon(item.kind),
+                                  color: tokens.textSecondary,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 9),
+                                Expanded(
+                                  child: Text(
+                                    item.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                      color: tokens.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: item.isWarning
+                                        ? tokens.warningContainer
+                                        : (item.value.toLowerCase() == 'on'
+                                            ? tokens.successContainer
+                                            : tokens.surfaceCard),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    item.value,
+                                    style: TextStyle(
+                                      color: item.isWarning
+                                          ? tokens.warning
+                                          : (item.value.toLowerCase() == 'on'
+                                              ? tokens.success
+                                              : tokens.textSecondary),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
-        const SizedBox(width: 6),
-        Icon(Icons.chevron_right_rounded, color: tokens.chevron, size: 28),
-      ],
+      ),
     );
   }
 }
@@ -892,6 +1087,8 @@ String _sortLabel(_RoomSort sort) => switch (sort) {
 }
 
 IconData _capabilityIcon(RoomCapabilityKind kind) => switch (kind) {
+  RoomCapabilityKind.socket => Icons.power_rounded,
+  RoomCapabilityKind.switchControl => Icons.toggle_on_rounded,
   RoomCapabilityKind.light => Icons.lightbulb_outline_rounded,
   RoomCapabilityKind.temperature => Icons.thermostat_outlined,
   RoomCapabilityKind.gasSensor => Icons.air_rounded,

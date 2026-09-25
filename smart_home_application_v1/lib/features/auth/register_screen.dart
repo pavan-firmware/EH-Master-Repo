@@ -11,6 +11,7 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -19,6 +20,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -30,6 +32,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final success = await widget.controller.register(
       _emailController.text.trim(),
       _passwordController.text,
+      fullName: _nameController.text.trim(),
     );
     if (success && mounted) {
       Navigator.pop(context);
@@ -143,6 +146,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                       ],
+
+                      // Full Name input
+                      TextFormField(
+                        controller: _nameController,
+                        style: TextStyle(color: tokens.textPrimary),
+                        textCapitalization: TextCapitalization.words,
+                        decoration: InputDecoration(
+                          labelText: 'Full Name',
+                          labelStyle: TextStyle(color: tokens.textSecondary),
+                          prefixIcon: Icon(Icons.person_outline_rounded, color: tokens.textSecondary),
+                          filled: true,
+                          fillColor: tokens.surfaceCard,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide(color: tokens.borderControl),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide(color: tokens.borderControl),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide(color: tokens.bluePrimary, width: 1.5),
+                          ),
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Full Name is required' : null,
+                        enabled: !isLoading,
+                      ),
+                      const SizedBox(height: 16),
 
                       // Email input
                       TextFormField(

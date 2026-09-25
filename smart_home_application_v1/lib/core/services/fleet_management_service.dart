@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/fleet_models.dart';
 
 /// EH Home — Device Fleet Management & OTA Client Service (Phase 18)
@@ -19,11 +20,12 @@ class FleetManagementService extends ChangeNotifier {
   String? get lastError => _lastError;
 
   FleetManagementService({
-    this.baseUrl = 'http://127.0.0.1:3000',
+    String? baseUrl,
     this.httpClient,
     this.getAuthToken,
     FleetStatus? initialStatus,
-  }) : _cachedFleetStatus = initialStatus;
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _cachedFleetStatus = initialStatus;
 
   Future<FleetStatus> fetchFleetStatus({String? homeId}) async {
     _isLoading = true;

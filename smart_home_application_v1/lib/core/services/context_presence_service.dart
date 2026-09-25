@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
+import '../config/app_config.dart';
 import '../models/context_presence_models.dart';
 
 /// Client Service for EH Home Presence and Context Intelligence (Phase 23)
@@ -20,11 +21,12 @@ class ContextPresenceService extends ChangeNotifier {
   String? _errorMessage;
 
   ContextPresenceService({
-    this.baseUrl = 'http://localhost:3000',
+    String? baseUrl,
     http.Client? client,
     this.apiClient,
     this.authToken,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   PresenceSnapshotModel? get currentSnapshot => _currentSnapshot;
   HomeContextModel? get currentContext => _currentContext;

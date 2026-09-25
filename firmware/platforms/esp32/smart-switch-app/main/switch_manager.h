@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #define EH_SWITCH_CHANNEL_COUNT 3
-#define EH_SWITCH_DEBOUNCE_MS 50
+#define EH_SWITCH_DEBOUNCE_MS 200
 
 // Target-Specific Hardware Pin Mapping
 #if defined(CONFIG_IDF_TARGET_ESP32)

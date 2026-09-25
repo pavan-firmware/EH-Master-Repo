@@ -16,7 +16,7 @@
  * - Dependency-injected for testability
  */
 
-const DEFAULT_STALE_THRESHOLD_MS = 45_000;  // 45 seconds
+const DEFAULT_STALE_THRESHOLD_MS = 900_000;  // 15 minutes (idle devices with active MQTT session stay online)
 const DEVICE_AVAILABILITY_EVENT = 'device.availability';
 
 class DeviceStaleDetector {
@@ -37,25 +37,37 @@ class DeviceStaleDetector {
    * Idempotent: re-detecting an already-STALE device is a no-op.
    */
   async tick() {
-    const cutoff = new Date(Date.now() - this.staleThresholdMs).toISOString();
+    const cutoffDate = new Date(Date.now() - this.staleThresholdMs);
+    const cutoffIso = cutoffDate.toISOString();
+    const tableName = (this.db._tables && this.db._tables.device_states) ? 'device_states' : 'device_state';
 
-    // Find devices that were ONLINE/OFFLINE but have not been seen since cutoff
-    const staleCandidates = await this.db.find('device_states', {
-      where: {
-        connection_state_not: 'STALE',
-        last_seen_at_lt: cutoff
-      }
-    });
+    let staleCandidates = [];
+    if (this.db._tables) {
+      staleCandidates = await this.db.find(tableName, {
+        where: {
+          connection_state_not: 'STALE',
+          last_seen_at_lt: cutoffIso
+        }
+      });
+    } else {
+      staleCandidates = await this.db.find(tableName, ds => {
+        if (!ds || ds.connection_state === 'STALE' || ds.connection_state === 'OFFLINE') return false;
+        if (!ds.last_seen_at) return true;
+        return new Date(ds.last_seen_at) < cutoffDate;
+      });
+    }
 
     for (const deviceState of staleCandidates) {
-      await this._markStale(deviceState);
+      await this._markStale(deviceState, tableName);
     }
   }
 
-  async _markStale(deviceState) {
-    const { id: recordId, device_id: deviceId, home_id: homeId } = deviceState;
+  async _markStale(deviceState, tableName = 'device_state') {
+    const recordId = deviceState.id || deviceState.device_id;
+    const deviceId = deviceState.device_id || deviceState.id;
+    const homeId = deviceState.home_id || deviceState.homeId;
     try {
-      await this.db.update('device_states', recordId, {
+      await this.db.update(tableName, recordId, {
         connection_state: 'STALE',
         updated_at: new Date().toISOString()
       });

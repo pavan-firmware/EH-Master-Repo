@@ -57,7 +57,15 @@ class UserRepository {
   async getProfile(userId) {
     const user = await this.db.findById('users', userId);
     if (!user) return null;
-    const profile = await this.db.findById('user_profiles', userId);
+    let profile = await this.db.findById('user_profiles', userId);
+    if (!profile) {
+      profile = await this.db.upsert('user_profiles', userId, {
+        full_name: null,
+        phone_number: null,
+        avatar_url: null,
+        timezone: 'UTC'
+      });
+    }
     return {
       id: user.id,
       email: user.email,
@@ -67,28 +75,33 @@ class UserRepository {
       avatarUrl: profile ? profile.avatar_url : null,
       timezone: profile ? profile.timezone : 'UTC',
       createdAt: user.created_at,
-      updatedAt: profile ? profile.updated_at : user.updated_at
+      updatedAt: profile ? (profile.updated_at || user.updated_at) : user.updated_at
     };
   }
 
-  async upsertProfile(userId, { fullName, phoneNumber, avatarUrl, timezone }) {
+  async upsertProfile(userId, { fullName, full_name, phoneNumber, phone_number, avatarUrl, avatar_url, timezone }) {
     const user = await this.db.findById('users', userId);
     if (!user) throw new Error(`User ${userId} not found`);
-    const existing = await this.db.findById('user_profiles', userId);
-    if (existing) {
-      return this.db.update('user_profiles', userId, {
-        full_name: fullName !== undefined ? fullName : existing.full_name,
-        phone_number: phoneNumber !== undefined ? phoneNumber : existing.phone_number,
-        avatar_url: avatarUrl !== undefined ? avatarUrl : existing.avatar_url,
-        timezone: timezone !== undefined ? timezone : existing.timezone
-      });
-    }
-    return this.db.insert('user_profiles', userId, {
-      full_name: fullName || null,
-      phone_number: phoneNumber || null,
-      avatar_url: avatarUrl || null,
-      timezone: timezone || 'UTC'
-    });
+    const targetFullName = fullName !== undefined ? fullName : full_name;
+    const targetPhoneNumber = phoneNumber !== undefined ? phoneNumber : phone_number;
+    const targetAvatarUrl = avatarUrl !== undefined ? avatarUrl : avatar_url;
+
+    const payload = {};
+    if (targetFullName !== undefined) payload.full_name = targetFullName;
+    if (targetPhoneNumber !== undefined) payload.phone_number = targetPhoneNumber;
+    if (targetAvatarUrl !== undefined) payload.avatar_url = targetAvatarUrl;
+    if (timezone !== undefined) payload.timezone = timezone;
+
+    // Provide safe defaults for initial insert if columns are undefined
+    const upsertData = {
+      full_name: targetFullName !== undefined ? targetFullName : null,
+      phone_number: targetPhoneNumber !== undefined ? targetPhoneNumber : null,
+      avatar_url: targetAvatarUrl !== undefined ? targetAvatarUrl : null,
+      timezone: timezone || 'UTC',
+      ...payload
+    };
+
+    return this.db.upsert('user_profiles', userId, upsertData);
   }
 
   async deleteUser(userId) {
@@ -107,27 +120,35 @@ class HomeRepository {
   async createHome({ id, name, timezone = 'UTC', address = null, ownerId, owner_id }) {
     const targetOwnerId = ownerId || owner_id;
     const homeId = id || require('crypto').randomUUID();
-    // Verify owner exists
-    const owner = await this.db.findById('users', targetOwnerId);
-    if (!owner) throw new Error(`Owner user ${targetOwnerId} does not exist`);
 
-    const home = await this.db.insert('homes', homeId, {
-      name,
-      timezone,
-      address,
-      owner_id: targetOwnerId
+    return this.db.withTransaction(async (trxDb) => {
+      const activeDb = trxDb || this.db;
+      // Verify owner exists
+      const owner = await activeDb.findById('users', targetOwnerId);
+      if (!owner) throw new Error(`Owner user ${targetOwnerId} does not exist`);
+
+      const home = await activeDb.insert('homes', homeId, {
+        name,
+        timezone,
+        address,
+        owner_id: targetOwnerId
+      });
+
+      // Auto-create owner membership atomically
+      const membershipId = `${homeId}_${targetOwnerId}`;
+      const existing = await activeDb.find('home_memberships', m => m.home_id === homeId && m.user_id === targetOwnerId);
+      if (existing.length === 0) {
+        await activeDb.insert('home_memberships', membershipId, {
+          home_id: homeId,
+          user_id: targetOwnerId,
+          role: 'OWNER',
+          invited_at: new Date().toISOString(),
+          accepted_at: new Date().toISOString()
+        });
+      }
+
+      return home;
     });
-
-    // Auto-create owner membership
-    await this.addMembership({
-      id: `${homeId}_${targetOwnerId}`,
-      homeId: homeId,
-      userId: targetOwnerId,
-      role: 'OWNER',
-      acceptedAt: new Date().toISOString()
-    });
-
-    return home;
   }
 
   async updateHome(homeId, { name, timezone, address }) {
@@ -486,8 +507,7 @@ class DeviceRepository {
       custom_name: customName || custom_name || dev.serial_number,
       channel_labels: channelLabels || channel_labels,
       claimed_by_user_id: claimedByUserId || claimed_by_user_id || null,
-      claimed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      claimed_at: new Date().toISOString()
     });
   }
 
@@ -600,10 +620,27 @@ class DeviceStateRepository {
   }
 
   async updateDeviceConnection(deviceId, connectionState) {
-    return this.db.update('device_state', deviceId, {
-      connection_state: connectionState,
-      last_seen_at: new Date().toISOString()
-    });
+    try {
+      const existing = await this.db.findById('device_state', deviceId);
+      if (!existing) {
+        const device = await this.db.findById('devices', deviceId);
+        if (!device) return null;
+        return await this.db.insert('device_state', deviceId, {
+          device_id: deviceId,
+          connection_state: connectionState,
+          last_seen_at: new Date().toISOString()
+        });
+      }
+      return await this.db.update('device_state', deviceId, {
+        connection_state: connectionState,
+        last_seen_at: new Date().toISOString()
+      });
+    } catch (err) {
+      if (err.message && err.message.includes('not found in device_state')) {
+        return null;
+      }
+      throw err;
+    }
   }
 
   async updateChannelState(deviceId, channelIndex, { desiredState, reportedState, confidence }) {
@@ -613,6 +650,15 @@ class DeviceStateRepository {
     if (reportedState !== undefined) updates.reported_state = reportedState;
     if (confidence !== undefined) updates.confidence = confidence;
 
+    const existing = await this.db.findById('channel_state', key);
+    if (!existing) {
+      return this.db.insert('channel_state', key, {
+        id: key,
+        device_id: deviceId,
+        channel_index: channelIndex,
+        ...updates
+      });
+    }
     return this.db.update('channel_state', key, updates);
   }
 
@@ -658,7 +704,7 @@ class CommandRepository {
       idempotency_key: cmd.idempotencyKey,
       source: cmd.source,
       status: 'CREATED',
-      expires_at: cmd.expiresAt
+      expires_at: cmd.expiresAt || new Date(Date.now() + 60000).toISOString()
     });
   }
 
@@ -820,8 +866,8 @@ class RefreshTokenRepository {
   }
 
   async listActiveSessions(userId) {
-    const now = new Date().toISOString();
-    const tokens = await this.db.find('refresh_tokens', t => t.user_id === userId && t.expires_at > now);
+    const now = new Date();
+    const tokens = await this.db.find('refresh_tokens', t => t.user_id === userId && new Date(t.expires_at) > now);
     return tokens.map(t => ({
       id: t.id,
       userId: t.user_id,
@@ -886,13 +932,13 @@ class InvitationRepository {
   }
 
   async findPendingByHome(homeId) {
-    const now = new Date().toISOString();
-    return this.db.find('home_invitations', i => i.home_id === homeId && i.status === 'PENDING' && i.expires_at > now);
+    const now = new Date();
+    return this.db.find('home_invitations', i => i.home_id === homeId && i.status === 'PENDING' && new Date(i.expires_at) > now);
   }
 
   async findPendingByEmail(email) {
-    const now = new Date().toISOString();
-    return this.db.find('home_invitations', i => i.invitee_email.toLowerCase() === email.toLowerCase() && i.status === 'PENDING' && i.expires_at > now);
+    const now = new Date();
+    return this.db.find('home_invitations', i => i.invitee_email.toLowerCase() === email.toLowerCase() && i.status === 'PENDING' && new Date(i.expires_at) > now);
   }
 
   async updateStatus(id, status, acceptedAt = null) {
