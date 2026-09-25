@@ -184,6 +184,46 @@ static int64_t _json_get_int64(const char *json, size_t json_len, const char *ke
     return INT64_MIN;
 }
 
+/**
+ * Parse an ISO-8601 datetime string (e.g. 2026-09-17T23:55:00Z) to Unix timestamp in milliseconds.
+ */
+static int64_t _parse_iso8601_ms(const char *str, size_t len) {
+    if (!str || len < 19) return INT64_MIN;
+    int year = 0, mon = 0, day = 0, hour = 0, min = 0, sec = 0;
+    if (sscanf(str, "%4d-%2d-%2dT%2d:%2d:%2d", &year, &mon, &day, &hour, &min, &sec) == 6) {
+        struct tm t;
+        memset(&t, 0, sizeof(struct tm));
+        t.tm_year = year - 1900;
+        t.tm_mon = mon - 1;
+        t.tm_mday = day;
+        t.tm_hour = hour;
+        t.tm_min = min;
+        t.tm_sec = sec;
+        time_t epoch_sec = mktime(&t);
+        if (epoch_sec != (time_t)-1) {
+            return (int64_t)epoch_sec * 1000LL;
+        }
+    }
+    return INT64_MIN;
+}
+
+/**
+ * Extract timestamp in milliseconds from JSON key (supports both ISO string and numeric ms).
+ */
+static int64_t _json_get_timestamp_ms(const char *json, size_t json_len, const char *key) {
+    size_t val_len = 0;
+    const char *val = _json_get_string(json, json_len, key, &val_len);
+    if (val && val_len >= 19) {
+        int64_t iso_ms = _parse_iso8601_ms(val, val_len);
+        if (iso_ms != INT64_MIN) return iso_ms;
+    }
+    int64_t num_ms = _json_get_int64(json, json_len, key);
+    if (num_ms > 100000000000LL) {
+        return num_ms;
+    }
+    return INT64_MIN;
+}
+
 eh_mqtt_err_t eh_mqtt_parse_command(
     const char        *json_payload,
     size_t             payload_len,
@@ -233,11 +273,14 @@ eh_mqtt_err_t eh_mqtt_parse_command(
     memcpy(out_cmd->idempotency_key, val, val_len);
     out_cmd->idempotency_key[val_len] = '\0';
 
-    /* expiresAt (Unix milliseconds integer) */
-    int64_t expires_at = _json_get_int64(json_payload, payload_len, "expiresAt");
+    /* expiresAt (Unix milliseconds integer or ISO-8601 string) */
+    int64_t expires_at = _json_get_timestamp_ms(json_payload, payload_len, "expiresAtUnixMs");
+    if (expires_at == INT64_MIN) {
+        expires_at = _json_get_timestamp_ms(json_payload, payload_len, "expiresAt");
+    }
     if (expires_at != INT64_MIN) {
         out_cmd->expires_at_unix_ms = expires_at;
-        if (expires_at > 0 && current_unix_ms > 0 && expires_at <= current_unix_ms) {
+        if (expires_at > 0 && current_unix_ms > 100000000000LL && expires_at <= current_unix_ms) {
             return EH_MQTT_ERR_EXPIRED;
         }
     }
@@ -249,9 +292,11 @@ eh_mqtt_err_t eh_mqtt_parse_command(
         out_cmd->source[val_len] = '\0';
     }
 
-    /* params.value (for setPower) */
+    /* params.value (for setPower) — check value, enabled, or power keys */
     if (strcmp(out_cmd->action, "setPower") == 0) {
         int pwr = _json_get_bool(json_payload, payload_len, "value");
+        if (pwr < 0) pwr = _json_get_bool(json_payload, payload_len, "enabled");
+        if (pwr < 0) pwr = _json_get_bool(json_payload, payload_len, "power");
         out_cmd->params_power = (pwr == 1);
     }
 

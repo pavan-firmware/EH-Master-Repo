@@ -58,18 +58,22 @@ class RoomService {
     if (!name || name.trim() === '') {
       throw new Error('Room name is required');
     }
-    const room = await this.roomRepo.getRoom(roomId);
+    let room = await this.roomRepo.getRoom(roomId);
+    if (!room && this.roomRepo.db) {
+      const allRooms = await this.roomRepo.db.find('rooms');
+      room = allRooms.find(r => r.id === roomId || r.name.toLowerCase() === roomId.toLowerCase());
+    }
     if (!room) throw new Error(`Room ${roomId} does not exist`);
 
-    const updated = await this.roomRepo.renameRoom(roomId, name);
+    const updated = await this.roomRepo.renameRoom(room.id, name);
 
     if (this.auditRepo) {
       await this.auditRepo.log({
-        id: `audit_room_rename_${roomId}`,
+        id: `audit_room_rename_${room.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         actorUserId,
         homeId: room.home_id,
         action: 'ROOM_RENAMED',
-        payload: { roomId, oldName: room.name, newName: name }
+        payload: { roomId: room.id, oldName: room.name, newName: name }
       });
     }
 
@@ -77,7 +81,11 @@ class RoomService {
   }
 
   async moveRoomWithinHome({ roomId, newFloorId, actorUserId = null }) {
-    const room = await this.roomRepo.getRoom(roomId);
+    let room = await this.roomRepo.getRoom(roomId);
+    if (!room && this.roomRepo.db) {
+      const allRooms = await this.roomRepo.db.find('rooms');
+      room = allRooms.find(r => r.id === roomId || r.name.toLowerCase() === roomId.toLowerCase());
+    }
     if (!room) throw new Error(`Room ${roomId} does not exist`);
 
     if (newFloorId) {
@@ -88,15 +96,15 @@ class RoomService {
       }
     }
 
-    const updated = await this.roomRepo.moveRoom(roomId, newFloorId);
+    const updated = await this.roomRepo.moveRoom(room.id, newFloorId);
 
     if (this.auditRepo) {
       await this.auditRepo.log({
-        id: `audit_room_move_${roomId}`,
+        id: `audit_room_move_${room.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         actorUserId,
         homeId: room.home_id,
         action: 'ROOM_MOVED_FLOOR',
-        payload: { roomId, oldFloorId: room.floor_id, newFloorId }
+        payload: { roomId: room.id, oldFloorId: room.floor_id, newFloorId }
       });
     }
 
@@ -104,27 +112,31 @@ class RoomService {
   }
 
   async deleteRoom({ roomId, actorUserId = null }) {
-    const room = await this.roomRepo.getRoom(roomId);
+    let room = await this.roomRepo.getRoom(roomId);
+    if (!room && this.roomRepo.db) {
+      const allRooms = await this.roomRepo.db.find('rooms');
+      room = allRooms.find(r => r.id === roomId || r.name.toLowerCase() === roomId.toLowerCase());
+    }
     if (!room) throw new Error(`Room ${roomId} does not exist`);
 
     // Verify devices assigned to room or unassign them safely
     if (this.deviceRepo) {
       const authorizations = await this.deviceRepo.getAuthorizationsByHome(room.home_id);
-      const devicesInRoom = authorizations.filter(a => a.room_id === roomId);
+      const devicesInRoom = authorizations.filter(a => a.room_id === room.id);
       for (const devAuth of devicesInRoom) {
         await this.deviceRepo.updateDeviceAuthorization(devAuth.device_id, { roomId: null });
       }
     }
 
-    const res = await this.roomRepo.deleteRoom(roomId);
+    const res = await this.roomRepo.deleteRoom(room.id);
 
     if (this.auditRepo) {
       await this.auditRepo.log({
-        id: `audit_room_delete_${roomId}`,
+        id: `audit_room_delete_${room.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         actorUserId,
         homeId: room.home_id,
         action: 'ROOM_DELETED',
-        payload: { roomId, name: room.name }
+        payload: { roomId: room.id, name: room.name }
       });
     }
 

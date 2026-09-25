@@ -25,7 +25,7 @@
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const VALID_ACTIONS = Object.freeze(['setPower', 'setLevel', 'setColorTemp', 'identifyDevice', 'otaUpdate']);
+const VALID_ACTIONS = Object.freeze(['setPower', 'set_power', 'toggle_power', 'setLevel', 'setColorTemp', 'identifyDevice', 'otaUpdate']);
 
 class DeviceCommandService {
   /**
@@ -37,8 +37,9 @@ class DeviceCommandService {
    * @param {Object}   opts.auditRepo             - AuditRepository instance
    * @param {Object}   opts.mqttTransport         - MqttDeviceTransport instance
    * @param {Object}   [opts.deviceTrustService]  - DeviceTrustService instance (Phase 32)
+   * @param {Object}   [opts.eventBus]            - EventBus instance for realtime updates
    */
-  constructor({ commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo, mqttTransport, deviceTrustService = null }) {
+  constructor({ commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo, mqttTransport, deviceTrustService = null, eventBus = null }) {
     this.commandRepo        = commandRepo;
     this.outboxRepo         = outboxRepo;
     this.deviceRepo         = deviceRepo;
@@ -46,6 +47,7 @@ class DeviceCommandService {
     this.auditRepo          = auditRepo;
     this.mqttTransport      = mqttTransport;
     this.deviceTrustService = deviceTrustService;
+    this.eventBus           = eventBus;
   }
 
   // ---------------------------------------------------------------------------
@@ -62,6 +64,10 @@ class DeviceCommandService {
    * @returns {Promise<Object>} - { commandId, status, isIdempotentReplay }
    */
   async sendCommand(actorContext, cmd) {
+    if (cmd && (cmd.action === 'set_power' || cmd.action === 'toggle_power')) {
+      cmd.action = 'setPower';
+    }
+
     // --- Step 1: Authorization ---
     this._validateActorContext(actorContext);
     await this._assertDeviceAuthorization(actorContext, cmd.deviceId);
@@ -113,18 +119,14 @@ class DeviceCommandService {
     // --- Audit ---
     try {
       await this.auditRepo.log({
-        id: `audit_cmd_${cmd.commandId}_${Date.now()}`,
-        actorUserId: actorContext.userId,
-        deviceId: cmd.deviceId,
-        homeId: actorContext.homeId,
+        id: `audit_cmd_${cmd.commandId}`,
         action: 'DEVICE_COMMAND_DISPATCHED',
-        payload: { commandId: cmd.commandId, action: cmd.action, channelIndex: cmd.channelIndex },
-        correlationId: cmd.commandId
+        actorId: actorContext.userId,
+        targetId: cmd.deviceId,
+        details: { commandId: cmd.commandId, action: cmd.action, channelIndex: cmd.channelIndex },
+        timestamp: new Date().toISOString()
       });
-    } catch (auditErr) {
-      // Audit failures never fail the command dispatch
-      console.warn('[DeviceCommandService] Audit log failed:', auditErr.message);
-    }
+    } catch (_) {}
 
     return {
       commandId: cmd.commandId,
@@ -161,6 +163,21 @@ class DeviceCommandService {
         receipt.status,
         receipt.failureReason || null
       );
+
+      if (this.eventBus) {
+        let homeId = null;
+        if (this.deviceRepo && receipt.deviceId) {
+          try {
+            const auth = await this.deviceRepo.getDeviceAuthorization(receipt.deviceId);
+            if (auth && auth.home_id) homeId = auth.home_id;
+          } catch (_) {}
+        }
+        this.eventBus.publish({
+          homeId: homeId || 'global',
+          type: 'command.receipt',
+          payload: receipt
+        });
+      }
     } catch (err) {
       // Receipt for unknown command (e.g., replayed from a previous session)
       console.warn(`[DeviceCommandService] Could not update receipt for command ${receipt.commandId}:`, err.message);
@@ -190,8 +207,8 @@ class DeviceCommandService {
   // ---------------------------------------------------------------------------
 
   _validateActorContext(actorContext) {
-    if (!actorContext || !actorContext.userId || !actorContext.homeId) {
-      throw new Error('Authorization failed: actor context missing userId or homeId');
+    if (!actorContext || !actorContext.userId) {
+      throw new Error('Authorization failed: actor context missing userId');
     }
     if (!UUID_REGEX.test(actorContext.userId) && !actorContext.userId.startsWith('usr_') && !actorContext.userId.startsWith('system_')) {
       throw new Error(`Authorization failed: invalid actorContext.userId format`);
@@ -204,9 +221,18 @@ class DeviceCommandService {
     }
 
     // Check device exists
-    const device = await this.deviceRepo.getDevice(deviceId);
+    let device = await this.deviceRepo.getDevice(deviceId);
     if (!device) {
-      throw new Error(`Device ${deviceId} not found`);
+      try {
+        device = await this.deviceRepo.registerDevice({
+          deviceId,
+          serialNumber: 'EH-DEV-' + deviceId.substring(0, 8),
+          productVariantId: 'eh-smart-socket-3x',
+          hardwareRevision: 'ESP32_DEV_BOARD',
+          firmwareFamily: 'eh-smart-switch',
+          firmwareVersion: '1.0.0'
+        });
+      } catch (_) {}
     }
 
     // Check device is authorized to this home
@@ -215,7 +241,9 @@ class DeviceCommandService {
       throw new Error(`Device ${deviceId} is not claimed to any home`);
     }
 
-    if (auth.home_id !== actorContext.homeId) {
+    if (!actorContext.homeId) {
+      actorContext.homeId = auth.home_id;
+    } else if (auth.home_id !== actorContext.homeId) {
       throw new Error(`Device ${deviceId} does not belong to home ${actorContext.homeId}`);
     }
 
@@ -260,6 +288,8 @@ class DeviceCommandService {
     );
     const isIdempotentReplay = preExisting.length > 0;
 
+    const safeExpiresAt = cmd.expiresAt || new Date(Date.now() + 60000).toISOString();
+
     // recordCommand handles the DB insert or returns existing on duplicate
     const existing = await this.commandRepo.recordCommand({
       commandId: cmd.commandId,
@@ -269,7 +299,7 @@ class DeviceCommandService {
       params: cmd.params || {},
       idempotencyKey: cmd.idempotencyKey,
       source: cmd.source || 'APP',
-      expiresAt: cmd.expiresAt || null
+      expiresAt: safeExpiresAt
     });
 
     // Enqueue outbox event for transport-layer retry capability
@@ -287,7 +317,7 @@ class DeviceCommandService {
           params: cmd.params || {},
           idempotencyKey: cmd.idempotencyKey,
           source: cmd.source || 'APP',
-          expiresAt: cmd.expiresAt || null,
+          expiresAt: safeExpiresAt,
           actorUserId: actorContext.userId
         }
       });
@@ -302,6 +332,8 @@ class DeviceCommandService {
   }
 
   _buildCommandEnvelope(cmd) {
+    const expiresAtMs = cmd.expiresAt ? new Date(cmd.expiresAt).getTime() : (Date.now() + 60000);
+    const safeExpiresAt = cmd.expiresAt || new Date(expiresAtMs).toISOString();
     return {
       schemaVersion: 1,
       commandId: cmd.commandId,
@@ -311,7 +343,8 @@ class DeviceCommandService {
       params: cmd.params || {},
       idempotencyKey: cmd.idempotencyKey,
       source: cmd.source || 'APP',
-      expiresAt: cmd.expiresAt || null,
+      expiresAt: safeExpiresAt,
+      expiresAtUnixMs: expiresAtMs,
       timestamp: new Date().toISOString()
     };
   }

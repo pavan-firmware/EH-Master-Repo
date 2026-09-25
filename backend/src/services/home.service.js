@@ -8,6 +8,16 @@
  *  - Log audit events for membership actions
  */
 
+function isValidIanaTimeZone(tz) {
+  if (!tz || typeof tz !== 'string' || tz.trim() === '') return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz.trim() });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 class HomeService {
   constructor({ homeRepo, userRepo, auditRepo }) {
     this.homeRepo = homeRepo;
@@ -19,11 +29,19 @@ class HomeService {
     if (!name || name.trim() === '') {
       throw new Error('Home name is required');
     }
+    const targetTz = (timezone && typeof timezone === 'string' && timezone.trim().length > 0)
+      ? timezone.trim()
+      : 'UTC';
+    if (!isValidIanaTimeZone(targetTz)) {
+      const err = new Error(`Invalid IANA timezone identifier: '${timezone}'. Please select a valid IANA timezone.`);
+      err.code = 'INVALID_TIMEZONE';
+      throw err;
+    }
     const resolvedOwnerId = actorUserId || ownerId;
     if (!resolvedOwnerId) {
       throw new Error('Authenticated owner context is required to create a home');
     }
-    const home = await this.homeRepo.createHome({ id, name, timezone, address, ownerId: resolvedOwnerId });
+    const home = await this.homeRepo.createHome({ id, name: name.trim(), timezone: targetTz, address, ownerId: resolvedOwnerId });
 
     if (this.auditRepo) {
       await this.auditRepo.log({
@@ -31,7 +49,7 @@ class HomeService {
         actorUserId: resolvedOwnerId,
         homeId: home.id || id,
         action: 'HOME_CREATED',
-        payload: { name, timezone, ownerId: resolvedOwnerId }
+        payload: { name: name.trim(), timezone: targetTz, ownerId: resolvedOwnerId }
       });
     }
 
@@ -173,7 +191,26 @@ class HomeService {
   }
 
   async updateHome({ homeId, name, timezone, address, actorUserId = null }) {
-    const updated = await this.homeRepo.updateHome(homeId, { name, timezone, address });
+    const updates = {};
+    if (name !== undefined) {
+      if (!name || name.trim() === '') {
+        throw new Error('Home name cannot be empty');
+      }
+      updates.name = name.trim();
+    }
+    if (timezone !== undefined) {
+      if (!isValidIanaTimeZone(timezone)) {
+        const err = new Error(`Invalid IANA timezone identifier: '${timezone}'. Please select a valid IANA timezone.`);
+        err.code = 'INVALID_TIMEZONE';
+        throw err;
+      }
+      updates.timezone = timezone.trim();
+    }
+    if (address !== undefined) {
+      updates.address = address;
+    }
+
+    const updated = await this.homeRepo.updateHome(homeId, updates);
 
     if (this.auditRepo) {
       await this.auditRepo.log({
@@ -181,7 +218,7 @@ class HomeService {
         actorUserId,
         homeId,
         action: 'HOME_UPDATED',
-        payload: { name, timezone, address }
+        payload: { ...updates }
       });
     }
 

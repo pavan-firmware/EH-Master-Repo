@@ -63,34 +63,51 @@ class RealtimeEventBus {
    * @returns {Object} the SSEEventEnvelope that was emitted
    */
   publish({ homeId, type, deviceId = null, payload }) {
-    if (!homeId || !type || payload === undefined) {
-      throw new Error('homeId, type, and payload are required to publish an event');
+    if (!type || payload === undefined) {
+      throw new Error('type and payload are required to publish an event');
     }
 
-    const seq = (this._sequences.get(homeId) || 0) + 1;
-    this._sequences.set(homeId, seq);
-
+    const targetHomeId = homeId || '*';
     const event = {
       schemaVersion: 1,
       eventId: crypto.randomUUID(),
       type,
       occurredAt: new Date().toISOString(),
-      homeId,
-      deviceId: deviceId || null,
+      homeId: targetHomeId,
+      deviceId: deviceId || (payload && payload.deviceId) || null,
       payload,
-      _seq: seq  // Internal monotonic sequence for Last-Event-ID
+      _seq: 1
     };
 
-    const listeners = this._listeners.get(homeId);
+    if (targetHomeId === '*' || !this._listeners.has(targetHomeId)) {
+      // Broadcast to all active SSE home streams
+      for (const [hId, homeListeners] of this._listeners.entries()) {
+        const hSeq = (this._sequences.get(hId) || 0) + 1;
+        this._sequences.set(hId, hSeq);
+        const hEvent = { ...event, homeId: hId, _seq: hSeq };
+        for (const listener of [...homeListeners]) {
+          try {
+            listener(hEvent);
+          } catch (err) {
+            console.error(`[RealtimeEventBus] Listener error for home ${hId}:`, err.message);
+          }
+        }
+      }
+      return event;
+    }
+
+    const seq = (this._sequences.get(targetHomeId) || 0) + 1;
+    this._sequences.set(targetHomeId, seq);
+    event._seq = seq;
+
+    const listeners = this._listeners.get(targetHomeId);
     if (listeners && listeners.size > 0) {
-      // Snapshot to avoid mutation issues during iteration
       const snapshot = [...listeners];
       for (const listener of snapshot) {
         try {
           listener(event);
         } catch (err) {
-          // Individual listener errors must not break fan-out
-          console.error(`[RealtimeEventBus] Listener error for home ${homeId}:`, err.message);
+          console.error(`[RealtimeEventBus] Listener error for home ${targetHomeId}:`, err.message);
         }
       }
     }

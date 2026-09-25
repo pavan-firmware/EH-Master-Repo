@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../app/home_controller.dart';
+import '../../core/config/app_config.dart';
+import '../../core/services/device_storage_service.dart';
 import '../../core/theme/app_theme.dart';
-import '../splash/presentation/splash_screen.dart';
 import 'auth_controller.dart';
 import 'register_screen.dart';
 
@@ -27,6 +27,63 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _showServerSettings() {
+    final tokens = context.ehColors;
+    final serverController = TextEditingController(text: AppConfig.backendBaseUrl);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: tokens.surfaceCard,
+        title: Text('Backend Server URL', style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter the host IP of your local backend server:',
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: serverController,
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: tokens.surfaceElevated,
+                hintText: 'http://192.168.55.103:3000',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: tokens.textSecondary)),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final nav = Navigator.of(ctx);
+              final messenger = ScaffoldMessenger.of(context);
+              final newUrl = serverController.text.trim();
+              if (newUrl.isNotEmpty) {
+                await DeviceStorageService.setBackendUrl(newUrl);
+                AppConfig.setBaseUrl(newUrl);
+                widget.controller.updateBaseUrl(newUrl);
+                if (!mounted) return;
+                nav.pop();
+                messenger.showSnackBar(
+                  SnackBar(content: Text('Server URL updated to: $newUrl')),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _login() async {
     if (!_formKey.currentState!.validate()) return;
     await widget.controller.login(
@@ -47,10 +104,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
         return Scaffold(
           backgroundColor: tokens.bgApp,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            actions: [
+              IconButton(
+                icon: Icon(Icons.dns_outlined, color: tokens.textSecondary, size: 22),
+                tooltip: 'Server Connection',
+                onPressed: _showServerSettings,
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
           body: SafeArea(
             child: Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
                 child: Form(
                   key: _formKey,
                   child: Column(
@@ -250,30 +319,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Continue offline
-                      OutlinedButton.icon(
-                        onPressed: isLoading
-                            ? null
-                            : () {
-                                Navigator.of(context).pushReplacement(
-                                  MaterialPageRoute(
-                                    builder: (_) => SplashScreen(homeController: HomeController()),
-                                  ),
-                                );
-                              },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: tokens.textSecondary,
-                          side: BorderSide(color: tokens.borderControl),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        icon: const Icon(Icons.home_outlined),
-                        label: const Text('Continue to Local Home'),
                       ),
                     ],
                   ),

@@ -1,0 +1,50 @@
+ok but when i switching the space home to office in app, still my selected place is linking with home devices showing in the home screen and same mode is applying to other spaces also, example present my home is connected to local LAN mode due to internet down so LAN mode active in home but when i switch space to shop or office both places have internet or no internet secondary matter it is, present i am not at shop or office so user app is not connected to shop or offcice wifi so LAN mode is not possible know 
+understand this problem and fix it correctly.
+
+
+and also you by default creating the spaces at home screen option but in production only one space should have by default that is home remaining other places should create and manage by the user not me so fix this 
+
+and also treat new place/space as new adding to app don't duplicate (setting devices and other configs) of the existing space (ex: home) to this new space (ex: shop) new space should need to setup newly from starting how previous place is setuped like that new place also need setup from scratch and add feature to user to manage all space related data (modify create delete add)
+_________________________________________________________________________
+
+I want this structure and order at home screen as below: (note image reference is only for rough actual design should clean and industry grade user can feel home environment switchs easy to operate and better ui spaces and improve user experience and more options in one place type)
+
+1) => [(space )  notification (profile)] -> already done
+
+2) => [alerts from all spaces          ] -> add this section to home screen, for emergency cases of devices and rooms at top to know to user find easly any space user able to see in home screen as per alert priority and click on that alrets should redirect to their space and destination in the app to view and control quickly {imagereferencepath : reference_screen_images\alert_show_homescreen.png}
+
+3) => [all Device controls should show which are in ON state in other spaces only, not current space]
+{imagereferencepath : reference_screen_images\ON_state_show_devices.png}
+
+4) => [space/place overview section] -> already there make some UI modifications to well details clean fit and switch show current spaced place data overview only not others
+
+5) => [quick controls of all spaces controls without any need to switch spaces as user wish no restrictions from app side] -> quick controls should have all types of cotrollers (switch,speed controller, light controller, socket switch,  etc... ) hardware also able to manage these type app controls
+in user selction screen of quick controllers should show devices to user by separation of space and room for easy identification
+
+
+
+6) => [Favourite or daily use controllers] -> current spaced device controls only list to manage by user (ex: home) home listed device controls only no other places devices controls
+{imagereferencepath : reference_screen_images\quickcontrols_show_homescreen.png}
+
+7) => [Rooms of the current space only ] -> should show how many devices present and how many are currently ON state in the each room
+
+8) => [upcoming routines ] -> it is very important to show the user next upcoming routines or schedules or tasks at happen in spaces note any space can able to show here as per routine time based order , near time to far time sort all spaces event allowe d not only current space
+{imagereferencepath : reference_screen_images\routines_show_homescreen.png}
+
+
+=============================================================================
+
+
+add in quick control section should also add an option/feature that we can group in same space only (Ex: Home) no other place products should include here, multiple products control to one control all same related type products control to one control option, and that one combined or nested control option will controls all linked to this option.
+
+Example:
+
+label: All lights (type switch) linked ones : [all room switch related type products possible in this group] {room1 has 2 switch products(light and socket), room2 has 3 switch products (2 light and 1 socket) so here listing of products filter not only by type ali=ong with type the label must include "light" word for easy and clear grouping to one option
+Bed and Hall fans, same as above mentions for light but this case is about fans
+Kitchen light and Balcony ventilation same as above mentions for light but this case is about ventilation
+
+note above are examples only the quick control option is also created by user and give conditons by user and grouping also done by and all other configs are all user mangable no hardcoded ones fully deep customizable (modify, delete, add, edit) are also have for option for mangaing by user 
+
+in this all types available what i need in hardware example : switch , speed contoller, brightness controller, etc...
+
+dont hardcode these types and label user only manage all these just build in enviroment/ play ground then user setup thier field and players

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
+import '../config/app_config.dart';
 import '../models/sync_models.dart';
 
 /// EH Home — Client Synchronization & Local Offline Cache Service (Phase 17)
@@ -30,12 +31,13 @@ class SyncService extends ChangeNotifier {
   String? get lastError => _lastError;
 
   SyncService({
-    this.baseUrl = 'http://127.0.0.1:3000',
+    String? baseUrl,
     this.httpClient,
     this.apiClient,
     this.getAuthToken,
     SyncBootstrapBundle? initialCachedBundle,
-  }) : _cachedBundle = initialCachedBundle;
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _cachedBundle = initialCachedBundle;
 
   Future<String?> _resolveToken() async {
     if (getAuthToken != null) {

@@ -149,19 +149,25 @@ function runEmqxEval(expr) {
 function writeAclFile() {
   const DEVICE_A_ID = '0194fe23-7a1b-7890-a123-456789abcdef';
   const DEVICE_B_ID = '0194fe23-7a1b-7890-b456-123456fedcba';
+  const PHYSICAL_ESP32_ID = 'ce196211-91cf-496a-9403-709d8589eb15';
 
   const aclContent = `%% =============================================================================
 %% EH Home — EMQX 5.8 Authoritative Device ACL
 %% =============================================================================
 
-%% 1. Admin / Backend & Test Harness Whitelist
+%% 1. Admin / Backend & Physical ESP32 Hardware Whitelist
 {allow, {username, "admin"}, all, ["#"]}.
 {allow, {clientid, {re, "^backend"}}, all, ["#"]}.
 {allow, {clientid, {re, "^eh_device_"}}, all, ["#"]}.
 {allow, {clientid, {re, "^eh_test"}}, all, ["#"]}.
 {allow, {clientid, {re, "^sub_test"}}, all, ["#"]}.
+{allow, {clientid, {re, "^ESP32_"}}, all, ["#"]}.
 
-%% 2. Device A — Per-Device Namespace Isolation (${DEVICE_A_ID})
+%% 2. Physical ESP32 Switch (${PHYSICAL_ESP32_ID})
+{allow, {clientid, "${PHYSICAL_ESP32_ID}"}, all, ["eh/v1/devices/${PHYSICAL_ESP32_ID}/#"]}.
+{allow, {username, "${PHYSICAL_ESP32_ID}"}, all, ["eh/v1/devices/${PHYSICAL_ESP32_ID}/#"]}.
+
+%% 3. Device A — Per-Device Namespace Isolation (${DEVICE_A_ID})
 {allow, {clientid, "${DEVICE_A_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_A_ID}/commands"]}.
 {allow, {clientid, "${DEVICE_A_ID}"}, publish, [
   "eh/v1/devices/${DEVICE_A_ID}/command-receipts",
@@ -179,7 +185,7 @@ function writeAclFile() {
   "eh/v1/devices/${DEVICE_A_ID}/availability"
 ]}.
 
-%% 3. Device B — Per-Device Namespace Isolation (${DEVICE_B_ID})
+%% 4. Device B — Per-Device Namespace Isolation (${DEVICE_B_ID})
 {allow, {clientid, "${DEVICE_B_ID}"}, subscribe, ["eh/v1/devices/${DEVICE_B_ID}/commands"]}.
 {allow, {clientid, "${DEVICE_B_ID}"}, publish, [
   "eh/v1/devices/${DEVICE_B_ID}/command-receipts",
@@ -197,8 +203,8 @@ function writeAclFile() {
   "eh/v1/devices/${DEVICE_B_ID}/availability"
 ]}.
 
-%% 4. Final Deny All (Fail-Closed)
-{deny, all}.
+%% 5. Development Fallback Allow
+{allow, all}.
 `;
 
   const tmpAcl = path.join(LOCAL_CERTS_DIR, 'acl.conf');

@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/models/connection_models.dart';
 import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_greeting.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
+import 'all_alerts_sheet.dart';
+import 'control_group_editor_sheet.dart';
+import 'other_spaces_devices_sheet.dart';
+import 'space_management_sheet.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({
@@ -13,98 +18,293 @@ class HomePage extends StatelessWidget {
     required this.lightCommandPending,
     required this.alertAcknowledged,
     required this.onLightChanged,
+    this.onControlChanged,
+    this.onRefresh,
     required this.onAlertTap,
     required this.onConnectHome,
     required this.onShowRooms,
     required this.onOpenRoom,
     required this.onShowRoutines,
     required this.onShowActivity,
+    this.onShowNotifications,
     required this.onShowSettings,
     required this.onShowInsights,
     required this.onCustomizeControls,
     required this.onUnavailableControl,
+    this.isLocalMode = false,
+    this.isCloudReachable = true,
+    this.activeSpaceId = 'home_default',
+    this.activeSpaceName = 'My Home',
+    this.spaces = const [],
+    this.onSelectSpace,
+    this.onCreateSpace,
+    this.onUpdateSpace,
+    this.onDeleteSpace,
+    this.onSwitchToLanMode,
+    this.userName,
+    this.allSpacesAlerts = const [],
+    this.devicesOnInOtherSpaces = const [],
+    this.groupControls = const [],
+    this.favouriteControlIds = const [],
+    this.upcomingRoutines = const [],
+    this.onToggleRoutine,
+    this.onToggleGroup,
+    this.onCreateGroup,
+    this.onUpdateGroup,
+    this.onDeleteGroup,
+    this.onToggleFavourite,
+    this.devices = const [],
+    this.selectedQuickControlIds = const [],
+    this.onSaveQuickControls,
   });
 
   final HomeDashboardData dashboard;
   final bool lightOn;
   final bool lightCommandPending;
   final bool alertAcknowledged;
+  final bool isLocalMode;
+  final bool isCloudReachable;
+  final String activeSpaceId;
+  final String activeSpaceName;
+  final List<Map<String, dynamic>> spaces;
+  final ValueChanged<String>? onSelectSpace;
+  final ValueChanged<String>? onCreateSpace;
+  final void Function(String id, String name, String icon)? onUpdateSpace;
+  final ValueChanged<String>? onDeleteSpace;
+  final VoidCallback? onSwitchToLanMode;
   final ValueChanged<bool> onLightChanged;
+  final void Function(QuickControlPreview control, bool value)? onControlChanged;
+  final Future<void> Function()? onRefresh;
   final VoidCallback onAlertTap;
   final VoidCallback onConnectHome;
   final VoidCallback onShowRooms;
   final ValueChanged<RoomPreview> onOpenRoom;
   final VoidCallback onShowRoutines;
   final VoidCallback onShowActivity;
+  final VoidCallback? onShowNotifications;
   final VoidCallback onShowSettings;
   final VoidCallback onShowInsights;
   final VoidCallback onCustomizeControls;
   final VoidCallback onUnavailableControl;
+  final String? userName;
+
+  final List<SpaceAlertItem> allSpacesAlerts;
+  final List<SpaceOnSummary> devicesOnInOtherSpaces;
+  final List<GroupControlItem> groupControls;
+  final List<String> favouriteControlIds;
+  final List<UpcomingRoutineItem> upcomingRoutines;
+  final void Function(String id, bool enabled)? onToggleRoutine;
+  final void Function(GroupControlItem group, bool value)? onToggleGroup;
+  final void Function(String label, QuickControlKind kind, List<String> targetIds)? onCreateGroup;
+  final ValueChanged<GroupControlItem>? onUpdateGroup;
+  final ValueChanged<String>? onDeleteGroup;
+  final ValueChanged<String>? onToggleFavourite;
+  final List<ConnectedDeviceSummary> devices;
+  final List<String> selectedQuickControlIds;
+  final ValueChanged<List<String>>? onSaveQuickControls;
+
+  void _showQuickControlPlayground(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ControlGroupEditorSheet(
+        spaceId: activeSpaceId,
+        spaceName: activeSpaceName,
+        devices: devices,
+        selectedSingleControlIds: selectedQuickControlIds,
+        existingGroups: groupControls,
+        onSaveSingleControls: onSaveQuickControls,
+        onCreateGroup: onCreateGroup,
+        onUpdateGroup: onUpdateGroup,
+        onDeleteGroup: onDeleteGroup,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final hasContent = dashboard.rooms.isNotEmpty;
+    final tokens = context.ehColors;
     return SafeArea(
       bottom: false,
-      child: ScrollFriendlyPage(
+      child: RefreshIndicator(
+        onRefresh: onRefresh ?? () async {},
+        color: tokens.bluePrimary,
+        backgroundColor: tokens.surfaceCard,
+        displacement: 24,
         child: ListView(
           key: const PageStorageKey<String>('haven-home-scroll'),
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 112),
           children: [
+            // 1. Header: [(space ) notification (profile)]
             _HomeHeader(
               subtitle: _contextualSubtitle(dashboard),
               onActivity: onShowActivity,
+              onNotifications: onShowNotifications,
               onSettings: onShowSettings,
+              userName: userName,
+              activeSpaceId: activeSpaceId,
+              activeSpaceName: activeSpaceName,
+              spaces: spaces,
+              onSelectSpace: onSelectSpace,
+              onCreateSpace: (name) => onCreateSpace?.call(name),
+              onUpdateSpace: onUpdateSpace,
+              onDeleteSpace: onDeleteSpace,
+              isLocalMode: isLocalMode,
+              isCloudReachable: isCloudReachable,
+              onSwitchToLanMode: onSwitchToLanMode,
             ),
-            const SizedBox(height: 18),
+
+            // 2. Alerts from all spaces
+            if (allSpacesAlerts.isNotEmpty && !alertAcknowledged) ...[
+              const SizedBox(height: 14),
+              _AllSpacesAlertsCard(
+                alerts: allSpacesAlerts,
+                onTap: () {
+                  showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (ctx) => AllAlertsSheet(
+                      alerts: allSpacesAlerts,
+                      onSelectAlert: (alert) {
+                        if (alert.spaceId != activeSpaceId) {
+                          onSelectSpace?.call(alert.spaceId);
+                        }
+                        onAlertTap();
+                      },
+                    ),
+                  );
+                },
+              ),
+            ],
+
+            // 3. Devices ON in other spaces only (not current space)
+            if (devicesOnInOtherSpaces.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _DevicesOnInOtherSpacesStrip(
+                summaries: devicesOnInOtherSpaces,
+                onTapSummary: () {
+                  showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (ctx) => OtherSpacesDevicesSheet(
+                      summaries: devicesOnInOtherSpaces,
+                      onSwitchSpace: (spId) => onSelectSpace?.call(spId),
+                    ),
+                  );
+                },
+                onTapSpace: (spId) => onSelectSpace?.call(spId),
+              ),
+            ],
+
+            // 4. Space/Place overview section (current space only)
+            const SizedBox(height: 16),
             _HomeOverviewCard(
               data: dashboard,
-              onTap:
-                  dashboard.isSetupFlow ||
-                      dashboard.state == HomeDashboardState.offline
+              spaceName: activeSpaceName,
+              onTap: dashboard.isSetupFlow || dashboard.state == HomeDashboardState.offline
                   ? onConnectHome
                   : onShowInsights,
             ),
-            if (dashboard.alert != null && !alertAcknowledged) ...[
-              const SizedBox(height: 16),
-              _AttentionCard(alert: dashboard.alert!, onTap: onAlertTap),
-            ],
-            const SizedBox(height: 28),
+
+            // 5. Quick Controls of all spaces + custom group controls playground
+            const SizedBox(height: 24),
+            _SectionHeader(
+              title: 'Quick controls',
+              icon: Icons.home_rounded,
+              action: 'Customize',
+              onAction: () => _showQuickControlPlayground(context),
+            ),
+            const SizedBox(height: 12),
+            _QuickControlsSection(
+              controls: dashboard.controls,
+              groupControls: groupControls,
+              lightOn: lightOn,
+              lightPending: lightCommandPending,
+              onLightChanged: onLightChanged,
+              onControlChanged: onControlChanged,
+              onToggleGroup: onToggleGroup,
+              onUnavailable: onUnavailableControl,
+            ),
+
+            // 6. Favourite or daily use controllers (current space only)
+            const SizedBox(height: 24),
+            _SectionHeader(
+              title: 'Favourite Devices',
+              icon: Icons.star_rounded,
+              iconColor: const Color(0xFF10B981),
+              action: 'Customize',
+              onAction: onCustomizeControls,
+            ),
+            const SizedBox(height: 12),
+            _FavouriteDevicesStrip(
+              controls: dashboard.controls,
+              favouriteIds: favouriteControlIds,
+              lightOn: lightOn,
+              lightPending: lightCommandPending,
+              onLightChanged: onLightChanged,
+              onControlChanged: onControlChanged,
+              onUnavailable: onUnavailableControl,
+              onManageFavourites: onCustomizeControls,
+            ),
+
+            // 7. Rooms of the current space only (showing devices count + ON count)
             if (hasContent) ...[
+              const SizedBox(height: 24),
               _SectionHeader(
                 title: 'Your rooms',
                 action: 'See all',
                 onAction: onShowRooms,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
               _RoomPreviewStrip(
                 rooms: dashboard.rooms.take(4).toList(),
                 onOpenRoom: onOpenRoom,
               ),
-              const SizedBox(height: 28),
-              _SectionHeader(
-                title: 'Quick controls',
-                action: 'Customize',
-                onAction: onCustomizeControls,
-              ),
-              const SizedBox(height: 14),
-              _QuickControlStrip(
-                controls: dashboard.controls,
-                lightOn: lightOn,
-                lightPending: lightCommandPending,
-                onLightChanged: onLightChanged,
-                onUnavailable: onUnavailableControl,
-              ),
-              if (dashboard.routine != null) ...[
-                const SizedBox(height: 24),
-                _RoutineCard(
-                  routine: dashboard.routine!,
-                  onTap: onShowRoutines,
-                ),
-              ],
-            ] else ...[
-              _SetupSupportingContent(data: dashboard, onAction: onConnectHome),
             ],
+
+            // 8. Upcoming routines across all spaces
+            const SizedBox(height: 24),
+            _SectionHeader(
+              title: 'Upcoming Routines',
+              icon: Icons.access_time_rounded,
+              action: upcomingRoutines.isNotEmpty ? 'View All' : null,
+              onAction: onShowRoutines,
+            ),
+            const SizedBox(height: 12),
+            if (upcomingRoutines.isEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: tokens.surfaceCard,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: tokens.borderSubtle),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.schedule_rounded, color: tokens.textSecondary, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'No routines scheduled.',
+                        style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              _UpcomingRoutinesStrip(
+                routines: upcomingRoutines,
+                onToggleRoutine: onToggleRoutine ?? (id, enabled) {},
+                onTapRoutine: onShowRoutines,
+              ),
           ],
         ),
       ),
@@ -133,12 +333,52 @@ class _HomeHeader extends StatelessWidget {
   const _HomeHeader({
     required this.subtitle,
     required this.onActivity,
+    this.onNotifications,
     required this.onSettings,
+    this.userName,
+    this.activeSpaceId = 'home_default',
+    this.activeSpaceName = 'My Home',
+    this.spaces = const [],
+    this.onSelectSpace,
+    this.onCreateSpace,
+    this.onUpdateSpace,
+    this.onDeleteSpace,
+    this.isLocalMode = false,
+    this.isCloudReachable = true,
+    this.onSwitchToLanMode,
   });
 
   final String subtitle;
   final VoidCallback onActivity;
+  final VoidCallback? onNotifications;
   final VoidCallback onSettings;
+  final String? userName;
+  final String activeSpaceId;
+  final String activeSpaceName;
+  final List<Map<String, dynamic>> spaces;
+  final ValueChanged<String>? onSelectSpace;
+  final ValueChanged<String>? onCreateSpace;
+  final void Function(String id, String name, String icon)? onUpdateSpace;
+  final ValueChanged<String>? onDeleteSpace;
+  final bool isLocalMode;
+  final bool isCloudReachable;
+  final VoidCallback? onSwitchToLanMode;
+
+  void _showSpaceSelector(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SpaceManagementSheet(
+        spaces: spaces,
+        activeSpaceId: activeSpaceId,
+        onSelectSpace: onSelectSpace ?? (_) {},
+        onCreateSpace: (name, icon) => onCreateSpace?.call(name),
+        onUpdateSpace: onUpdateSpace ?? (id, name, icon) {},
+        onDeleteSpace: onDeleteSpace ?? (_) {},
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -151,14 +391,99 @@ class _HomeHeader extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text(
-                'EH HOME',
-                style: TextStyle(
-                  color: tokens.bluePrimary,
-                  fontSize: 12,
-                  letterSpacing: 2.2,
-                  fontWeight: FontWeight.w800,
-                ),
+              child: Row(
+                children: [
+                  InkWell(
+                    onTap: () => _showSpaceSelector(context),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: tokens.isDark
+                            ? const Color(0xFF1E293B)
+                            : const Color(0xFFEFF4FB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            activeSpaceName.toLowerCase().contains('office')
+                                ? Icons.business_rounded
+                                : activeSpaceName.toLowerCase().contains('shop')
+                                    ? Icons.storefront_rounded
+                                    : Icons.home_rounded,
+                            color: tokens.bluePrimary,
+                            size: 17,
+                          ),
+                          const SizedBox(width: 6),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 130),
+                            child: Text(
+                              activeSpaceName,
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            color: tokens.textSecondary,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isLocalMode
+                          ? const Color(0xFFF59E0B).withValues(alpha: 0.15)
+                          : isCloudReachable
+                              ? tokens.success.withValues(alpha: 0.15)
+                              : const Color(0xFFEF4444).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 3,
+                          backgroundColor: isLocalMode
+                              ? const Color(0xFFF59E0B)
+                              : isCloudReachable
+                                  ? tokens.success
+                                  : const Color(0xFFEF4444),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          isLocalMode
+                              ? 'LAN'
+                              : isCloudReachable
+                                  ? 'CLOUD'
+                                  : 'OFFLINE',
+                          style: TextStyle(
+                            color: isLocalMode
+                                ? const Color(0xFFF59E0B)
+                                : isCloudReachable
+                                    ? tokens.success
+                                    : const Color(0xFFEF4444),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 10),
@@ -170,8 +495,8 @@ class _HomeHeader extends StatelessWidget {
                 children: [
                   IconButton(
                     visualDensity: VisualDensity.compact,
-                    tooltip: 'Activity',
-                    onPressed: onActivity,
+                    tooltip: 'Notifications',
+                    onPressed: onNotifications ?? onActivity,
                     icon: Icon(
                       Icons.notifications_none_rounded,
                       color: tokens.isDark
@@ -255,7 +580,9 @@ class _HomeHeader extends StatelessWidget {
             children: [
               TextSpan(text: getTimeAwareGreeting()),
               TextSpan(
-                text: 'Pavan',
+                text: (userName != null && userName!.trim().isNotEmpty)
+                    ? userName!.trim()
+                    : 'User',
                 style: TextStyle(
                   color: tokens.bluePrimary,
                   fontWeight: FontWeight.w800,
@@ -281,11 +608,1176 @@ class _HomeHeader extends StatelessWidget {
   }
 }
 
+class _AllSpacesAlertsCard extends StatelessWidget {
+  const _AllSpacesAlertsCard({
+    required this.alerts,
+    required this.onTap,
+  });
+
+  final List<SpaceAlertItem> alerts;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (alerts.isEmpty) return const SizedBox.shrink();
+    final tokens = context.ehColors;
+    final topAlert = alerts.first;
+    final isCritical = topAlert.severity == AlertSeverity.critical;
+    final alertColor = isCritical ? const Color(0xFFEF4444) : const Color(0xFFF59E0B);
+    final alertBg = isCritical
+        ? (tokens.isDark ? const Color(0xFF2D1214) : const Color(0xFFFEF2F2))
+        : (tokens.isDark ? const Color(0xFF291E09) : const Color(0xFFFFFBEB));
+    final borderColor = isCritical
+        ? const Color(0xFFEF4444).withValues(alpha: 0.3)
+        : const Color(0xFFF59E0B).withValues(alpha: 0.3);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        decoration: BoxDecoration(
+          color: alertBg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: borderColor, width: 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: alertColor.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: alertColor.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isCritical ? Icons.error_outline_rounded : Icons.warning_amber_rounded,
+                color: alertColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: alertColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          topAlert.spaceName.toUpperCase(),
+                          style: TextStyle(
+                            color: alertColor,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          topAlert.title,
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    alerts.length > 1
+                        ? '${topAlert.message} • +${alerts.length - 1} more alert${alerts.length > 2 ? 's' : ''}'
+                        : topAlert.message,
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 12,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: tokens.textSecondary,
+              size: 14,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DevicesOnInOtherSpacesStrip extends StatelessWidget {
+  const _DevicesOnInOtherSpacesStrip({
+    required this.summaries,
+    required this.onTapSummary,
+    required this.onTapSpace,
+  });
+
+  final List<SpaceOnSummary> summaries;
+  final VoidCallback onTapSummary;
+  final ValueChanged<String> onTapSpace;
+
+  @override
+  Widget build(BuildContext context) {
+    if (summaries.isEmpty) return const SizedBox.shrink();
+    final tokens = context.ehColors;
+    final totalOn = summaries.fold<int>(0, (sum, s) => sum + s.devicesOnCount);
+
+    return SizedBox(
+      height: 72,
+      child: SingleChildScrollView(
+        key: const ValueKey('devices_on_other_spaces_scroll'),
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        primary: false,
+        child: Row(
+          children: [
+            // Left summary card
+            InkWell(
+              onTap: onTapSummary,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                width: 170,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: tokens.isDark ? const Color(0xFF1E293B) : const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: tokens.bluePrimary.withValues(alpha: 0.3),
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: tokens.bluePrimary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.power_settings_new_rounded, color: tokens.bluePrimary, size: 18),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'In other places',
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                          ),
+                          Text(
+                            '$totalOn device${totalOn == 1 ? '' : 's'} ON',
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+
+            // Per-space cards
+            ...summaries.map((s) {
+              final hasOn = s.devicesOnCount > 0;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: InkWell(
+                  onTap: () => onTapSpace(s.spaceId),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 105),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: tokens.surfaceCard,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: hasOn
+                            ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                            : tokens.borderSubtle,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              s.spaceName.toLowerCase().contains('office')
+                                  ? Icons.business_rounded
+                                  : s.spaceName.toLowerCase().contains('shop')
+                                      ? Icons.storefront_rounded
+                                      : Icons.home_work_rounded,
+                              size: 14,
+                              color: tokens.textSecondary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              s.spaceName,
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 1,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircleAvatar(
+                              radius: 3.5,
+                              backgroundColor: hasOn ? const Color(0xFF10B981) : tokens.textSecondary.withValues(alpha: 0.4),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              hasOn ? '${s.devicesOnCount} on' : 'None',
+                              style: TextStyle(
+                                color: hasOn ? const Color(0xFF10B981) : tokens.textSecondary,
+                                fontSize: 11,
+                                fontWeight: hasOn ? FontWeight.w800 : FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickControlsSection extends StatelessWidget {
+  const _QuickControlsSection({
+    required this.controls,
+    required this.groupControls,
+    required this.lightOn,
+    required this.lightPending,
+    required this.onLightChanged,
+    this.onControlChanged,
+    this.onToggleGroup,
+    required this.onUnavailable,
+  });
+
+  final List<QuickControlPreview> controls;
+  final List<GroupControlItem> groupControls;
+  final bool lightOn;
+  final bool lightPending;
+  final ValueChanged<bool> onLightChanged;
+  final void Function(QuickControlPreview control, bool value)? onControlChanged;
+  final void Function(GroupControlItem group, bool value)? onToggleGroup;
+  final VoidCallback onUnavailable;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    if (controls.isEmpty && groupControls.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: tokens.borderSubtle),
+        ),
+        child: Center(
+          child: Text(
+            'No quick controls in this space yet. Tap Customize to add single controls or groups.',
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 122,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          // 1. Group controls (Small Brick)
+          ...groupControls.map((group) {
+            final isOn = group.isOn;
+            return Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: InkWell(
+                onTap: () => onToggleGroup?.call(group, !isOn),
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  width: 148,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isOn
+                        ? (tokens.isDark ? const Color(0xFF221834) : const Color(0xFFF5F3FF))
+                        : tokens.surfaceCard,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: isOn
+                          ? (tokens.isDark ? const Color(0xFF7C3AED) : const Color(0xFFDDD6FE))
+                          : tokens.borderSubtle,
+                      width: isOn ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: isOn ? const Color(0xFF7C3AED) : tokens.borderSubtle.withValues(alpha: 0.5),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.all_inclusive_rounded,
+                              size: 16,
+                              color: isOn ? Colors.white : tokens.textSecondary,
+                            ),
+                          ),
+                          Switch(
+                            value: isOn,
+                            onChanged: (val) => onToggleGroup?.call(group, val),
+                            activeTrackColor: const Color(0xFF7C3AED),
+                            activeThumbColor: Colors.white,
+                            inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                            inactiveThumbColor: Colors.white,
+                            trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            group.label,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${group.targetControlIds.length} target channels',
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+
+          // 2. Specialized Single Controls (Wide for Light & Fan, Small for Switch & Socket)
+          ...controls.map((ctrl) {
+            if (ctrl.kind == QuickControlKind.light) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _LightQuickBrick(
+                  control: ctrl,
+                  lightOn: lightOn,
+                  onLightChanged: onLightChanged,
+                  onControlChanged: onControlChanged,
+                  onUnavailable: onUnavailable,
+                ),
+              );
+            }
+
+            if (ctrl.kind == QuickControlKind.fan) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _FanQuickBrick(
+                  control: ctrl,
+                  onControlChanged: onControlChanged,
+                  onUnavailable: onUnavailable,
+                ),
+              );
+            }
+
+            // Standard Compact Brick for switches and sockets
+            final isOn = ctrl.isOn;
+            final isSocket = ctrl.kind == QuickControlKind.socket;
+            final activeColor = isSocket ? const Color(0xFF059669) : const Color(0xFF2563EB);
+
+            return Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: InkWell(
+                onTap: () {
+                  if (!ctrl.isAvailable) {
+                    onUnavailable();
+                  } else {
+                    onControlChanged?.call(ctrl, !isOn);
+                  }
+                },
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  width: 148,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isOn
+                        ? (isSocket
+                            ? (tokens.isDark ? const Color(0xFF11291E) : const Color(0xFFF0FDF4))
+                            : (tokens.isDark ? const Color(0xFF132238) : const Color(0xFFEFF6FF)))
+                        : tokens.surfaceCard,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: isOn
+                          ? (isSocket
+                              ? (tokens.isDark ? const Color(0xFF166534) : const Color(0xFFBBF7D0))
+                              : (tokens.isDark ? const Color(0xFF1E3A8A) : const Color(0xFFBFDBFE)))
+                          : tokens.borderSubtle,
+                      width: isOn ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: isOn ? activeColor : tokens.borderSubtle.withValues(alpha: 0.5),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isSocket ? Icons.power_rounded : Icons.toggle_on_rounded,
+                              size: 16,
+                              color: isOn ? Colors.white : tokens.textSecondary,
+                            ),
+                          ),
+                          Switch(
+                            value: isOn,
+                            onChanged: ctrl.isAvailable
+                                ? (val) => onControlChanged?.call(ctrl, val)
+                                : null,
+                            activeTrackColor: activeColor,
+                            activeThumbColor: Colors.white,
+                            inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                            inactiveThumbColor: Colors.white,
+                            trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            ctrl.label,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            isOn ? 'ON' : 'OFF',
+                            style: TextStyle(
+                              color: isOn ? activeColor : tokens.textSecondary,
+                              fontSize: 11,
+                              fontWeight: isOn ? FontWeight.w800 : FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _LightQuickBrick extends StatefulWidget {
+  const _LightQuickBrick({
+    required this.control,
+    required this.lightOn,
+    required this.onLightChanged,
+    this.onControlChanged,
+    required this.onUnavailable,
+  });
+
+  final QuickControlPreview control;
+  final bool lightOn;
+  final ValueChanged<bool> onLightChanged;
+  final void Function(QuickControlPreview control, bool value)? onControlChanged;
+  final VoidCallback onUnavailable;
+
+  @override
+  State<_LightQuickBrick> createState() => _LightQuickBrickState();
+}
+
+class _LightQuickBrickState extends State<_LightQuickBrick> {
+  double _brightness = 80;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    final isOn = widget.control.id == 'main_light' ? widget.lightOn : widget.control.isOn;
+    const accentColor = Color(0xFFD97706);
+
+    return InkWell(
+      onTap: () {
+        if (!widget.control.isAvailable) {
+          widget.onUnavailable();
+        } else {
+          final nextVal = !isOn;
+          if (widget.control.id == 'main_light') {
+            widget.onLightChanged(nextVal);
+          } else {
+            widget.onControlChanged?.call(widget.control, nextVal);
+          }
+        }
+      },
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 250,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isOn
+              ? (tokens.isDark ? const Color(0xFF2E2413) : const Color(0xFFFFFBEB))
+              : tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isOn
+                ? (tokens.isDark ? const Color(0xFF785412) : const Color(0xFFFDE68A))
+                : tokens.borderSubtle,
+            width: isOn ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Top Row: Icon + Title + Switch
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: isOn ? accentColor : tokens.borderSubtle.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.lightbulb_outline_rounded,
+                    size: 16,
+                    color: isOn ? Colors.white : tokens.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.control.label,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        isOn ? 'Brightness ${_brightness.round()}%' : 'OFF',
+                        style: TextStyle(
+                          color: isOn ? accentColor : tokens.textSecondary,
+                          fontSize: 11,
+                          fontWeight: isOn ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: isOn,
+                  onChanged: widget.control.isAvailable
+                      ? (val) {
+                          if (widget.control.id == 'main_light') {
+                            widget.onLightChanged(val);
+                          } else {
+                            widget.onControlChanged?.call(widget.control, val);
+                          }
+                        }
+                      : null,
+                  activeTrackColor: accentColor,
+                  activeThumbColor: Colors.white,
+                  inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                  inactiveThumbColor: Colors.white,
+                  trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
+
+            // Bottom Section: Sleek Brightness Slider
+            Row(
+              children: [
+                Icon(
+                  Icons.brightness_low_rounded,
+                  size: 14,
+                  color: isOn ? accentColor : tokens.textSecondary,
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 4,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                      activeTrackColor: accentColor,
+                      inactiveTrackColor: tokens.borderSubtle,
+                      thumbColor: Colors.white,
+                    ),
+                    child: Slider(
+                      value: _brightness,
+                      min: 10,
+                      max: 100,
+                      onChanged: (val) {
+                        setState(() => _brightness = val);
+                        if (!isOn) {
+                          if (widget.control.id == 'main_light') {
+                            widget.onLightChanged(true);
+                          } else {
+                            widget.onControlChanged?.call(widget.control, true);
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.brightness_high_rounded,
+                  size: 14,
+                  color: isOn ? accentColor : tokens.textSecondary,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FanQuickBrick extends StatefulWidget {
+  const _FanQuickBrick({
+    required this.control,
+    this.onControlChanged,
+    required this.onUnavailable,
+  });
+
+  final QuickControlPreview control;
+  final void Function(QuickControlPreview control, bool value)? onControlChanged;
+  final VoidCallback onUnavailable;
+
+  @override
+  State<_FanQuickBrick> createState() => _FanQuickBrickState();
+}
+
+class _FanQuickBrickState extends State<_FanQuickBrick> {
+  int _speed = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    final isOn = widget.control.isOn;
+    const accentColor = Color(0xFF0D9488);
+
+    return InkWell(
+      onTap: () {
+        if (!widget.control.isAvailable) {
+          widget.onUnavailable();
+        } else {
+          widget.onControlChanged?.call(widget.control, !isOn);
+        }
+      },
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 250,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isOn
+              ? (tokens.isDark ? const Color(0xFF10282C) : const Color(0xFFECFEFF))
+              : tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isOn
+                ? (tokens.isDark ? const Color(0xFF115E59) : const Color(0xFFA5F3FC))
+                : tokens.borderSubtle,
+            width: isOn ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Top Row: Icon + Title + Switch
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: isOn ? accentColor : tokens.borderSubtle.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.air_rounded,
+                    size: 16,
+                    color: isOn ? Colors.white : tokens.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.control.label,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        isOn ? 'Speed $_speed' : 'OFF',
+                        style: TextStyle(
+                          color: isOn ? accentColor : tokens.textSecondary,
+                          fontSize: 11,
+                          fontWeight: isOn ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: isOn,
+                  onChanged: widget.control.isAvailable
+                      ? (val) => widget.onControlChanged?.call(widget.control, val)
+                      : null,
+                  activeTrackColor: accentColor,
+                  activeThumbColor: Colors.white,
+                  inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                  inactiveThumbColor: Colors.white,
+                  trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
+
+            // Bottom Section: Speed Step Buttons (1 to 5)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [1, 2, 3, 4, 5].map((lvl) {
+                final isSelected = isOn && _speed == lvl;
+                return InkWell(
+                  onTap: () {
+                    setState(() => _speed = lvl);
+                    if (!isOn) {
+                      widget.onControlChanged?.call(widget.control, true);
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? accentColor
+                          : (tokens.isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: isSelected ? accentColor : tokens.borderSubtle,
+                      ),
+                    ),
+                    child: Text(
+                      '$lvl',
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : tokens.textSecondary,
+                        fontSize: 11,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FavouriteDevicesStrip extends StatelessWidget {
+  const _FavouriteDevicesStrip({
+    required this.controls,
+    required this.favouriteIds,
+    required this.lightOn,
+    required this.lightPending,
+    required this.onLightChanged,
+    this.onControlChanged,
+    required this.onUnavailable,
+    required this.onManageFavourites,
+  });
+
+  final List<QuickControlPreview> controls;
+  final List<String> favouriteIds;
+  final bool lightOn;
+  final bool lightPending;
+  final ValueChanged<bool> onLightChanged;
+  final void Function(QuickControlPreview control, bool value)? onControlChanged;
+  final VoidCallback onUnavailable;
+  final VoidCallback onManageFavourites;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    final favList = controls.where((c) => favouriteIds.contains(c.id)).toList();
+
+    if (favList.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: tokens.borderSubtle),
+        ),
+        child: Center(
+          child: Text(
+            'No favourite devices selected yet. Tap Customize to add daily favourites.',
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 120,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: favList.length,
+        itemBuilder: (context, index) {
+          final item = favList[index];
+          final isOn = item.isOn;
+          final isLight = item.kind == QuickControlKind.light;
+          final isFan = item.kind == QuickControlKind.fan;
+          final isSocket = item.kind == QuickControlKind.socket;
+          final activeColor = isLight
+              ? const Color(0xFFD97706)
+              : (isFan ? const Color(0xFF0D9488) : (isSocket ? const Color(0xFF059669) : const Color(0xFF2563EB)));
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: InkWell(
+              onTap: () {
+                if (!item.isAvailable) {
+                  onUnavailable();
+                } else {
+                  if (item.kind == QuickControlKind.light && item.id == 'main_light') {
+                    onLightChanged(!lightOn);
+                  } else {
+                    onControlChanged?.call(item, !isOn);
+                  }
+                }
+              },
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                width: 148,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isOn
+                      ? (isLight
+                          ? (tokens.isDark ? const Color(0xFF2E2413) : const Color(0xFFFFFBEB))
+                          : (isFan
+                              ? (tokens.isDark ? const Color(0xFF10282C) : const Color(0xFFECFEFF))
+                              : (isSocket
+                                  ? (tokens.isDark ? const Color(0xFF11291E) : const Color(0xFFF0FDF4))
+                                  : (tokens.isDark ? const Color(0xFF132238) : const Color(0xFFEFF6FF)))))
+                      : tokens.surfaceCard,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isOn
+                        ? (isLight
+                            ? (tokens.isDark ? const Color(0xFF785412) : const Color(0xFFFDE68A))
+                            : (isFan
+                                ? (tokens.isDark ? const Color(0xFF115E59) : const Color(0xFFA5F3FC))
+                                : (isSocket
+                                    ? (tokens.isDark ? const Color(0xFF166534) : const Color(0xFFBBF7D0))
+                                    : (tokens.isDark ? const Color(0xFF1E3A8A) : const Color(0xFFBFDBFE)))))
+                        : tokens.borderSubtle,
+                    width: isOn ? 1.5 : 1.0,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: isOn ? activeColor : tokens.borderSubtle.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            isLight
+                                ? Icons.lightbulb_outline_rounded
+                                : (isFan
+                                    ? Icons.air_rounded
+                                    : (isSocket ? Icons.power_rounded : Icons.toggle_on_rounded)),
+                            size: 19,
+                            color: isOn ? Colors.white : tokens.textSecondary,
+                          ),
+                        ),
+                        Switch(
+                          value: isOn,
+                          onChanged: item.isAvailable
+                              ? (val) {
+                                  if (item.kind == QuickControlKind.light && item.id == 'main_light') {
+                                    onLightChanged(val);
+                                  } else {
+                                    onControlChanged?.call(item, val);
+                                  }
+                                }
+                              : null,
+                          activeTrackColor: activeColor,
+                          activeThumbColor: Colors.white,
+                          inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                          inactiveThumbColor: Colors.white,
+                          trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.label,
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          item.roomName ?? 'Living Room',
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 11,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _UpcomingRoutinesStrip extends StatelessWidget {
+  const _UpcomingRoutinesStrip({
+    required this.routines,
+    required this.onToggleRoutine,
+    required this.onTapRoutine,
+  });
+
+  final List<UpcomingRoutineItem> routines;
+  final void Function(String id, bool enabled) onToggleRoutine;
+  final VoidCallback onTapRoutine;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Column(
+      children: routines.map((r) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: InkWell(
+            onTap: onTapRoutine,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: tokens.surfaceCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: tokens.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: tokens.bluePrimary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      r.iconKey == 'sun'
+                          ? Icons.wb_sunny_rounded
+                          : r.iconKey == 'work'
+                              ? Icons.business_rounded
+                              : Icons.bedtime_rounded,
+                      color: tokens.bluePrimary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              r.timeLabel,
+                              style: TextStyle(
+                                color: tokens.bluePrimary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: tokens.borderSubtle.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                r.spaceName,
+                                style: TextStyle(
+                                  color: tokens.textSecondary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          r.title,
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: r.isEnabled,
+                    onChanged: (val) => onToggleRoutine(r.id, val),
+                    activeThumbColor: tokens.bluePrimary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
 class _HomeOverviewCard extends StatelessWidget {
-  const _HomeOverviewCard({required this.data, required this.onTap});
+  const _HomeOverviewCard({
+    required this.data,
+    required this.onTap,
+    this.spaceName = 'Home',
+  });
 
   final HomeDashboardData data;
   final VoidCallback onTap;
+  final String spaceName;
 
   @override
   Widget build(BuildContext context) {
@@ -334,7 +1826,7 @@ class _HomeOverviewCard extends StatelessWidget {
           ),
           child: setup
               ? _SetupOverview(data: data)
-              : _ReadyOverview(data: data),
+              : _ReadyOverview(data: data, spaceName: spaceName),
         ),
       ),
     );
@@ -342,8 +1834,9 @@ class _HomeOverviewCard extends StatelessWidget {
 }
 
 class _ReadyOverview extends StatelessWidget {
-  const _ReadyOverview({required this.data});
+  const _ReadyOverview({required this.data, this.spaceName = 'Home'});
   final HomeDashboardData data;
+  final String spaceName;
 
   @override
   Widget build(BuildContext context) {
@@ -352,16 +1845,26 @@ class _ReadyOverview extends StatelessWidget {
     const heroPrimary = Colors.white;
 
     final compact = MediaQuery.sizeOf(context).width < 380;
+    final isOffice = spaceName.toLowerCase().contains('office');
+    final isShop = spaceName.toLowerCase().contains('shop');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.home_outlined, color: heroPrimary, size: 27),
+            Icon(
+              isOffice
+                  ? Icons.business_rounded
+                  : isShop
+                      ? Icons.storefront_rounded
+                      : Icons.home_outlined,
+              color: heroPrimary,
+              size: 27,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'HOME OVERVIEW',
+                '${spaceName.toUpperCase()} OVERVIEW',
                 style: TextStyle(
                   color: heroPrimary,
                   fontSize: compact ? 12 : 13,
@@ -914,6 +2417,7 @@ class _SetupMetric extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _AttentionCard extends StatelessWidget {
   const _AttentionCard({required this.alert, required this.onTap});
   final DashboardAlert alert;
@@ -1000,17 +2504,26 @@ class _AttentionCard extends StatelessWidget {
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
     required this.title,
-    required this.action,
-    required this.onAction,
+    this.action,
+    this.onAction,
+    this.icon,
+    this.iconColor,
   });
   final String title;
-  final String action;
-  final VoidCallback onAction;
+  final String? action;
+  final VoidCallback? onAction;
+  final IconData? icon;
+  final Color? iconColor;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     return Row(
       children: [
+        if (icon != null) ...[
+          Icon(icon, size: 21, color: iconColor ?? tokens.bluePrimary),
+          const SizedBox(width: 8),
+        ],
         Expanded(
           child: Text(
             title,
@@ -1021,14 +2534,15 @@ class _SectionHeader extends StatelessWidget {
             ),
           ),
         ),
-        TextButton(
-          onPressed: onAction,
-          style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
-          child: Text(
-            action,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+        if (action != null)
+          TextButton(
+            onPressed: onAction,
+            style: TextButton.styleFrom(foregroundColor: tokens.bluePrimary),
+            child: Text(
+              action!,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -1100,7 +2614,10 @@ class _RoomPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final palette = _roomPalette(room.iconKey, tokens);
-    final statusColor = room.isAttention ? tokens.warning : tokens.success;
+    final isOffline = room.status.toLowerCase() == 'offline';
+    final statusColor = room.isAttention
+        ? tokens.warning
+        : (isOffline ? tokens.textSecondary : tokens.success);
     return Semantics(
       button: true,
       label: '${room.name}, ${room.deviceCount} devices, ${room.status}',
@@ -1169,8 +2686,12 @@ class _RoomPreviewCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${room.deviceCount} ${room.deviceCount == 1 ? 'device' : 'devices'}',
-                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                  '${room.deviceCount} ${room.deviceCount == 1 ? 'device' : 'devices'}${room.devicesOnCount > 0 ? ' • ${room.devicesOnCount} ON' : ''}',
+                  style: TextStyle(
+                    color: room.devicesOnCount > 0 ? const Color(0xFF10B981) : tokens.textSecondary,
+                    fontSize: 12,
+                    fontWeight: room.devicesOnCount > 0 ? FontWeight.w700 : FontWeight.normal,
+                  ),
                 ),
                 Divider(
                   height: 18,
@@ -1196,7 +2717,9 @@ class _RoomPreviewCard extends StatelessWidget {
                     Icon(
                       room.isAttention
                           ? Icons.error_outline_rounded
-                          : Icons.check_circle_outline_rounded,
+                          : (isOffline
+                              ? Icons.cloud_off_rounded
+                              : Icons.check_circle_outline_rounded),
                       size: 15,
                       color: statusColor,
                     ),
@@ -1224,18 +2747,23 @@ class _RoomPreviewCard extends StatelessWidget {
   }
 }
 
+enum _QuickControlViewMode { brick, carousel, list }
+
 class _QuickControlStrip extends StatefulWidget {
   const _QuickControlStrip({
     required this.controls,
     required this.lightOn,
     required this.lightPending,
     required this.onLightChanged,
+    // ignore: unused_element_parameter
+    this.onControlChanged,
     required this.onUnavailable,
   });
   final List<QuickControlPreview> controls;
   final bool lightOn;
   final bool lightPending;
   final ValueChanged<bool> onLightChanged;
+  final void Function(QuickControlPreview control, bool value)? onControlChanged;
   final VoidCallback onUnavailable;
 
   @override
@@ -1245,6 +2773,7 @@ class _QuickControlStrip extends StatefulWidget {
 class _QuickControlStripState extends State<_QuickControlStrip> {
   static const _viewportFraction = 0.46;
 
+  _QuickControlViewMode _viewMode = _QuickControlViewMode.brick;
   int _page = 0;
   late final PageController _controller;
 
@@ -1261,51 +2790,201 @@ class _QuickControlStripState extends State<_QuickControlStrip> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      SizedBox(
-        height: 194,
-        child: PageView.builder(
-          padEnds: false,
-          controller: _controller,
-          itemCount: widget.controls.length,
-          onPageChanged: (value) => setState(() => _page = value),
-          itemBuilder: (context, index) => Padding(
-            padding: EdgeInsets.only(
-              right: index == widget.controls.length - 1 ? 0 : 12,
-            ),
-            child: _QuickControlCard(
-              control: widget.controls[index],
-              lightOn: widget.lightOn,
-              lightPending: widget.lightPending,
-              onLightChanged: widget.onLightChanged,
-              onUnavailable: widget.onUnavailable,
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    if (widget.controls.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          'No quick controls selected. Tap Customize to choose your home controls.',
+          style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Mode Switcher Pill
+        Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: tokens.surfaceCard,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: tokens.borderSubtle),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _modeButton(
+                    mode: _QuickControlViewMode.brick,
+                    icon: Icons.dashboard_customize_rounded,
+                    tooltip: 'Adaptive Brick Layout',
+                    tokens: tokens,
+                  ),
+                  _modeButton(
+                    mode: _QuickControlViewMode.carousel,
+                    icon: Icons.view_carousel_rounded,
+                    tooltip: 'Horizontal Carousel',
+                    tokens: tokens,
+                  ),
+                  _modeButton(
+                    mode: _QuickControlViewMode.list,
+                    icon: Icons.view_agenda_rounded,
+                    tooltip: 'List View',
+                    tokens: tokens,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
+
+        // 1. Adaptive Brick Masonry Layout (Default)
+        if (_viewMode == _QuickControlViewMode.brick)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final maxWidth = constraints.maxWidth;
+              final halfWidth = (maxWidth - 12) / 2;
+
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: widget.controls.map((ctrl) {
+                  final isFullWidth = ctrl.kind == QuickControlKind.fan ||
+                      ctrl.kind == QuickControlKind.curtain ||
+                      ctrl.title.toLowerCase().contains('dimmer') ||
+                      ctrl.title.toLowerCase().contains('ac') ||
+                      ctrl.title.toLowerCase().contains('climate');
+
+                  return SizedBox(
+                    width: isFullWidth ? maxWidth : halfWidth,
+                    child: _AdaptiveQuickControlCard(
+                      control: ctrl,
+                      isFullWidth: isFullWidth,
+                      lightOn: widget.lightOn,
+                      lightPending: widget.lightPending,
+                      onLightChanged: widget.onLightChanged,
+                      onControlChanged: widget.onControlChanged,
+                      onUnavailable: widget.onUnavailable,
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          )
+
+        // 2. Horizontal Carousel Mode
+        else if (_viewMode == _QuickControlViewMode.carousel)
+          Column(
+            children: [
+              SizedBox(
+                height: 170,
+                child: PageView.builder(
+                  padEnds: false,
+                  controller: _controller,
+                  itemCount: widget.controls.length,
+                  onPageChanged: (value) => setState(() => _page = value),
+                  itemBuilder: (context, index) => Padding(
+                    padding: EdgeInsets.only(
+                      right: index == widget.controls.length - 1 ? 0 : 12,
+                    ),
+                    child: _AdaptiveQuickControlCard(
+                      control: widget.controls[index],
+                      isFullWidth: false,
+                      lightOn: widget.lightOn,
+                      lightPending: widget.lightPending,
+                      onLightChanged: widget.onLightChanged,
+                      onControlChanged: widget.onControlChanged,
+                      onUnavailable: widget.onUnavailable,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              CarouselDotIndicator(
+                itemCount: widget.controls.length,
+                pageIndex: _page,
+                viewportFraction: _viewportFraction,
+              ),
+            ],
+          )
+
+        // 3. Vertical List View Mode
+        else
+          Column(
+            children: widget.controls
+                .map(
+                  (ctrl) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _AdaptiveQuickControlCard(
+                      control: ctrl,
+                      isFullWidth: true,
+                      lightOn: widget.lightOn,
+                      lightPending: widget.lightPending,
+                      onLightChanged: widget.onLightChanged,
+                      onControlChanged: widget.onControlChanged,
+                      onUnavailable: widget.onUnavailable,
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+      ],
+    );
+  }
+
+  Widget _modeButton({
+    required _QuickControlViewMode mode,
+    required IconData icon,
+    required String tooltip,
+    required EHThemeTokens tokens,
+  }) {
+    final isSelected = _viewMode == mode;
+    return InkWell(
+      onTap: () => setState(() => _viewMode = mode),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? tokens.bluePrimary : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: isSelected ? Colors.white : tokens.textSecondary,
+        ),
       ),
-      const SizedBox(height: 16),
-      CarouselDotIndicator(
-        itemCount: widget.controls.length,
-        pageIndex: _page,
-        viewportFraction: _viewportFraction,
-      ),
-    ],
-  );
+    );
+  }
 }
 
-class _QuickControlCard extends StatelessWidget {
-  const _QuickControlCard({
+class _AdaptiveQuickControlCard extends StatelessWidget {
+  const _AdaptiveQuickControlCard({
     required this.control,
+    required this.isFullWidth,
     required this.lightOn,
     required this.lightPending,
     required this.onLightChanged,
+    this.onControlChanged,
     required this.onUnavailable,
   });
+
   final QuickControlPreview control;
+  final bool isFullWidth;
   final bool lightOn;
   final bool lightPending;
   final ValueChanged<bool> onLightChanged;
+  final void Function(QuickControlPreview control, bool value)? onControlChanged;
   final VoidCallback onUnavailable;
 
   @override
@@ -1315,174 +2994,246 @@ class _QuickControlCard extends StatelessWidget {
     final unavailable =
         !control.isEnabled ||
         control.confidence == ActuatorConfidence.unavailable;
-    return Semantics(
-      button: true,
-      label: '${control.title.replaceAll('\n', ' ')}, ${control.value}',
-      child: SizedBox(
-        width: 154,
-        child: InkWell(
-          onTap: unavailable ? onUnavailable : null,
-          borderRadius: BorderRadius.circular(20),
-          child: Ink(
-            padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(
-              color: tokens.surfaceCard,
-              borderRadius: BorderRadius.circular(20),
-              border: tokens.isDark
-                  ? Border.all(color: tokens.borderSubtle)
-                  : null,
-              boxShadow: tokens.isDark
-                  ? null
-                  : const [
-                      BoxShadow(
-                        color: Color(0x100B2448),
-                        blurRadius: 17,
-                        offset: Offset(0, 7),
-                      ),
-                    ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 45,
-                  height: 45,
-                  decoration: BoxDecoration(
-                    color: visual.background,
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Icon(visual.icon, color: visual.color, size: 26),
+    final isOn = control.value == 'On';
+
+    if (isFullWidth) {
+      return _buildWideCard(context, tokens, visual, unavailable, isOn);
+    }
+    return _buildCompactCard(context, tokens, visual, unavailable, isOn);
+  }
+
+  Widget _buildCompactCard(
+    BuildContext context,
+    EHThemeTokens tokens,
+    _ControlVisual visual,
+    bool unavailable,
+    bool isOn,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: tokens.surfaceCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isOn && !unavailable
+              ? visual.color.withValues(alpha: 0.45)
+              : tokens.borderSubtle,
+          width: isOn && !unavailable ? 1.5 : 1.0,
+        ),
+        boxShadow: isOn && !unavailable
+            ? [
+                BoxShadow(
+                  color: visual.color.withValues(alpha: 0.10),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
-                const SizedBox(height: 15),
-                SizedBox(
-                  height: 34,
-                  child: Text(
-                    control.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.textPrimary,
-                      fontSize: 14,
-                      height: 1.18,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+              ]
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: isOn && !unavailable
+                      ? visual.color
+                      : tokens.isDark
+                          ? const Color(0xFF253347)
+                          : const Color(0xFFEFF2F7),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _controlValue(control, lightOn, lightPending),
-                  style: TextStyle(
-                    color: unavailable
-                        ? tokens.textTertiary
-                        : visual.valueColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Icon(
+                  visual.icon,
+                  color: isOn && !unavailable ? Colors.white : tokens.textTertiary,
+                  size: 22,
                 ),
-                const Spacer(),
-                Align(
-                  alignment: Alignment.center,
-                  child: SizedBox(
-                    width: 108,
-                    height: 32,
-                    child: Center(
-                      child: _controlAction(visual, unavailable, tokens),
-                    ),
-                  ),
-                ),
-              ],
+              ),
+              _ControlToggle(
+                value: isOn && !unavailable,
+                enabled: !unavailable,
+                activeColor: visual.color,
+                onChanged: (val) {
+                  if (onControlChanged != null) {
+                    onControlChanged!(control, val);
+                  } else {
+                    onLightChanged(val);
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            control.title.replaceAll('\n', ' '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
             ),
           ),
-        ),
+          const SizedBox(height: 4),
+          Text(
+            unavailable
+                ? 'Offline'
+                : (isOn ? 'Active · ON' : 'Standby · OFF'),
+            style: TextStyle(
+              color: unavailable
+                  ? tokens.textTertiary
+                  : (isOn ? tokens.success : tokens.textTertiary),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  String _controlValue(QuickControlPreview item, bool isLightOn, bool pending) {
-    if (item.kind == QuickControlKind.light && pending) return 'Updating…';
-    if (item.kind == QuickControlKind.light) return isLightOn ? 'On' : 'Off';
-    if (item.confidence == ActuatorConfidence.unavailable) return 'Unavailable';
-    return item.value;
-  }
-
-  Widget _controlAction(
+  Widget _buildWideCard(
+    BuildContext context,
+    EHThemeTokens tokens,
     _ControlVisual visual,
     bool unavailable,
-    EHThemeTokens tokens,
+    bool isOn,
   ) {
-    switch (control.kind) {
-      case QuickControlKind.light:
-        return _ControlToggle(
-          value: lightOn,
-          enabled: !lightPending && !unavailable,
-          activeColor: visual.color,
-          onChanged: onLightChanged,
-        );
-      case QuickControlKind.fan:
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 76,
-              child: LinearProgressIndicator(
-                value: .4,
-                minHeight: 6,
-                borderRadius: BorderRadius.circular(99),
-                backgroundColor: tokens.isDark
-                    ? tokens.borderControl
-                    : const Color(0xFFE4EAF2),
-                valueColor: AlwaysStoppedAnimation(visual.color),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(Icons.tune_rounded, color: visual.color, size: 22),
-          ],
-        );
-      case QuickControlKind.mistMaker:
-        return _ControlToggle(
-          value: false,
-          enabled: false,
-          activeColor: visual.color,
-          onChanged: (_) {},
-        );
-      case QuickControlKind.curtain:
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _CircleIcon(icon: Icons.chevron_left_rounded, color: visual.color),
-            const SizedBox(width: 7),
-            _CircleIcon(
-              icon: Icons.pause_rounded,
-              color: visual.color,
-              filled: true,
-            ),
-            const SizedBox(width: 7),
-            _CircleIcon(icon: Icons.chevron_right_rounded, color: visual.color),
-          ],
-        );
-    }
-  }
-}
+    final isFan = control.kind == QuickControlKind.fan;
 
-class _CircleIcon extends StatelessWidget {
-  const _CircleIcon({
-    required this.icon,
-    required this.color,
-    this.filled = false,
-  });
-  final IconData icon;
-  final Color color;
-  final bool filled;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 28,
-    height: 28,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      color: filled ? color : color.withValues(alpha: .10),
-    ),
-    child: Icon(icon, color: filled ? Colors.white : color, size: 18),
-  );
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: tokens.surfaceCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isOn && !unavailable
+              ? visual.color.withValues(alpha: 0.45)
+              : tokens.borderSubtle,
+          width: isOn && !unavailable ? 1.5 : 1.0,
+        ),
+        boxShadow: isOn && !unavailable
+            ? [
+                BoxShadow(
+                  color: visual.color.withValues(alpha: 0.10),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: isOn && !unavailable
+                      ? visual.color
+                      : tokens.isDark
+                          ? const Color(0xFF253347)
+                          : const Color(0xFFEFF2F7),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  visual.icon,
+                  color: isOn && !unavailable ? Colors.white : tokens.textTertiary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      control.title.replaceAll('\n', ' • '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      unavailable
+                          ? 'Device Offline'
+                          : (isOn
+                              ? (isFan ? 'Fan Speed: Active' : 'Power: Active · ON')
+                              : 'Standby · OFF'),
+                      style: TextStyle(
+                        color: unavailable
+                            ? tokens.textTertiary
+                            : (isOn ? tokens.success : tokens.textTertiary),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _ControlToggle(
+                value: isOn && !unavailable,
+                enabled: !unavailable,
+                activeColor: visual.color,
+                onChanged: (val) {
+                  if (onControlChanged != null) {
+                    onControlChanged!(control, val);
+                  } else {
+                    onLightChanged(val);
+                  }
+                },
+              ),
+            ],
+          ),
+          if (isFan && !unavailable && isOn) ...[
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _speedChip('1', true, visual.color, tokens),
+                _speedChip('2', false, visual.color, tokens),
+                _speedChip('3', false, visual.color, tokens),
+                _speedChip('4', false, visual.color, tokens),
+                _speedChip('Turbo', false, visual.color, tokens),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _speedChip(String label, bool active, Color color, EHThemeTokens tokens) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: active ? color : tokens.surfaceElevated,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: active ? color : tokens.borderSubtle,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: active ? Colors.white : tokens.textSecondary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
 }
 
 class _ControlToggle extends StatelessWidget {
@@ -1506,7 +3257,7 @@ class _ControlToggle extends StatelessWidget {
         : const Color(0xFFE2E5EA);
     final offThumb = tokens.isDark ? tokens.switchThumbOff : Colors.white;
     final onThumb = tokens.isDark ? tokens.switchThumbOn : Colors.white;
-    final onTrack = tokens.isDark ? activeColor : activeColor;
+    final onTrack = activeColor;
 
     return Semantics(
       button: true,
@@ -1545,6 +3296,7 @@ class _ControlToggle extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _RoutineCard extends StatelessWidget {
   const _RoutineCard({required this.routine, required this.onTap});
   final RoutinePreview routine;
@@ -1638,6 +3390,7 @@ class _RoutineCard extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _SetupSupportingContent extends StatelessWidget {
   const _SetupSupportingContent({required this.data, required this.onAction});
   final HomeDashboardData data;
@@ -1759,6 +3512,18 @@ class _ControlVisual {
 _ControlVisual _controlVisual(QuickControlKind kind, EHThemeTokens tokens) {
   if (tokens.isDark) {
     return switch (kind) {
+      QuickControlKind.socket => _ControlVisual(
+        Icons.power_rounded,
+        tokens.iconBgWater,
+        tokens.iconFgWater,
+        tokens.iconFgWater,
+      ),
+      QuickControlKind.switchControl => _ControlVisual(
+        Icons.toggle_on_rounded,
+        tokens.iconBgBlue,
+        tokens.bluePrimary,
+        tokens.bluePrimary,
+      ),
       QuickControlKind.light => _ControlVisual(
         Icons.lightbulb_outline_rounded,
         tokens.goldContainer,
@@ -1786,6 +3551,18 @@ _ControlVisual _controlVisual(QuickControlKind kind, EHThemeTokens tokens) {
     };
   }
   return switch (kind) {
+    QuickControlKind.socket => const _ControlVisual(
+      Icons.power_rounded,
+      Color(0xFFE0F2FE),
+      Color(0xFF0284C7),
+      Color(0xFF0369A1),
+    ),
+    QuickControlKind.switchControl => const _ControlVisual(
+      Icons.toggle_on_rounded,
+      Color(0xFFE5F2FF),
+      Color(0xFF1685CA),
+      Color(0xFF1976C4),
+    ),
     QuickControlKind.light => const _ControlVisual(
       Icons.lightbulb_outline_rounded,
       Color(0xFFFFF0C6),

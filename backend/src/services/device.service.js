@@ -94,6 +94,9 @@ class DeviceService {
     // Check if already claimed
     const existingAuth = await this.deviceRepo.getDeviceAuthorization(deviceId);
     if (existingAuth) {
+      if (existingAuth.home_id === homeId) {
+        return existingAuth;
+      }
       throw new Error(`Device ${deviceId} is already assigned to home ${existingAuth.home_id}`);
     }
 
@@ -313,6 +316,13 @@ class DeviceService {
       deviceState: fullState
     });
 
+    let connectionState = 'OFFLINE';
+    if (fullState && fullState.connectionState === 'ONLINE') {
+      connectionState = 'ONLINE';
+    } else if (fullState && fullState.connectionState) {
+      connectionState = fullState.connectionState;
+    }
+
     return {
       deviceId: dev.id,
       serialNumber: dev.serial_number,
@@ -325,7 +335,8 @@ class DeviceService {
       roomId: auth ? auth.room_id : null,
       roomName,
       displayName: auth ? auth.custom_name : resolvedCaps.displayName,
-      connectionState: fullState ? fullState.connectionState : 'OFFLINE',
+      connectionState,
+      last_seen_at: fullState ? fullState.lastSeenAt : null,
       channels: resolvedCaps.channels,
       capabilities: resolvedCaps.capabilities,
       capabilityUiHints: resolvedCaps.capabilityUiHints,

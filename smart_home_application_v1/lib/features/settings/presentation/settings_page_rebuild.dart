@@ -7,7 +7,6 @@ import '../../../core/config/app_config.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/models/health_models.dart';
-import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/models/update_models.dart';
 import '../../../core/repositories/cloud_device_trust_repository.dart';
@@ -107,6 +106,32 @@ class _SettingsPageState extends State<SettingsPage> {
   late Future<HomeSettingsData> _home = widget.repository.getHome();
   late Future<_SystemSummary> _systemSummary = _loadSystemSummary();
 
+  @override
+  void initState() {
+    super.initState();
+    widget.homeController?.addListener(_onHomeControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(SettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeControllerChanged);
+      widget.homeController?.addListener(_onHomeControllerChanged);
+      _reload();
+    }
+  }
+
+  void _onHomeControllerChanged() {
+    if (mounted) _reload();
+  }
+
+  @override
+  void dispose() {
+    widget.homeController?.removeListener(_onHomeControllerChanged);
+    super.dispose();
+  }
+
   void _reload() {
     setState(() {
       _home = widget.repository.getHome();
@@ -115,8 +140,18 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<_SystemSummary> _loadSystemSummary() async {
-    final connection = await widget.connectionRepository.getOverview(
-      liveState: widget.connectionState,
+    final liveState = widget.homeController?.connectionState ?? widget.connectionState;
+    final primaryDev = widget.homeController?.connectedDeviceSummary ??
+        (widget.homeController?.devices.isNotEmpty == true ? widget.homeController!.devices.first : null);
+    final repo = widget.homeController != null
+        ? RealHomeConnectionRepository(
+            primaryDevice: primaryDev,
+            onRefresh: widget.homeController!.startConnectionSetup,
+          )
+        : widget.connectionRepository;
+
+    final connection = await repo.getOverview(
+      liveState: liveState,
     );
     final update = await widget.updateRepository.getSummary();
     final health = await widget.healthRepository.getSummary();
@@ -162,6 +197,7 @@ class _SettingsPageState extends State<SettingsPage> {
               homeId: widget.homeId,
               isAdmin: widget.isAdmin,
               onLogout: widget.onLogout,
+              onReload: _reload,
             );
           },
         ),
@@ -182,6 +218,78 @@ class _SystemSummary {
   final HomeHealthSummary health;
 }
 
+void _showAppearancePicker(BuildContext context) {
+  final themeCtrl = ThemeScope.maybeOf(context);
+  if (themeCtrl == null) return;
+  final tokens = context.ehColors;
+
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: tokens.surfaceCard,
+    builder: (sheetContext) {
+      final currentMode = themeCtrl.themeMode;
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Appearance',
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Choose your preferred theme mode for EH Home.',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 18),
+              _AppearanceOptionTile(
+                icon: Icons.brightness_auto_rounded,
+                title: 'System default',
+                subtitle: 'Match your device light/dark settings',
+                selected: currentMode == ThemeMode.system,
+                onTap: () {
+                  themeCtrl.setThemeMode(ThemeMode.system);
+                  Navigator.pop(sheetContext);
+                },
+              ),
+              const SizedBox(height: 10),
+              _AppearanceOptionTile(
+                icon: Icons.dark_mode_rounded,
+                title: 'Dark theme',
+                subtitle: 'Midnight navy EH Home at night',
+                selected: currentMode == ThemeMode.dark,
+                onTap: () {
+                  themeCtrl.setThemeMode(ThemeMode.dark);
+                  Navigator.pop(sheetContext);
+                },
+              ),
+              const SizedBox(height: 10),
+              _AppearanceOptionTile(
+                icon: Icons.light_mode_rounded,
+                title: 'Light theme',
+                subtitle: 'Clean white daylight look',
+                selected: currentMode == ThemeMode.light,
+                onTap: () {
+                  themeCtrl.setThemeMode(ThemeMode.light);
+                  Navigator.pop(sheetContext);
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class _SettingsContent extends StatelessWidget {
   const _SettingsContent({
     required this.home,
@@ -197,6 +305,7 @@ class _SettingsContent extends StatelessWidget {
     this.homeId,
     this.isAdmin = false,
     this.onLogout,
+    this.onReload,
   });
 
   final HomeSettingsData home;
@@ -212,98 +321,810 @@ class _SettingsContent extends StatelessWidget {
   final String? homeId;
   final bool isAdmin;
   final VoidCallback? onLogout;
-
-  void _showAppearancePicker(BuildContext context) {
-    final themeCtrl = ThemeScope.maybeOf(context);
-    if (themeCtrl == null) return;
-    final tokens = context.ehColors;
-
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: tokens.surfaceCard,
-      builder: (sheetContext) {
-        final currentMode = themeCtrl.themeMode;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Appearance',
-                  style: TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                    color: tokens.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Choose your preferred theme mode for EH Home.',
-                  style: TextStyle(color: tokens.textSecondary, fontSize: 14),
-                ),
-                const SizedBox(height: 18),
-                _AppearanceOptionTile(
-                  icon: Icons.brightness_auto_rounded,
-                  title: 'System default',
-                  subtitle: 'Match your device light/dark settings',
-                  selected: currentMode == ThemeMode.system,
-                  onTap: () {
-                    themeCtrl.setThemeMode(ThemeMode.system);
-                    Navigator.pop(sheetContext);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _AppearanceOptionTile(
-                  icon: Icons.dark_mode_rounded,
-                  title: 'Dark theme',
-                  subtitle: 'Midnight navy EH Home at night',
-                  selected: currentMode == ThemeMode.dark,
-                  onTap: () {
-                    themeCtrl.setThemeMode(ThemeMode.dark);
-                    Navigator.pop(sheetContext);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _AppearanceOptionTile(
-                  icon: Icons.light_mode_rounded,
-                  title: 'Light theme',
-                  subtitle: 'Clean white daylight look',
-                  selected: currentMode == ThemeMode.light,
-                  onTap: () {
-                    themeCtrl.setThemeMode(ThemeMode.light);
-                    Navigator.pop(sheetContext);
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  final VoidCallback? onReload;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final roomCount = homeController != null && homeController!.rooms.isNotEmpty
-        ? homeController!.rooms.length
-        : RoomCatalog.preview.length;
-    final deviceCount = homeController != null && homeController!.devices.isNotEmpty
-        ? homeController!.devices.length
-        : RoomCatalog.preview.fold<int>(
-            0,
-            (sum, room) => sum + room.deviceCount,
-          );
+    final roomCount = homeController?.rooms.length ?? 0;
+    final deviceCount = homeController?.devices.length ?? 0;
     final connection = _RootConnectionStatus.fromOverview(
       system.connection,
       tokens,
     );
-    final updateSubtitle = system.update.availableCount == 0
-        ? 'Your system is up to date'
-        : '${system.update.availableCount} update available';
+
+    final effectiveHomeId = (homeId != null && homeId!.isNotEmpty)
+        ? homeId!
+        : (homeController?.activeHomeId != null &&
+                homeController!.activeHomeId!.isNotEmpty)
+            ? homeController!.activeHomeId!
+            : (home.id.isNotEmpty ? home.id : 'home_01');
+    final effectiveClient = apiClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        onReload?.call();
+        await homeController?.loadHomeData();
+      },
+      color: tokens.bluePrimary,
+      backgroundColor: tokens.surfaceCard,
+      displacement: 24,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        key: const PageStorageKey<String>('settings-scroll'),
+        padding: const EdgeInsets.fromLTRB(20, 23, 20, 106),
+        children: [
+          Text(
+            'Settings',
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontSize: 29,
+              height: 1,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Manage your home, devices, and preferences.',
+            style: TextStyle(color: tokens.textSecondary, fontSize: 15),
+          ),
+          const SizedBox(height: 24),
+          _HomeProfileCard(
+            home: home,
+            roomCount: roomCount,
+            deviceCount: deviceCount,
+            connection: connection,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => HomeProfilePage(
+                  home: home,
+                  repository: repository,
+                  connectionState: connectionState,
+                  onConnectHome: onConnectHome,
+                  homeController: homeController,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Preferences & System'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                _SettingsHubTile(
+                  icon: Icons.roofing_rounded,
+                  title: 'Account & Home',
+                  subtitle: 'People, home details, notifications, appearance & data',
+                  badge: '5 items',
+                  color: tokens.bluePrimary,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => _AccountHomePage(
+                        home: home,
+                        repository: repository,
+                      ),
+                    ),
+                  ),
+                ),
+                _SettingsHubTile(
+                  icon: Icons.bolt_rounded,
+                  title: 'Energy & Intelligence',
+                  subtitle: 'Live power consumption, tariffs, optimizer & presence',
+                  badge: '6 services',
+                  color: tokens.warning,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => _EnergyIntelligencePage(
+                        homeId: effectiveHomeId,
+                        client: effectiveClient,
+                      ),
+                    ),
+                  ),
+                ),
+                _SettingsHubTile(
+                  icon: Icons.devices_other_rounded,
+                  title: 'Devices & Connectivity',
+                  subtitle: 'Pair devices, gateway connectivity, Matter & edge control',
+                  badge: connection.shortLabel,
+                  color: const Color(0xFF00897B),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => _DevicesConnectivityPage(
+                        homeId: effectiveHomeId,
+                        client: effectiveClient,
+                        repository: repository,
+                        connectionRepository: connectionRepository,
+                        onConnectHome: onConnectHome,
+                        connectionState: connectionState,
+                        connectionMessage: connectionMessage,
+                        connection: connection,
+                      ),
+                    ),
+                  ),
+                ),
+                _SettingsHubTile(
+                  icon: Icons.health_and_safety_rounded,
+                  title: 'Security, Health & Ops',
+                  subtitle: 'Device health, root of trust, operations & disaster recovery',
+                  badge: system.health.attentionCount == 0
+                      ? 'Healthy'
+                      : '${system.health.attentionCount} issue',
+                  color: system.health.attentionCount == 0
+                      ? tokens.success
+                      : tokens.warning,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => _SecurityHealthPage(
+                        homeId: effectiveHomeId,
+                        client: effectiveClient,
+                        system: system,
+                        isAdmin: isAdmin,
+                      ),
+                    ),
+                  ),
+                ),
+                _SettingsHubTile(
+                  icon: Icons.system_update_rounded,
+                  title: 'Updates & Fleet Rollouts',
+                  subtitle: 'System updates, OTA canary campaigns & offline sync',
+                  badge: 'v${system.update.appVersion}',
+                  color: tokens.isDark
+                      ? tokens.blueSelectedText
+                      : SettingsColors.purple,
+                  showDivider: false,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => _UpdatesRolloutsPage(
+                        homeId: effectiveHomeId,
+                        client: effectiveClient,
+                        system: system,
+                        isAdmin: isAdmin,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Help & Privacy'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.help_outline_rounded,
+                  title: 'Help and support',
+                  subtitle: 'Get help and find answers',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const HelpSupportPage()),
+                  ),
+                  iconColor: tokens.isDark
+                      ? tokens.bluePrimary
+                      : SettingsColors.purple,
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgBlue
+                      : SettingsColors.palePurple,
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Privacy',
+                  subtitle: 'Manage your data and permissions',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PrivacyPage()),
+                  ),
+                  iconColor: tokens.isDark
+                      ? tokens.bluePrimary
+                      : SettingsColors.purple,
+                  iconBackground: tokens.isDark
+                      ? tokens.iconBgBlue
+                      : SettingsColors.palePurple,
+                ),
+              ],
+            ),
+          ),
+          if (onLogout != null) ...[
+            const SizedBox(height: 24),
+            const SettingsSectionTitle('Account session'),
+            SettingsSurface(
+              child: SettingsListItem(
+                icon: Icons.logout_rounded,
+                title: 'Sign out',
+                subtitle: 'Disconnect this session and stop background sync',
+                onTap: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Sign Out'),
+                      content: const Text(
+                        'Are you sure you want to sign out of EH Home? Your live connection will be closed.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Sign Out'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    onLogout!();
+                  }
+                },
+                destructive: true,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsHubTile extends StatelessWidget {
+  const _SettingsHubTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.badge,
+    required this.color,
+    required this.onTap,
+    this.showDivider = true,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? badge;
+  final Color color;
+  final VoidCallback onTap;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            splashColor: color.withValues(alpha: 0.1),
+            highlightColor: color.withValues(alpha: 0.05),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+              child: Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: color.withValues(
+                        alpha: tokens.isDark ? 0.18 : 0.10,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: color.withValues(
+                          alpha: tokens.isDark ? 0.35 : 0.2,
+                        ),
+                        width: 1,
+                      ),
+                    ),
+                    child: Icon(icon, color: color, size: 24),
+                  ),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: tokens.textPrimary,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                            ),
+                            if (badge != null) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: color.withValues(
+                                    alpha: tokens.isDark ? 0.22 : 0.10,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: color.withValues(alpha: 0.3),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Text(
+                                  badge!,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: color,
+                                    letterSpacing: 0.1,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: tokens.textSecondary,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: tokens.chevron,
+                    size: 22,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (showDivider)
+          Divider(
+            height: 1,
+            indent: 77,
+            endIndent: 16,
+            color: tokens.isDark
+                ? tokens.borderSubtle.withValues(alpha: 0.6)
+                : const Color(0xFFE9EEF7),
+          ),
+      ],
+    );
+  }
+}
+
+class _AccountHomePage extends StatelessWidget {
+  const _AccountHomePage({required this.home, required this.repository});
+  final HomeSettingsData home;
+  final SettingsRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    final themeCtrl = ThemeScope.maybeOf(context);
+    final currentThemeLabel = themeCtrl == null
+        ? 'System default'
+        : switch (themeCtrl.themeMode) {
+            ThemeMode.system => 'System default',
+            ThemeMode.dark => 'Dark theme',
+            ThemeMode.light => 'Light theme',
+          };
+
+    return Scaffold(
+      backgroundColor: tokens.bgApp,
+      appBar: AppBar(
+        title: const Text('Account & Home'),
+        backgroundColor: tokens.bgApp,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+        children: [
+          const SettingsSectionTitle('Home configuration'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.groups_rounded,
+                  title: 'People at home',
+                  subtitle: 'Manage family access and invitations',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          PeoplePage(repository: repository, home: home),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.home_outlined,
+                  title: 'Home details',
+                  subtitle: 'Name, location, and space preferences',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          HomeDetailsPage(home: home, repository: repository),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.notifications_none_rounded,
+                  title: 'Notification preferences',
+                  subtitle: 'Safety, offline, and update alerts',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationPreferencesPage(),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.palette_outlined,
+                  title: 'Appearance',
+                  subtitle: currentThemeLabel,
+                  onTap: () => _showAppearancePicker(context),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Danger zone'),
+          SettingsSurface(
+            child: SettingsListItem(
+              icon: Icons.restart_alt_rounded,
+              title: 'Factory reset',
+              subtitle: 'Remove this home from the device',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FactoryResetPage()),
+              ),
+              destructive: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EnergyIntelligencePage extends StatelessWidget {
+  const _EnergyIntelligencePage({required this.homeId, required this.client});
+  final String homeId;
+  final ApiClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Scaffold(
+      backgroundColor: tokens.bgApp,
+      appBar: AppBar(
+        title: const Text('Energy & Intelligence'),
+        backgroundColor: tokens.bgApp,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+        children: [
+          const SettingsSectionTitle('Energy and efficiency'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.bolt_rounded,
+                  title: 'Energy dashboard',
+                  subtitle: 'Live consumption, load trends, and analytics',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => HomeEnergyDashboardPage(
+                        homeId: homeId,
+                        energyService: EnergyService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.eco_rounded,
+                  title: 'Energy optimization',
+                  subtitle: 'Smart schedules and cost saving recommendations',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => EnergyOptimizationPage(
+                        homeId: homeId,
+                        service: EnergyAutomationService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.price_change_outlined,
+                  title: 'Electricity tariffs',
+                  subtitle: 'Time-of-use rates and utility pricing',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => TariffManagementPage(
+                        homeId: homeId,
+                        costService: EnergyCostService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Intelligence and context'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.auto_awesome_rounded,
+                  title: 'Intelligence center',
+                  subtitle: 'Autonomous decisions, routines, and confidence',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => IntelligenceCenterPage(
+                        homeId: homeId,
+                        service: HomeIntelligenceService(
+                          baseUrl: client.baseUrl,
+                          apiClient: client,
+                        ),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.person_pin_circle_outlined,
+                  title: 'Presence & occupancy',
+                  subtitle: 'Real-time room occupancy and presence timeline',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PresenceDashboardPage(
+                        homeId: homeId,
+                        service: ContextPresenceService(
+                          baseUrl: client.baseUrl,
+                          apiClient: client,
+                        ),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.timeline_rounded,
+                  title: 'Context history',
+                  subtitle: 'Environmental events and context shifts',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => HomeContextPage(
+                        homeId: homeId,
+                        service: ContextPresenceService(
+                          baseUrl: client.baseUrl,
+                          apiClient: client,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DevicesConnectivityPage extends StatelessWidget {
+  const _DevicesConnectivityPage({
+    required this.homeId,
+    required this.client,
+    required this.repository,
+    required this.connectionRepository,
+    required this.onConnectHome,
+    required this.connectionState,
+    required this.connectionMessage,
+    required this.connection,
+  });
+
+  final String homeId;
+  final ApiClient client;
+  final SettingsRepository repository;
+  final HomeConnectionRepository connectionRepository;
+  final Future<ConnectionResult> Function()? onConnectHome;
+  final HomeConnectionState? connectionState;
+  final String? connectionMessage;
+  final _RootConnectionStatus connection;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Scaffold(
+      backgroundColor: tokens.bgApp,
+      appBar: AppBar(
+        title: const Text('Devices & Connectivity'),
+        backgroundColor: tokens.bgApp,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+        children: [
+          const SettingsSectionTitle('Setup & gateway'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.add_to_queue_rounded,
+                  title: 'Add a room device',
+                  subtitle: 'Set up a new nearby hardware switch or sensor',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AddRoomDevicePage(
+                        repository: repository,
+                        onStartSecureSetup: onConnectHome,
+                        connectionState: connectionState,
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.bluetooth_connected_rounded,
+                  title: 'Connect your home',
+                  subtitle: connection.detail,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ConnectionPage(
+                        onStart: onConnectHome,
+                        connectionState: connectionState,
+                        connectionMessage: connectionMessage,
+                        repository: connectionRepository,
+                      ),
+                    ),
+                  ),
+                  trailing: SettingsStatusChip(
+                    label: connection.shortLabel,
+                    color: connection.color,
+                    background: connection.background,
+                    leading: Icon(
+                      connection.chipIcon,
+                      color: connection.color,
+                      size: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Hardware ecosystem'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.storefront_outlined,
+                  title: 'Product discovery',
+                  subtitle: 'Browse compatible smart hardware and accessories',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ProductDiscoveryPage(
+                        homeId: homeId,
+                        catalogService:
+                            ProductCatalogClientService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.hub_outlined,
+                  title: 'Multi-protocol connectivity',
+                  subtitle: 'BLE, MQTT, Local HTTP, and fallback transports',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DeviceConnectivityPage(
+                        deviceId: 'primary-gateway',
+                        deviceName: 'Primary Home Gateway',
+                        connectivityService:
+                            ConnectivityService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.share_rounded,
+                  title: 'Matter & Ecosystems',
+                  subtitle: 'Apple Home, Google Home, Alexa & Matter fabrics',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MatterIntegrationPage(
+                        homeId: homeId,
+                        matterService: MatterService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.memory_rounded,
+                  title: 'Edge control dashboard',
+                  subtitle: 'Local-first LAN control with zero cloud latency',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => EdgeExecutionDashboardPage(
+                        homeId: homeId,
+                        edgeService: EdgeControlService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SecurityHealthPage extends StatelessWidget {
+  const _SecurityHealthPage({
+    required this.homeId,
+    required this.client,
+    required this.system,
+    required this.isAdmin,
+  });
+
+  final String homeId;
+  final ApiClient client;
+  final _SystemSummary system;
+  final bool isAdmin;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     final healthChip = system.health.attentionCount == 0
         ? SettingsStatusChip(
             label: 'Healthy',
@@ -322,697 +1143,312 @@ class _SettingsContent extends StatelessWidget {
             ),
           );
 
-    final themeCtrl = ThemeScope.maybeOf(context);
-    final currentThemeLabel = themeCtrl == null
-        ? 'System default'
-        : switch (themeCtrl.themeMode) {
-            ThemeMode.system => 'System default',
-            ThemeMode.dark => 'Dark theme',
-            ThemeMode.light => 'Light theme',
-          };
-
-    final effectiveHomeId = (homeId != null && homeId!.isNotEmpty)
-        ? homeId!
-        : (homeController?.activeHomeId != null &&
-                homeController!.activeHomeId!.isNotEmpty)
-            ? homeController!.activeHomeId!
-            : (home.id.isNotEmpty ? home.id : 'home_01');
-    final effectiveClient = apiClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
-
-    return ListView(
-      key: const PageStorageKey<String>('settings-scroll'),
-      padding: const EdgeInsets.fromLTRB(20, 23, 20, 28),
-      children: [
-        Text(
-          'Settings',
-          style: TextStyle(
-            color: tokens.textPrimary,
-            fontSize: 29,
-            height: 1,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Manage your home, devices, and preferences.',
-          style: TextStyle(color: tokens.textSecondary, fontSize: 15),
-        ),
-        const SizedBox(height: 24),
-        _HomeProfileCard(
-          home: home,
-          roomCount: roomCount,
-          deviceCount: deviceCount,
-          connection: connection,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => HomeProfilePage(
-                home: home,
-                repository: repository,
-                connectionState: connectionState,
-                onConnectHome: onConnectHome,
-                homeController: homeController,
-              ),
+    return Scaffold(
+      backgroundColor: tokens.bgApp,
+      appBar: AppBar(
+        title: const Text('Security, Health & Ops'),
+        backgroundColor: tokens.bgApp,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+        children: [
+          const SettingsSectionTitle('Diagnostics & Health'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.health_and_safety_outlined,
+                  title: 'Device health',
+                  subtitle: 'Check connection and care tips',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DeviceHealthPage()),
+                  ),
+                  trailing: healthChip,
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.verified_user_outlined,
+                  title: 'Fleet reliability',
+                  subtitle: 'Device health scores and incident diagnostics',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FleetHealthPage(
+                        homeId: homeId,
+                        reliabilityService:
+                            ReliabilityService(baseUrl: client.baseUrl),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Your system'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.add_to_queue_rounded,
-                title: 'Add a room device',
-                subtitle: 'Set up a nearby device',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AddRoomDevicePage(
-                      repository: repository,
-                      onStartSecureSetup: onConnectHome,
-                      connectionState: connectionState,
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.bluetooth_connected_rounded,
-                title: 'Connect your home',
-                subtitle: connection.detail,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ConnectionPage(
-                      onStart: onConnectHome,
-                      connectionState: connectionState,
-                      connectionMessage: connectionMessage,
-                      repository: connectionRepository,
-                    ),
-                  ),
-                ),
-                iconColor: tokens.isDark
-                    ? tokens.bluePrimary
-                    : SettingsColors.purple,
-                iconBackground: tokens.isDark
-                    ? tokens.iconBgBlue
-                    : SettingsColors.palePurple,
-                trailing: SettingsStatusChip(
-                  label: connection.shortLabel,
-                  color: connection.color,
-                  background: connection.background,
-                  leading: Icon(
-                    connection.chipIcon,
-                    color: connection.color,
-                    size: 14,
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.system_update_alt_rounded,
-                title: 'System update',
-                subtitle: updateSubtitle,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SystemUpdatePage()),
-                ),
-                trailing: SettingsStatusChip(
-                  label: 'Version ${system.update.appVersion}',
-                  color: tokens.isDark
-                      ? tokens.blueSelectedText
-                      : SettingsColors.purple,
-                  background: tokens.isDark
-                      ? tokens.blueSelectedBg
-                      : SettingsColors.paleLavender,
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.health_and_safety_outlined,
-                title: 'Device health',
-                subtitle: 'Check connection and care tips',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DeviceHealthPage()),
-                ),
-                trailing: healthChip,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Home and people'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.groups_rounded,
-                title: 'People at home',
-                subtitle: 'Manage access and invitations',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        PeoplePage(repository: repository, home: home),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.home_outlined,
-                title: 'Home details',
-                subtitle: 'Name, location, and preferences',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        HomeDetailsPage(home: home, repository: repository),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.notifications_none_rounded,
-                title: 'Notification preferences',
-                subtitle: 'Safety, offline, and update alerts',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const NotificationPreferencesPage(),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.palette_outlined,
-                title: 'Appearance',
-                subtitle: currentThemeLabel,
-                onTap: () => _showAppearancePicker(context),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Energy and efficiency'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.bolt_rounded,
-                title: 'Energy dashboard',
-                subtitle: 'Live consumption, load trends, and analytics',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => HomeEnergyDashboardPage(
-                      homeId: effectiveHomeId,
-                      energyService: EnergyService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.eco_rounded,
-                title: 'Energy optimization',
-                subtitle: 'Smart schedules and cost saving recommendations',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => EnergyOptimizationPage(
-                      homeId: effectiveHomeId,
-                      service: EnergyAutomationService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.price_change_outlined,
-                title: 'Electricity tariffs',
-                subtitle: 'Time-of-use rates and utility pricing',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => TariffManagementPage(
-                      homeId: effectiveHomeId,
-                      costService: EnergyCostService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Intelligence and context'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.auto_awesome_rounded,
-                title: 'Intelligence center',
-                subtitle: 'Autonomous decisions, routines, and confidence',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => IntelligenceCenterPage(
-                      homeId: effectiveHomeId,
-                      service: HomeIntelligenceService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.person_pin_circle_outlined,
-                title: 'Presence & occupancy',
-                subtitle: 'Real-time room occupancy and presence timeline',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PresenceDashboardPage(
-                      homeId: effectiveHomeId,
-                      service: ContextPresenceService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.timeline_rounded,
-                title: 'Context history',
-                subtitle: 'Environmental events and context shifts',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => HomeContextPage(
-                      homeId: effectiveHomeId,
-                      service: ContextPresenceService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Devices and ecosystem'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.storefront_outlined,
-                title: 'Product discovery',
-                subtitle: 'Browse compatible smart hardware and accessories',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ProductDiscoveryPage(
-                      homeId: effectiveHomeId,
-                      catalogService: ProductCatalogClientService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.health_and_safety_outlined,
-                title: 'Fleet reliability',
-                subtitle: 'Device health scores and incident diagnostics',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FleetHealthPage(
-                      homeId: effectiveHomeId,
-                      reliabilityService: ReliabilityService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.hub_outlined,
-                title: 'Multi-protocol connectivity',
-                subtitle: 'BLE, MQTT, Local HTTP, and fallback transports',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DeviceConnectivityPage(
-                      deviceId: 'primary-gateway',
-                      deviceName: 'Primary Home Gateway',
-                      connectivityService: ConnectivityService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.share_rounded,
-                title: 'Matter & Ecosystems',
-                subtitle: 'Apple Home, Google Home, Alexa & Matter fabrics',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => MatterIntegrationPage(
-                      homeId: effectiveHomeId,
-                      matterService: MatterService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.memory_rounded,
-                title: 'Edge control dashboard',
-                subtitle: 'Local-first LAN control with zero cloud latency',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => EdgeExecutionDashboardPage(
-                      homeId: effectiveHomeId,
-                      edgeService: EdgeControlService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Notifications and sync'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.notifications_active_outlined,
-                title: 'Notification center',
-                subtitle: 'Safety alerts, system events, and priority logs',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => NotificationCenterPage(
-                      homeId: effectiveHomeId,
-                      repository: CloudNotificationRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.sync_rounded,
-                title: 'Sync center',
-                subtitle: 'Offline queue, cache status, and conflict resolution',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SyncCenterPage(
-                      syncService: SyncService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Observability and operations'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.monitor_heart_outlined,
-                title: 'Operations dashboard',
-                subtitle: 'Subsystem metrics, event audit, and API health',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => OperationsDashboardPage(
-                      homeId: effectiveHomeId,
-                      isAdmin: isAdmin,
-                      repository: CloudOperationsRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.verified_user_outlined,
-                title: 'System readiness',
-                subtitle: 'Platform operational status and subsystem health',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SystemOperationalStatusPage(
-                      repository: CloudOperationalReadinessRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Fleet & OTA rollouts'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.developer_board_rounded,
-                title: 'Firmware releases',
-                subtitle: 'Manage signed artifacts, channels, and release notes',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FirmwareReleasesPage(
-                      repository: CloudFleetFirmwareRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.campaign_rounded,
-                title: 'OTA rollout campaigns',
-                subtitle: 'Controlled batched deployments, canary gates & rollbacks',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => OtaRolloutsPage(
-                      repository: CloudFleetFirmwareRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.devices_other_rounded,
-                title: 'Fleet firmware status',
-                subtitle: 'Per-device firmware versions, rollout states & health',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FleetFirmwareStatusPage(
-                      repository: CloudFleetFirmwareRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Security and resilience'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.security_rounded,
-                title: 'Device trust center',
-                subtitle: 'Certificate trust, secure boot, and anomaly detection',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DeviceSecurityStatusPage(
-                      deviceId: 'gateway-root',
-                      deviceName: 'Hardware Root of Trust',
-                      isAdmin: isAdmin,
-                      repository: CloudDeviceTrustRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.backup_rounded,
-                title: 'Disaster recovery',
-                subtitle: 'Configuration backups, checkpoints, and restore plans',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => RecoveryDashboardPage(
-                      isAdmin: isAdmin,
-                      repository: CloudRecoveryRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Help and privacy'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.help_outline_rounded,
-                title: 'Help and support',
-                subtitle: 'Get help and find answers',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HelpSupportPage()),
-                ),
-                iconColor: tokens.isDark
-                    ? tokens.bluePrimary
-                    : SettingsColors.purple,
-                iconBackground: tokens.isDark
-                    ? tokens.iconBgBlue
-                    : SettingsColors.palePurple,
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.privacy_tip_outlined,
-                title: 'Privacy',
-                subtitle: 'Manage your data and permissions',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PrivacyPage()),
-                ),
-                iconColor: tokens.isDark
-                    ? tokens.bluePrimary
-                    : SettingsColors.purple,
-                iconBackground: tokens.isDark
-                    ? tokens.iconBgBlue
-                    : SettingsColors.palePurple,
-              ),
-            ],
-          ),
-        ),
-        if (onLogout != null) ...[
-          const SizedBox(height: 27),
-          const SettingsSectionTitle('Account session'),
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Operations & Trust'),
           SettingsSurface(
-            child: SettingsListItem(
-              icon: Icons.logout_rounded,
-              title: 'Sign out',
-              subtitle: 'Disconnect this session and stop background sync',
-              onTap: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Sign Out'),
-                    content: const Text(
-                      'Are you sure you want to sign out of EH Home? Your live connection will be closed.',
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.security_rounded,
+                  title: 'Device trust center',
+                  subtitle: 'Certificate trust, secure boot, and anomaly detection',
+                  trailing: isAdmin
+                      ? null
+                      : SettingsStatusChip(
+                          label: 'Admin only',
+                          color: tokens.textSecondary,
+                          background: tokens.surfaceCard,
+                        ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DeviceSecurityStatusPage(
+                        deviceId: 'gateway-root',
+                        deviceName: 'Hardware Root of Trust',
+                        isAdmin: isAdmin,
+                        repository: CloudDeviceTrustRepository(client),
+                      ),
                     ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancel'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Sign Out'),
-                      ),
-                    ],
                   ),
-                );
-                if (confirm == true) {
-                  onLogout!();
-                }
-              },
-              destructive: true,
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.monitor_heart_outlined,
+                  title: 'Operations dashboard',
+                  subtitle: 'Subsystem metrics, event audit, and API health',
+                  trailing: isAdmin
+                      ? null
+                      : SettingsStatusChip(
+                          label: 'Admin only',
+                          color: tokens.textSecondary,
+                          background: tokens.surfaceCard,
+                        ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => OperationsDashboardPage(
+                        homeId: homeId,
+                        isAdmin: isAdmin,
+                        repository: CloudOperationsRepository(client),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.verified_outlined,
+                  title: 'System readiness',
+                  subtitle: 'Platform operational status and subsystem health',
+                  trailing: isAdmin
+                      ? null
+                      : SettingsStatusChip(
+                          label: 'Admin only',
+                          color: tokens.textSecondary,
+                          background: tokens.surfaceCard,
+                        ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SystemOperationalStatusPage(
+                        repository:
+                            CloudOperationalReadinessRepository(client),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.backup_rounded,
+                  title: 'Disaster recovery',
+                  subtitle: 'Configuration backups, checkpoints, and restore plans',
+                  trailing: isAdmin
+                      ? null
+                      : SettingsStatusChip(
+                          label: 'Admin only',
+                          color: tokens.textSecondary,
+                          background: tokens.surfaceCard,
+                        ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RecoveryDashboardPage(
+                        isAdmin: isAdmin,
+                        repository: CloudRecoveryRepository(client),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Danger zone'),
-        SettingsSurface(
-          child: SettingsListItem(
-            icon: Icons.restart_alt_rounded,
-            title: 'Factory reset',
-            subtitle: 'Remove this home from the device',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const FactoryResetPage()),
+      ),
+    );
+  }
+}
+
+class _UpdatesRolloutsPage extends StatelessWidget {
+  const _UpdatesRolloutsPage({
+    required this.homeId,
+    required this.client,
+    required this.system,
+    required this.isAdmin,
+  });
+
+  final String homeId;
+  final ApiClient client;
+  final _SystemSummary system;
+  final bool isAdmin;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    final updateSubtitle = system.update.availableCount == 0
+        ? 'Your system is up to date'
+        : '${system.update.availableCount} update available';
+
+    return Scaffold(
+      backgroundColor: tokens.bgApp,
+      appBar: AppBar(
+        title: const Text('Updates & Fleet Rollouts'),
+        backgroundColor: tokens.bgApp,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+        children: [
+          const SettingsSectionTitle('System version & sync'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.system_update_alt_rounded,
+                  title: 'System update',
+                  subtitle: updateSubtitle,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SystemUpdatePage()),
+                  ),
+                  trailing: SettingsStatusChip(
+                    label: 'Version ${system.update.appVersion}',
+                    color: tokens.isDark
+                        ? tokens.blueSelectedText
+                        : SettingsColors.purple,
+                    background: tokens.isDark
+                        ? tokens.blueSelectedBg
+                        : SettingsColors.paleLavender,
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.notifications_active_outlined,
+                  title: 'Notification center',
+                  subtitle: 'Safety alerts, system events, and priority logs',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => NotificationCenterPage(
+                        homeId: homeId,
+                        repository: CloudNotificationRepository(client),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.sync_rounded,
+                  title: 'Sync center',
+                  subtitle: 'Offline queue, cache status, and conflict resolution',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SyncCenterPage(
+                        syncService: SyncService(
+                          baseUrl: client.baseUrl,
+                          apiClient: client,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            destructive: true,
           ),
-        ),
-      ],
+          const SizedBox(height: 24),
+          const SettingsSectionTitle('Fleet & OTA rollouts'),
+          SettingsSurface(
+            child: Column(
+              children: [
+                SettingsListItem(
+                  icon: Icons.developer_board_rounded,
+                  title: 'Firmware releases',
+                  subtitle: 'Manage signed artifacts, channels, and release notes',
+                  trailing: isAdmin
+                      ? null
+                      : SettingsStatusChip(
+                          label: 'Admin only',
+                          color: tokens.textSecondary,
+                          background: tokens.surfaceCard,
+                        ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FirmwareReleasesPage(
+                        repository: CloudFleetFirmwareRepository(client),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.campaign_rounded,
+                  title: 'OTA rollout campaigns',
+                  subtitle: 'Controlled batched deployments, canary gates & rollbacks',
+                  trailing: isAdmin
+                      ? null
+                      : SettingsStatusChip(
+                          label: 'Admin only',
+                          color: tokens.textSecondary,
+                          background: tokens.surfaceCard,
+                        ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => OtaRolloutsPage(
+                        repository: CloudFleetFirmwareRepository(client),
+                      ),
+                    ),
+                  ),
+                  showDivider: true,
+                ),
+                SettingsListItem(
+                  icon: Icons.devices_other_rounded,
+                  title: 'Fleet firmware status',
+                  subtitle: 'Per-device firmware versions, rollout states & health',
+                  trailing: isAdmin
+                      ? null
+                      : SettingsStatusChip(
+                          label: 'Admin only',
+                          color: tokens.textSecondary,
+                          background: tokens.surfaceCard,
+                        ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FleetFirmwareStatusPage(
+                        repository: CloudFleetFirmwareRepository(client),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1116,61 +1552,117 @@ class _HomeProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    return SettingsSurface(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              const SettingsIconBadge(icon: Icons.home_outlined, size: 66),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      home.name,
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        color: tokens.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Home owner',
-                      style: TextStyle(
-                        color: tokens.textSecondary,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 13),
-                    Wrap(
-                      spacing: 9,
-                      runSpacing: 6,
-                      children: [
-                        _Meta(
-                          icon: connection.icon,
-                          text: connection.profileText,
-                          color: connection.color,
-                        ),
-                        _Meta(
-                          icon: Icons.meeting_room_outlined,
-                          text: '$roomCount rooms',
-                        ),
-                        _Meta(
-                          icon: Icons.inventory_2_outlined,
-                          text: '$deviceCount devices',
-                        ),
-                      ],
-                    ),
-                  ],
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.surfaceCard,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: tokens.isDark
+              ? tokens.borderSubtle
+              : const Color(0xFFE5EAF2),
+          width: 1,
+        ),
+        boxShadow: tokens.isDark
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color(0x0C0B2448),
+                  blurRadius: 18,
+                  offset: Offset(0, 6),
                 ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: tokens.chevron),
-            ],
+              ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(22),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: tokens.isDark
+                          ? [
+                              tokens.bluePrimary.withValues(alpha: 0.35),
+                              tokens.bluePrimary.withValues(alpha: 0.15),
+                            ]
+                          : [
+                              tokens.bluePrimary.withValues(alpha: 0.15),
+                              tokens.bluePrimary.withValues(alpha: 0.05),
+                            ],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: tokens.bluePrimary.withValues(alpha: 0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.home_rounded,
+                    color: tokens.bluePrimary,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        home.name,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: tokens.textPrimary,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Home owner',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 6,
+                        children: [
+                          _Meta(
+                            icon: connection.icon,
+                            text: connection.profileText,
+                            color: connection.color,
+                          ),
+                          _Meta(
+                            icon: Icons.meeting_room_outlined,
+                            text: '$roomCount rooms',
+                          ),
+                          _Meta(
+                            icon: Icons.inventory_2_outlined,
+                            text: '$deviceCount devices',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: tokens.chevron,
+                  size: 24,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1188,23 +1680,27 @@ class _Meta extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final resolvedColor = color ?? tokens.textSecondary;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 148),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+      decoration: BoxDecoration(
+        color: (color ?? tokens.textSecondary).withValues(
+          alpha: tokens.isDark ? 0.12 : 0.08,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: resolvedColor, size: 17),
+          Icon(icon, color: resolvedColor, size: 14),
           const SizedBox(width: 5),
-          Expanded(
-            child: Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: resolvedColor,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+          Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: resolvedColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -1266,28 +1762,31 @@ class _RootConnectionStatus {
     ),
     HomeConnectionState.connecting => _RootConnectionStatus(
       shortLabel: 'Connecting',
-      detail: 'Looking for your nearby EH Home device',
-      icon: Icons.bluetooth_searching_rounded,
+      detail: 'Connecting to Cloud & Gateway',
+      icon: Icons.sync_rounded,
       color: tokens.bluePrimary,
       background: tokens.blueSelectedBg,
       chipIcon: Icons.sync_rounded,
+      profileLabel: 'Connecting…',
     ),
     HomeConnectionState.offline ||
     HomeConnectionState.failed => _RootConnectionStatus(
-      shortLabel: 'Unavailable',
-      detail: 'Your home device is currently unavailable',
+      shortLabel: 'Offline',
+      detail: 'Gateway or internet unreachable',
       icon: Icons.wifi_off_rounded,
       color: tokens.warning,
       background: tokens.warningContainer,
       chipIcon: Icons.error_outline_rounded,
+      profileLabel: 'Offline',
     ),
     _ => _RootConnectionStatus(
-      shortLabel: 'Set up required',
-      detail: 'Bluetooth, Wi-Fi, and secure hub connection',
+      shortLabel: 'Disconnected',
+      detail: 'Wi-Fi and secure cloud connection',
       icon: Icons.wifi_off_rounded,
       color: tokens.textSecondary,
       background: tokens.surfaceElevated,
       chipIcon: Icons.info_outline_rounded,
+      profileLabel: 'Disconnected',
     ),
   };
 }

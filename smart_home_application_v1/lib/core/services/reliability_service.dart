@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/reliability_models.dart';
 
 /// Phase 25 — Flutter Reliability Service
@@ -37,10 +38,11 @@ class ReliabilityService extends ChangeNotifier {
   // ── Constructor ────────────────────────────────────────────────────────────
 
   ReliabilityService({
-    required this.baseUrl,
+    String? baseUrl,
     this.tokenProvider,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 

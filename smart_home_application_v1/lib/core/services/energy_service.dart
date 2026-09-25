@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
+import '../config/app_config.dart';
 import '../models/energy_models.dart';
 
 /// EH Home — Energy Intelligence & Telemetry Client Service (Phase 19)
@@ -36,12 +37,13 @@ class EnergyService extends ChangeNotifier {
   String? get lastError => _lastError;
 
   EnergyService({
-    this.baseUrl = 'http://127.0.0.1:3000',
+    String? baseUrl,
     this.httpClient,
     this.apiClient,
     this.getAuthToken,
     EnergyUsageSummary? initialSummary,
-  }) : _cachedHomeSummary = initialSummary;
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _cachedHomeSummary = initialSummary;
 
   Future<Map<String, String>> _buildHeadersAsync() async {
     final headers = <String, String>{

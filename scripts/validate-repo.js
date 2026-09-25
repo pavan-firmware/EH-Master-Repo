@@ -249,6 +249,15 @@ runStep('59. Phase 47 Stage 4 Product Integration & Persistence Tests', `${nodeB
 // 60. Phase 48 Home Ownership, Invitation, Membership & RBAC Tests
 runStep('60. Phase 48 Home Ownership, Membership & RBAC Tests', `${nodeBin} backend/tests/phase48-home-lifecycle-rbac.test.js`);
 
+// 61. Phase 48 Auth Identity, User Profile & Timezone Hardening Tests
+runStep('61. Phase 48 Auth Identity, Profile & Timezone Tests', `${nodeBin} backend/tests/phase48-auth-identity-timezone-hardening.test.js`);
+
+// 62. Phase 48 ESP32 Firmware Hardware Integration Tests
+runStep('62. Phase 48 ESP32 Firmware Hardware Integration Tests', `${nodeBin} firmware/tests/test_phase48_firmware_hardware.js`);
+
+// 63. Phase 48 ESP-IDF Toolchain Drift & Reproducibility Guard
+runStep('63. Phase 48 ESP-IDF Toolchain Drift & Reproducibility Guard', `${nodeBin} scripts/check-esp-idf-toolchain.js`);
+
 
 
 const passedSuites = totalSuites - failedSuites;

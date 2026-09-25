@@ -24,13 +24,17 @@ class SSEEventEnvelope {
 
   factory SSEEventEnvelope.fromJson(Map<String, dynamic> json) {
     return SSEEventEnvelope(
-      schemaVersion: json['schemaVersion'] as int,
-      eventId: json['eventId'] as String,
-      type: json['type'] as String,
-      occurredAt: json['occurredAt'] as String,
-      homeId: json['homeId'] as String,
+      schemaVersion: (json['schemaVersion'] as num?)?.toInt() ?? 1,
+      eventId: (json['eventId'] as String?) ?? '',
+      type: (json['type'] as String?) ?? 'message',
+      occurredAt: (json['occurredAt'] as String?) ?? DateTime.now().toIso8601String(),
+      homeId: (json['homeId'] as String?) ?? '',
       deviceId: json['deviceId'] as String?,
-      payload: json['payload'] as Map<String, dynamic>,
+      payload: (json['payload'] is Map<String, dynamic>)
+          ? (json['payload'] as Map<String, dynamic>)
+          : (json['payload'] is Map)
+              ? Map<String, dynamic>.from(json['payload'] as Map)
+              : <String, dynamic>{},
     );
   }
 }

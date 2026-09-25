@@ -16,7 +16,7 @@
  * - Dependency-injected for testability
  */
 
-const DEFAULT_STALE_THRESHOLD_MS = 45_000;  // 45 seconds
+const DEFAULT_STALE_THRESHOLD_MS = 900_000;  // 15 minutes (idle devices with active MQTT session stay online)
 const DEVICE_AVAILABILITY_EVENT = 'device.availability';
 
 class DeviceStaleDetector {
@@ -37,14 +37,11 @@ class DeviceStaleDetector {
    * Idempotent: re-detecting an already-STALE device is a no-op.
    */
   async tick() {
-    const cutoff = new Date(Date.now() - this.staleThresholdMs).toISOString();
-
-    // Find devices that were ONLINE/OFFLINE but have not been seen since cutoff
-    const staleCandidates = await this.db.find('device_states', {
-      where: {
-        connection_state_not: 'STALE',
-        last_seen_at_lt: cutoff
-      }
+    const cutoffDate = new Date(Date.now() - this.staleThresholdMs);
+    const staleCandidates = await this.db.find('device_state', ds => {
+      if (!ds || ds.connection_state === 'STALE' || ds.connection_state === 'OFFLINE') return false;
+      if (!ds.last_seen_at) return true;
+      return new Date(ds.last_seen_at) < cutoffDate;
     });
 
     for (const deviceState of staleCandidates) {
@@ -53,10 +50,10 @@ class DeviceStaleDetector {
   }
 
   async _markStale(deviceState) {
-    const { id: recordId, device_id: deviceId, home_id: homeId } = deviceState;
+    const deviceId = deviceState.device_id || deviceState.id;
     try {
-      await this.db.update('device_states', recordId, {
-        connection_state: 'STALE',
+      await this.db.update('device_state', deviceId, {
+        connection_state: 'OFFLINE',
         updated_at: new Date().toISOString()
       });
 

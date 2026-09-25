@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/energy_automation_models.dart';
 
 /// EH Home — Smart Energy Automation & Optimization Service (Phase 20)
@@ -28,10 +29,10 @@ class EnergyAutomationService extends ChangeNotifier {
   String? get lastError => _lastError;
 
   EnergyAutomationService({
-    this.baseUrl = 'http://127.0.0.1:3000',
+    String? baseUrl,
     this.httpClient,
     this.getAuthToken,
-  });
+  }) : baseUrl = baseUrl ?? AppConfig.backendBaseUrl;
 
   Map<String, String> _buildHeaders() {
     final headers = <String, String>{

@@ -1,44 +1,91 @@
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../features/onboarding/ble/ble_commissioning_channel.dart';
 import '../config/device_connection_config.dart';
+import '../services/ble_preflight_service.dart';
 import 'connection_repository.dart';
 
 /// Production connection path: single BLE connection owner (via [BleCommissioningChannel])
-/// that executes: scan -> connect -> explicit GATT discovery (6101 & 6102) -> validate 6105.
+/// that executes: preflight -> scan -> connect -> explicit GATT discovery (6101 & 6102) -> validate 6105.
 class BleConnectionRepository implements ConnectionRepository {
   BleConnectionRepository({
     FlutterReactiveBle? ble,
     BleCommissioningChannel? channel,
-  }) : _ble = ble ?? FlutterReactiveBle(),
-       _channel = channel ?? BleCommissioningChannel(ble: ble);
+    BlePreflightService? preflightService,
+  }) : _injectedBle = ble,
+       _injectedChannel = channel,
+       _injectedPreflightService = preflightService;
 
-  final FlutterReactiveBle _ble;
-  final BleCommissioningChannel _channel;
+  final FlutterReactiveBle? _injectedBle;
+  final BleCommissioningChannel? _injectedChannel;
+  final BlePreflightService? _injectedPreflightService;
 
-  BleCommissioningChannel get channel => _channel;
+  FlutterReactiveBle? _bleInstance;
+  BleCommissioningChannel? _channelInstance;
+  BlePreflightService? _preflightServiceInstance;
+
+  FlutterReactiveBle? get _ble {
+    if (_injectedBle != null) return _injectedBle;
+    if (kIsWeb) return null;
+    return _bleInstance ??= FlutterReactiveBle();
+  }
+
+  BleCommissioningChannel get channel {
+    if (_injectedChannel != null) return _injectedChannel;
+    return _channelInstance ??= BleCommissioningChannel(ble: _ble);
+  }
+
+  BlePreflightService get preflightService {
+    if (_injectedPreflightService != null) return _injectedPreflightService;
+    return _preflightServiceInstance ??= BlePreflightService(ble: _ble);
+  }
+
+  /// Runs explicit pre-flight inspection before triggering any scan.
+  Future<BlePreflightResult> checkPreflight({bool requestIfNeeded = true}) async {
+    return preflightService.check(requestIfNeeded: requestIfNeeded);
+  }
 
   @override
   Future<ConnectionResult> connect({
     required DeviceConnectionConfig config,
   }) async {
+    if (kIsWeb) {
+      return const ConnectionResult(
+        success: false,
+        title: 'Bluetooth not supported',
+        message:
+            'Bluetooth commissioning is only supported in the mobile application.',
+        failureKind: ConnectionFailureKind.bleUnsupported,
+      );
+    }
     try {
-      await _requestBluetoothPermission();
-      await _waitForBluetooth();
+      // 1. Centralized pre-flight check
+      final preflight = await preflightService.check(requestIfNeeded: true);
+      if (!preflight.isReady) {
+        final kind = _mapPreflightStatus(preflight.status);
+        return ConnectionResult(
+          success: false,
+          title: preflight.title,
+          message: preflight.message,
+          failureKind: kind,
+        );
+      }
 
-      final device = await _channel.scanForSingleDevice(
+      final activeChannel = channel;
+
+      // 2. Scan for EH Home physical device
+      final device = await activeChannel.scanForSingleDevice(
         namePrefix: config.deviceNamePrefix,
         timeout: const Duration(seconds: 15),
       );
 
-      // Connect and discover all services (6101 & 6102) via single session owner
-      await _channel.connect(device.id);
+      // 3. Connect and discover all services (6101 & 6102) via single session owner
+      await activeChannel.connect(device.id, device.name);
 
-      final identity = _channel.deviceIdentity;
+      final identity = activeChannel.deviceIdentity;
       if (identity == null) {
         throw const ConnectionFailure(
           ConnectionFailureKind.unsupportedDevice,
@@ -50,22 +97,25 @@ class BleConnectionRepository implements ConnectionRepository {
       return ConnectionResult(
         success: true,
         message: 'Connected to ${identity.displayName} (${device.name}).',
+        title: 'Connected',
         step: ConnectionStep.verification,
         deviceId: identity.deviceId,
         serialNumber: identity.serialNumber,
         displayName: identity.displayName,
-        channel: _channel,
+        channel: activeChannel,
       );
     } on TimeoutException {
       return const ConnectionResult(
         success: false,
+        title: 'No EH Home device found nearby',
         message:
-            'No nearby Smart Home device was found. Make sure it is powered on and close to your phone.',
+            'No EH Home device found nearby. Make sure your Smart Switch is powered on, in commissioning mode, and close to your phone.',
         failureKind: ConnectionFailureKind.scanTimedOut,
       );
     } on GattDiscoveryException catch (e) {
       return ConnectionResult(
         success: false,
+        title: 'Device setup error',
         message: e.message,
         step: ConnectionStep.identification,
         failureKind: ConnectionFailureKind.unsupportedDevice,
@@ -78,87 +128,83 @@ class BleConnectionRepository implements ConnectionRepository {
         failureKind: failure.kind,
       );
     } catch (error) {
+      final errorStr = error.toString();
+      if (errorStr.contains('Location Services disabled') ||
+          errorStr.contains('code 4') ||
+          errorStr.contains('LocationServicesDisabled')) {
+        return const ConnectionResult(
+          success: false,
+          title: 'Location is turned off',
+          message:
+              'Location services must be turned on to discover nearby Bluetooth devices on this device.',
+          failureKind: ConnectionFailureKind.locationServicesDisabled,
+        );
+      }
+      if (errorStr.contains('Bluetooth disabled') ||
+          errorStr.contains('code 1') ||
+          errorStr.contains('poweredOff')) {
+        return const ConnectionResult(
+          success: false,
+          title: 'Bluetooth is turned off',
+          message:
+              'Bluetooth is currently turned off. Turn it on to find your Smart Switch.',
+          failureKind: ConnectionFailureKind.bluetoothDisabled,
+        );
+      }
+      if (errorStr.contains('Location permission') ||
+          errorStr.contains('code 2') ||
+          errorStr.contains('code 3')) {
+        return const ConnectionResult(
+          success: false,
+          title: 'Location permission needed',
+          message:
+              'Android requires Location permission to discover nearby Bluetooth devices.',
+          failureKind: ConnectionFailureKind.locationPermissionRequired,
+        );
+      }
+      if (errorStr.contains('Bluetooth permission') ||
+          errorStr.contains('BLUETOOTH_SCAN') ||
+          errorStr.contains('BLUETOOTH_CONNECT')) {
+        return const ConnectionResult(
+          success: false,
+          title: 'Bluetooth permission needed',
+          message:
+              'Bluetooth permission is required to find and connect to your Smart Switch.',
+          failureKind: ConnectionFailureKind.bluetoothPermissionRequired,
+        );
+      }
       return ConnectionResult(
         success: false,
+        title: 'Nearby connection failed',
         message: 'Nearby connection failed: $error',
         failureKind: ConnectionFailureKind.unknown,
       );
     }
   }
 
-  Future<void> _requestBluetoothPermission() async {
-    if (Platform.isAndroid) {
-      // Request Bluetooth Scan & Connect first (Android 12+)
-      final statuses = await [
-        Permission.bluetoothScan,
-        Permission.bluetoothConnect,
-      ].request();
-
-      final scanStatus = statuses[Permission.bluetoothScan];
-      final connectStatus = statuses[Permission.bluetoothConnect];
-
-      if (scanStatus?.isPermanentlyDenied == true ||
-          connectStatus?.isPermanentlyDenied == true) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.permissionPermanentlyDenied,
-          'Bluetooth permission was permanently denied. Enable it in app settings to continue.',
-        );
-      }
-
-      // On Android <= 11, location permission is required for BLE scanning
-      if (scanStatus?.isGranted != true && connectStatus?.isGranted != true) {
-        final location = await Permission.locationWhenInUse.request();
-        if (location.isPermanentlyDenied) {
-          throw const ConnectionFailure(
-            ConnectionFailureKind.permissionPermanentlyDenied,
-            'Location permission was permanently denied. Android needs it to find nearby BLE devices on this phone.',
-          );
-        }
-        if (!location.isGranted && !location.isLimited) {
-          throw const ConnectionFailure(
-            ConnectionFailureKind.permissionDenied,
-            'Bluetooth or Location permission is required to find nearby devices.',
-          );
-        }
-      }
-    } else if (Platform.isIOS) {
-      final status = await Permission.bluetooth.request();
-      if (status.isPermanentlyDenied) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.permissionPermanentlyDenied,
-          'Bluetooth permission was permanently denied. Enable it in Settings to continue.',
-        );
-      }
-      if (!status.isGranted) {
-        throw const ConnectionFailure(
-          ConnectionFailureKind.permissionDenied,
-          'Bluetooth permission was not granted.',
-        );
-      }
-    }
-  }
-
-  Future<void> _waitForBluetooth() async {
-    if (_ble.status == BleStatus.ready) {
-      return;
-    }
-    try {
-      await _ble.statusStream
-          .where((status) => status == BleStatus.ready)
-          .first
-          .timeout(const Duration(seconds: 4));
-    } catch (_) {
-      if (_ble.status == BleStatus.ready) {
-        return;
-      }
-      throw const ConnectionFailure(
-        ConnectionFailureKind.bluetoothUnavailable,
-        'Bluetooth is off or unavailable. Turn it on and try again.',
-      );
-    }
+  static ConnectionFailureKind _mapPreflightStatus(BlePreflightStatus status) {
+    return switch (status) {
+      BlePreflightStatus.ready => ConnectionFailureKind.none,
+      BlePreflightStatus.bluetoothPermissionRequired =>
+        ConnectionFailureKind.bluetoothPermissionRequired,
+      BlePreflightStatus.bluetoothPermissionPermanentlyDenied =>
+        ConnectionFailureKind.bluetoothPermissionPermanentlyDenied,
+      BlePreflightStatus.bluetoothDisabled =>
+        ConnectionFailureKind.bluetoothDisabled,
+      BlePreflightStatus.locationPermissionRequired =>
+        ConnectionFailureKind.locationPermissionRequired,
+      BlePreflightStatus.locationPermissionPermanentlyDenied =>
+        ConnectionFailureKind.locationPermissionPermanentlyDenied,
+      BlePreflightStatus.locationServicesDisabled =>
+        ConnectionFailureKind.locationServicesDisabled,
+      BlePreflightStatus.bleUnsupported =>
+        ConnectionFailureKind.bleUnsupported,
+      BlePreflightStatus.bleInitializing =>
+        ConnectionFailureKind.bleInitializing,
+    };
   }
 
   void dispose() {
-    _channel.dispose();
+    _injectedChannel?.dispose();
   }
 }

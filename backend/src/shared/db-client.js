@@ -83,6 +83,17 @@ class DatabaseClient {
     return this.adapter.delete(table, id);
   }
 
+  async upsert(table, id, data, conflictTarget = 'id') {
+    if (typeof this.adapter.upsert === 'function') {
+      return this.adapter.upsert(table, id, data, conflictTarget);
+    }
+    const existing = await this.findById(table, id);
+    if (existing) {
+      return this.update(table, id, data);
+    }
+    return this.insert(table, id, data);
+  }
+
   async withTransaction(callback) {
     return this.adapter.withTransaction(callback);
   }

@@ -21,6 +21,8 @@
 #include "nvs_flash.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #define TAG "MAIN_APP"
@@ -40,11 +42,14 @@
 #include "factory_identity_v2.h"
 #include "ble_commissioning.h"
 #include "eh_prov1.h"
+#include "status_led.h"
+#include "reset_button.h"
+#include "local_server.h"
 #include "mqtt_protocol.h"
 #include "esp_mqtt_client_wrapper.h"
 
 #ifndef CONFIG_EH_MQTT_BROKER_URI
-#define CONFIG_EH_MQTT_BROKER_URI "mqtts://mqtt.ehhome.io:8883"
+#define CONFIG_EH_MQTT_BROKER_URI "mqtt://192.168.55.103:1883"
 #endif
 
 static eh_mqtt_client_t* s_mqtt_client = NULL;
@@ -97,21 +102,31 @@ static void on_relay_state_changed(uint8_t channel_index, bool new_power, const 
 {
     ESP_LOGI(TAG, "Relay CH%d changed to %s by %s", channel_index, new_power ? "ON" : "OFF", source ? source : "UNKNOWN");
 
+    // Provide immediate physical LED pulse feedback for tactile/command confirmation
+    status_led_trigger_action_feedback();
+
+    bool powers[EH_RELAY_CHANNEL_COUNT];
+    for (int i = 0; i < EH_RELAY_CHANNEL_COUNT; i++) {
+        powers[i] = relay_manager_get_power((uint8_t)(i + 1));
+    }
+
+    // 1. Broadcast real-time state change over Local UDP port 4210 for instantaneous app UI sync
+    local_server_broadcast_state(powers, EH_RELAY_CHANNEL_COUNT);
+
+    // 2. Publish to Cloud MQTT broker if connected
     if (s_mqtt_client && eh_mqtt_client_is_connected(s_mqtt_client)) {
-        // 1. Publish authoritative multi-channel state
-        bool powers[EH_RELAY_CHANNEL_COUNT];
-        for (int i = 0; i < EH_RELAY_CHANNEL_COUNT; i++) {
-            powers[i] = relay_manager_get_power((uint8_t)(i + 1));
-        }
         eh_mqtt_publish_state(s_mqtt_client, powers, EH_RELAY_CHANNEL_COUNT);
 
-        // 2. If actuated by physical switch, emit a switch.changed DeviceEvent
+        // If actuated by physical switch, emit a switch.changed DeviceEvent
         if (source && strcmp(source, "PHYSICAL_SWITCH") == 0) {
             char event_id[37];
-            const factory_identity_v2_t* id = factory_identity_v2_get();
-            snprintf(event_id, sizeof(event_id), "evt-%08lx-%04x", (unsigned long)s_event_seq, (unsigned int)channel_index);
+            uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            uint32_t rand_nonce = esp_random();
+            snprintf(event_id, sizeof(event_id), "evt-%08lx-%04x-%04lx",
+                     (unsigned long)uptime_ms,
+                     (unsigned int)channel_index,
+                     (unsigned long)(rand_nonce & 0xFFFF));
             eh_mqtt_publish_event(s_mqtt_client, event_id, channel_index, "switch.changed", "PHYSICAL_SWITCH", new_power, ++s_event_seq);
-            (void)id;
         }
     }
 }
@@ -175,24 +190,44 @@ static void on_mqtt_connected(void* user_ctx)
     log_memory_diagnostics();
 }
 
+static void mqtt_heartbeat_task(void* arg)
+{
+    (void)arg;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(25000));
+        if (s_mqtt_client && eh_mqtt_client_is_connected(s_mqtt_client)) {
+            bool powers[EH_RELAY_CHANNEL_COUNT];
+            for (int i = 0; i < EH_RELAY_CHANNEL_COUNT; i++) {
+                powers[i] = relay_manager_get_power((uint8_t)(i + 1));
+            }
+            eh_mqtt_publish_state(s_mqtt_client, powers, EH_RELAY_CHANNEL_COUNT);
+        }
+    }
+}
+
 static void on_mqtt_disconnected(void* user_ctx)
 {
     (void)user_ctx;
     ESP_LOGW(TAG, "MQTT broker disconnected. Local control (relays & physical switches) remains ACTIVE");
-    // Main lifecycle remains in error recovery or active local operation
-    // Reconnection is handled automatically with exponential backoff
+    if (app_lifecycle_get_state() == APP_STATE_ACTIVE || app_lifecycle_get_state() == APP_STATE_MQTT_CONNECTING) {
+        app_lifecycle_set_state(APP_STATE_LOCAL_OPERATIONAL);
+    }
 }
 
 static void on_wifi_connected(const char* ip_address)
 {
     ESP_LOGI(TAG, "WIFI_CONNECTED ip=%s", ip_address);
-    ESP_LOGI(TAG, "Wi-Fi connected (%s), initializing secure MQTT mTLS client...", ip_address);
-    app_lifecycle_set_state(APP_STATE_MQTT_CONNECTING);
+    ESP_LOGI(TAG, "Wi-Fi connected (%s), starting Local LAN HTTP server & MQTT client...", ip_address);
+    eh_prov1_set_state(EH_PROV1_STATE_ACTIVE);
 
+    // 1. Start Local LAN Server immediately on port 80 (Local control works even if cloud/MQTT is down)
+    local_server_start();
+    app_lifecycle_set_state(APP_STATE_LOCAL_OPERATIONAL);
+
+    // 2. Start Cloud MQTT client
     const factory_identity_v2_t* id = factory_identity_v2_get();
     if (!id) {
         ESP_LOGE(TAG, "Factory identity unavailable. Cannot start MQTT client.");
-        app_lifecycle_set_state(APP_STATE_ERROR_RECOVERY);
         return;
     }
 
@@ -207,8 +242,7 @@ static void on_wifi_connected(const char* ip_address)
         s_mqtt_config.user_ctx = NULL;
 
         if (eh_mqtt_client_start(&s_mqtt_config, &s_mqtt_client) != 0) {
-            ESP_LOGE(TAG, "Failed to start MQTT client wrapper");
-            app_lifecycle_set_state(APP_STATE_ERROR_RECOVERY);
+            ESP_LOGW(TAG, "MQTT client initialization pending/offline, remaining in LOCAL_OPERATIONAL mode");
         }
     }
 }
@@ -216,7 +250,8 @@ static void on_wifi_connected(const char* ip_address)
 static void on_wifi_disconnected(void)
 {
     ESP_LOGW(TAG, "WIFI_CONNECT_FAILED reason=disconnected");
-    ESP_LOGW(TAG, "Wi-Fi lost, entering ERROR_RECOVERY (local control active)");
+    ESP_LOGW(TAG, "Wi-Fi lost, entering ERROR_RECOVERY (local hardware physical switch control active)");
+    local_server_stop();
     app_lifecycle_set_state(APP_STATE_ERROR_RECOVERY);
 }
 
@@ -283,6 +318,8 @@ static void log_diagnostic_banner(const factory_identity_v2_t* id)
     ESP_LOGI(TAG, "Serial       : %s", id ? id->serial_number : "UNKNOWN");
     ESP_LOGI(TAG, "Relay Count  : %d", EH_RELAY_CHANNEL_COUNT);
     ESP_LOGI(TAG, "Switch Count : %d", EH_SWITCH_CHANNEL_COUNT);
+    ESP_LOGI(TAG, "Status LED   : GPIO %d", GPIO_STATUS_LED);
+    ESP_LOGI(TAG, "Reset Button : GPIO %d (Hold 10s)", GPIO_RESET_BUTTON);
     ESP_LOGI(TAG, "Energy       : ENABLED");
     ESP_LOGI(TAG, "BLE          : ENABLED");
     ESP_LOGI(TAG, "WiFi         : ENABLED");
@@ -307,6 +344,8 @@ void app_main(void)
     // 2. Initialize Core Subsystems
     app_lifecycle_init();
     factory_identity_v2_init();
+    status_led_init();
+    reset_button_init();
     relay_manager_init();
     switch_manager_init();
     telemetry_manager_init();
@@ -314,11 +353,15 @@ void app_main(void)
     wifi_manager_init();
 
     // 3. Wire Callback Dispatchers
+    app_lifecycle_register_listener(status_led_lifecycle_listener);
     switch_manager_register_cb(on_physical_switch_toggled);
     relay_manager_register_change_cb(on_relay_state_changed);
     wifi_manager_register_callbacks(on_wifi_connected, on_wifi_disconnected);
     telemetry_manager_register_cb(on_telemetry_ready);
     eh_prov1_register_wifi_handler(on_ble_wifi_provision);
+
+    // Launch background periodic MQTT heartbeat & state sync task (8KB stack to safely accommodate TLS/cJSON payload serialization)
+    xTaskCreate(mqtt_heartbeat_task, "mqtt_hb_task", 8192, NULL, 3, NULL);
 
     log_memory_diagnostics();
 

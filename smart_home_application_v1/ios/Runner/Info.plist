@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>EH Home uses nearby access to securely set up and control your home device.</string>
+	<string>EH Home uses Bluetooth to discover and securely connect to your Smart Home devices during setup.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>EH Home uses Bluetooth to find and set up your nearby home device.</string>
+	<string>EH Home uses Bluetooth to discover and securely connect to your Smart Home devices during setup.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>EH Home connects directly to your home device for fast local control.</string>
 	<key>UIApplicationSceneManifest</key>

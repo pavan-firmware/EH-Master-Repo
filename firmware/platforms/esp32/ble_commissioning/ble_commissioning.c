@@ -398,8 +398,8 @@ void ble_commissioning_start_advertising(void)
         return;
     }
 
-    if (id->commissioning_secret_consumed && eh_prov1_get_state() == EH_PROV1_STATE_ACTIVE) {
-        ESP_LOGI(TAG, "Commissioning secret consumed & device is ACTIVE. Skipping BLE advertising.");
+    if (eh_prov1_get_state() == EH_PROV1_STATE_ACTIVE) {
+        ESP_LOGI(TAG, "Device is in ACTIVE state. Skipping BLE advertising.");
         return;
     }
 

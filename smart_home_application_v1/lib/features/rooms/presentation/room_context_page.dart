@@ -1,28 +1,298 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
+import '../../../core/models/connection_models.dart';
 import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/room_models.dart';
+import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../devices/presentation/device_control_page.dart';
+
+enum _RoomQuickControlViewMode { brick, carousel, list }
 
 /// One reusable detail page renders all room types from typed capabilities.
-class RoomContextPage extends StatelessWidget {
-  const RoomContextPage({super.key, required this.room, this.onAddDevice});
+class RoomContextPage extends StatefulWidget {
+  const RoomContextPage({
+    super.key,
+    required this.room,
+    this.homeController,
+    this.onAddDevice,
+  });
+
   final Room room;
+  final HomeController? homeController;
   final VoidCallback? onAddDevice;
 
   @override
-  Widget build(BuildContext context) {
+  State<RoomContextPage> createState() => _RoomContextPageState();
+}
+
+class _RoomContextPageState extends State<RoomContextPage> {
+  _RoomQuickControlViewMode _viewMode = _RoomQuickControlViewMode.brick;
+
+  void _showRoomControlCustomization(
+    BuildContext context,
+    Room currentRoom,
+    List<RoomCapability> allCaps,
+  ) {
     final tokens = context.ehColors;
-    final current = room.telemetryFreshness == TelemetryFreshness.current;
-    final temperature = room.capabilities
+    final saved = DeviceStorageService.getRoomQuickControls(currentRoom.name);
+    final selected = List<String>.from(saved ?? allCaps.map((c) => c.id));
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setModalState) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.75,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '${currentRoom.name} Controls',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: tokens.textPrimary,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: tokens.bluePrimary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${selected.length} Selected',
+                          style: TextStyle(
+                            color: tokens.bluePrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Select which device controls to keep in this room\'s quick controls section.',
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (allCaps.isNotEmpty)
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: allCaps.length,
+                        separatorBuilder: (_, _) => Divider(
+                          color: tokens.borderSubtle,
+                          height: 1,
+                        ),
+                        itemBuilder: (context, index) {
+                          final cap = allCaps[index];
+                          final isChecked = selected.contains(cap.id);
+                          return CheckboxListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: tokens.bluePrimary,
+                            title: Text(
+                              cap.label,
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            subtitle: Text(
+                              cap.value.toLowerCase() == 'on' ? 'State: Active · ON' : 'State: Standby · OFF',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                            value: isChecked,
+                            onChanged: (bool? val) {
+                              setModalState(() {
+                                if (val == true) {
+                                  selected.add(cap.id);
+                                } else {
+                                  selected.remove(cap.id);
+                                }
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: FilledButton(
+                      onPressed: () async {
+                        await DeviceStorageService.saveRoomQuickControls(
+                          currentRoom.name,
+                          selected,
+                        );
+                        if (sheetCtx.mounted) {
+                          Navigator.of(sheetCtx).pop();
+                        }
+                        setState(() {});
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tokens.bluePrimary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text(
+                        'Save Room Controls',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showRenameDialog(BuildContext context, Room currentRoom) async {
+    final textCtrl = TextEditingController(text: currentRoom.name);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Rename Room'),
+        content: TextField(
+          controller: textCtrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Room name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && textCtrl.text.trim().isNotEmpty && widget.homeController != null) {
+      await widget.homeController!.renameRoom(
+        roomId: currentRoom.id,
+        oldName: currentRoom.name,
+        newName: textCtrl.text.trim(),
+      );
+    }
+  }
+
+  void _showDeleteDialog(BuildContext context, Room currentRoom) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Delete Room'),
+        content: Text('Are you sure you want to delete "${currentRoom.name}"? Any devices assigned to this room will be unassigned.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && widget.homeController != null) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+      await widget.homeController!.deleteRoom(roomId: currentRoom.id, roomName: currentRoom.name);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.homeController != null) {
+      return AnimatedBuilder(
+        animation: widget.homeController!,
+        builder: (context, _) => _buildPage(context),
+      );
+    }
+    return _buildPage(context);
+  }
+
+  Widget _buildPage(BuildContext context) {
+    final tokens = context.ehColors;
+    final effectiveRoom = widget.homeController != null
+        ? widget.homeController!.rooms.firstWhere(
+            (r) => r.id == widget.room.id || r.name == widget.room.name,
+            orElse: () => widget.room,
+          )
+        : widget.room;
+
+    final current = effectiveRoom.telemetryFreshness == TelemetryFreshness.current;
+    final temperature = effectiveRoom.capabilities
         .where((item) => item.kind == RoomCapabilityKind.temperature)
         .firstOrNull;
+
+    // Get live capabilities (channels) for this room from homeController if available
+    final capabilities = effectiveRoom.capabilities;
+    final devices = effectiveRoom.devices;
+
+    // Filter quick controls based on user customization for this room
+    final savedRoomQuickIds = DeviceStorageService.getRoomQuickControls(effectiveRoom.name);
+    final displayCapabilities = (savedRoomQuickIds != null && savedRoomQuickIds.isNotEmpty)
+        ? capabilities.where((c) => savedRoomQuickIds.contains(c.id)).toList()
+        : capabilities;
+
     return Scaffold(
       backgroundColor: tokens.bgApp,
       body: SafeArea(
         bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 106),
+        child: RefreshIndicator(
+          onRefresh: () async {
+            await widget.homeController?.loadHomeData();
+          },
+          color: tokens.bluePrimary,
+          backgroundColor: tokens.surfaceCard,
+          displacement: 24,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 106),
           children: [
             Row(
               children: [
@@ -36,7 +306,7 @@ class RoomContextPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        room.name,
+                        effectiveRoom.name,
                         style: TextStyle(
                           color: tokens.textPrimary,
                           fontSize: 23,
@@ -45,11 +315,15 @@ class RoomContextPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '${room.deviceCount} devices  ·  ${room.isOnline ? 'All online' : 'State unavailable'}',
+                        devices.isEmpty
+                            ? '0 devices  ·  No devices'
+                            : '${devices.length} ${devices.length == 1 ? "device" : "devices"}  ·  ${effectiveRoom.isOnline ? 'All online' : 'Offline'}',
                         style: TextStyle(
-                          color: room.isOnline
-                              ? tokens.success
-                              : tokens.textTertiary,
+                          color: devices.isEmpty
+                              ? tokens.textTertiary
+                              : (effectiveRoom.isOnline
+                                  ? tokens.success
+                                  : tokens.textTertiary),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -59,35 +333,209 @@ class RoomContextPage extends StatelessWidget {
                 ),
                 _HeaderButton(icon: Icons.star_border_rounded, onTap: () {}),
                 const SizedBox(width: 8),
-                _HeaderButton(icon: Icons.more_horiz_rounded, onTap: () {}),
+                PopupMenuButton<String>(
+                  icon: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: tokens.surfaceCard,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: tokens.borderSubtle),
+                    ),
+                    child: Icon(Icons.more_horiz_rounded, color: tokens.textPrimary, size: 22),
+                  ),
+                  color: tokens.surfaceCard,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  onSelected: (action) {
+                    if (action == 'rename') {
+                      _showRenameDialog(context, effectiveRoom);
+                    } else if (action == 'delete') {
+                      _showDeleteDialog(context, effectiveRoom);
+                    }
+                  },
+                  itemBuilder: (ctx) => [
+                    PopupMenuItem(
+                      value: 'rename',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_outlined, size: 18, color: tokens.textPrimary),
+                          const SizedBox(width: 10),
+                          Text('Rename room', style: TextStyle(color: tokens.textPrimary)),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_outline_rounded, size: 18, color: tokens.warning),
+                          const SizedBox(width: 10),
+                          Text('Delete room', style: TextStyle(color: tokens.warning)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 24),
             _RoomHero(
-              room: room,
+              room: effectiveRoom,
               temperature: temperature?.value,
               current: current,
             ),
             const SizedBox(height: 27),
-            Text(
-              'Quick controls',
-              style: TextStyle(
-                color: tokens.textPrimary,
-                fontSize: 21,
-                fontWeight: FontWeight.w800,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Quick controls',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (capabilities.isNotEmpty) ...[
+                  TextButton(
+                    onPressed: () => _showRoomControlCustomization(
+                      context,
+                      effectiveRoom,
+                      capabilities,
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      'Customize',
+                      style: TextStyle(
+                        color: tokens.bluePrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: tokens.surfaceCard,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: tokens.borderSubtle),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _modeButton(
+                          mode: _RoomQuickControlViewMode.brick,
+                          icon: Icons.dashboard_customize_rounded,
+                          tooltip: 'Adaptive Brick Layout',
+                          tokens: tokens,
+                        ),
+                        _modeButton(
+                          mode: _RoomQuickControlViewMode.carousel,
+                          icon: Icons.view_carousel_rounded,
+                          tooltip: 'Horizontal Carousel',
+                          tokens: tokens,
+                        ),
+                        _modeButton(
+                          mode: _RoomQuickControlViewMode.list,
+                          icon: Icons.view_agenda_rounded,
+                          tooltip: 'List View',
+                          tokens: tokens,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 15),
-            SizedBox(
-              height: 210,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: room.devices.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 13),
-                itemBuilder: (_, index) =>
-                    _QuickDeviceCard(device: room.devices[index]),
+
+            // Adaptive Brick / Carousel / List for Room Quick Controls
+            if (displayCapabilities.isNotEmpty) ...[
+              if (_viewMode == _RoomQuickControlViewMode.brick)
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final maxWidth = constraints.maxWidth;
+                    final halfWidth = (maxWidth - 12) / 2;
+
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: displayCapabilities.map((cap) {
+                        final isFullWidth = cap.kind == RoomCapabilityKind.fan ||
+                            cap.kind == RoomCapabilityKind.curtain ||
+                            cap.label.toLowerCase().contains('dimmer') ||
+                            cap.label.toLowerCase().contains('ac') ||
+                            cap.label.toLowerCase().contains('climate');
+
+                        return SizedBox(
+                          width: isFullWidth ? maxWidth : halfWidth,
+                          child: _AdaptiveRoomQuickControlCard(
+                            capability: cap,
+                            isFullWidth: isFullWidth,
+                            homeController: widget.homeController,
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  },
+                )
+              else if (_viewMode == _RoomQuickControlViewMode.carousel)
+                SizedBox(
+                  height: 175,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: displayCapabilities.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 12),
+                    itemBuilder: (_, index) => _AdaptiveRoomQuickControlCard(
+                      capability: displayCapabilities[index],
+                      isFullWidth: false,
+                      homeController: widget.homeController,
+                    ),
+                  ),
+                )
+              else
+                Column(
+                  children: displayCapabilities.map((cap) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _AdaptiveRoomQuickControlCard(
+                      capability: cap,
+                      isFullWidth: true,
+                      homeController: widget.homeController,
+                    ),
+                  )).toList(),
+                ),
+            ] else if (devices.isNotEmpty)
+              SizedBox(
+                height: 175,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: devices.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 13),
+                  itemBuilder: (_, index) => _QuickDeviceCard(
+                    device: devices[index],
+                    homeController: widget.homeController,
+                  ),
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: tokens.surfaceCard,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Text(
+                  'No quick controls yet. Add a device to begin.',
+                  style: TextStyle(color: tokens.textSecondary),
+                ),
               ),
-            ),
+
             const SizedBox(height: 28),
             Row(
               children: [
@@ -102,7 +550,7 @@ class RoomContextPage extends StatelessWidget {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: onAddDevice,
+                  onPressed: widget.onAddDevice,
                   style: TextButton.styleFrom(
                     foregroundColor: tokens.bluePrimary,
                   ),
@@ -111,12 +559,18 @@ class RoomContextPage extends StatelessWidget {
                 ),
               ],
             ),
-            ...room.devices.map(
+            const SizedBox(height: 8),
+
+            ...devices.map(
               (device) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _DeviceRow(device: device),
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _DeviceRow(
+                  device: device,
+                  homeController: widget.homeController,
+                ),
               ),
             ),
+
             const SizedBox(height: 25),
             Row(
               children: [
@@ -141,9 +595,35 @@ class RoomContextPage extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            _InsightsCard(insights: room.insights),
+            const SizedBox(height: 12),
+            _InsightsCard(insights: effectiveRoom.insights),
           ],
+        ),
+      ),
+    ),
+  );
+  }
+
+  Widget _modeButton({
+    required _RoomQuickControlViewMode mode,
+    required IconData icon,
+    required String tooltip,
+    required EHThemeTokens tokens,
+  }) {
+    final isSelected = _viewMode == mode;
+    return InkWell(
+      onTap: () => setState(() => _viewMode = mode),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? tokens.bluePrimary : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: isSelected ? Colors.white : tokens.textSecondary,
         ),
       ),
     );
@@ -156,135 +636,118 @@ class _RoomHero extends StatelessWidget {
     required this.temperature,
     required this.current,
   });
+
   final Room room;
   final String? temperature;
   final bool current;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+    final hero = _heroColors(room.iconKey, tokens);
+
     return Container(
-      height: 300,
+      height: 230,
       decoration: BoxDecoration(
         color: tokens.surfaceCard,
-        borderRadius: BorderRadius.circular(25),
+        borderRadius: BorderRadius.circular(24),
         border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
-        boxShadow: tokens.isDark
-            ? null
-            : const [
-                BoxShadow(
-                  color: Color(0x0D0B2448),
-                  blurRadius: 17,
-                  offset: Offset(0, 7),
-                ),
-              ],
       ),
       child: Column(
         children: [
-          SizedBox(
-            height: 105,
+          Expanded(
             child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
               decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: hero,
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(24),
                 ),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: _heroColors(room.iconKey, tokens),
-                ),
               ),
-              child: Stack(
+              child: Row(
                 children: [
-                  const Positioned(
-                    left: 20,
-                    bottom: 18,
-                    child: Icon(
-                      Icons.chair_rounded,
-                      color: Colors.white70,
-                      size: 64,
-                    ),
-                  ),
-                  Positioned(
-                    top: 18,
-                    right: 18,
-                    child: Icon(
-                      _roomHeroIcon(room.iconKey),
-                      color: Colors.white,
-                      size: 44,
-                    ),
-                  ),
-                  const Positioned(
-                    left: 18,
-                    top: 18,
-                    child: Text(
-                      'ROOM PREVIEW',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11,
-                        letterSpacing: 1.2,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'ROOM PREVIEW',
+                        style: TextStyle(
+                          color: tokens.textPrimary.withValues(alpha: 0.8),
+                          letterSpacing: 1.2,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 6),
+                      Icon(
+                        _roomHeroIcon(room.iconKey),
+                        color: tokens.textPrimary,
+                        size: 42,
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Icon(
+                    _roomHeroIcon(room.iconKey),
+                    size: 32,
+                    color: tokens.textPrimary.withValues(alpha: 0.8),
                   ),
                 ],
               ),
             ),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.thermostat_outlined,
-                        color: tokens.textSecondary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        temperature ?? '—',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: tokens.textPrimary,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    current
-                        ? room.status == RoomStatus.attention
-                              ? 'Needs attention'
-                              : 'Comfortable'
-                        : 'State unavailable',
-                    style: TextStyle(
-                      color: current && room.status != RoomStatus.attention
-                          ? tokens.success
-                          : tokens.warning,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.thermostat_outlined,
+                      size: 20,
+                      color: tokens.textSecondary,
                     ),
+                    const SizedBox(width: 8),
+                    Text(
+                      temperature ?? '—',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  room.status == RoomStatus.normal
+                      ? 'Comfortable'
+                      : (room.isOffline ? 'Offline' : 'Attention needed'),
+                  style: TextStyle(
+                    color: room.status == RoomStatus.normal
+                        ? tokens.success
+                        : (room.isOffline ? tokens.textSecondary : tokens.warning),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
                   ),
-                  Divider(height: 16, color: tokens.borderSubtle),
-                  _HeroLine(
-                    icon: Icons.water_drop_outlined,
-                    text: room.id == 'living' ? 'Humidity 52%' : room.summary,
-                  ),
-                  const SizedBox(height: 4),
-                  _HeroLine(
-                    icon: Icons.schedule_rounded,
-                    text: current
-                        ? 'Updated just now'
-                        : 'Telemetry ${room.telemetryFreshness.name}',
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 10),
+                _HeroMeta(
+                  icon: Icons.water_drop_outlined,
+                  text: room.summary,
+                ),
+                const SizedBox(height: 4),
+                _HeroMeta(
+                  icon: Icons.access_time_rounded,
+                  text: current ? 'Updated just now' : 'Telemetry stale',
+                ),
+              ],
             ),
           ),
         ],
@@ -293,23 +756,24 @@ class _RoomHero extends StatelessWidget {
   }
 }
 
-class _HeroLine extends StatelessWidget {
-  const _HeroLine({required this.icon, required this.text});
+class _HeroMeta extends StatelessWidget {
+  const _HeroMeta({required this.icon, required this.text});
   final IconData icon;
   final String text;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     return Row(
       children: [
-        Icon(icon, size: 19, color: tokens.textSecondary),
-        const SizedBox(width: 10),
+        Icon(icon, size: 16, color: tokens.textSecondary),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: tokens.textSecondary, fontSize: 14),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
           ),
         ),
       ],
@@ -317,195 +781,576 @@ class _HeroLine extends StatelessWidget {
   }
 }
 
-class _QuickDeviceCard extends StatelessWidget {
-  const _QuickDeviceCard({required this.device});
-  final RoomDevice device;
+class _AdaptiveRoomQuickControlCard extends StatelessWidget {
+  const _AdaptiveRoomQuickControlCard({
+    required this.capability,
+    required this.isFullWidth,
+    this.homeController,
+  });
+
+  final RoomCapability capability;
+  final bool isFullWidth;
+  final HomeController? homeController;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final enabled = device.confidence == ActuatorConfidence.confirmed && false;
-    final devColor = _deviceColor(device.kind, tokens);
-    final devBg = tokens.isDark
-        ? devColor.withValues(alpha: 0.18)
-        : devColor.withValues(alpha: .12);
+    final isOn = capability.value.toLowerCase() == 'on';
 
-    return SizedBox(
-      width: 146,
+    String devId = capability.id;
+    int chIdx = 1;
+    if (capability.id.contains('_ch')) {
+      final parts = capability.id.split('_ch');
+      devId = parts[0];
+      chIdx = int.tryParse(parts[1]) ?? 1;
+    }
+
+    final isSocket = capability.label.toLowerCase().contains('socket');
+    final icon = isSocket ? Icons.power_rounded : _deviceIcon(capability.kind);
+    final devColor = isSocket ? tokens.bluePrimary : _deviceColor(capability.kind, tokens);
+
+    if (isFullWidth) {
+      return _buildWideCard(context, tokens, devColor, icon, isOn, devId, chIdx);
+    }
+    return _buildCompactCard(context, tokens, devColor, icon, isOn, devId, chIdx);
+  }
+
+  Widget _buildCompactCard(
+    BuildContext context,
+    EHThemeTokens tokens,
+    Color devColor,
+    IconData icon,
+    bool isOn,
+    String devId,
+    int chIdx,
+  ) {
+    final isOnline = capability.isOnline;
+    return Opacity(
+      opacity: isOnline ? 1.0 : 0.55,
       child: Container(
-        padding: const EdgeInsets.all(15),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: tokens.surfaceCard,
-          borderRadius: BorderRadius.circular(22),
-          border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
-          boxShadow: tokens.isDark
-              ? null
-              : const [
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: (isOn && isOnline) ? devColor.withValues(alpha: 0.45) : tokens.borderSubtle,
+            width: (isOn && isOnline) ? 1.5 : 1.0,
+          ),
+          boxShadow: (isOn && isOnline)
+              ? [
                   BoxShadow(
-                    color: Color(0x0D0B2448),
-                    blurRadius: 15,
-                    offset: Offset(0, 6),
+                    color: devColor.withValues(alpha: 0.10),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
                   ),
-                ],
+                ]
+              : null,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: devBg,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(_deviceIcon(device.kind), color: devColor, size: 27),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: (isOn && isOnline)
+                        ? devColor
+                        : tokens.isDark
+                            ? const Color(0xFF253347)
+                            : const Color(0xFFEFF2F7),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: (isOn && isOnline) ? Colors.white : tokens.textTertiary,
+                    size: 22,
+                  ),
+                ),
+                Switch.adaptive(
+                  value: isOn && isOnline,
+                  activeThumbColor: devColor,
+                  activeTrackColor: devColor.withValues(alpha: 0.35),
+                  inactiveThumbColor: tokens.switchThumbOff,
+                  inactiveTrackColor: tokens.switchTrackOff,
+                  onChanged: (isOnline && homeController != null)
+                      ? (val) {
+                          homeController!.setDeviceChannelPower(
+                            deviceId: devId,
+                            channelIndex: chIdx,
+                            value: val,
+                          );
+                        }
+                      : null,
+                ),
+              ],
             ),
-            const Spacer(),
+            const SizedBox(height: 14),
             Text(
-              device.name,
-              maxLines: 2,
+              capability.label,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: tokens.textPrimary,
-                fontSize: 15,
+                fontSize: 14,
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 4),
             Text(
-              device.value,
-              style: TextStyle(color: devColor, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 11),
-            Center(
-              child: _UnavailableControl(kind: device.kind, enabled: enabled),
+              !isOnline
+                  ? 'Offline · Unavailable'
+                  : (isOn ? 'Active · ON' : 'Standby · OFF'),
+              style: TextStyle(
+                color: !isOnline
+                    ? tokens.textTertiary
+                    : (isOn ? tokens.success : tokens.textTertiary),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildWideCard(
+    BuildContext context,
+    EHThemeTokens tokens,
+    Color devColor,
+    IconData icon,
+    bool isOn,
+    String devId,
+    int chIdx,
+  ) {
+    final isFan = capability.kind == RoomCapabilityKind.fan;
+    final isOnline = capability.isOnline;
+
+    return Opacity(
+      opacity: isOnline ? 1.0 : 0.55,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: (isOn && isOnline) ? devColor.withValues(alpha: 0.45) : tokens.borderSubtle,
+            width: (isOn && isOnline) ? 1.5 : 1.0,
+          ),
+          boxShadow: (isOn && isOnline)
+              ? [
+                  BoxShadow(
+                    color: devColor.withValues(alpha: 0.10),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: (isOn && isOnline)
+                        ? devColor
+                        : tokens.isDark
+                            ? const Color(0xFF253347)
+                            : const Color(0xFFEFF2F7),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: (isOn && isOnline) ? Colors.white : tokens.textTertiary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        capability.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        !isOnline
+                            ? 'Offline · Unavailable'
+                            : (isOn
+                                ? (isFan ? 'Fan Speed: Active' : 'Power: Active · ON')
+                                : 'Standby · OFF'),
+                        style: TextStyle(
+                          color: !isOnline
+                              ? tokens.textTertiary
+                              : (isOn ? tokens.success : tokens.textTertiary),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch.adaptive(
+                  value: isOn && isOnline,
+                  activeThumbColor: devColor,
+                  activeTrackColor: devColor.withValues(alpha: 0.35),
+                  inactiveThumbColor: tokens.switchThumbOff,
+                  inactiveTrackColor: tokens.switchTrackOff,
+                  onChanged: (isOnline && homeController != null)
+                      ? (val) {
+                          homeController!.setDeviceChannelPower(
+                            deviceId: devId,
+                            channelIndex: chIdx,
+                            value: val,
+                          );
+                        }
+                      : null,
+                ),
+              ],
+            ),
+            if (isFan && isOn && isOnline) ...[
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _speedChip('1', true, devColor, tokens),
+                  _speedChip('2', false, devColor, tokens),
+                  _speedChip('3', false, devColor, tokens),
+                  _speedChip('4', false, devColor, tokens),
+                  _speedChip('Turbo', false, devColor, tokens),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _speedChip(String label, bool active, Color color, EHThemeTokens tokens) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: active ? color : tokens.surfaceElevated,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: active ? color : tokens.borderSubtle,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: active ? Colors.white : tokens.textSecondary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
 }
 
-class _UnavailableControl extends StatelessWidget {
-  const _UnavailableControl({required this.kind, required this.enabled});
-  final RoomCapabilityKind kind;
-  final bool enabled;
+class _QuickDeviceCard extends StatelessWidget {
+  const _QuickDeviceCard({
+    required this.device,
+    this.homeController,
+  });
+
+  final RoomDevice device;
+  final HomeController? homeController;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    if (kind == RoomCapabilityKind.fan) {
-      return SizedBox(
-        width: 92,
-        child: LinearProgressIndicator(
-          value: .4,
-          minHeight: 6,
-          backgroundColor: tokens.isDark ? tokens.borderControl : null,
-          valueColor: AlwaysStoppedAnimation(tokens.bluePrimary),
-        ),
-      );
-    }
-    if (kind == RoomCapabilityKind.curtain) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.chevron_left_rounded, color: tokens.textSecondary),
-          const SizedBox(width: 9),
-          CircleAvatar(
-            radius: 15,
-            backgroundColor: tokens.surfaceElevated,
-            child: Icon(
-              Icons.pause_rounded,
-              size: 18,
-              color: tokens.textPrimary,
+    final isOn = device.value.toLowerCase() == 'on';
+    final liveDev = homeController?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
+          (d) => d?.id == device.id,
+          orElse: () => null,
+        );
+    final isOnline = (liveDev != null)
+        ? liveDev.online
+        : (device.confidence != ActuatorConfidence.unavailable);
+    final isSocket = device.name.toLowerCase().contains('socket') ||
+        device.type.toLowerCase().contains('socket');
+    final icon = isSocket ? Icons.power_rounded : _deviceIcon(device.kind);
+    final devColor = isSocket ? tokens.bluePrimary : _deviceColor(device.kind, tokens);
+
+    return SizedBox(
+      width: 150,
+      child: Opacity(
+        opacity: isOnline ? 1.0 : 0.55,
+        child: Container(
+          padding: const EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: tokens.surfaceCard,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: (isOn && isOnline)
+                  ? devColor.withValues(alpha: 0.5)
+                  : tokens.borderSubtle,
             ),
           ),
-          const SizedBox(width: 9),
-          Icon(Icons.chevron_right_rounded, color: tokens.textSecondary),
-        ],
-      );
-    }
-    return Container(
-      width: 52,
-      height: 30,
-      decoration: BoxDecoration(
-        color: tokens.isDark ? tokens.switchTrackOff : const Color(0xFFE1E5EB),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(
-          color: tokens.isDark ? tokens.borderControl : const Color(0xFFC8CDD5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: (isOn && isOnline)
+                      ? devColor
+                      : tokens.isDark
+                          ? const Color(0xFF253347)
+                          : const Color(0xFFEFF2F7),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: (isOn && isOnline) ? Colors.white : tokens.textTertiary,
+                  size: 24,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                device.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                !isOnline ? 'Offline' : (isOn ? 'On' : 'Off'),
+                style: TextStyle(
+                  color: !isOnline ? tokens.textTertiary : (isOn ? devColor : tokens.textTertiary),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: Switch.adaptive(
+                  value: isOn && isOnline,
+                  activeThumbColor: devColor,
+                  activeTrackColor: devColor.withValues(alpha: 0.35),
+                  inactiveThumbColor: tokens.switchThumbOff,
+                  inactiveTrackColor: tokens.switchTrackOff,
+                  onChanged: (isOnline && homeController != null)
+                      ? (val) {
+                          homeController!.setDeviceChannelPower(
+                            deviceId: device.id,
+                            channelIndex: 1,
+                            value: val,
+                          );
+                        }
+                      : null,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      alignment: Alignment.centerLeft,
-      padding: const EdgeInsets.all(3),
-      child: CircleAvatar(
-        radius: 12,
-        backgroundColor: tokens.isDark ? tokens.switchThumbOff : Colors.white,
       ),
     );
   }
 }
 
 class _DeviceRow extends StatelessWidget {
-  const _DeviceRow({required this.device});
+  const _DeviceRow({
+    required this.device,
+    this.homeController,
+  });
+
   final RoomDevice device;
+  final HomeController? homeController;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final devColor = _deviceColor(device.kind, tokens);
+    final isSocket = device.name.toLowerCase().contains('socket') ||
+        device.type.toLowerCase().contains('socket');
+    final icon = isSocket ? Icons.power_rounded : _deviceIcon(device.kind);
+    final devColor = isSocket ? tokens.bluePrimary : _deviceColor(device.kind, tokens);
     final devBg = tokens.isDark
         ? devColor.withValues(alpha: 0.18)
-        : devColor.withValues(alpha: .12);
+        : devColor.withValues(alpha: 0.12);
+
+    // Look up full device summary from homeController if available
+    final devSummary = homeController?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
+      (d) => d?.id == device.id,
+      orElse: () => null,
+    );
+    final isOnline = devSummary?.online ?? (device.confidence != ActuatorConfidence.unavailable);
 
     return InkWell(
-      onTap: () {},
-      borderRadius: BorderRadius.circular(18),
-      child: Ink(
-        padding: const EdgeInsets.all(13),
+      onTap: () {
+        if (homeController != null && devSummary != null) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => DeviceControlPage(
+                device: devSummary,
+                homeController: homeController!,
+              ),
+            ),
+          );
+        }
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: tokens.surfaceCard,
-          borderRadius: BorderRadius.circular(18),
-          border: tokens.isDark ? Border.all(color: tokens.borderSubtle) : null,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: tokens.borderSubtle),
         ),
-        child: Row(
+        child: Column(
           children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: devBg,
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: Icon(_deviceIcon(device.kind), color: devColor),
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: devBg,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(icon, color: devColor, size: 26),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        device.name,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${device.type} • 3 Channels',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: tokens.bluePrimary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Manage',
+                        style: TextStyle(
+                          color: tokens.bluePrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.chevron_right_rounded,
+                          color: tokens.bluePrimary, size: 16),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    device.name,
-                    style: TextStyle(
-                      color: tokens.textPrimary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
+
+            if (homeController != null) ...[
+              const SizedBox(height: 14),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              // Multi-channel quick controls row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: List.generate(3, (i) {
+                  final chIdx = i + 1;
+                  final isChOn = homeController!.getDeviceChannelPower(
+                    device.id,
+                    chIdx,
+                    defaultValue: chIdx == 1 && homeController!.livingRoomLightOn,
+                  );
+                  final chLabel = isSocket ? 'Outlet $chIdx' : 'Switch $chIdx';
+
+                  return Opacity(
+                    opacity: isOnline ? 1.0 : 0.55,
+                    child: InkWell(
+                      onTap: isOnline
+                          ? () {
+                              homeController!.setDeviceChannelPower(
+                                deviceId: device.id,
+                                channelIndex: chIdx,
+                                value: !isChOn,
+                              );
+                            }
+                          : null,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (isChOn && isOnline)
+                              ? tokens.bluePrimary
+                              : tokens.isDark
+                                  ? const Color(0xFF1B283A)
+                                  : const Color(0xFFEFF3F8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isSocket ? Icons.power_rounded : Icons.lightbulb_rounded,
+                              size: 14,
+                              color: (isChOn && isOnline) ? Colors.white : tokens.textTertiary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              chLabel,
+                              style: TextStyle(
+                                color: (isChOn && isOnline) ? Colors.white : tokens.textPrimary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    device.type,
-                    style: TextStyle(color: tokens.textSecondary, fontSize: 13),
-                  ),
-                ],
+                  );
+                }),
               ),
-            ),
-            Text(
-              device.value,
-              style: TextStyle(
-                color: tokens.bluePrimary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(width: 5),
-            Icon(Icons.chevron_right_rounded, color: tokens.chevron),
+            ],
           ],
         ),
       ),
@@ -767,6 +1612,8 @@ Color _deviceColor(RoomCapabilityKind kind, EHThemeTokens tokens) {
 }
 
 IconData _deviceIcon(RoomCapabilityKind kind) => switch (kind) {
+  RoomCapabilityKind.socket => Icons.power_rounded,
+  RoomCapabilityKind.switchControl => Icons.toggle_on_rounded,
   RoomCapabilityKind.light => Icons.lightbulb_outline_rounded,
   RoomCapabilityKind.lamp => Icons.light_rounded,
   RoomCapabilityKind.fan => Icons.air_rounded,

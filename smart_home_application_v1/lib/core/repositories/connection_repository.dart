@@ -6,10 +6,20 @@ enum ConnectionFailureKind {
   none,
   permissionDenied,
   permissionPermanentlyDenied,
+  bluetoothPermissionRequired,
+  bluetoothPermissionPermanentlyDenied,
+  bluetoothDisabled,
   bluetoothUnavailable,
+  locationPermissionRequired,
+  locationPermissionPermanentlyDenied,
+  locationServicesDisabled,
+  bleUnsupported,
+  bleInitializing,
   scanTimedOut,
+  deviceNotFound,
   deviceDisconnected,
   unsupportedDevice,
+  connectionFailed,
   unknown,
 }
 
@@ -17,6 +27,7 @@ class ConnectionResult {
   const ConnectionResult({
     required this.success,
     required this.message,
+    this.title,
     this.step = ConnectionStep.discovery,
     this.failureKind = ConnectionFailureKind.none,
     this.deviceId,
@@ -27,6 +38,7 @@ class ConnectionResult {
 
   final bool success;
   final String message;
+  final String? title;
   final ConnectionStep step;
   final ConnectionFailureKind failureKind;
   final String? deviceId;
@@ -34,15 +46,33 @@ class ConnectionResult {
   final String? displayName;
   final dynamic channel;
 
-  bool get canRetry =>
-      !success &&
-      failureKind != ConnectionFailureKind.permissionPermanentlyDenied;
+  bool get isPermanentlyDenied =>
+      failureKind == ConnectionFailureKind.permissionPermanentlyDenied ||
+      failureKind ==
+          ConnectionFailureKind.bluetoothPermissionPermanentlyDenied ||
+      failureKind ==
+          ConnectionFailureKind.locationPermissionPermanentlyDenied;
+
+  bool get canRetry => !success && !isPermanentlyDenied;
 
   String get recoveryAction => switch (failureKind) {
-    ConnectionFailureKind.permissionDenied => 'Allow Bluetooth',
-    ConnectionFailureKind.permissionPermanentlyDenied => 'Open app settings',
-    ConnectionFailureKind.bluetoothUnavailable => 'Turn on Bluetooth',
-    ConnectionFailureKind.scanTimedOut => 'Try again',
+    ConnectionFailureKind.permissionDenied ||
+    ConnectionFailureKind.bluetoothPermissionRequired =>
+      'Allow Bluetooth',
+    ConnectionFailureKind.permissionPermanentlyDenied ||
+    ConnectionFailureKind.bluetoothPermissionPermanentlyDenied ||
+    ConnectionFailureKind.locationPermissionPermanentlyDenied =>
+      'Open app settings',
+    ConnectionFailureKind.bluetoothDisabled ||
+    ConnectionFailureKind.bluetoothUnavailable =>
+      'Turn on Bluetooth',
+    ConnectionFailureKind.locationPermissionRequired => 'Allow Location',
+    ConnectionFailureKind.locationServicesDisabled => 'Turn on Location',
+    ConnectionFailureKind.bleUnsupported => 'Unsupported',
+    ConnectionFailureKind.bleInitializing => 'Wait',
+    ConnectionFailureKind.scanTimedOut ||
+    ConnectionFailureKind.deviceNotFound =>
+      'Try again',
     ConnectionFailureKind.deviceDisconnected => 'Reconnect',
     ConnectionFailureKind.unsupportedDevice => 'Find another device',
     _ => 'Try again',

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/energy_predictive_models.dart';
 
 /// Client Service for Energy Forecasting, Baselines, Anomalies, Efficiency & Predictive Optimization
@@ -21,10 +22,11 @@ class EnergyPredictiveService extends ChangeNotifier {
   String? _errorMessage;
 
   EnergyPredictiveService({
-    this.baseUrl = 'http://localhost:3000',
+    String? baseUrl,
     http.Client? client,
     this.authToken,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   EnergyForecast? get currentForecast => _currentForecast;
   EnergyBaseline? get homeBaseline => _homeBaseline;

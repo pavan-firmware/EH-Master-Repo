@@ -230,6 +230,59 @@ class HomeDeviceApiRouter {
         return { status: 200, body: { success: true, data: updated } };
       }
 
+      // Specific Room Operations (/api/v1/rooms/:roomId or /api/v1/homes/:homeId/rooms/:roomId)
+      const singleRoomMatch = path.match(/^\/api\/v1\/rooms\/([^\/]+)$/) || path.match(/^\/api\/v1\/homes\/[^\/]+\/rooms\/([^\/]+)$/);
+      if (singleRoomMatch) {
+        const roomId = singleRoomMatch[1];
+        if (method === 'PATCH') {
+          const updated = await this.roomService.renameRoom({
+            roomId,
+            name: body.name || body.roomName,
+            actorUserId
+          });
+          return { status: 200, body: { success: true, data: updated } };
+        }
+        if (method === 'DELETE') {
+          const res = await this.roomService.deleteRoom({ roomId, actorUserId });
+          return { status: 200, body: { success: true, data: res } };
+        }
+      }
+
+      // Channel Rename (/api/v1/devices/:deviceId/channels/:channelIndex)
+      const channelRenameMatch = path.match(/^\/api\/v1\/devices\/([^\/]+)\/channels\/([0-9]+)$/);
+      if (channelRenameMatch && (method === 'PATCH' || method === 'POST')) {
+        const deviceId = channelRenameMatch[1];
+        const channelIndex = parseInt(channelRenameMatch[2], 10);
+        const newName = body.name || body.label || body.newName;
+        const updated = await this.deviceService.renameChannel({
+          deviceId,
+          channelIndex,
+          newName,
+          actorUserId
+        });
+        return { status: 200, body: { success: true, data: updated } };
+      }
+
+      const channelsBatchMatch = path.match(/^\/api\/v1\/devices\/([^\/]+)\/channels$/);
+      if (channelsBatchMatch && (method === 'PATCH' || method === 'POST')) {
+        const deviceId = channelsBatchMatch[1];
+        let updated;
+        if (body.channelIndex && (body.name || body.label)) {
+          updated = await this.deviceService.renameChannel({
+            deviceId,
+            channelIndex: parseInt(body.channelIndex, 10),
+            newName: body.name || body.label,
+            actorUserId
+          });
+        } else if (body.channelLabels) {
+          const auth = await this.deviceService.deviceRepo.getDeviceAuthorization(deviceId);
+          const currentLabels = (auth && auth.channel_labels) || {};
+          const merged = { ...currentLabels, ...body.channelLabels };
+          updated = await this.deviceService.deviceRepo.updateDeviceAuthorization(deviceId, { channelLabels: merged });
+        }
+        return { status: 200, body: { success: true, data: updated } };
+      }
+
       if (method === 'GET' && path.startsWith('/api/v1/devices/') && !path.includes('/', 17)) {
         const deviceId = path.replace('/api/v1/devices/', '');
         const summary = await this.deviceService.getResolvedDeviceSummary(deviceId);

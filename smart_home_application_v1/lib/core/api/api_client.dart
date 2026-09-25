@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 
 class ApiException implements Exception {
   final int statusCode;
@@ -22,7 +23,10 @@ class ApiException implements Exception {
 
 /// Minimal API client with JWT injection and token refresh.
 class ApiClient {
-  final String baseUrl;
+  String? _baseUrl;
+  String get baseUrl => (_baseUrl != null && _baseUrl!.isNotEmpty) ? _baseUrl! : AppConfig.backendBaseUrl;
+  set baseUrl(String url) => _baseUrl = url;
+
   final http.Client _client = http.Client();
 
   /// Callback to get the current access token
@@ -34,7 +38,9 @@ class ApiClient {
   /// Callback if refresh fails (should trigger logout)
   void Function()? onSessionExpired;
 
-  ApiClient({required this.baseUrl});
+  ApiClient({String? baseUrl}) {
+    _baseUrl = baseUrl;
+  }
 
   Future<dynamic> get(String path) async {
     return _request('GET', path);
@@ -109,8 +115,12 @@ class ApiClient {
       throw ApiException(statusCode: 0, message: 'Network error: $e');
     }
 
-    if (response.statusCode == 401 && !isRetry && onRefreshToken != null) {
-      // Attempt to refresh
+    final isAuthEndpoint = path.startsWith('/api/v1/auth/');
+    if (response.statusCode == 401 &&
+        !isRetry &&
+        !isAuthEndpoint &&
+        onRefreshToken != null) {
+      // Attempt to refresh for expired access token on authenticated endpoints
       final refreshSuccess = await onRefreshToken!();
       if (refreshSuccess) {
         // Retry the original request exactly once

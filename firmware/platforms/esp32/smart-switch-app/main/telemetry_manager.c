@@ -124,7 +124,7 @@ void telemetry_manager_init(void)
 #endif
     uart_driver_install(BL0942_UART_PORT, 256, 0, 0, NULL, 0);
 
-    xTaskCreate(telemetry_task, "telemetry_task", 3072, NULL, 5, NULL);
+    xTaskCreate(telemetry_task, "telemetry_task", 4096, NULL, 5, NULL);
 #endif
     ESP_LOGI(TAG, "BL0942 telemetry driver initialized on UART%d @ %d baud", BL0942_UART_PORT, BL0942_BAUD_RATE);
 }

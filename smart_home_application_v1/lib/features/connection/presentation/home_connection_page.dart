@@ -12,6 +12,8 @@ import 'device_provisioning_page.dart';
 import 'forget_home_page.dart';
 import 'wifi_connection_detail_page.dart';
 
+import '../../../core/services/ble_preflight_service.dart';
+
 class HomeConnectionPage extends StatefulWidget {
   const HomeConnectionPage({
     super.key,
@@ -19,13 +21,17 @@ class HomeConnectionPage extends StatefulWidget {
     this.connectionState,
     this.connectionMessage,
     this.repository = const RealHomeConnectionRepository(),
+    this.systemBleActions,
     this.onDeviceProvisioned,
+    this.initialRoomName,
   });
 
   final Future<ConnectionResult> Function()? onStart;
   final HomeConnectionState? connectionState;
   final String? connectionMessage;
   final HomeConnectionRepository repository;
+  final SystemBleActions? systemBleActions;
+  final String? initialRoomName;
   final void Function({
     required String deviceId,
     required String displayName,
@@ -38,17 +44,39 @@ class HomeConnectionPage extends StatefulWidget {
   State<HomeConnectionPage> createState() => _HomeConnectionPageState();
 }
 
-class _HomeConnectionPageState extends State<HomeConnectionPage> {
+class _HomeConnectionPageState extends State<HomeConnectionPage>
+    with WidgetsBindingObserver {
   late Future<HomeConnectionOverview> _overview;
+  late final SystemBleActions _systemActions;
   bool _checking = false;
   bool _inProgress = false;
+  bool _pendingBleRecovery = false;
   String? _activeStatus;
   String? _errorMessage;
+  String? _errorTitle;
+  String? _recoveryAction;
+  ConnectionFailureKind _failureKind = ConnectionFailureKind.none;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _systemActions = widget.systemBleActions ?? const DefaultSystemBleActions();
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _pendingBleRecovery && !_inProgress) {
+      _pendingBleRecovery = false;
+      _handleConnect();
+    }
   }
 
   @override
@@ -75,28 +103,55 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
     if (mounted) setState(() => _checking = false);
   }
 
-  String _mapErrorMessage(String error) {
-    final lower = error.toLowerCase();
-    if (lower.contains('gatt_err_unlikely') ||
-        lower.contains('writecharacteristicfailure') ||
-        lower.contains('status 14')) {
-      return "Couldn't send secure setup data. Make sure the device is close and powered on.";
+  Future<void> _handleRecoveryTap() async {
+    if (_inProgress) return;
+
+    switch (_failureKind) {
+      case ConnectionFailureKind.bluetoothPermissionRequired:
+        final granted = await _systemActions.requestBluetoothPermission();
+        if (granted) {
+          await _handleConnect();
+        } else {
+          await _handleConnect();
+        }
+        break;
+
+      case ConnectionFailureKind.bluetoothPermissionPermanentlyDenied:
+      case ConnectionFailureKind.locationPermissionPermanentlyDenied:
+      case ConnectionFailureKind.permissionPermanentlyDenied:
+        _pendingBleRecovery = true;
+        await _systemActions.openAppSettings();
+        break;
+
+      case ConnectionFailureKind.bluetoothDisabled:
+      case ConnectionFailureKind.bluetoothUnavailable:
+        _pendingBleRecovery = true;
+        final enabled = await _systemActions.requestBluetoothEnable();
+        if (enabled) {
+          await _handleConnect();
+        } else {
+          await _systemActions.openBluetoothSettings();
+        }
+        break;
+
+      case ConnectionFailureKind.locationPermissionRequired:
+        final granted = await _systemActions.requestLocationPermission();
+        if (granted) {
+          await _handleConnect();
+        } else {
+          await _handleConnect();
+        }
+        break;
+
+      case ConnectionFailureKind.locationServicesDisabled:
+        _pendingBleRecovery = true;
+        await _systemActions.openLocationSettings();
+        break;
+
+      default:
+        await _handleConnect();
+        break;
     }
-    if (lower.contains('no nearby') ||
-        lower.contains('not found') ||
-        lower.contains('scantimedout')) {
-      return "No nearby Smart Home device was found. Make sure it is powered on and close to your phone.";
-    }
-    if (lower.contains('disconnected') || lower.contains('timeout')) {
-      return "The device disconnected or took too long to connect. Keep it nearby and try again.";
-    }
-    if (lower.contains('permission')) {
-      return "Bluetooth and Location permissions are required to discover nearby devices.";
-    }
-    return error
-        .replaceFirst('Exception: ', '')
-        .replaceFirst('Connection failed: ', '')
-        .replaceFirst('Nearby connection failed: ', '');
   }
 
   Future<void> _handleConnect() async {
@@ -105,6 +160,9 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
     setState(() {
       _inProgress = true;
       _errorMessage = null;
+      _errorTitle = null;
+      _recoveryAction = null;
+      _failureKind = ConnectionFailureKind.none;
       _activeStatus = 'Searching for nearby EH Home devices...';
     });
 
@@ -117,6 +175,7 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
         setState(() {
           _inProgress = false;
           _activeStatus = null;
+          _pendingBleRecovery = false;
         });
         navigator.push(
           MaterialPageRoute(
@@ -134,6 +193,7 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
               channel: result.channel is BleCommissioningChannel
                   ? result.channel as BleCommissioningChannel
                   : null,
+              initialRoomName: widget.initialRoomName,
               onDeviceProvisioned:
                   ({
                     required String deviceId,
@@ -158,7 +218,10 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
         setState(() {
           _inProgress = false;
           _activeStatus = null;
-          _errorMessage = _mapErrorMessage(result.message);
+          _failureKind = result.failureKind;
+          _errorTitle = result.title ?? _deriveTitle(result.failureKind);
+          _errorMessage = result.message;
+          _recoveryAction = result.recoveryAction;
         });
       }
     } catch (e) {
@@ -166,9 +229,35 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
       setState(() {
         _inProgress = false;
         _activeStatus = null;
-        _errorMessage = _mapErrorMessage(e.toString());
+        _failureKind = ConnectionFailureKind.unknown;
+        _errorTitle = 'Connection Error';
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        _recoveryAction = 'Try again';
       });
     }
+  }
+
+  String _deriveTitle(ConnectionFailureKind kind) {
+    return switch (kind) {
+      ConnectionFailureKind.bluetoothPermissionRequired =>
+        'Bluetooth permission needed',
+      ConnectionFailureKind.bluetoothPermissionPermanentlyDenied =>
+        'Bluetooth permission is turned off',
+      ConnectionFailureKind.bluetoothDisabled ||
+      ConnectionFailureKind.bluetoothUnavailable =>
+        'Turn on Bluetooth',
+      ConnectionFailureKind.locationPermissionRequired =>
+        'Location permission needed',
+      ConnectionFailureKind.locationPermissionPermanentlyDenied =>
+        'Location permission is turned off',
+      ConnectionFailureKind.locationServicesDisabled => 'Turn on Location',
+      ConnectionFailureKind.bleUnsupported => 'Bluetooth not supported',
+      ConnectionFailureKind.bleInitializing => 'Preparing Bluetooth…',
+      ConnectionFailureKind.scanTimedOut ||
+      ConnectionFailureKind.deviceNotFound =>
+        'No EH Home device found nearby',
+      _ => 'Connection Incomplete',
+    };
   }
 
   @override
@@ -242,12 +331,10 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: tokens.isDark
-                        ? const Color(0xFF331A1A)
-                        : const Color(0xFFFFEEEE),
+                    color: tokens.surfaceCard,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: tokens.error.withValues(alpha: 0.4),
+                      color: tokens.borderSubtle,
                     ),
                   ),
                   child: Column(
@@ -256,19 +343,19 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                       Row(
                         children: [
                           Icon(
-                            Icons.error_outline_rounded,
-                            color: tokens.error,
+                            Icons.info_outline_rounded,
+                            color: tokens.bluePrimary,
                             size: 20,
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            'Connection Incomplete',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: tokens.isDark
-                                  ? Colors.white
-                                  : const Color(0xFF991B1B),
+                          Expanded(
+                            child: Text(
+                              _errorTitle ?? 'Setup Status',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: tokens.textPrimary,
+                              ),
                             ),
                           ),
                         ],
@@ -279,11 +366,36 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                         style: TextStyle(
                           fontSize: 13,
                           height: 1.35,
-                          color: tokens.isDark
-                              ? const Color(0xFFFCA5A5)
-                              : tokens.errorText,
+                          color: tokens.textSecondary,
                         ),
                       ),
+                      if (_recoveryAction != null) ...[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _handleRecoveryTap,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: tokens.bluePrimary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 16,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: Text(
+                              _recoveryAction!,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -336,6 +448,37 @@ class _HomeConnectionPageState extends State<HomeConnectionPage> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: tokens.bluePrimary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add_rounded, size: 22),
+                    label: const Text(
+                      'Add Another Device',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DeviceProvisioningPage(
+                          deviceName: 'EH Smart Device',
+                          onDeviceProvisioned: widget.onDeviceProvisioned,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ] else ...[

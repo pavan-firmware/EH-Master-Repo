@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/repositories/account_home_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/iana_timezones.dart';
 import '../../../app/home_controller.dart';
 
 class HomeOnboardingScreen extends StatefulWidget {
@@ -204,7 +205,7 @@ class _HomeOnboardingScreenState extends State<HomeOnboardingScreen> {
             style: TextStyle(color: tokens.textPrimary),
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(
-              hintText: 'e.g. Pavan Home or Villa',
+              hintText: 'e.g. My Sweet Home or Lake Villa',
               hintStyle: TextStyle(color: tokens.textTertiary),
               filled: true,
               fillColor: tokens.surfaceCard,
@@ -269,7 +270,7 @@ class _HomeOnboardingScreenState extends State<HomeOnboardingScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Timezone (Optional)
+          // Timezone (Predefined IANA Timezone)
           Text(
             'Timezone',
             style: TextStyle(
@@ -281,13 +282,26 @@ class _HomeOnboardingScreenState extends State<HomeOnboardingScreen> {
           const SizedBox(height: 8),
           TextFormField(
             controller: _timezoneController,
+            readOnly: true,
             style: TextStyle(color: tokens.textPrimary),
+            onTap: () async {
+              final selected = await showIanaTimezonePicker(
+                context,
+                initialValue: _timezoneController.text,
+              );
+              if (selected != null) {
+                setState(() {
+                  _timezoneController.text = selected;
+                });
+              }
+            },
             decoration: InputDecoration(
-              hintText: 'e.g. Asia/Kolkata or UTC',
+              hintText: 'Select timezone',
               hintStyle: TextStyle(color: tokens.textTertiary),
               filled: true,
               fillColor: tokens.surfaceCard,
               prefixIcon: Icon(Icons.schedule_rounded, color: tokens.textSecondary),
+              suffixIcon: Icon(Icons.arrow_drop_down_rounded, color: tokens.textSecondary, size: 28),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: tokens.borderControl),

@@ -50,7 +50,7 @@ class DeviceEventTelemetryIngestionService {
    * @param {Object}   [opts.healthRepo]     - DeviceHealthRepository instance
    * @param {Object}   [opts.energyService]  - EnergyService instance
    */
-  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null, energyService = null }) {
+  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null, energyService = null, eventBus = null, deviceRepo = null }) {
     this.deviceStateRepo = deviceStateRepo;
     this.eventRepo       = eventRepo;
     this.commandRepo     = commandRepo;
@@ -59,6 +59,8 @@ class DeviceEventTelemetryIngestionService {
     this.activityLogRepo = activityLogRepo;
     this.healthRepo      = healthRepo;
     this.energyService   = energyService;
+    this.eventBus        = eventBus;
+    this.deviceRepo      = deviceRepo;
     this._telemetryLastSeqByDevice = new Map(); // deviceId -> { channelIndex -> lastSeq }
   }
 
@@ -82,7 +84,11 @@ class DeviceEventTelemetryIngestionService {
     const connectionState = availability === 'ONLINE' ? 'ONLINE' : 'OFFLINE';
 
     try {
-      await this.deviceStateRepo.updateDeviceConnection(deviceId, connectionState);
+      const updated = await this.deviceStateRepo.updateDeviceConnection(deviceId, connectionState);
+      if (!updated) {
+        // Unknown or unregistered device on broker, ignore
+        return;
+      }
 
       if (this.healthRepo) {
         await this.healthRepo.upsertMetrics({
@@ -101,6 +107,23 @@ class DeviceEventTelemetryIngestionService {
           message: `Device is now ${connectionState}`,
           details: { availability }
         });
+      }
+
+      if (this.eventBus) {
+        let homeId = null;
+        if (this.deviceRepo) {
+          try {
+            const auth = await this.deviceRepo.getDeviceAuthorization(deviceId);
+            if (auth && auth.home_id) homeId = auth.home_id;
+          } catch (_) {}
+        }
+        if (homeId) {
+          this.eventBus.publish({
+            homeId,
+            type: 'device.availability',
+            payload: { deviceId, status: connectionState }
+          });
+        }
       }
     } catch (err) {
       console.warn(`[Ingestion] Cannot update availability for ${deviceId}:`, err.message);
@@ -159,6 +182,23 @@ class DeviceEventTelemetryIngestionService {
           }
         }
       }
+
+      if (this.eventBus) {
+        let homeId = null;
+        if (this.deviceRepo) {
+          try {
+            const auth = await this.deviceRepo.getDeviceAuthorization(stateMsg.deviceId);
+            if (auth && auth.home_id) homeId = auth.home_id;
+          } catch (_) {}
+        }
+        if (homeId) {
+          this.eventBus.publish({
+            homeId,
+            type: 'device.state',
+            payload: stateMsg
+          });
+        }
+      }
     } catch (err) {
       console.warn(`[Ingestion] handleDeviceState error for ${stateMsg.deviceId}:`, err.message);
     }
@@ -193,8 +233,10 @@ class DeviceEventTelemetryIngestionService {
         timestamp: eventMsg.timestamp || new Date().toISOString()
       });
     } catch (err) {
-      // May fail on duplicate eventId replay — log and continue
-      if (!err.message.includes('Unique constraint violation')) {
+      // Handle idempotency on duplicate eventId replay
+      const isUniqueViolation = err.code === '23505' ||
+        (err.message && err.message.toLowerCase().includes('unique constraint'));
+      if (!isUniqueViolation) {
         console.warn(`[Ingestion] Failed to record event ${eventMsg.eventId}:`, err.message);
       }
     }
@@ -223,7 +265,7 @@ class DeviceEventTelemetryIngestionService {
     // Enqueue outbox notification for downstream consumers (e.g., Flutter SSE/WebSocket)
     try {
       await this.outboxRepo.enqueue({
-        id: `outbox_evt_${eventMsg.eventId}`,
+        id: `outbox_evt_${eventMsg.eventId}_${Date.now()}`,
         eventType: 'DEVICE_EVENT',
         aggregateType: 'device',
         aggregateId: eventMsg.deviceId,
@@ -237,8 +279,40 @@ class DeviceEventTelemetryIngestionService {
         }
       });
     } catch (err) {
-      if (!err.message.includes('Unique constraint violation')) {
+      const isUniqueViolation = err.code === '23505' ||
+        (err.message && err.message.toLowerCase().includes('unique constraint'));
+      if (!isUniqueViolation) {
         console.warn('[Ingestion] Failed to enqueue event outbox record:', err.message);
+      }
+    }
+
+    // Publish to real-time eventBus so active SSE clients receive immediate state updates
+    if (this.eventBus) {
+      let homeId = null;
+      if (this.deviceRepo) {
+        try {
+          const auth = await this.deviceRepo.getDeviceAuthorization(eventMsg.deviceId);
+          if (auth && auth.home_id) homeId = auth.home_id;
+        } catch (_) {}
+      }
+      if (homeId) {
+        this.eventBus.publish({
+          homeId,
+          type: 'device.state',
+          payload: {
+            deviceId: eventMsg.deviceId,
+            channels: [{
+              channelIndex: eventMsg.channelIndex,
+              reportedState: eventMsg.payload,
+              desiredState: eventMsg.payload
+            }]
+          }
+        });
+        this.eventBus.publish({
+          homeId,
+          type: 'device.event',
+          payload: eventMsg
+        });
       }
     }
   }

@@ -1,0 +1,7 @@
+## IDF Component Manager Manifest File
+## EH Smart Switch 3X - Pinned to ESP-IDF 5.4.x (Built-in MQTT Architecture)
+dependencies:
+  idf:
+    version: "^5.4.0"
+
+

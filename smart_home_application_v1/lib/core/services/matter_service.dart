@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/matter_models.dart';
 
 /// Phase 29 — Matter & Multi-Platform Integration Client Service
@@ -10,9 +11,10 @@ class MatterService extends ChangeNotifier {
   String? _authToken;
 
   MatterService({
-    this.baseUrl = 'http://localhost:3000',
+    String? baseUrl,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _client = client ?? http.Client();
 
   void updateToken(String? token) {
     _authToken = token;
