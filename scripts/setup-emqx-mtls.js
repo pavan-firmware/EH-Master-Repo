@@ -270,6 +270,7 @@ async function setupEmqxMtls(options = {}) {
     keyfile = "/opt/emqx/etc/local-certs/server.key"
     verify = "verify_peer"
     fail_if_no_peer_cert = true
+    peer_cert_as_clientid = "cn"
   }
 }
 authorization {

@@ -44,8 +44,14 @@ async function request(method, path, body = null, token = null, headers = {}) {
       headersSent: false,
       writeHead(code, hdrs) {
         responseStatus = code;
-        responseHeaders = hdrs || {};
+        responseHeaders = { ...responseHeaders, ...(hdrs || {}) };
         this.headersSent = true;
+      },
+      setHeader(name, val) {
+        responseHeaders[name.toLowerCase()] = val;
+      },
+      getHeader(name) {
+        return responseHeaders[name.toLowerCase()];
       },
       end(chunk) {
         if (chunk) responseBody += chunk.toString();
@@ -84,7 +90,7 @@ async function registerAndLogin(prefix) {
   const password = 'Password123!';
   const name = `${prefix} User`;
 
-  const regRes = await request('POST', '/api/v1/auth/register', { email, password, name });
+  const regRes = await request('POST', '/api/v1/auth/register', { email, password, name, fullName: name });
   assert.strictEqual(regRes.status, 201, `Registration failed for ${email}`);
 
   const loginRes = await request('POST', '/api/v1/auth/login', { email, password });
@@ -102,6 +108,7 @@ async function runPhase48Tests() {
   console.log('================================================================\n');
 
   dbClient = createDatabaseClient({
+    mode: process.env.DB_ADAPTER === 'postgres' ? 'postgres' : 'inmemory',
     connectionString: process.env.DATABASE_URL
   });
   await dbClient.connect();
