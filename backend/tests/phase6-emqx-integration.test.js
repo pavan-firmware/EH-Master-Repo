@@ -115,6 +115,11 @@ function checkEmqxReachable(url) {
     console.log(' [BLOCKED] EMQX CONTAINER NOT RUNNING ON PORT 1883.');
     console.log(' Required action: Start container via: docker compose up -d emqx');
     console.log('----------------------------------------------------------------\n');
+    if (process.env.CI || process.argv.includes('--ci') || process.env.REQUIRE_EMQX === 'true') {
+      console.error(' [FATAL] Live EMQX 5.8.0 suite is MANDATORY in CI. Broker unreachable on port 1883.');
+      console.error(' [FATAL] Silent skipping is disallowed in CI mode. Failing CI gate with exit code 1.\n');
+      process.exit(1);
+    }
     process.exit(2);
   }
 

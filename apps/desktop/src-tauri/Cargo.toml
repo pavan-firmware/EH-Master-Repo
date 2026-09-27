@@ -1,0 +1,21 @@
+[package]
+name = "eh-home-desktop"
+version = "1.0.0"
+description = "EH Home Engineering & Manufacturing Desktop Workbench (Tauri v2 Native Layer)"
+authors = ["EH Home Engineering <dev@ehhome.io>"]
+license = "Proprietary"
+repository = "https://github.com/pavan-firmware/EH-Master-Repo"
+edition = "2021"
+
+[lib]
+name = "eh_home_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

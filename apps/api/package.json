@@ -1,0 +1,31 @@
+{
+  "name": "@eh-home/api",
+  "version": "1.0.0",
+  "description": "EH Home Modular Monolith Backend (Fastify + TypeScript + Drizzle ORM)",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "private": true,
+  "scripts": {
+    "dev": "tsc && node dist/server.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
+    "test": "node tests/api.test.js && node tests/product.test.js && node tests/hardware.test.js && node tests/firmware.test.js && node tests/firmware-pipeline.test.js && node tests/inventory.test.js && node tests/mqtt-telemetry-ota.test.js && node tests/security-rbac-audit.test.js"
+  },
+  "dependencies": {
+    "@eh-home/contracts": "workspace:*",
+    "@eh-home/db-schema": "workspace:*",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/sensible": "^6.0.3",
+    "drizzle-orm": "^0.38.4",
+    "fastify": "^5.2.1",
+    "fastify-plugin": "^5.0.1",
+    "pg": "^8.13.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.11.11",
+    "typescript": "^5.8.2"
+  }
+}

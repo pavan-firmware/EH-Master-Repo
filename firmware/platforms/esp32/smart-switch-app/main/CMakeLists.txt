@@ -32,3 +32,22 @@ idf_component_register(
         json
         lwip
 )
+
+# Determine authoritative firmware family from CMake variable, environment, or default
+if(NOT DEFINED EH_FIRMWARE_FAMILY)
+    if(DEFINED ENV{EH_FIRMWARE_FAMILY})
+        set(EH_FIRMWARE_FAMILY "$ENV{EH_FIRMWARE_FAMILY}")
+    else()
+        set(EH_FIRMWARE_FAMILY "esp32c6-switch-platform")
+    endif()
+endif()
+
+# Pass firmware family compile definition to main component
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    EH_FIRMWARE_FAMILY="${EH_FIRMWARE_FAMILY}"
+)
+
+# Export build-time family metadata to build directory
+file(WRITE "${CMAKE_BINARY_DIR}/firmware_family.json"
+    "{\n  \"firmwareFamily\": \"${EH_FIRMWARE_FAMILY}\",\n  \"targetMcu\": \"${CONFIG_IDF_TARGET}\",\n  \"idfTarget\": \"${CONFIG_IDF_TARGET}\"\n}\n"
+)

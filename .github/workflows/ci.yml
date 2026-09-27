@@ -405,7 +405,54 @@ jobs:
           node backend/tests/phase6-emqx-integration.test.js 2>&1 | tee test-results.log
 
       # ----------------------------------------------------------
-      # 20. Dump EMQX logs on any failure for diagnosis
+      # 20. Phase 49 Part 14 RBAC, Security & Audit Tests
+      # ----------------------------------------------------------
+      - name: Run Part 14 RBAC, Security & Audit Tests
+        run: node apps/api/tests/security-rbac-audit.test.js
+
+      # ----------------------------------------------------------
+      # 21. Phase 50 Part 15 E2E Cross-Layer Master Flows Tests
+      # ----------------------------------------------------------
+      - name: Run Part 15 E2E Cross-Layer Master Flows Tests
+        run: node apps/api/tests/e2e-master-flows.test.js
+
+      # ----------------------------------------------------------
+      # 21b. Part 15 Desktop E2E & Cross-Layer Integration Suite
+      # ----------------------------------------------------------
+      - name: Run Part 15 Desktop E2E & Cross-Layer Integration Suite
+        run: node apps/desktop/tests/desktop-e2e.test.js
+
+      # ----------------------------------------------------------
+      # 21c. Desktop UI Domain Reconciliation & Native Security Suite
+      # ----------------------------------------------------------
+      - name: Run Desktop UI Domain Reconciliation & Native Security Suite
+        run: |
+          node apps/desktop/tests/desktop.test.js
+          node apps/desktop/tests/native-boundary-security.test.js
+          node apps/desktop/tests/bench-provisioner.test.js
+          node apps/desktop/tests/label-printer.test.js
+          node apps/desktop/tests/packing.test.js
+          node apps/desktop/tests/ui-reconciliation.test.js
+
+      # ----------------------------------------------------------
+      # 21d. Part 16 S3-Compatible Storage, MinIO & Backup Recovery Suite
+      # ----------------------------------------------------------
+      - name: Run Part 16 Storage, MinIO & Backup Recovery Tests
+        run: |
+          node packages/contracts/tests/storage-contract.test.js
+          node --test apps/api/tests/storage-provider.test.js
+          node --test apps/api/tests/backup-restore-recovery.test.js
+          node --test apps/api/tests/storage-backup-routes.test.js
+
+
+      # ----------------------------------------------------------
+      # 22. Full Monorepo Pre-Push Validation Suite
+      # ----------------------------------------------------------
+      - name: Run Full Monorepo Pre-Push Validation Suite
+        run: node scripts/validate-repo.js
+
+      # ----------------------------------------------------------
+      # 23. Dump EMQX logs on any failure for diagnosis
       # ----------------------------------------------------------
       - name: Dump EMQX Broker Logs on Failure
         if: failure()

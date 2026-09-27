@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/product_catalog_models.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
 
 /// Generic, metadata-driven ProductCard widget.
 /// Works for all current and future product families without SKU hardcoding.
@@ -57,21 +58,15 @@ class ProductCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top Row: Category Icon + Badges
+                // Top Row: Product Image/Category Icon + Badges
                 Row(
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: tokens.iconBgBlue,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        _getCategoryIcon(product.category),
-                        color: tokens.bluePrimary,
-                        size: 24,
-                      ),
+                    ProductImageWidget(
+                      imageUrl: product.imageUrl,
+                      size: 44,
+                      borderRadius: BorderRadius.circular(12),
+                      fallbackIcon: _getCategoryIcon(product.category),
+                      placeholderColor: tokens.iconBgBlue,
                     ),
                     const SizedBox(width: 12),
                     Expanded(

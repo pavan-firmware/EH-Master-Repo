@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
+import '../../../core/capabilities/models/capability_models.dart';
+import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
 
 class DeviceControlPage extends StatefulWidget {
   const DeviceControlPage({
@@ -22,15 +25,27 @@ class DeviceControlPage extends StatefulWidget {
 class _DeviceControlPageState extends State<DeviceControlPage> {
   // Track custom channel labels
   final Map<int, String> _channelLabels = {};
+  ProductVariantDefinition? _variant;
 
   @override
   void initState() {
     super.initState();
     final saved = DeviceStorageService.getChannelLabels(widget.device.id);
     _channelLabels.addAll(saved);
+    _loadVariantMetadata();
+  }
+
+  Future<void> _loadVariantMetadata() async {
+    final v = await ProductCatalogRepository.instance.getProductVariant(widget.device.model);
+    if (v != null && mounted) {
+      setState(() {
+        _variant = v;
+      });
+    }
   }
 
   int get _channelCount {
+    if (_variant != null) return _variant!.channelCount;
     final modelLower = widget.device.model.toLowerCase();
     final nameLower = widget.device.name.toLowerCase();
     if (modelLower.contains('4x') || nameLower.contains('4x')) return 4;
@@ -42,24 +57,36 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
   }
 
   bool get _isSocket {
+    if (_variant != null) {
+      return _variant!.productFamily == 'smart_socket' || _variant!.capabilities.contains('socket');
+    }
     final modelLower = widget.device.model.toLowerCase();
     final nameLower = widget.device.name.toLowerCase();
     return modelLower.contains('socket') || nameLower.contains('socket');
   }
 
   bool get _isDimmer {
+    if (_variant != null) {
+      return _variant!.capabilities.contains('brightness') || _variant!.capabilities.contains('dimmer');
+    }
     final modelLower = widget.device.model.toLowerCase();
     final nameLower = widget.device.name.toLowerCase();
     return modelLower.contains('dimmer') || nameLower.contains('dimmer');
   }
 
   bool get _isFan {
+    if (_variant != null) {
+      return _variant!.productFamily == 'smart_fan' || _variant!.capabilities.contains('fan_speed');
+    }
     final modelLower = widget.device.model.toLowerCase();
     final nameLower = widget.device.name.toLowerCase();
     return modelLower.contains('fan') || nameLower.contains('fan');
   }
 
   bool get _isCurtain {
+    if (_variant != null) {
+      return _variant!.capabilities.contains('curtain');
+    }
     final modelLower = widget.device.model.toLowerCase();
     final nameLower = widget.device.name.toLowerCase();
     return modelLower.contains('curtain') || nameLower.contains('curtain');
@@ -73,6 +100,9 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
     if (saved.containsKey(index)) {
       _channelLabels[index] = saved[index]!;
       return saved[index]!;
+    }
+    if (_variant != null && _variant!.channels.length >= index) {
+      return _variant!.channels[index - 1].defaultLabel;
     }
     final prefix = _isSocket
         ? 'Socket'
@@ -495,18 +525,12 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
                   children: [
                     Row(
                       children: [
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: tokens.bluePrimary.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Icon(
-                            _productIcon,
-                            color: tokens.bluePrimary,
-                            size: 30,
-                          ),
+                        ProductImageWidget(
+                          imageUrl: _variant?.imageUrl,
+                          size: 56,
+                          borderRadius: BorderRadius.circular(18),
+                          fallbackIcon: _productIcon,
+                          placeholderColor: tokens.bluePrimary.withValues(alpha: 0.18),
                         ),
                         const SizedBox(width: 16),
                         Expanded(

@@ -36,12 +36,27 @@ const migrations = [
 ];
 
 
+const dbSchemaMigrationsDir = path.join(__dirname, '../../packages/db-schema/migrations');
+
+const packagesMigrations = [
+  { up: '030_hardware_bom_management.sql', down: '030_hardware_bom_management.down.sql', dir: dbSchemaMigrationsDir },
+  { up: '031_firmware_git_binary_management.sql', down: '031_firmware_git_binary_management.down.sql', dir: dbSchemaMigrationsDir },
+  { up: '033_production_inventory_packing.sql', down: '033_production_inventory_packing.down.sql', dir: dbSchemaMigrationsDir },
+  { up: '034_telemetry_mqtt_ota.sql', down: '034_telemetry_mqtt_ota.down.sql', dir: dbSchemaMigrationsDir },
+  { up: '035_security_rbac_audit.sql', down: '035_security_rbac_audit.down.sql', dir: dbSchemaMigrationsDir }
+];
+
 let totalUpTables = [];
 let errors = 0;
 
-migrations.forEach(({ up, down }) => {
-  const upSql = fs.readFileSync(path.join(__dirname, up), 'utf8');
-  const downSql = fs.readFileSync(path.join(__dirname, down), 'utf8');
+const allMigrations = [
+  ...migrations.map((m) => ({ ...m, dir: __dirname })),
+  ...packagesMigrations
+];
+
+allMigrations.forEach(({ up, down, dir }) => {
+  const upSql = fs.readFileSync(path.join(dir, up), 'utf8');
+  const downSql = fs.readFileSync(path.join(dir, down), 'utf8');
 
   const createRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)/gi;
   let match;
