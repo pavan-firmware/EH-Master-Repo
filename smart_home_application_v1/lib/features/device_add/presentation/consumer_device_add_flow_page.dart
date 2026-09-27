@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/product_catalog_models.dart';
 import '../../../core/services/product_catalog_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
 import '../../product_discovery/presentation/compatibility_result_widget.dart';
 
 /// Complete Consumer Device Add Wizard Flow.
@@ -319,14 +320,12 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           ),
           child: Row(
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: tokens.iconBgBlue,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(Icons.settings_input_component_rounded, color: tokens.bluePrimary),
+              ProductImageWidget(
+                imageUrl: _product!.imageUrl,
+                size: 48,
+                borderRadius: BorderRadius.circular(12),
+                fallbackIcon: Icons.settings_input_component_rounded,
+                placeholderColor: tokens.iconBgBlue,
               ),
               const SizedBox(width: 14),
               Expanded(

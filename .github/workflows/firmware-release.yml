@@ -1,0 +1,127 @@
+name: EH Home Firmware Release Validation & Packaging
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - '*@v*.*.*'
+  workflow_dispatch:
+    inputs:
+      releaseTag:
+        description: 'Release Git tag (e.g. esp32c6-switch-platform@v1.0.0 or v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      firmwareFamily:
+        description: 'Target firmware family'
+        required: true
+        default: 'esp32c6-switch-platform'
+      targetMcu:
+        description: 'Target silicon MCU'
+        required: true
+        default: 'esp32-c6'
+      idfTarget:
+        description: 'Target ESP-IDF silicon'
+        required: true
+        default: 'esp32c6'
+      releaseChannel:
+        description: 'Release channel'
+        required: true
+        default: 'production'
+
+jobs:
+  validate-and-package-production-release:
+    name: Build & Package Production ESP32-C6 Firmware Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Verify Release Tag Syntax, Resolve Family & Enforce Production Release Guard
+        run: |
+          RELEASE_TAG="${{ github.ref_name || inputs.releaseTag }}"
+          echo "Validating release tag: $RELEASE_TAG"
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "Release anchored to commit: $COMMIT_SHA"
+
+          # Model A: Family-Specific Release Resolution & Validation (BEFORE COMPILATION)
+          node -e '
+            const contracts = require("./packages/contracts");
+            const tag = process.env.RELEASE_TAG;
+            const parsed = contracts.parseReleaseTag(tag);
+            console.log("Parsed Tag:", JSON.stringify(parsed));
+
+            const validation = contracts.validateProductionReleaseFamily(parsed.firmwareFamily);
+            if (!validation.valid) {
+              console.error("::error::Firmware family \"" + parsed.firmwareFamily + "\" is not currently eligible for production release. " + (validation.error || ""));
+              process.exit(1);
+            }
+
+            const meta = validation.metadata;
+            console.log("Validated Production Family:", meta.id);
+            console.log("Target MCU:", meta.targetMcu);
+            console.log("IDF Target:", meta.idfTarget);
+            console.log("Toolchain:", meta.toolchain);
+
+            const fs = require("fs");
+            fs.appendFileSync(process.env.GITHUB_ENV, "TARGET_FAMILY=" + meta.id + "\n");
+            fs.appendFileSync(process.env.GITHUB_ENV, "TARGET_VERSION=" + parsed.version + "\n");
+            fs.appendFileSync(process.env.GITHUB_ENV, "TARGET_MCU=" + meta.targetMcu + "\n");
+            fs.appendFileSync(process.env.GITHUB_ENV, "IDF_TARGET=" + meta.idfTarget + "\n");
+            fs.appendFileSync(process.env.GITHUB_ENV, "TOOLCHAIN=" + meta.toolchain + "\n");
+          '
+        env:
+          RELEASE_TAG: ${{ github.ref_name || inputs.releaseTag }}
+
+      - name: Clean Firmware Build Directory
+        run: |
+          rm -rf firmware/platforms/esp32/smart-switch-app/build
+          rm -rf firmware/platforms/esp32/smart-switch-app/sdkconfig
+
+      - name: Compile Production Firmware with ESP-IDF 5.4.1
+        uses: espressif/esp-idf-ci-action@v1
+        env:
+          EH_FIRMWARE_FAMILY: ${{ env.TARGET_FAMILY }}
+        with:
+          esp_idf_version: 'v5.4.1'
+          target: ${{ env.IDF_TARGET }}
+          path: 'firmware/platforms/esp32/smart-switch-app'
+
+      - name: Execute Production Release Pipeline & Generate Manifest
+        run: |
+          sudo chmod -R a+rX firmware/platforms/esp32/smart-switch-app
+          node scripts/firmware_pipeline.js --target-mcu "${TARGET_MCU}" --idf-target "${IDF_TARGET}" --toolchain "${TOOLCHAIN}" --family "${TARGET_FAMILY}" --version "${TARGET_VERSION}" --profile release --skip-tests
+
+      - name: Verify Production Manifest Content & Embedded Family Identity
+        run: |
+          test -f firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q "\"targetMcu\": \"${TARGET_MCU}\"" firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q "\"idfTarget\": \"${IDF_TARGET}\"" firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q "\"toolchain\": \"${TOOLCHAIN}\"" firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q "\"firmwareFamily\": \"${TARGET_FAMILY}\"" firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q -F "EH_FIRMWARE_FAMILY:${TARGET_FAMILY}:END_FAMILY" firmware/platforms/esp32/smart-switch-app/build/eh-smart-switch-app.bin
+          cat firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+
+      - name: Upload Production Firmware Release Bundle (ESP32-C6)
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-firmware-release-${{ env.TARGET_FAMILY }}-${{ env.TARGET_VERSION }}
+          path: |
+            firmware/platforms/esp32/smart-switch-app/build/eh-smart-switch-app.bin
+            firmware/platforms/esp32/smart-switch-app/build/bootloader/bootloader.bin
+            firmware/platforms/esp32/smart-switch-app/build/partition_table/partition-table.bin
+            firmware/platforms/esp32/smart-switch-app/build/eh-smart-switch-app.elf
+            firmware/platforms/esp32/smart-switch-app/build/eh-smart-switch-app.map
+            firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          retention-days: 90

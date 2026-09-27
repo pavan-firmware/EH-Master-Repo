@@ -1,0 +1,22 @@
+{
+  "name": "@eh-home/db-schema",
+  "version": "1.0.0",
+  "description": "EH Home PostgreSQL & Drizzle ORM Schema Definitions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/db-schema.test.js && node tests/migration-safety.test.js"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.38.4",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.11.11",
+    "typescript": "^5.8.2"
+  }
+}

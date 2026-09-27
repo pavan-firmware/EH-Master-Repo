@@ -283,6 +283,14 @@ static void on_telemetry_ready(const bl0942_data_t* data)
     }
 }
 
+#ifndef EH_FIRMWARE_FAMILY
+#define EH_FIRMWARE_FAMILY "esp32c6-switch-platform"
+#endif
+
+// Embedded firmware family signature for deterministic post-compilation artifact verification
+static const char __attribute__((used)) s_eh_firmware_family_sig[] =
+    "EH_FIRMWARE_FAMILY:" EH_FIRMWARE_FAMILY ":END_FAMILY";
+
 #ifndef EH_FIRMWARE_VERSION
 #define EH_FIRMWARE_VERSION "1.0.0"
 #endif
@@ -311,6 +319,7 @@ static void log_diagnostic_banner(const factory_identity_v2_t* id)
     ESP_LOGI(TAG, "EH SMART HOME PROTOTYPE");
     ESP_LOGI(TAG, "==================================================");
     ESP_LOGI(TAG, "Product      : %s", EH_PRODUCT_TYPE);
+    ESP_LOGI(TAG, "Family       : %s [%s]", EH_FIRMWARE_FAMILY, s_eh_firmware_family_sig);
     ESP_LOGI(TAG, "Variant      : %s", EH_PRODUCT_VARIANT);
     ESP_LOGI(TAG, "Hardware     : %s", EH_HARDWARE_TARGET);
     ESP_LOGI(TAG, "Firmware     : %s", EH_FIRMWARE_VERSION);

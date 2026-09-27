@@ -1,0 +1,191 @@
+name: EH Home Firmware CI & Multi-Target Verification
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'firmware/**'
+      - 'scripts/firmware_pipeline.js'
+      - 'scripts/build_firmware.ps1'
+      - 'scripts/check-esp-idf-toolchain.js'
+      - '.github/workflows/firmware-*.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'firmware/**'
+      - 'scripts/firmware_pipeline.js'
+      - 'scripts/build_firmware.ps1'
+      - 'scripts/check-esp-idf-toolchain.js'
+      - '.github/workflows/firmware-*.yml'
+  workflow_dispatch:
+    inputs:
+      targetMcu:
+        description: 'Silicon MCU target (esp32-c6 or esp32)'
+        required: true
+        default: 'esp32-c6'
+      firmwareFamily:
+        description: 'Firmware platform family'
+        required: true
+        default: 'esp32c6-switch-platform'
+      version:
+        description: 'Semantic version'
+        required: true
+        default: '1.0.0'
+      buildProfile:
+        description: 'Build profile'
+        required: true
+        default: 'release'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # JOB 1: Toolchain Guard & Firmware Host Unit Tests
+  # ============================================================
+  verify-toolchain-and-tests:
+    name: Toolchain Drift Guard & Host Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Run ESP-IDF Toolchain Invariant Guard
+        run: node scripts/check-esp-idf-toolchain.js
+
+      - name: Run Firmware Host & Protocol Tests
+        run: node firmware/tests/test_firmware_modules.js
+
+      - name: Run Hardware Integration Validation Tests
+        run: node firmware/tests/test_phase48_firmware_hardware.js
+
+  # ============================================================
+  # JOB 2: Production ESP32-C6 Compilation (RISC-V Architecture)
+  # ============================================================
+  build-production-esp32c6:
+    name: Production ESP32-C6 Build & Package Manifest (RISC-V)
+    needs: verify-toolchain-and-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Clean Prior Build Output
+        run: |
+          rm -rf firmware/platforms/esp32/smart-switch-app/build
+          rm -rf firmware/platforms/esp32/smart-switch-app/sdkconfig
+
+      - name: Deterministic ESP-IDF 5.4.1 Production Build (ESP32-C6)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: 'v5.4.1'
+          target: 'esp32c6'
+          path: 'firmware/platforms/esp32/smart-switch-app'
+
+      - name: Execute Production Artifact Discovery, Checksum & Manifest Generation
+        run: |
+          sudo chmod -R a+rX firmware/platforms/esp32/smart-switch-app
+          node scripts/firmware_pipeline.js --target-mcu esp32-c6 --idf-target esp32c6 --family esp32c6-switch-platform --profile release --skip-tests
+
+      - name: Verify Production Manifest Content
+        run: |
+          test -f firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q '"targetMcu": "esp32-c6"' firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q '"idfTarget": "esp32c6"' firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q '"toolchain": "riscv32-esp-elf"' firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+
+      - name: Upload Production ESP32-C6 Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32c6-production-build-${{ github.sha }}
+          path: |
+            firmware/platforms/esp32/smart-switch-app/build/*.bin
+            firmware/platforms/esp32/smart-switch-app/build/bootloader/*.bin
+            firmware/platforms/esp32/smart-switch-app/build/partition_table/*.bin
+            firmware/platforms/esp32/smart-switch-app/build/*.elf
+            firmware/platforms/esp32/smart-switch-app/build/*.map
+            firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          retention-days: 30
+
+  # ============================================================
+  # JOB 3: Prototype ESP32 Dev Board Verification (Xtensa Architecture)
+  # ============================================================
+  build-prototype-esp32:
+    name: Prototype ESP32 Dev Board Verification Build (Xtensa)
+    needs: verify-toolchain-and-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Clean Prior Build Output
+        run: |
+          rm -rf firmware/platforms/esp32/smart-switch-app/build
+          rm -rf firmware/platforms/esp32/smart-switch-app/sdkconfig
+
+      - name: Deterministic ESP-IDF 5.4.1 Prototype Build (ESP32)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: 'v5.4.1'
+          target: 'esp32'
+          path: 'firmware/platforms/esp32/smart-switch-app'
+
+      - name: Execute Prototype Artifact Discovery, Checksum & Manifest Generation
+        run: |
+          sudo chmod -R a+rX firmware/platforms/esp32/smart-switch-app
+          node scripts/firmware_pipeline.js --target-mcu esp32 --idf-target esp32 --family esp32-dev-platform --profile debug --skip-tests
+
+      - name: Verify Prototype Manifest Content
+        run: |
+          test -f firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q '"targetMcu": "esp32"' firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q '"idfTarget": "esp32"' firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          grep -q '"toolchain": "xtensa-esp-elf"' firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+
+      - name: Upload Prototype ESP32 Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32-prototype-build-${{ github.sha }}
+          path: |
+            firmware/platforms/esp32/smart-switch-app/build/*.bin
+            firmware/platforms/esp32/smart-switch-app/build/bootloader/*.bin
+            firmware/platforms/esp32/smart-switch-app/build/partition_table/*.bin
+            firmware/platforms/esp32/smart-switch-app/build/*.elf
+            firmware/platforms/esp32/smart-switch-app/build/*.map
+            firmware/platforms/esp32/smart-switch-app/build/firmware-build-manifest.json
+          retention-days: 14

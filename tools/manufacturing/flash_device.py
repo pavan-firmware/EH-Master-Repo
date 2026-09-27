@@ -60,7 +60,6 @@ def list_comports() -> list:
     if not HAVE_SERIAL or serial is None:
         return []
     try:
-        import serial.tools.list_ports
         return list(serial.tools.list_ports.comports())
     except Exception as e:
         sys.stderr.write(f"[WARN] list_ports failed: {e}\n")

@@ -119,6 +119,14 @@ class ProductCatalogEntry {
     this.localControlSupport = true,
   });
 
+  String? get imageUrl {
+    if (images.hero.isNotEmpty) return images.hero;
+    if (images.thumbnail.isNotEmpty) return images.thumbnail;
+    if (images.front.isNotEmpty) return images.front;
+    if (icon != null && icon!.isNotEmpty) return icon;
+    return null;
+  }
+
   factory ProductCatalogEntry.fromJson(Map<String, dynamic> json) {
     return ProductCatalogEntry(
       productId: json['productId'] as String? ?? json['product_id'] as String? ?? '',
