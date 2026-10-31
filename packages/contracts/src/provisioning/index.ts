@@ -12,7 +12,7 @@
 
 import { z } from 'zod';
 import { SchemaVersionSchema, HardwareRevisionCodeSchema, SerialNumberSchema } from '../common';
-import { TargetMcuSchema, IdfTargetSchema, FirmwareBuildManifest, FIRMWARE_FAMILY_TO_PRODUCT_VARIANTS_MAP, validateProductionReleaseFamily } from '../firmware';
+import { TargetMcuSchema, IdfTargetSchema, FirmwareBuildManifest, FIRMWARE_FAMILY_TO_PRODUCT_VARIANTS_MAP, validateProductionReleaseFamily, isBenchTestFirmwareFamily } from '../firmware';
 
 // ── 1. Typed Error Codes ─────────────────────────────────────────────
 
@@ -93,6 +93,7 @@ export type Esp32Identification = z.infer<typeof Esp32IdentificationSchema>;
 // ── 5. Firmware Artifact Validation Gates ─────────────────────────────
 
 export const BenchArtifactValidationRequestSchema = z.object({
+  benchTestMode: z.boolean().default(false),
   firmwareFamily: z.string().min(1),
   productVariantId: z.string().min(1),
   hardwareRevision: HardwareRevisionCodeSchema,
@@ -172,8 +173,10 @@ export function validateBenchArtifact(
   gates.push({ gate: 'SHA256_VERIFICATION', passed: true, detail: `SHA-256 verified (${computedSha.slice(0, 16)}...)` });
 
   // Gate 3: Firmware Family Release Eligibility
+  const isBenchTestBuild = manifest.buildProfile === 'debug' || manifest.buildProfile === 'profiling';
   const eligibility = validateProductionReleaseFamily(manifest.firmwareFamily);
-  if (!eligibility.valid && (manifest.buildProfile === 'release' || !manifest.buildProfile)) {
+  const benchFamilyAllowed = isBenchTestBuild && isBenchTestFirmwareFamily(manifest.firmwareFamily);
+  if (!eligibility.valid && !benchFamilyAllowed && (manifest.buildProfile === 'release' || !manifest.buildProfile)) {
     gates.push({ gate: 'RELEASE_ELIGIBLE', passed: false, detail: eligibility.error || 'Family not eligible for production release' });
     return {
       valid: false,
@@ -182,7 +185,13 @@ export function validateBenchArtifact(
       gateDetails: gates
     };
   }
-  gates.push({ gate: 'RELEASE_ELIGIBLE', passed: true, detail: `Family '${manifest.firmwareFamily}' is eligible.` });
+  gates.push({
+    gate: 'RELEASE_ELIGIBLE',
+    passed: true,
+    detail: benchFamilyAllowed
+      ? `Bench-test family '${manifest.firmwareFamily}' permitted for debug/profiling validation only.`
+      : `Family '${manifest.firmwareFamily}' is eligible.`
+  });
 
   // Gate 4: Artifact Release Lifecycle State (Fail-Closed)
   const rawStatus = manifest.lifecycleStatus || (manifest as any).status;
@@ -233,7 +242,8 @@ export function validateBenchArtifact(
   gates.push({ gate: 'FAMILY_MATCH', passed: true, detail: `Family matches '${manifest.firmwareFamily}'` });
 
   // Gate 6: Product Variant Compatibility
-  const allowedVariants = FIRMWARE_FAMILY_TO_PRODUCT_VARIANTS_MAP[manifest.firmwareFamily] || [];
+  const allowedVariants = FIRMWARE_FAMILY_TO_PRODUCT_VARIANTS_MAP[manifest.firmwareFamily]
+    || (benchFamilyAllowed ? [params.productVariantId] : []);
   if (!allowedVariants.includes(params.productVariantId)) {
     gates.push({
       gate: 'PRODUCT_VARIANT_COMPATIBILITY',
@@ -249,8 +259,13 @@ export function validateBenchArtifact(
   }
   gates.push({ gate: 'PRODUCT_VARIANT_COMPATIBILITY', passed: true, detail: `Variant '${params.productVariantId}' supported.` });
 
-  // Gate 7: Target MCU Architecture Match
-  if (manifest.targetMcu !== params.targetMcu) {
+  // Gate 7: Target MCU Architecture Match (Allows generic ESP32 / development prototype boards)
+  const isTargetMatch = manifest.targetMcu === params.targetMcu;
+  // Only the literal generic ESP32 target is a dev-board wildcard. Concrete
+  // families such as esp32-c3 and esp32-s3 must still match exactly.
+  const isPrototypeBoard = params.targetMcu === 'esp32' && (benchFamilyAllowed || params.benchTestMode);
+
+  if (!isTargetMatch && !isPrototypeBoard) {
     gates.push({
       gate: 'TARGET_MCU_MATCH',
       passed: false,
@@ -263,7 +278,13 @@ export function validateBenchArtifact(
       gateDetails: gates
     };
   }
-  gates.push({ gate: 'TARGET_MCU_MATCH', passed: true, detail: `Target MCU '${manifest.targetMcu}' matches.` });
+  gates.push({
+    gate: 'TARGET_MCU_MATCH',
+    passed: true,
+    detail: isTargetMatch
+      ? `Target MCU '${manifest.targetMcu}' matches.`
+      : `Prototype/Dev board '${params.targetMcu}' permitted for bench testing (target: ${manifest.targetMcu})`
+  });
 
   // Gate 8: Hardware Revision Compatibility
   const isHwCompatible = manifest.compatibleHardwareRevisions?.includes(params.hardwareRevision);
@@ -313,7 +334,8 @@ export const BenchProvisioningRequestSchema = z.object({
   partitionsCsvPath: z.string().optional(),
   manifestPath: z.string().optional(),
   baudRate: z.number().int().positive().default(115200),
-  operatorUserId: z.string().optional()
+  operatorUserId: z.string().optional(),
+  benchTestMode: z.boolean().default(false)
 });
 export type BenchProvisioningRequest = z.infer<typeof BenchProvisioningRequestSchema>;
 
@@ -342,6 +364,7 @@ export const BenchProvisioningTraceabilityRecordSchema = z.object({
   provisionedAt: z.string().datetime(),
   durationMs: z.number().int().nonnegative(),
   operatorUserId: z.string().optional(),
+  benchTestMode: z.boolean().default(false),
   notes: z.string().optional()
 });
 export type BenchProvisioningTraceabilityRecord = z.infer<typeof BenchProvisioningTraceabilityRecordSchema>;

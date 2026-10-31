@@ -16,8 +16,9 @@
  * - Dependency-injected for testability
  */
 
-const DEFAULT_STALE_THRESHOLD_MS = 900_000;  // 15 minutes (idle devices with active MQTT session stay online)
+const DEFAULT_STALE_THRESHOLD_MS = 90_000;  // 90 seconds strict presence TTL
 const DEVICE_AVAILABILITY_EVENT = 'device.availability';
+const DEVICE_OFFLINE_EVENT = 'device.offline';
 
 class DeviceStaleDetector {
   /**
@@ -30,11 +31,30 @@ class DeviceStaleDetector {
     this.db = db;
     this.eventBus = eventBus;
     this.staleThresholdMs = staleThresholdMs;
+    this._timer = null;
+  }
+
+  start(intervalMs = 15000) {
+    if (this._timer) return;
+    this._timer = setInterval(() => {
+      this.tick().catch(err => {
+        console.error('[DeviceStaleDetector] tick error:', err.message);
+      });
+    }, intervalMs);
+    if (this._timer.unref) this._timer.unref();
+    console.log(`[DeviceStaleDetector] Started background presence stale detector (every ${intervalMs}ms, threshold ${this.staleThresholdMs}ms)`);
+  }
+
+  stop() {
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
   }
 
   /**
-   * Called periodically by WorkerRunner.
-   * Idempotent: re-detecting an already-STALE device is a no-op.
+   * Called periodically by WorkerRunner or background timer.
+   * Idempotent: re-detecting an already-OFFLINE device is a no-op.
    */
   async tick() {
     const cutoffDate = new Date(Date.now() - this.staleThresholdMs);
@@ -45,7 +65,7 @@ class DeviceStaleDetector {
     if (this.db._tables) {
       staleCandidates = await this.db.find(tableName, {
         where: {
-          connection_state_not: 'STALE',
+          connection_state: 'ONLINE',
           last_seen_at_lt: cutoffIso
         }
       });
@@ -72,21 +92,37 @@ class DeviceStaleDetector {
         updated_at: new Date().toISOString()
       });
 
-      this.eventBus.publish({
-        homeId,
-        type: DEVICE_AVAILABILITY_EVENT,
-        deviceId,
-        payload: {
+      if (this.eventBus) {
+        this.eventBus.publish({
+          homeId: homeId || 'global',
+          type: DEVICE_AVAILABILITY_EVENT,
           deviceId,
-          homeId,
-          connectionState: 'STALE',
-          previousState: deviceState.connection_state,
-          reason: 'heartbeat_timeout',
-          thresholdMs: this.staleThresholdMs
-        }
-      });
+          payload: {
+            deviceId,
+            homeId,
+            status: 'STALE',
+            connectionState: 'STALE',
+            previousState: deviceState.connection_state,
+            reason: 'heartbeat_timeout',
+            thresholdMs: this.staleThresholdMs
+          }
+        });
+
+        this.eventBus.publish({
+          homeId: homeId || 'global',
+          type: DEVICE_OFFLINE_EVENT,
+          deviceId,
+          payload: {
+            deviceId,
+            homeId,
+            status: 'OFFLINE',
+            reason: 'heartbeat_timeout',
+            thresholdMs: this.staleThresholdMs
+          }
+        });
+      }
     } catch (err) {
-      console.error(`[DeviceStaleDetector] Failed to mark device ${deviceId} as STALE:`, err.message);
+      console.error(`[DeviceStaleDetector] Failed to mark device ${deviceId} as OFFLINE:`, err.message);
     }
   }
 }

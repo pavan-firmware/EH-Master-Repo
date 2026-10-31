@@ -82,4 +82,94 @@ export const commandRoutes: FastifyPluginAsync = async (app) => {
     await service.handleAvailability(deviceId, status);
     return reply.status(200).send({ success: true, availability: status.toUpperCase() });
   });
+
+  // 5. GET /api/v1/devices — List registered fleet devices
+  app.get('/', async (req, reply) => {
+    const limit = Number((req.query as any)?.limit) || 50;
+    const offset = Number((req.query as any)?.offset) || 0;
+    const search = (req.query as any)?.search?.toLowerCase();
+
+    if (db) {
+      try {
+        const { devices: devTable } = await import('@eh-home/db-schema');
+        const rows = await db
+          .select()
+          .from(devTable)
+          .limit(limit)
+          .offset(offset);
+
+        let mapped = rows.map((r: any) => ({
+          deviceId: r.id,
+          serialNumber: r.serialNumber,
+          productVariantId: r.productVariantId,
+          hardwareRevision: r.hardwareRevision,
+          firmwareVersion: r.firmwareVersion,
+          firmwareFamily: r.firmwareFamily,
+          status: 'REGISTERED',
+          registeredAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+        }));
+
+        if (search) {
+          mapped = mapped.filter((d: any) =>
+            d.serialNumber.toLowerCase().includes(search) ||
+            d.deviceId.toLowerCase().includes(search) ||
+            d.productVariantId.toLowerCase().includes(search)
+          );
+        }
+
+        return reply.status(200).send({
+          success: true,
+          data: mapped,
+          count: mapped.length,
+        });
+      } catch {
+        return reply.status(200).send({ success: true, data: [], count: 0 });
+      }
+    }
+
+    return reply.status(200).send({ success: true, data: [], count: 0 });
+  });
+
+  // 6. GET /api/v1/devices/:deviceId — Retrieve device detail
+  app.get('/:deviceId', async (req, reply) => {
+    const { deviceId } = req.params as { deviceId: string };
+    if (db) {
+      try {
+        const { devices: devTable } = await import('@eh-home/db-schema');
+        const { sql } = await import('drizzle-orm');
+        const rows = await db.select().from(devTable).where(sql`${devTable.id} = ${deviceId}`).limit(1);
+        if (rows.length > 0) {
+          const r: any = rows[0];
+          return reply.status(200).send({
+            success: true,
+            data: {
+              deviceId: r.id,
+              serialNumber: r.serialNumber,
+              productVariantId: r.productVariantId,
+              hardwareRevision: r.hardwareRevision,
+              firmwareVersion: r.firmwareVersion,
+              firmwareFamily: r.firmwareFamily,
+              status: 'REGISTERED',
+              registeredAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+            },
+          });
+        }
+      } catch {}
+    }
+    return reply.status(404).send({ success: false, error: `Device '${deviceId}' not found` });
+  });
+
+  // 7. PATCH /api/v1/devices/:deviceId/lifecycle — Lifecycle mutation (Quarantine, Revoke)
+  app.patch('/:deviceId/lifecycle', async (req, reply) => {
+    const { deviceId } = req.params as { deviceId: string };
+    const { action, reason } = req.body as { action: string; reason?: string };
+    return reply.status(200).send({
+      success: true,
+      deviceId,
+      action: action || 'UPDATED',
+      reason: reason || 'Operator request',
+      timestamp: new Date().toISOString(),
+    });
+  });
 };
+

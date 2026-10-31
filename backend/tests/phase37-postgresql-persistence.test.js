@@ -155,8 +155,8 @@ async function runSuite() {
     assert.ok(files.length >= 29);
     assert.strictEqual(files[0].version, '001');
     assert.strictEqual(files[0].filename, '001_initial_schema.sql');
-    assert.strictEqual(files[files.length - 1].version, '029');
-    assert.strictEqual(files[files.length - 1].filename, '029_production_observability_and_incidents.sql');
+    assert.strictEqual(files[files.length - 1].version, '037');
+    assert.strictEqual(files[files.length - 1].filename, '037_automation_edge_execution_ownership.sql');
 
     // Verify each migration has a valid sha256 checksum
     files.forEach(f => {

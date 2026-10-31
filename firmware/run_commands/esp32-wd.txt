@@ -1,0 +1,23 @@
+# ESP32 4X Switch (Non-EM) - Quick PowerShell Commands
+
+# 1. Navigate to Project Directory:
+cd C:\Users\pavan\Downloads\Flutter\SMART_HOME_V1\firmware\platforms\esp32\smart-switch-app
+
+# 2. Export ESP-IDF Environment (v5.4.1):
+. C:\esp\v5.4.1\esp-idf\export.ps1
+
+# 3. Build:
+idf.py build
+
+# 4. Flash to Connected Board (COM6):
+idf.py -p COM6 flash
+
+# 5. Monitor:
+idf.py -p COM6 monitor
+# (Exit monitor with Ctrl + ])
+
+# All-in-One (Build, Flash & Monitor):
+idf.py -p COM6 flash monitor
+
+# Clean Re-flash with Factory NVS Wipe:
+idf.py -p COM6 erase-flash flash monitor

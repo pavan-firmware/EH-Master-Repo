@@ -116,7 +116,8 @@ async function main() {
     assert.ok(fwSource.includes('APPROVED'), 'Must include APPROVED state');
     assert.ok(fwSource.includes('RELEASED'), 'Must include RELEASED state');
     assert.ok(fwSource.includes('DEPRECATED'), 'Must include DEPRECATED state');
-    assert.ok(fwSource.includes('REVOKED'), 'Must include REVOKED terminal state');
+    assert.ok(fwSource.includes('RETIRED'), 'Must include RETIRED state');
+    assert.ok(fwSource.includes('REVOKED'), 'Must include REVOKED emergency terminal state');
     assert.ok(fwSource.includes('sha256'), 'Must display cryptographic artifact SHA-256');
   });
 

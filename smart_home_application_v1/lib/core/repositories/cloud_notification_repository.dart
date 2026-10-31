@@ -1,6 +1,9 @@
 import '../api/api_client.dart';
 import '../models/notification_models.dart';
 import 'notification_repository.dart';
+import 'local_notification_repository.dart';
+
+import '../services/device_storage_service.dart';
 
 class CloudNotificationRepository implements NotificationRepository {
   const CloudNotificationRepository(this._apiClient);
@@ -16,62 +19,144 @@ class CloudNotificationRepository implements NotificationRepository {
     int offset = 0,
     bool unreadOnly = false,
   }) async {
-    final queryParams = <String, String>{
-      'limit': limit.toString(),
-      'offset': offset.toString(),
-      if (homeId != null && homeId.isNotEmpty) 'homeId': homeId,
-      if (category != null && category != NotificationCategory.all) 'category': category.name,
-      if (severity != null) 'severity': severity.name.toUpperCase(),
-      if (unreadOnly) 'unreadOnly': 'true',
-    };
+    final localItems = await LocalNotificationRepository().getNotifications(
+      homeId: homeId,
+      category: category,
+      severity: severity,
+      limit: limit,
+      offset: offset,
+      unreadOnly: unreadOnly,
+    );
 
-    final queryString = Uri(queryParameters: queryParams).query;
-    final path = queryString.isEmpty
-        ? '/api/v1/notifications'
-        : '/api/v1/notifications?$queryString';
+    final deletedIds = DeviceStorageService.deletedNotificationIds;
+    final readIds = DeviceStorageService.readNotificationIds;
 
-    final response = await _apiClient.get(path);
-    final rawData = response['data'];
-    final list = (rawData is List<dynamic>
-            ? rawData
-            : (rawData is Map<String, dynamic> ? (rawData['notifications'] as List<dynamic>?) : null)) ??
-        (response['notifications'] as List<dynamic>?) ??
-        const [];
-    return list
-        .map((e) => NotificationItem.fromJson(e as Map<String, dynamic>))
-        .toList();
+    try {
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+        if (homeId != null && homeId.isNotEmpty) 'homeId': homeId,
+        if (category != null && category != NotificationCategory.all) 'category': category.name,
+        if (severity != null) 'severity': severity.name.toUpperCase(),
+        if (unreadOnly) 'unreadOnly': 'true',
+      };
+
+      final queryString = Uri(queryParameters: queryParams).query;
+      final path = queryString.isEmpty
+          ? '/api/v1/notifications'
+          : '/api/v1/notifications?$queryString';
+
+      final response = await _apiClient.get(path);
+      final rawData = response['data'];
+      final list = (rawData is List<dynamic>
+              ? rawData
+              : (rawData is Map<String, dynamic> ? (rawData['notifications'] as List<dynamic>?) : null)) ??
+          (response['notifications'] as List<dynamic>?) ??
+          const [];
+
+      final merged = <NotificationItem>[...localItems];
+      final seenIds = localItems.map((e) => e.id).toSet();
+      for (final e in list) {
+        if (e is Map<String, dynamic>) {
+          var item = NotificationItem.fromJson(e);
+          if (deletedIds.contains(item.id)) continue;
+          if (readIds.contains(item.id) && !item.isRead) {
+            item = item.copyWith(readAt: DateTime.now());
+          }
+          if (seenIds.add(item.id)) {
+            merged.add(item);
+          }
+        }
+      }
+      merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return merged.take(limit).toList();
+    } catch (_) {
+      return localItems;
+    }
   }
 
   @override
   Future<int> getUnreadCount({String? homeId}) async {
-    final path = (homeId != null && homeId.isNotEmpty)
-        ? '/api/v1/notifications/unread-count?homeId=$homeId'
-        : '/api/v1/notifications/unread-count';
+    final localCount = await LocalNotificationRepository().getUnreadCount(homeId: homeId);
+    try {
+      final path = (homeId != null && homeId.isNotEmpty)
+          ? '/api/v1/notifications/unread-count?homeId=$homeId'
+          : '/api/v1/notifications/unread-count';
 
-    final response = await _apiClient.get(path);
-    final rawCount = response['unreadCount'] ??
-        (response['data'] is Map<String, dynamic> ? response['data']['unreadCount'] : null);
-    return rawCount as int? ?? 0;
+      final response = await _apiClient.get(path);
+      final rawCount = response['unreadCount'] ??
+          (response['data'] is Map<String, dynamic> ? response['data']['unreadCount'] : null);
+      final count = rawCount as int? ?? 0;
+      return count > localCount ? count : localCount;
+    } catch (_) {
+      return localCount;
+    }
   }
 
   @override
   Future<bool> markAsRead(String notificationId) async {
-    final response = await _apiClient.patch(
-      '/api/v1/notifications/$notificationId/read',
-      body: {},
-    );
-    return response['success'] as bool? ?? true;
+    await DeviceStorageService.markNotificationAsRead(notificationId);
+    try {
+      final response = await _apiClient.patch(
+        '/api/v1/notifications/$notificationId/read',
+        body: {},
+      );
+      return response['success'] as bool? ?? true;
+    } catch (_) {
+      return true;
+    }
   }
 
   @override
   Future<int> markAllAsRead({String? homeId}) async {
-    final response = await _apiClient.post(
-      '/api/v1/notifications/mark-all-read',
-      body: {
-        if (homeId != null && homeId.isNotEmpty) 'homeId': homeId,
-      },
-    );
-    return response['markedCount'] as int? ?? 0;
+    await LocalNotificationRepository().markAllAsRead(homeId: homeId);
+    try {
+      final response = await _apiClient.post(
+        '/api/v1/notifications/mark-all-read',
+        body: {
+          if (homeId != null && homeId.isNotEmpty) 'homeId': homeId,
+        },
+      );
+      return response['markedCount'] as int? ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  @override
+  Future<bool> deleteNotification(String notificationId) async {
+    await LocalNotificationRepository().deleteNotification(notificationId);
+    try {
+      await _apiClient.delete('/api/v1/notifications/$notificationId');
+    } catch (_) {}
+    return true;
+  }
+
+  @override
+  Future<int> deleteNotifications(List<String> notificationIds) async {
+    if (notificationIds.isEmpty) return 0;
+    await LocalNotificationRepository().deleteNotifications(notificationIds);
+    try {
+      await _apiClient.post(
+        '/api/v1/notifications/batch-delete',
+        body: {'ids': notificationIds},
+      );
+    } catch (_) {}
+    return notificationIds.length;
+  }
+
+  @override
+  Future<int> clearAllNotifications({String? homeId}) async {
+    final count = await LocalNotificationRepository().clearAllNotifications(homeId: homeId);
+    try {
+      await _apiClient.post(
+        '/api/v1/notifications/clear-all',
+        body: {
+          if (homeId != null && homeId.isNotEmpty) 'homeId': homeId,
+        },
+      );
+    } catch (_) {}
+    return count;
   }
 
   @override

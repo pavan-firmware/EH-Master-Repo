@@ -26,6 +26,7 @@ export type PrinterErrorCode = z.infer<typeof PrinterErrorCodeSchema>;
 export const LabelTemplateIdSchema = z.enum([
   'device-primary-50x30-v1',
   'device-compact-40x20-v1',
+  'device-silicon-25x10-v1',
   'box-receipt-escpos-v1'
 ]);
 export type LabelTemplateId = z.infer<typeof LabelTemplateIdSchema>;

@@ -80,7 +80,8 @@ void main() {
       // Verify legitimate authentication elements exist
       expect(find.text('Welcome to EH Home'), findsOneWidget);
       expect(find.text('Sign In'), findsOneWidget);
-      expect(find.text("Don't have an account? Create one"), findsOneWidget);
+      expect(find.text("Don't have an account?"), findsOneWidget);
+      expect(find.text('Create Account'), findsOneWidget);
 
       // Verify bypass elements DO NOT exist
       expect(find.text('Continue to Local Home'), findsNothing);
@@ -114,9 +115,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // Find inputs
-      final emailFinder = find.widgetWithText(TextFormField, 'Email Address');
-      final passwordFinder = find.widgetWithText(TextFormField, 'Password');
-      final signInButtonFinder = find.widgetWithText(FilledButton, 'Sign In');
+      final textFields = find.byType(TextFormField);
+      final emailFinder = textFields.at(0);
+      final passwordFinder = textFields.at(1);
+      final signInButtonFinder = find.widgetWithText(ElevatedButton, 'Sign In');
 
       expect(emailFinder, findsOneWidget);
       expect(passwordFinder, findsOneWidget);

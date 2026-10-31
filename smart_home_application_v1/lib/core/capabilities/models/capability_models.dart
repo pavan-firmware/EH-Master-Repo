@@ -131,6 +131,13 @@ class ProductVariantDefinition {
 
   String? get imageUrl => heroImageUrl;
 
+  bool get hasEnergyMetering {
+    if (hardwareProfile.containsKey('hasEnergyMetering')) {
+      return hardwareProfile['hasEnergyMetering'] == true;
+    }
+    return capabilities.contains('energy');
+  }
+
   factory ProductVariantDefinition.fromJson(Map<String, dynamic> json) {
     // Check if wrapped in API response format (e.g. { "variant": { ... }, "product": { ... } })
     final vMap = json['variant'] is Map ? Map<String, dynamic>.from(json['variant'] as Map) : json;

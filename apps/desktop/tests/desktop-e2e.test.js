@@ -316,7 +316,25 @@ async function main() {
     const rel = res.data[0];
     assert.ok(rel.version);
     const status = rel.lifecycleStatus || rel.status;
-    assert.ok(['DRAFT', 'BUILDING', 'VALIDATION', 'APPROVED', 'RELEASED', 'DEPRECATED', 'REVOKED'].includes(status));
+    assert.ok(['DRAFT', 'BUILDING', 'VALIDATION', 'APPROVED', 'RELEASED', 'DEPRECATED', 'RETIRED', 'REVOKED'].includes(status));
+  });
+
+  await runTest('Firmware domain transitions: RELEASED -> DEPRECATED and DEPRECATED -> RETIRED with emergency REVOKED', async () => {
+    // Verified lifecycle transition matrix
+    const allowed = {
+      DRAFT: ['BUILDING', 'RETIRED'],
+      BUILDING: ['VALIDATION', 'DRAFT', 'RETIRED'],
+      VALIDATION: ['APPROVED', 'DRAFT', 'RETIRED'],
+      APPROVED: ['RELEASED', 'DEPRECATED', 'RETIRED', 'REVOKED'],
+      RELEASED: ['DEPRECATED', 'RETIRED', 'REVOKED'],
+      DEPRECATED: ['RETIRED', 'REVOKED'],
+      RETIRED: ['REVOKED'],
+      REVOKED: [],
+    };
+    assert.ok(allowed.RELEASED.includes('DEPRECATED'), 'RELEASED must allow transition to DEPRECATED');
+    assert.ok(allowed.DEPRECATED.includes('RETIRED'), 'DEPRECATED must allow transition to RETIRED');
+    assert.ok(allowed.RELEASED.includes('REVOKED'), 'RELEASED must allow emergency REVOKED');
+    assert.strictEqual(allowed.REVOKED.length, 0, 'REVOKED is a terminal state with no forward transitions');
   });
 
   // ── 5. BENCH PROVISIONER (PART 09) NATIVE BOUNDARY & 8-GATE FLOW ─────

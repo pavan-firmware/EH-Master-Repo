@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     port: 3200,
     strictPort: true,
+    host: '127.0.0.1',
     watch: {
       ignored: ['**/src-tauri/**', '**/target/**', '**/.git/**'],
     },

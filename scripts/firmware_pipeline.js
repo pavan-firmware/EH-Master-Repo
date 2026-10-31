@@ -625,7 +625,7 @@ async function runFirmwarePipeline(options = {}) {
     getArg('--toolchain') ||
     (familyMeta ? familyMeta.toolchain : MCU_TO_TOOLCHAIN_MAP[targetMcu] || 'xtensa-esp-elf');
   const buildId = options.buildId || getArg('--build-id') || crypto.randomUUID();
-  const compatibleHardwareRevisions = options.compatibleHardwareRevisions || ['hw_rev_switch_1x_1_0'];
+  const compatibleHardwareRevisions = options.compatibleHardwareRevisions || ['HW_1_0', 'HW_1_1'];
   const appDir = options.appDir || getArg('--project-dir') || DEFAULT_APP_DIR;
   const clean = options.clean || args.includes('--clean');
   const skipTests = options.skipTests || args.includes('--skip-tests');

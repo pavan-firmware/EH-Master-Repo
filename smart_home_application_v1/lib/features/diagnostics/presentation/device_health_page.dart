@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../core/models/activity_models.dart';
+import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/health_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/repositories/device_health_repository.dart';
@@ -12,9 +14,11 @@ class DeviceHealthPage extends StatefulWidget {
   const DeviceHealthPage({
     super.key,
     this.repository = const PreviewDeviceHealthRepository(),
+    this.homeController,
   });
 
   final DeviceHealthRepository repository;
+  final HomeController? homeController;
 
   @override
   State<DeviceHealthPage> createState() => _DeviceHealthPageState();
@@ -30,20 +34,97 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
     _load();
   }
 
+  HomeHealthSummary _buildRealSummary(HomeController controller) {
+    final devices = controller.devices;
+    final onlineList = devices.where((d) => d.online).toList();
+    final offlineList = devices.where((d) => !d.online).toList();
+
+    final deviceEntries = devices.map((d) {
+      return DeviceHealthEntry(
+        deviceId: d.id,
+        name: d.name,
+        roomId: d.roomName.toLowerCase().replaceAll(' ', '-'),
+        roomName: d.roomName.isNotEmpty ? d.roomName : 'Main Space',
+        state: d.online ? DeviceHealthState.healthy : DeviceHealthState.offline,
+        signal: d.online ? SignalStrength.strong : SignalStrength.unknown,
+        lastSeen: DateTime.now(),
+        statusLine: d.online ? 'Online · ${d.connectedVia}' : 'Offline · Disconnected',
+        iconKey: 'switch',
+        reading: d.model,
+      );
+    }).toList();
+
+    final rooms = controller.rooms.map((r) {
+      final roomDevices = devices.where((d) => d.roomName.toLowerCase() == r.name.toLowerCase()).toList();
+      final issues = roomDevices.where((d) => !d.online).length;
+      return RoomHealthSummary(
+        roomId: r.id,
+        roomName: r.name,
+        deviceCount: roomDevices.length,
+        issueCount: issues,
+        iconKey: r.iconKey,
+      );
+    }).toList();
+
+    final isAllOnline = offlineList.isEmpty;
+    return HomeHealthSummary(
+      overall: isAllOnline ? HomeHealthOverall.healthy : HomeHealthOverall.attention,
+      title: isAllOnline ? 'All good!' : '${offlineList.length} device${offlineList.length == 1 ? '' : 's'} offline',
+      subtitle: isAllOnline
+          ? 'All ${devices.length} devices are online and communicating properly.'
+          : 'Some devices require attention or are currently unreachable.',
+      statusLabel: isAllOnline ? 'Healthy' : '${offlineList.length} issue${offlineList.length == 1 ? '' : 's'}',
+      totalDevices: devices.length,
+      onlineCount: onlineList.length,
+      attentionCount: offlineList.length,
+      offlineCount: offlineList.length,
+      lastChecked: DateTime.now(),
+      devices: deviceEntries,
+      rooms: rooms.isNotEmpty
+          ? rooms
+          : [
+              RoomHealthSummary(
+                roomId: 'main',
+                roomName: 'Main Space',
+                deviceCount: devices.length,
+                issueCount: offlineList.length,
+                iconKey: 'home',
+              ),
+            ],
+    );
+  }
+
   void _load() {
     setState(() {
-      _summary = widget.repository.getSummary();
+      if (widget.homeController != null && widget.homeController!.devices.isNotEmpty) {
+        _summary = Future.value(_buildRealSummary(widget.homeController!));
+      } else {
+        _summary = widget.repository.getSummary();
+      }
     });
   }
 
   Future<void> _checkAgain() async {
     setState(() => _checking = true);
-    final result = await widget.repository.runFullCheck();
-    if (mounted) {
-      setState(() {
-        _summary = Future.value(result);
-        _checking = false;
-      });
+    if (widget.homeController != null && widget.homeController!.devices.isNotEmpty) {
+      try {
+        await widget.homeController!.probeLanAndPromote();
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      if (mounted) {
+        setState(() {
+          _summary = Future.value(_buildRealSummary(widget.homeController!));
+          _checking = false;
+        });
+      }
+    } else {
+      final result = await widget.repository.runFullCheck();
+      if (mounted) {
+        setState(() {
+          _summary = Future.value(result);
+          _checking = false;
+        });
+      }
     }
   }
 
@@ -121,14 +202,38 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
                 itemBuilder: (context, index) => _RoomHealthCard(
                   room: data.rooms[index],
                   onTap: () {
-                    final typed = RoomCatalog.preview.firstWhere(
-                      (r) => r.id == data.rooms[index].roomId,
-                      orElse: () => RoomCatalog.preview.first,
+                    final ctrl = widget.homeController ?? HomeController.instance;
+                    final availableRooms = ctrl?.rooms ?? [];
+                    final roomSummary = data.rooms[index];
+                    final typed = availableRooms.firstWhere(
+                      (r) => r.id == roomSummary.roomId || r.name.toLowerCase() == roomSummary.roomName.toLowerCase(),
+                      orElse: () => Room(
+                        id: roomSummary.roomId,
+                        name: roomSummary.roomName,
+                        iconKey: roomSummary.iconKey,
+                        deviceCount: roomSummary.deviceCount,
+                        connectivity: ConnectivityCause.deviceOffline,
+                        telemetryFreshness: TelemetryFreshness.current,
+                        summary: '${roomSummary.deviceCount} device(s)',
+                        status: RoomStatus.normal,
+                        capabilities: const [],
+                        devices: const [],
+                        insights: const RoomInsights(
+                          energyKwh: '0.0 kWh',
+                          energyChange: '0.0 kWh',
+                          activeWindow: 'Today',
+                          averageTemperature: '24°C',
+                          averageHumidity: '55%',
+                        ),
+                      ),
                     );
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => RoomContextPage(room: typed),
+                        builder: (_) => RoomContextPage(
+                          room: typed,
+                          homeController: ctrl,
+                        ),
                       ),
                     );
                   },

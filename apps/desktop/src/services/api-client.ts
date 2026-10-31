@@ -43,69 +43,92 @@ export interface SystemInfo {
 
 export class ApiClient {
   private readonly baseUrl: string;
+  private inFlightGetRequests = new Map<string, Promise<ApiClientResponse<any>>>();
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl || getDesktopConfig().apiBaseUrl;
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<ApiClientResponse<T>> {
-    const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
-    const requestId = `dt-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`;
+    const isGet = !options.method || options.method.toUpperCase() === 'GET';
+    const cacheKey = isGet ? `${path}` : null;
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-request-id': requestId,
-      ...(options.headers as Record<string, string>),
-    };
+    if (cacheKey && this.inFlightGetRequests.has(cacheKey)) {
+      return this.inFlightGetRequests.get(cacheKey)! as Promise<ApiClientResponse<T>>;
+    }
 
-    try {
-      const res = await fetch(url, {
-        ...options,
-        headers,
-      });
+    const exec = (async () => {
+      const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+      const requestId = typeof crypto !== 'undefined' && crypto.randomUUID ? `dt-${crypto.randomUUID().slice(0, 12)}` : `dt-${Date.now().toString(36)}`;
+      const startTime = performance.now();
 
-      const respRequestId = res.headers.get('x-request-id') || requestId;
-      let body: any;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-request-id': requestId,
+        ...(options.headers as Record<string, string>),
+      };
+
       try {
-        body = await res.json();
-      } catch {
-        body = null;
-      }
+        const res = await fetch(url, {
+          ...options,
+          headers,
+        });
 
-      if (!res.ok) {
-        logger.warn(`API request to ${path} failed with HTTP ${res.status}`, body);
+        const durationMs = Math.round(performance.now() - startTime);
+        const respRequestId = res.headers.get('x-request-id') || requestId;
+        let body: any;
+        try {
+          body = await res.json();
+        } catch {
+          body = null;
+        }
+
+        if (!res.ok) {
+          logger.warn(`API [${requestId}] ${options.method || 'GET'} ${path} failed (${res.status}) in ${durationMs}ms`, body);
+          return {
+            success: false,
+            statusCode: res.status,
+            requestId: respRequestId,
+            error: body?.error || {
+              code: `HTTP_${res.status}`,
+              message: res.statusText || 'Request failed',
+            },
+          };
+        }
+
+        // If envelope contains data field, unwrap it
+        const data = body?.data !== undefined ? body.data : body;
+
         return {
-          success: false,
+          success: true,
           statusCode: res.status,
           requestId: respRequestId,
-          error: body?.error || {
-            code: `HTTP_${res.status}`,
-            message: res.statusText || 'Request failed',
+          data,
+        };
+      } catch (err: any) {
+        const durationMs = Math.round(performance.now() - startTime);
+        logger.error(`API [${requestId}] ${options.method || 'GET'} ${url} network failure in ${durationMs}ms:`, err.message);
+        return {
+          success: false,
+          statusCode: 0,
+          requestId,
+          error: {
+            code: 'NETWORK_ERROR',
+            message: err.message || 'Unable to connect to EH Home API service',
           },
         };
+      } finally {
+        if (cacheKey) {
+          this.inFlightGetRequests.delete(cacheKey);
+        }
       }
+    })();
 
-      // If envelope contains data field, unwrap it
-      const data = body?.data !== undefined ? body.data : body;
-
-      return {
-        success: true,
-        statusCode: res.status,
-        requestId: respRequestId,
-        data,
-      };
-    } catch (err: any) {
-      logger.error(`Network error connecting to API at ${url}`, err.message);
-      return {
-        success: false,
-        statusCode: 0,
-        requestId,
-        error: {
-          code: 'NETWORK_ERROR',
-          message: err.message || 'Unable to connect to EH Home API service',
-        },
-      };
+    if (cacheKey) {
+      this.inFlightGetRequests.set(cacheKey, exec);
     }
+
+    return exec;
   }
 
   public async checkHealth(): Promise<ApiClientResponse<HealthStatus>> {
@@ -186,6 +209,16 @@ export class ApiClient {
     return this.request<any[]>(`/api/v1/products${qs}`);
   }
 
+  public async listVariants(params?: { familyId?: string; productId?: string; limit?: number; offset?: number }): Promise<ApiClientResponse<any[]>> {
+    const query = new URLSearchParams();
+    if (params?.familyId) query.set('familyId', params.familyId);
+    if (params?.productId) query.set('productId', params.productId);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<any[]>(`/api/v1/products/variants${qs}`);
+  }
+
   public async listProductFamilies(): Promise<ApiClientResponse<any[]>> {
     return this.request<any[]>('/api/v1/products/families');
   }
@@ -246,6 +279,139 @@ export class ApiClient {
   public async getFirmwareRelease(releaseId: string): Promise<ApiClientResponse<any>> {
     return this.request<any>(`/api/v1/firmware/releases/${encodeURIComponent(releaseId)}`);
   }
+
+  public async createProduct(payload: any): Promise<ApiClientResponse<any>> {
+    return this.request('/api/v1/products', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateProduct(productId: string, payload: any): Promise<ApiClientResponse<any>> {
+    return this.request(`/api/v1/products/${encodeURIComponent(productId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async createVariant(payload: any): Promise<ApiClientResponse<any>> {
+    return this.request('/api/v1/products/variants', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateVariant(variantId: string, payload: any): Promise<ApiClientResponse<any>> {
+    return this.request(`/api/v1/products/variants/${encodeURIComponent(variantId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async createHardwareRevision(payload: any): Promise<ApiClientResponse<any>> {
+    return this.request('/api/v1/hardware/revisions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateHardwareRevisionStatus(revisionId: string, status: string, reason?: string): Promise<ApiClientResponse<any>> {
+    return this.request(`/api/v1/hardware/revisions/${encodeURIComponent(revisionId)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, reason }),
+    });
+  }
+
+  public async createBOM(revisionIdOrPayload: string | any, optionalPayload?: any): Promise<ApiClientResponse<any>> {
+    const revisionId = typeof revisionIdOrPayload === 'string' ? revisionIdOrPayload : revisionIdOrPayload.revisionCode || revisionIdOrPayload.revisionId;
+    const payload = typeof revisionIdOrPayload === 'string' ? optionalPayload : revisionIdOrPayload;
+    return this.request(`/api/v1/hardware/revisions/${encodeURIComponent(revisionId)}/bom`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async createFirmwareRelease(payload: any): Promise<ApiClientResponse<any>> {
+    return this.request('/api/v1/firmware/releases', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateFirmwareReleaseStatus(releaseId: string, status: string, reason?: string): Promise<ApiClientResponse<any>> {
+    return this.request(`/api/v1/firmware/releases/${encodeURIComponent(releaseId)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, reason }),
+    });
+  }
+
+  public async listDevices(params?: { search?: string; query?: string; limit?: number; offset?: number }): Promise<ApiClientResponse<any[]>> {
+    const query = new URLSearchParams();
+    const searchVal = params?.search || params?.query;
+    if (searchVal) query.set('search', searchVal);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<any[]>(`/api/v1/devices${qs}`);
+  }
+
+  public async getDevice(deviceId: string): Promise<ApiClientResponse<any>> {
+    return this.request<any>(`/api/v1/devices/${encodeURIComponent(deviceId)}`);
+  }
+
+  public async updateDeviceLifecycle(deviceId: string, action: string, reason?: string): Promise<ApiClientResponse<any>> {
+    return this.request(`/api/v1/devices/${encodeURIComponent(deviceId)}/lifecycle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action, reason }),
+    });
+  }
+
+  public async listInventoryItems(params?: { status?: string; productVariantId?: string; limit?: number; offset?: number }): Promise<ApiClientResponse<any[]>> {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.productVariantId) query.set('productVariantId', params.productVariantId);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<any[]>(`/api/v1/inventory/items${qs}`);
+  }
+
+  public async listCartons(params?: { status?: string; limit?: number; offset?: number }): Promise<ApiClientResponse<any[]>> {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<any[]>(`/api/v1/inventory/cartons${qs}`);
+  }
+
+  public async listQcRecords(params?: { stationId?: string; deviceId?: string; limit?: number; offset?: number }): Promise<ApiClientResponse<any[]>> {
+    const query = new URLSearchParams();
+    if (params?.stationId) query.set('stationId', params.stationId);
+    if (params?.deviceId) query.set('deviceId', params.deviceId);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<any[]>(`/api/v1/inventory/qc${qs}`);
+  }
+
+  public async recordQcOperation(payload: any): Promise<ApiClientResponse<any>> {
+    return this.request('/api/v1/inventory/qc', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async adjustInventory(deviceIdOrPayload: string | any, status?: string, notes?: string): Promise<ApiClientResponse<any>> {
+    const body = typeof deviceIdOrPayload === 'string'
+      ? { deviceId: deviceIdOrPayload, status, notes }
+      : deviceIdOrPayload;
+    return this.request('/api/v1/inventory/adjust', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
 }
 
 export const apiClient = new ApiClient();
+

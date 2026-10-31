@@ -36,6 +36,7 @@ export interface FlashDeviceParams {
   firmwareFamily?: string;
   hardwareRevision?: string;
   targetMcu?: string;
+  benchTestMode?: boolean;
 }
 
 export interface FlashResult {
@@ -76,6 +77,30 @@ export interface IFlasherService {
  */
 export class MockFlasherService implements IFlasherService {
   private isCancelled = false;
+  private mockIdentity: { deviceId: string; serialNumber: string } | null = null;
+
+  private allocateMockIdentity(productVariantId = 'eh-smart-switch-3x') {
+    const variantCode = productVariantId.match(/-([1-4]x)$/)?.[1]?.toUpperCase() || '3X';
+    const year = new Date().getUTCFullYear();
+    const week = String(Math.ceil((new Date().getUTCDate() + 6) / 7)).padStart(2, '0');
+    const storageKey = `eh_mock_serial_sequence_${variantCode}_${year}W${week}`;
+    let sequence = 0;
+    try {
+      sequence = Number(window.localStorage.getItem(storageKey) || '0');
+      sequence = Number.isFinite(sequence) ? sequence : 0;
+      window.localStorage.setItem(storageKey, String(sequence + 1));
+    } catch {
+      sequence = Math.floor(Math.random() * 90000);
+    }
+    const deviceId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `00000000-0000-4000-8000-${Math.floor(Math.random() * 1e12).toString(16).padStart(12, '0')}`;
+    this.mockIdentity = {
+      deviceId,
+      serialNumber: `EH-SW${variantCode}-${year}W${week}-${String(sequence + 1).padStart(5, '0')}`,
+    };
+    return this.mockIdentity;
+  }
 
   public shouldFailFlash = false;
   public shouldFailVerify = false;
@@ -154,12 +179,13 @@ export class MockFlasherService implements IFlasherService {
       };
     }
 
+    const identity = this.allocateMockIdentity(params.productVariantId);
     return {
       success: true,
       durationMs: Date.now() - start,
       macAddress: '60:55:F9:12:34:56',
-      deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
-      serialNumber: 'EH-SW3X-2026W39-00001',
+      deviceId: identity.deviceId,
+      serialNumber: identity.serialNumber,
       certFingerprint: 'f'.repeat(64),
       flashLog: '[PASS] Wrote 1,048,576 bytes in 1.4s (748.9 kbit/s). Hash verified.',
     };
@@ -176,8 +202,8 @@ export class MockFlasherService implements IFlasherService {
     return {
       success: true,
       verified: true,
-      deviceId: '0194fe23-7a1b-7890-a123-456789abcdef',
-      serialNumber: 'EH-SW3X-2026W39-00001',
+      deviceId: this.mockIdentity?.deviceId,
+      serialNumber: this.mockIdentity?.serialNumber,
     };
   }
 
@@ -210,16 +236,16 @@ export class MockFlasherService implements IFlasherService {
     const now = new Date().toISOString();
     return {
       schemaVersion: 1,
-      traceId: '0194fe23-7a1b-7890-a123-456789abcd99',
-      deviceId: flashRes.deviceId || '0194fe23-7a1b-7890-a123-456789abcdef',
-      serialNumber: flashRes.serialNumber || 'EH-SW3X-2026W39-00001',
+      traceId: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '0194fe23-7a1b-4890-a123-456789abcd99',
+      deviceId: flashRes.deviceId || this.mockIdentity?.deviceId || '0194fe23-7a1b-4890-a123-456789abcdef',
+      serialNumber: flashRes.serialNumber || this.mockIdentity?.serialNumber || 'EH-SW3X-2026W39-00001',
       productVariantId: request.productVariantId,
       hardwareRevision: request.hardwareRevision,
       firmwareFamily: request.firmwareFamily,
       firmwareReleaseId: request.firmwareReleaseId,
       firmwareVersion: request.firmwareVersion,
       targetMcu: request.targetMcu,
-      idfTarget: 'esp32c6',
+      idfTarget: 'esp32c6' as const,
       artifactSha256: request.computedSha256,
       tlsCertFingerprint: flashRes.certFingerprint || 'f'.repeat(64),
       port: request.port,
@@ -229,6 +255,7 @@ export class MockFlasherService implements IFlasherService {
       provisionedAt: now,
       durationMs: flashRes.durationMs,
       operatorUserId: request.operatorUserId,
+      benchTestMode: request.benchTestMode,
     };
   }
 
@@ -247,43 +274,35 @@ export class PythonSidecarFlasher implements IFlasherService {
   private isCancelled = false;
 
   public async probeDevice(port: string): Promise<{ connected: boolean; chipInfo?: string }> {
-    try {
-      if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const ident = await invoke<any>('identify_esp32_device', {
-          request: { port },
-        });
-        return {
-          connected: ident.connection_status === 'CONNECTED',
-          chipInfo: `${ident.chip_name} (${ident.chip_family})`,
-        };
-      }
-    } catch (err: any) {
-      logger.warn('[PythonSidecarFlasher] Tauri probeDevice fallback to mock', err);
+    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const ident = await invoke<any>('identify_esp32_device', {
+        request: { port },
+      });
+      return {
+        connected: ident.connection_status === 'CONNECTED',
+        chipInfo: `${ident.chip_name} (${ident.chip_family})`,
+      };
     }
     return this.fallbackMock.probeDevice(port);
   }
 
   public async identifyDevice(port: string): Promise<Esp32Identification> {
-    try {
-      if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const res = await invoke<any>('identify_esp32_device', {
-          request: { port },
-        });
-        return {
-          port: res.port,
-          chipName: res.chip_name,
-          chipFamily: res.chip_family,
-          macAddress: res.mac_address,
-          detectedTarget: res.detected_target,
-          connectionStatus: res.connection_status,
-          flashSizeBytes: res.flash_size_bytes,
-          features: res.features || [],
-        };
-      }
-    } catch (err: any) {
-      logger.warn('[PythonSidecarFlasher] Tauri identifyDevice fallback to mock', err);
+    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const res = await invoke<any>('identify_esp32_device', {
+        request: { port },
+      });
+      return {
+        port: res.port,
+        chipName: res.chip_name,
+        chipFamily: res.chip_family,
+        macAddress: res.mac_address,
+        detectedTarget: res.detected_target,
+        connectionStatus: res.connection_status,
+        flashSizeBytes: res.flash_size_bytes,
+        features: res.features || [],
+      };
     }
     return this.fallbackMock.identifyDevice(port);
   }
@@ -333,9 +352,9 @@ export class PythonSidecarFlasher implements IFlasherService {
 
         if (res.success) {
           onProgress?.({
-            stage: 'DONE',
-            progressPercent: 100,
-            message: 'Flashing completed successfully.',
+            stage: 'WRITING',
+            progressPercent: 80,
+            message: 'Flash write and factory identity staging completed; starting boot verification.',
           });
           return {
             success: true,
@@ -422,8 +441,14 @@ export class PythonSidecarFlasher implements IFlasherService {
       throw new Error(verifyRes.errorMessage || 'FLASH_VERIFY_FAILED');
     }
 
+    onProgress?.({
+      stage: 'PROVISIONING',
+      progressPercent: 97,
+      message: 'Boot identity verified; committing traceability and QR registration data.',
+    });
+
     const now = new Date().toISOString();
-    return {
+    const record: BenchProvisioningTraceabilityRecord = {
       schemaVersion: 1,
       traceId: '0194fe23-7a1b-7890-a123-456789abcd99',
       deviceId: flashRes.deviceId || '0194fe23-7a1b-7890-a123-456789abcdef',
@@ -434,7 +459,7 @@ export class PythonSidecarFlasher implements IFlasherService {
       firmwareReleaseId: request.firmwareReleaseId,
       firmwareVersion: request.firmwareVersion,
       targetMcu: request.targetMcu,
-      idfTarget: 'esp32c6',
+      idfTarget: 'esp32c6' as const,
       artifactSha256: request.computedSha256,
       tlsCertFingerprint: flashRes.certFingerprint || 'f'.repeat(64),
       port: request.port,
@@ -444,7 +469,14 @@ export class PythonSidecarFlasher implements IFlasherService {
       provisionedAt: now,
       durationMs: flashRes.durationMs,
       operatorUserId: request.operatorUserId,
+      benchTestMode: request.benchTestMode,
     };
+    onProgress?.({
+      stage: 'DONE',
+      progressPercent: 100,
+      message: 'Flash, verification, and bench provisioning completed successfully.',
+    });
+    return record;
   }
 
   public async cancelOperation(): Promise<void> {

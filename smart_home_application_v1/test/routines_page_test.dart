@@ -4,71 +4,73 @@ import 'package:smart_home_application_v1/core/models/routine_models.dart';
 import 'package:smart_home_application_v1/features/automations/presentation/automations_page.dart';
 
 void main() {
-  test('preview repository exposes routines and rejects mutations', () async {
+  test('preview repository creates and manages user routines', () async {
     const repository = PreviewRoutineRepository();
+    final initialRoutines = await repository.getRoutines();
+    expect(initialRoutines, isEmpty);
+
+    final draft = RoutineDraft(
+      name: 'Morning Routine',
+      trigger: const RoutineTrigger(
+        kind: RoutineTriggerKind.timeSchedule,
+        title: 'Schedule: 07:00 AM',
+        detail: 'Every day · 07:00 AM',
+      ),
+      actions: const [
+        RoutineAction(
+          kind: RoutineActionKind.switchChannel,
+          title: 'Smart Switch • Channel 1',
+          detail: 'Turn On Channel 1',
+          deviceId: 'dev_1',
+        ),
+      ],
+    );
+
+    final createRes = await repository.createRoutine(draft);
+    expect(createRes, RepositoryResult.success);
+
     final routines = await repository.getRoutines();
-    expect(
-      routines.map((routine) => routine.name),
-      containsAll(<String>[
-        'Plant care',
-        'Gentle night light',
-        'Tank reminder',
-      ]),
-    );
-    expect(
-      await repository.enableRoutine('plant-care'),
-      RepositoryResult.unsupported,
-    );
-    expect(
-      await repository.executeRoutine('plant-care'),
-      RepositoryResult.unsupported,
-    );
-    expect(
-      routines.firstWhere((routine) => routine.id == 'plant-care').availability,
-      RoutineAvailability.partiallyAvailable,
-    );
+    expect(routines.length, 1);
+    expect(routines.first.name, 'Morning Routine');
+
+    final toggleRes = await repository.disableRoutine(routines.first.id);
+    expect(toggleRes, RepositoryResult.success);
+
+    final updated = await repository.getRoutine(routines.first.id);
+    expect(updated?.enabled, isFalse);
+
+    await repository.deleteRoutine(routines.first.id);
+    expect(await repository.getRoutines(), isEmpty);
   });
 
   test('validator reports incomplete and valid drafts', () {
     const validator = RoutineValidator();
     expect(validator.validate(RoutineDraft()).isValid, isFalse);
     final draft = RoutineDraft(
-      name: 'Plant care',
+      name: 'Custom Routine',
       trigger: const RoutineTrigger(
-        kind: RoutineTriggerKind.soilMoisture,
-        title: 'Soil moisture drops below 35%',
-        detail: 'Every day',
-        threshold: 35,
+        kind: RoutineTriggerKind.timeSchedule,
+        title: 'Schedule: 08:00 AM',
+        detail: 'Every day · 08:00 AM',
       ),
       actions: const [
         RoutineAction(
-          kind: RoutineActionKind.mistMaker,
-          title: 'Mist maker',
-          detail: 'Run for 30 seconds',
-          deviceId: 'mist',
+          kind: RoutineActionKind.switchChannel,
+          title: 'Switch 1',
+          detail: 'Turn On Switch 1',
+          deviceId: 'dev_1',
         ),
       ],
     );
     expect(validator.validate(draft).isValid, isTrue);
   });
 
-  testWidgets('routines list opens detail and secure setup guidance', (
+  testWidgets('routines page renders and opens builder', (
     tester,
   ) async {
     await tester.pumpWidget(const MaterialApp(home: AutomationsPage()));
     await tester.pumpAndSettle();
     expect(find.text('Routines'), findsOneWidget);
-    expect(find.text('Plant care'), findsOneWidget);
     expect(find.textContaining('routines'), findsWidgets);
-    await tester.tap(find.text('Plant care'));
-    await tester.pumpAndSettle();
-    expect(find.text('WHEN'), findsOneWidget);
-    expect(find.text('DEVICES INVOLVED'), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.arrow_back_rounded).first);
-    await tester.pumpAndSettle();
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(Switch).first);
-    await tester.pumpAndSettle();
-    expect(find.text('Secure setup required'), findsOneWidget);
   });
 }

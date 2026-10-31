@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node tests/desktop.test.js && node tests/bench-provisioner.test.js && node tests/native-boundary-security.test.js && node tests/label-printer.test.js && node tests/packing.test.js && node tests/ui-reconciliation.test.js && node tests/desktop-e2e.test.js",
+    "test": "node tests/desktop.test.js && node tests/bench-provisioner.test.js && node tests/native-boundary-security.test.js && node tests/label-printer.test.js && node tests/packing.test.js && node tests/ui-reconciliation.test.js && node tests/windows-pdf-printer.test.js && node tests/system-installer-requirements.test.js && node tests/setup-persistence-performance.test.js && node tests/desktop-e2e.test.js && node tests/desktop-silicon-repo-polish.test.js",
     "tauri": "tauri"
   },
   "dependencies": {

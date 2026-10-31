@@ -25,6 +25,7 @@ export const CartonStatusSchema = z.enum([
 export type CartonStatus = z.infer<typeof CartonStatusSchema>;
 
 export const PackingErrorCodeSchema = z.enum([
+  'SERIAL_ALREADY_REGISTERED',
   'DEVICE_NOT_FOUND',
   'DEVICE_ALREADY_PACKED',
   'DEVICE_NOT_VERIFIED',
@@ -107,7 +108,7 @@ export const DualScanVerificationRequestSchema = z.object({
   schemaVersion: SchemaVersionSchema.default(1),
   stationId: z.string().min(1),
   operatorUserId: z.string().optional(),
-  deviceSerial: SerialNumberSchema,
+  deviceSerial: z.union([SerialNumberSchema, z.string().regex(/^E1[A-Z]\dH\dF\d-\d{5}$/)]),
   boxTokenOrUri: z.string().min(16),
   cartonId: z.string().optional(),
   requestedAt: z.string().datetime()
@@ -130,7 +131,7 @@ export const DualScanVerificationResultSchema = z.object({
   success: z.boolean(),
   isMatch: z.boolean(),
   status: VerificationStatusSchema,
-  deviceSerial: SerialNumberSchema,
+  deviceSerial: z.union([SerialNumberSchema, z.string().regex(/^E1[A-Z]\dH\dF\d-\d{5}$/)]),
   deviceId: z.string().uuid().optional(),
   boxToken: OpaqueQrTokenSchema.optional(),
   productVariantId: z.string().optional(),

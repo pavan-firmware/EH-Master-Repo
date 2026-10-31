@@ -1,14 +1,11 @@
-/**
- * Lightweight Desktop Application State
- * Separates UI navigation state from API connectivity state and Native capabilities state.
- */
-
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { apiClient, SystemInfo } from '../services/api-client';
-import { MockSerialService } from '../services/native';
+import { getSerialService } from '../services/native';
 
 export type NavigationTab =
   | 'dashboard'
+  | 'setup'
+  | 'repositories'
   | 'products'
   | 'hardware'
   | 'firmware'
@@ -41,13 +38,28 @@ export interface AppStateContextValue {
 const AppStateContext = createContext<AppStateContextValue | undefined>(undefined);
 
 export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
+  const [activeTab, setActiveTabState] = useState<NavigationTab>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = window.localStorage.getItem('eh_active_tab') as NavigationTab;
+      // Setup is an explicit diagnostics screen, never an application startup
+      // gate. Older builds could persist `setup` and reopen it forever.
+      if (saved && saved !== 'setup') return saved;
+    }
+    return 'dashboard';
+  });
   const [isApiConnected, setIsApiConnected] = useState<boolean>(false);
   const [apiStatusMessage, setApiStatusMessage] = useState<string>('Checking backend...');
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [isCheckingApi, setIsCheckingApi] = useState<boolean>(false);
   const [availablePorts, setAvailablePorts] = useState<string[]>([]);
   const [isScannerActive] = useState<boolean>(true);
+
+  const setActiveTab = (tab: NavigationTab) => {
+    setActiveTabState(tab);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('eh_active_tab', tab);
+    }
+  };
 
   const checkApiConnection = useCallback(async () => {
     setIsCheckingApi(true);
@@ -76,7 +88,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const refreshNativeDevices = useCallback(async () => {
     try {
-      const serial = new MockSerialService();
+      const serial = getSerialService();
       const ports = await serial.listAvailablePorts();
       setAvailablePorts(ports.map((p) => p.portName));
     } catch {

@@ -22,7 +22,6 @@ class AuthController extends ChangeNotifier {
     final opId = ++_currentOperationId;
     _restoreFuture = _authRepository
         .restoreSession()
-        .timeout(const Duration(seconds: 2))
         .then((_) {
           if (opId == _currentOperationId && _state == AuthState.unknown) {
             _state = _authRepository.isAuthenticated
@@ -69,6 +68,30 @@ class AuthController extends ChangeNotifier {
       if (opId == _currentOperationId) {
         _state = AuthState.failure;
         _errorMessage = _mapLoginError(e);
+        notifyListeners();
+      }
+      return false;
+    }
+  }
+
+  Future<bool> loginOffline({String? email, String? displayName}) async {
+    final opId = ++_currentOperationId;
+    _state = AuthState.authenticating;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _authRepository.loginLocalGuest(email: email, displayName: displayName);
+      if (opId == _currentOperationId) {
+        _state = AuthState.authenticated;
+        notifyListeners();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      if (opId == _currentOperationId) {
+        _state = AuthState.failure;
+        _errorMessage = e.toString();
         notifyListeners();
       }
       return false;

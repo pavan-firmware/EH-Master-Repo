@@ -792,15 +792,27 @@ class ProductCatalogService {
     const { metadata } = def;
     const { resolved: resolvedCaps, unknown } = this.resolveCapabilities(metadata.capabilities);
 
-    const channels = metadata.channels.map(ch => ({
-      channelIndex: ch.channelIndex,
-      defaultLabel: ch.defaultLabel || `Channel ${ch.channelIndex}`,
-      customLabel: channelLabels[String(ch.channelIndex)] || null,
-      displayName: channelLabels[String(ch.channelIndex)] || ch.defaultLabel || `Channel ${ch.channelIndex}`,
-      capabilities: ch.capabilities,
-      resolvedCapabilities: ch.capabilities.map(capId => this.getCapability(capId)).filter(Boolean),
-      state: deviceState?.channels?.find(s => s.channelIndex === ch.channelIndex) || null
-    }));
+    const channels = metadata.channels.map(ch => {
+      let resolvedDefault = ch.defaultLabel;
+      if (!resolvedDefault || resolvedDefault.startsWith('Channel ')) {
+        const family = (metadata.productFamily || productVariantId || '').toLowerCase();
+        const prefix = family.includes('socket') ? 'Socket'
+          : family.includes('dimmer') ? 'Dimmer'
+          : family.includes('fan') ? 'Fan'
+          : family.includes('curtain') ? 'Curtain'
+          : 'Switch';
+        resolvedDefault = `${prefix} ${ch.channelIndex}`;
+      }
+      return {
+        channelIndex: ch.channelIndex,
+        defaultLabel: resolvedDefault,
+        customLabel: channelLabels[String(ch.channelIndex)] || null,
+        displayName: channelLabels[String(ch.channelIndex)] || resolvedDefault,
+        capabilities: ch.capabilities,
+        resolvedCapabilities: ch.capabilities.map(capId => this.getCapability(capId)).filter(Boolean),
+        state: deviceState?.channels?.find(s => s.channelIndex === ch.channelIndex) || null
+      };
+    });
 
     const capabilityUiHints = {};
     resolvedCaps.forEach(cap => {

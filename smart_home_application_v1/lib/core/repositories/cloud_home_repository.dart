@@ -13,6 +13,7 @@ class CloudHomeRepository implements HomeRepository {
   }
 
   String? get activeHomeId => _activeHomeId;
+  ApiClient get client => _apiClient;
   void setActiveHomeId(String homeId) => _activeHomeId = homeId;
 
   String _generateUuid() {
@@ -64,7 +65,7 @@ class CloudHomeRepository implements HomeRepository {
 
   @override
   Future<List<DeviceSnapshot>> getDevices({String? homeId}) async {
-    String resolvedHomeId = homeId ?? _activeHomeId ?? '';
+    String resolvedHomeId = (homeId != null && homeId.isNotEmpty) ? homeId : (_activeHomeId ?? '');
     if (resolvedHomeId.isEmpty) {
       final homesResponse = await _apiClient.get('/api/v1/homes');
       if (homesResponse == null) return [];
@@ -75,7 +76,9 @@ class CloudHomeRepository implements HomeRepository {
               : []);
       if (homesList.isEmpty) return [];
       resolvedHomeId = homesList[0]['id'] as String;
-      _activeHomeId = resolvedHomeId;
+      if (_activeHomeId == null || _activeHomeId!.isEmpty) {
+        _activeHomeId = resolvedHomeId;
+      }
     }
 
     dynamic devicesResponse;
@@ -128,7 +131,8 @@ class CloudHomeRepository implements HomeRepository {
               devMap['product_sku'] ??
               'HW_1_0',
           connection: _mapConnection(
-            devMap['connectionState'] ?? devMap['last_seen_at'],
+            devMap['connectionState'],
+            devMap['last_seen_at'],
           ),
           capabilities: capabilities,
           reportedAt: devMap['last_seen_at'] != null
@@ -139,6 +143,16 @@ class CloudHomeRepository implements HomeRepository {
               devMap['firmware_version'] ??
               '1.0.0',
           channels: channels,
+          channelLabels: devMap['channelLabels'] is Map
+              ? Map<String, dynamic>.from(devMap['channelLabels'] as Map)
+              : (devMap['channel_labels'] is Map
+                  ? Map<String, dynamic>.from(devMap['channel_labels'] as Map)
+                  : null),
+          channelConfigs: devMap['channelConfigs'] is Map
+              ? Map<String, dynamic>.from(devMap['channelConfigs'] as Map)
+              : (devMap['channel_configs'] is Map
+                  ? Map<String, dynamic>.from(devMap['channel_configs'] as Map)
+                  : null),
           productVariantId: devMap['productVariantId'] ??
               devMap['product_variant_id']?.toString(),
           serialNumber:
@@ -149,17 +163,20 @@ class CloudHomeRepository implements HomeRepository {
     return devices;
   }
 
-  DeviceConnection _mapConnection(dynamic connectionOrLastSeen) {
-    if (connectionOrLastSeen == null) return DeviceConnection.offline;
-    final str = connectionOrLastSeen.toString().toUpperCase();
-    if (str == 'ONLINE') return DeviceConnection.online;
+  DeviceConnection _mapConnection(dynamic connectionState, [dynamic lastSeenAt]) {
+    if (connectionState == null) return DeviceConnection.offline;
+    final str = connectionState.toString().toUpperCase();
+    if (str == 'OFFLINE' || str == 'DISCONNECTED') return DeviceConnection.offline;
     if (str == 'STALE') return DeviceConnection.stale;
-    if (str == 'OFFLINE') return DeviceConnection.offline;
+
+    if (str == 'ONLINE') {
+      return DeviceConnection.online;
+    }
 
     try {
-      final lastSeen = DateTime.parse(connectionOrLastSeen.toString());
+      final lastSeen = DateTime.parse(connectionState.toString());
       final diff = DateTime.now().difference(lastSeen).inSeconds;
-      if (diff > 45) {
+      if (diff > 90) {
         return DeviceConnection.offline;
       }
       return DeviceConnection.online;
@@ -186,6 +203,40 @@ class CloudHomeRepository implements HomeRepository {
         channelLabels: {channelIndex.toString(): newName},
       );
     }
+  }
+
+  Future<void> updateChannelConfig({
+    required String deviceId,
+    required int channelIndex,
+    required Map<String, dynamic> config,
+  }) async {
+    try {
+      await _apiClient.patch(
+        '/api/v1/devices/$deviceId/channels/$channelIndex',
+        body: {'channelConfig': config},
+      );
+    } catch (_) {
+      try {
+        await _apiClient.patch(
+          '/api/v1/devices/$deviceId/channels',
+          body: {
+            'channelConfigs': {channelIndex.toString(): config},
+          },
+        );
+      } catch (_) {}
+    }
+  }
+
+  Future<void> updateAllChannelConfigs({
+    required String deviceId,
+    required Map<String, dynamic> channelConfigs,
+  }) async {
+    try {
+      await _apiClient.patch(
+        '/api/v1/devices/$deviceId/channels',
+        body: {'channelConfigs': channelConfigs},
+      );
+    } catch (_) {}
   }
 
   Future<void> renameRoom({
@@ -231,6 +282,27 @@ class CloudHomeRepository implements HomeRepository {
     }
   }
 
+  Future<void> createAutomation({
+    required String homeId,
+    required String name,
+    required String triggerType,
+    required Map<String, dynamic> triggerConfig,
+    required List<Map<String, dynamic>> actions,
+  }) async {
+    try {
+      await _apiClient.post(
+        '/api/v1/homes/$homeId/automations',
+        body: {
+          'name': name.trim(),
+          'triggerType': triggerType,
+          'triggerConfig': triggerConfig,
+          'actions': actions,
+          'isEnabled': true,
+        },
+      );
+    } catch (_) {}
+  }
+
   @override
   Future<void> registerDevice({
     required String deviceId,
@@ -270,8 +342,28 @@ class CloudHomeRepository implements HomeRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getRooms({String? homeId}) async {
+  Future<void> removeDevice({
+    required String deviceId,
+    String? homeId,
+  }) async {
     String resolvedHomeId = homeId ?? _activeHomeId ?? '';
+    if (resolvedHomeId.isNotEmpty) {
+      try {
+        await _apiClient.delete('/api/v1/homes/$resolvedHomeId/devices/$deviceId');
+      } catch (e) {
+        debugPrint('[CloudHomeRepo] removeDevice from home error: $e');
+      }
+    }
+    try {
+      await _apiClient.post('/api/v1/devices/$deviceId/unclaim');
+    } catch (e) {
+      debugPrint('[CloudHomeRepo] unclaim device error: $e');
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getRooms({String? homeId}) async {
+    String resolvedHomeId = (homeId != null && homeId.isNotEmpty) ? homeId : (_activeHomeId ?? '');
     if (resolvedHomeId.isEmpty) {
       final homesResponse = await _apiClient.get('/api/v1/homes');
       if (homesResponse != null) {
@@ -282,7 +374,9 @@ class CloudHomeRepository implements HomeRepository {
                 : []);
         if (homesList.isNotEmpty) {
           resolvedHomeId = homesList[0]['id'] as String;
-          _activeHomeId = resolvedHomeId;
+          if (_activeHomeId == null || _activeHomeId!.isEmpty) {
+            _activeHomeId = resolvedHomeId;
+          }
         }
       }
     }
@@ -320,7 +414,7 @@ class CloudHomeRepository implements HomeRepository {
       throw ApiException(statusCode: 400, message: 'Room name cannot be empty');
     }
 
-    String resolvedHomeId = homeId ?? _activeHomeId ?? '';
+    String resolvedHomeId = (homeId != null && homeId.isNotEmpty) ? homeId : (_activeHomeId ?? '');
     if (resolvedHomeId.isEmpty) {
       final homesResponse = await _apiClient.get('/api/v1/homes');
       if (homesResponse != null) {
@@ -331,7 +425,9 @@ class CloudHomeRepository implements HomeRepository {
                 : []);
         if (homesList.isNotEmpty) {
           resolvedHomeId = homesList[0]['id'] as String;
-          _activeHomeId = resolvedHomeId;
+          if (_activeHomeId == null || _activeHomeId!.isEmpty) {
+            _activeHomeId = resolvedHomeId;
+          }
         }
       }
     }
@@ -375,13 +471,14 @@ class CloudHomeRepository implements HomeRepository {
       final validCommandId =
           uuidRegex.hasMatch(idempotencyKey) ? idempotencyKey : _generateUuid();
       final validDeviceId =
-          uuidRegex.hasMatch(deviceId) ? deviceId : _generateUuid();
+          deviceId.trim().isNotEmpty ? deviceId.trim() : _generateUuid();
 
       final response = await _apiClient.post(
         '/api/v1/commands/send',
         body: {
           'commandId': validCommandId,
           'deviceId': validDeviceId,
+          if (_activeHomeId != null && _activeHomeId!.isNotEmpty) 'homeId': _activeHomeId,
           'channelIndex': channelIndex,
           'action': actionName,
           'params': parameters,

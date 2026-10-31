@@ -69,7 +69,7 @@ INSERT INTO product_variants (
 ) VALUES 
 (
     'eh-smart-switch-1x', 'eh-smart-switch', '1x', 'EH Smart Switch 1X', 1,
-    '[{"channelIndex": 1, "defaultLabel": "Channel 1", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}]'::jsonb,
+    '[{"channelIndex": 1, "defaultLabel": "Switch 1", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}]'::jsonb,
     '{"schemaVersion": 1, "mcuFamily": "esp32-c6", "flashSizeBytes": 4194304, "psramSizeBytes": null, "hasEnergyMetering": true, "energyMeterChip": "BL0942", "maxRelayAmpsPerChannel": 16.0, "maxTotalAmps": 16.0, "gpioMap": {"relay_ch1": 18, "switch_in_ch1": 4}}'::jsonb,
     '{"schemaVersion": 1, "supportsWifi": true, "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"], "supportsBle": true, "bleVersion": "5.0", "supportsThread": false, "threadVersion": null, "supportsMatter": false, "matterDeviceType": null}'::jsonb,
     '["switch", "relay", "local_switch", "energy", "voltage", "current", "power", "ota", "automation", "scene", "schedule"]'::jsonb,
@@ -79,7 +79,7 @@ INSERT INTO product_variants (
 ),
 (
     'eh-smart-switch-2x', 'eh-smart-switch', '2x', 'EH Smart Switch 2X', 2,
-    '[{"channelIndex": 1, "defaultLabel": "Channel 1", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 2, "defaultLabel": "Channel 2", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}]'::jsonb,
+    '[{"channelIndex": 1, "defaultLabel": "Switch 1", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 2, "defaultLabel": "Switch 2", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}]'::jsonb,
     '{"schemaVersion": 1, "mcuFamily": "esp32-c6", "flashSizeBytes": 4194304, "psramSizeBytes": null, "hasEnergyMetering": true, "energyMeterChip": "BL0942", "maxRelayAmpsPerChannel": 10.0, "maxTotalAmps": 16.0, "gpioMap": {"relay_ch1": 18, "relay_ch2": 19, "switch_in_ch1": 4, "switch_in_ch2": 5}}'::jsonb,
     '{"schemaVersion": 1, "supportsWifi": true, "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"], "supportsBle": true, "bleVersion": "5.0", "supportsThread": false, "threadVersion": null, "supportsMatter": false, "matterDeviceType": null}'::jsonb,
     '["switch", "relay", "local_switch", "energy", "voltage", "current", "power", "ota", "automation", "scene", "schedule"]'::jsonb,
@@ -89,7 +89,7 @@ INSERT INTO product_variants (
 ),
 (
     'eh-smart-switch-4x', 'eh-smart-switch', '4x', 'EH Smart Switch 4X', 4,
-    '[{"channelIndex": 1, "defaultLabel": "Channel 1", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 2, "defaultLabel": "Channel 2", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 3, "defaultLabel": "Channel 3", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 4, "defaultLabel": "Channel 4", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}]'::jsonb,
+    '[{"channelIndex": 1, "defaultLabel": "Switch 1", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 2, "defaultLabel": "Switch 2", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 3, "defaultLabel": "Switch 3", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}, {"channelIndex": 4, "defaultLabel": "Switch 4", "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]}]'::jsonb,
     '{"schemaVersion": 1, "mcuFamily": "esp32-c6", "flashSizeBytes": 4194304, "psramSizeBytes": null, "hasEnergyMetering": true, "energyMeterChip": "BL0942", "maxRelayAmpsPerChannel": 10.0, "maxTotalAmps": 16.0, "gpioMap": {"relay_ch1": 18, "relay_ch2": 19, "relay_ch3": 20, "relay_ch4": 21, "switch_in_ch1": 4, "switch_in_ch2": 5, "switch_in_ch3": 6, "switch_in_ch4": 7}}'::jsonb,
     '{"schemaVersion": 1, "supportsWifi": true, "wifiStandards": ["802.11b", "802.11g", "802.11n", "802.11ax"], "supportsBle": true, "bleVersion": "5.0", "supportsThread": false, "threadVersion": null, "supportsMatter": false, "matterDeviceType": null}'::jsonb,
     '["switch", "relay", "local_switch", "energy", "voltage", "current", "power", "ota", "automation", "scene", "schedule"]'::jsonb,

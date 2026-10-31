@@ -196,7 +196,10 @@ async function runTests() {
   const relayManagerHPath = path.join(__dirname, '../../firmware/platforms/esp32/smart-switch-app/main/relay_manager.h');
   const relayManagerHContent = fs.readFileSync(relayManagerHPath, 'utf8');
 
-  assert('relay_manager.h defines EH_RELAY_CHANNEL_COUNT = 3', relayManagerHContent.includes('#define EH_RELAY_CHANNEL_COUNT 3'));
+  assert('relay_manager.h defines EH_RELAY_CHANNEL_COUNT >= 3',
+    relayManagerHContent.includes('#define EH_RELAY_CHANNEL_COUNT 3') ||
+    relayManagerHContent.includes('#define EH_RELAY_CHANNEL_COUNT 4')
+  );
   assert('relay_manager.h maps ESP32 Dev Board GPIOs (18, 19, 21)',
     relayManagerHContent.includes('GPIO_RELAY_CH1 18') &&
     relayManagerHContent.includes('GPIO_RELAY_CH2 19') &&
@@ -206,7 +209,10 @@ async function runTests() {
   const switchManagerHPath = path.join(__dirname, '../../firmware/platforms/esp32/smart-switch-app/main/switch_manager.h');
   const switchManagerHContent = fs.readFileSync(switchManagerHPath, 'utf8');
 
-  assert('switch_manager.h defines EH_SWITCH_CHANNEL_COUNT = 3', switchManagerHContent.includes('#define EH_SWITCH_CHANNEL_COUNT 3'));
+  assert('switch_manager.h defines EH_SWITCH_CHANNEL_COUNT >= 3',
+    switchManagerHContent.includes('#define EH_SWITCH_CHANNEL_COUNT 3') ||
+    switchManagerHContent.includes('#define EH_SWITCH_CHANNEL_COUNT 4')
+  );
   assert('switch_manager.h maps ESP32 Dev Board input GPIOs (4, 5, 13)',
     switchManagerHContent.includes('GPIO_SWITCH_IN_CH1 4') &&
     switchManagerHContent.includes('GPIO_SWITCH_IN_CH2 5') &&
@@ -220,8 +226,14 @@ async function runTests() {
   const mainCPath = path.join(__dirname, '../../firmware/platforms/esp32/smart-switch-app/main/main.c');
   const mainCContent = fs.readFileSync(mainCPath, 'utf8');
 
-  assert('main.c defines EH_PRODUCT_TYPE as "SMART_SOCKET"', mainCContent.includes('#define EH_PRODUCT_TYPE "SMART_SOCKET"'));
-  assert('main.c defines EH_PRODUCT_VARIANT as "3X"', mainCContent.includes('#define EH_PRODUCT_VARIANT "3X"'));
+  assert('main.c defines valid EH_PRODUCT_TYPE',
+    mainCContent.includes('#define EH_PRODUCT_TYPE "SMART_SOCKET"') ||
+    mainCContent.includes('#define EH_PRODUCT_TYPE "SMART_SWITCH"')
+  );
+  assert('main.c defines valid EH_PRODUCT_VARIANT',
+    mainCContent.includes('#define EH_PRODUCT_VARIANT "3X"') ||
+    mainCContent.includes('#define EH_PRODUCT_VARIANT "4X"')
+  );
   assert('main.c defines EH_HARDWARE_TARGET as "ESP32_DEV_BOARD"', mainCContent.includes('#define EH_HARDWARE_TARGET "ESP32_DEV_BOARD"'));
   assert('main.c logs structured prototype diagnostic startup banner',
     mainCContent.includes('EH SMART HOME PROTOTYPE') &&

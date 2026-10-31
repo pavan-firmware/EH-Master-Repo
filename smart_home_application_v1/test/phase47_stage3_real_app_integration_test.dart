@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:smart_home_application_v1/core/api/api_client.dart';
 import 'package:smart_home_application_v1/core/api/sse_client.dart';
@@ -123,6 +124,11 @@ class _FakeSseClient extends SseClient {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({});
+  });
 
   group('Phase 47 Stage 3 — A. Real Email/Password Authentication & Session', () {
     late _FakeApiClient apiClient;
@@ -324,7 +330,7 @@ void main() {
     late CloudHomeRepository homeRepository;
     late HomeController homeController;
 
-    setUp(() {
+    setUp(() async {
       apiClient = _FakeApiClient();
       sseClient = _FakeSseClient(apiClient);
       realtimeService = RealtimeEventService(sseClient);
@@ -335,6 +341,29 @@ void main() {
         realtimeEventService: realtimeService,
         cloudEnabled: true,
       );
+
+      // Pre-load the ESP32 device so it is ONLINE for command dispatch tests.
+      apiClient.setMockGet('/api/v1/homes/home_c_001/rooms', <dynamic>[]);
+      apiClient.setMockGet('/api/v1/homes/home_c_001/devices', [
+        {
+          'deviceId': 'ce196211-91cf-496a-9403-709d8589eb15',
+          'serialNumber': 'EH-SW3X-2026W12-00001',
+          'productVariantId': 'eh-smart-switch-3x',
+          'hardwareRevision': 'HW_1_0',
+          'firmwareFamily': 'esp32c6-switch-platform',
+          'firmwareVersion': '1.0.0',
+          'displayName': 'EH Smart Switch 3X',
+          'roomName': 'Living Room',
+          'connectionState': 'ONLINE',
+          'channels': [
+            {'channelIndex': 1, 'defaultLabel': 'Switch 1', 'label': 'Switch 1'},
+            {'channelIndex': 2, 'defaultLabel': 'Switch 2', 'label': 'Switch 2'},
+            {'channelIndex': 3, 'defaultLabel': 'Switch 3', 'label': 'Switch 3'},
+          ],
+          'capabilities': ['switch', 'relay', 'energy', 'ota'],
+        }
+      ]);
+      await homeController.loadHomeData(homeId: 'home_c_001');
     });
 
     test('1. Command dispatches canonical schema to POST /api/v1/commands/send', () async {

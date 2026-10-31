@@ -32,6 +32,7 @@ const { DatabaseClient } = require('../shared/db-client');
 const { MqttTopicBuilder } = require('../shared/mqtt-topic-builder');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DEVICE_ID_REGEX = /^[a-zA-Z0-9_\-:.]{1,64}$/;
 
 /**
  * Build and configure all Phase 6 services from a shared DatabaseClient.
@@ -126,6 +127,13 @@ function buildRouteHandlers(services) {
 
         return res.status(result.isIdempotentReplay ? 200 : 202).json(result);
       } catch (err) {
+        if (err.statusCode === 409 || err.code === 'DEVICE_OFFLINE' || err.message.includes('OFFLINE')) {
+          return res.status(409).json({
+            error: 'Device Offline',
+            code: 'DEVICE_OFFLINE',
+            message: err.message
+          });
+        }
         if (err.message.includes('Authorization failed') || err.message.includes('does not belong')) {
           return res.status(403).json({ error: err.message });
         }
@@ -146,7 +154,7 @@ function buildRouteHandlers(services) {
      */
     async getCommand(req, res) {
       const { commandId } = req.params;
-      if (!commandId || !UUID_REGEX.test(commandId)) {
+      if (!commandId || (!UUID_REGEX.test(commandId) && !DEVICE_ID_REGEX.test(commandId))) {
         return res.status(400).json({ error: `Invalid commandId '${commandId}'` });
       }
 
@@ -168,7 +176,7 @@ function buildRouteHandlers(services) {
      */
     async getDeviceState(req, res) {
       const { deviceId } = req.params;
-      if (!deviceId || !UUID_REGEX.test(deviceId)) {
+      if (!deviceId || (!UUID_REGEX.test(deviceId) && !DEVICE_ID_REGEX.test(deviceId))) {
         return res.status(400).json({ error: `Invalid deviceId '${deviceId}'` });
       }
 

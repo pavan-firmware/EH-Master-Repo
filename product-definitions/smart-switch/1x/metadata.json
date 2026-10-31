@@ -7,7 +7,7 @@
   "channels": [
     {
       "channelIndex": 1,
-      "defaultLabel": "Channel 1",
+      "defaultLabel": "Switch 1",
       "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
     }
   ],

@@ -60,11 +60,65 @@ class _PeoplePageState extends State<PeoplePage> {
           data: snapshot.data!,
           onInvite: _invite,
           onRemoveMember: _removeMember,
+          onMemberTap: _showMemberRoleSheet,
           onInvitationAction: _handleInvitation,
+          onRefresh: () async => _reload(),
         );
       },
     ),
   );
+
+  String _formatRoleName(String role) {
+    switch (role.toUpperCase()) {
+      case 'ADMIN':
+      case 'HOME_ADMIN':
+        return 'Home Admin';
+      case 'GUEST':
+        return 'Guest';
+      case 'OWNER':
+        return 'Owner';
+      default:
+        return 'Member';
+    }
+  }
+
+  Future<void> _showMemberRoleSheet(HomeMember member) async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _MemberRoleSheet(
+        member: member,
+        onRemove: () {
+          Navigator.pop(ctx);
+          _removeMember(member);
+        },
+      ),
+    );
+
+    if (result != null && result.isNotEmpty && mounted) {
+      final res = await widget.repository.updateMemberRole(member.id, result);
+      if (!mounted) return;
+      if (res == SettingsOperationResult.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${member.displayName} role updated to ${_formatRoleName(result)}'),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        _reload();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update member role. Please try again.'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
 
   Future<void> _invite() async {
     final result = await showDialog<({String email, String role})>(
@@ -169,13 +223,17 @@ class _PeopleContent extends StatelessWidget {
     required this.data,
     required this.onInvite,
     required this.onRemoveMember,
+    required this.onMemberTap,
     required this.onInvitationAction,
+    required this.onRefresh,
   });
   final _PeopleData data;
   final VoidCallback onInvite;
   final ValueChanged<HomeMember> onRemoveMember;
+  final ValueChanged<HomeMember> onMemberTap;
   final Future<void> Function(HomeInvitation invitation, bool resend)
   onInvitationAction;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -184,29 +242,33 @@ class _PeopleContent extends StatelessWidget {
         .where((member) => member.role == HomeMemberRole.owner)
         .length;
     final memberCount = data.members.length - ownerCount;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-      children: [
-        SettingsSurface(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SettingsIconBadge(icon: Icons.groups_rounded, size: 72),
-              const SizedBox(height: 14),
-              Text(
-                '${data.members.length} people have access',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: tokens.textPrimary,
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      color: tokens.bluePrimary,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        children: [
+          SettingsSurface(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SettingsIconBadge(icon: Icons.groups_rounded, size: 72),
+                const SizedBox(height: 14),
+                Text(
+                  '${data.members.length} ${data.members.length == 1 ? 'person has' : 'people have'} access',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: tokens.textPrimary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Owners and admins can configure the home, invite household members, and organize rooms.',
-                style: TextStyle(color: tokens.textSecondary, height: 1.3),
-              ),
+                const SizedBox(height: 6),
+                Text(
+                  'Owners and admins can configure the home, invite household members, and organize rooms.',
+                  style: TextStyle(color: tokens.textSecondary, height: 1.3),
+                ),
               const SizedBox(height: 13),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -323,6 +385,7 @@ class _PeopleContent extends StatelessWidget {
                 _MemberRow(
                   member: data.members[index],
                   showDivider: index != data.members.length - 1,
+                  onTap: () => onMemberTap(data.members[index]),
                   onRemove: data.members[index].role != HomeMemberRole.owner
                       ? () => onRemoveMember(data.members[index])
                       : null,
@@ -387,8 +450,9 @@ class _PeopleContent extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 }
 
 class _AccessStat extends StatelessWidget {
@@ -425,138 +489,126 @@ class _MemberRow extends StatelessWidget {
   const _MemberRow({
     required this.member,
     required this.showDivider,
+    this.onTap,
     this.onRemove,
   });
   final HomeMember member;
   final bool showDivider;
+  final VoidCallback? onTap;
   final VoidCallback? onRemove;
   @override
+  @override
   Widget build(BuildContext context) {
+    final tokens = context.ehColors;
     final isOwner = member.role == HomeMemberRole.owner;
     final isAdmin = member.role == HomeMemberRole.admin;
     final isGuest = member.role == HomeMemberRole.guest;
 
+    final cleanName = member.displayName
+        .replaceAll(RegExp(r'\s*\((Owner|Admin|Member|Guest)\)', caseSensitive: false), '')
+        .trim();
+
+    final avatarBg = isOwner
+        ? tokens.bluePrimary.withValues(alpha: tokens.isDark ? 0.22 : 0.12)
+        : (isAdmin
+            ? const Color(0xFFF59E0B).withValues(alpha: tokens.isDark ? 0.22 : 0.12)
+            : const Color(0xFF10B981).withValues(alpha: tokens.isDark ? 0.22 : 0.12));
+
+    final avatarFg = isOwner
+        ? tokens.bluePrimary
+        : (isAdmin ? const Color(0xFFF59E0B) : const Color(0xFF10B981));
+
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 25,
-                backgroundColor: isOwner
-                    ? SettingsColors.paleBlue
-                    : (isAdmin ? SettingsColors.paleOrange : SettingsColors.paleGreen),
-                foregroundColor: isOwner
-                    ? SettingsColors.blue
-                    : (isAdmin ? SettingsColors.orange : SettingsColors.green),
-                child: Text(
-                  member.initials,
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            member.displayName,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        if (isOwner) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: SettingsColors.paleBlue,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Text(
-                              'Owner',
-                              style: TextStyle(
-                                color: SettingsColors.blue,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ] else if (isAdmin) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: SettingsColors.paleOrange,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Text(
-                              'Home Admin',
-                              style: TextStyle(
-                                color: SettingsColors.orange,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isOwner
-                          ? 'Home owner'
-                          : (isAdmin
-                              ? 'Home Admin · ${member.lastActiveLabel ?? 'Access active'}'
-                              : (isGuest
-                                  ? 'Guest · Restricted'
-                                  : 'Member · ${member.lastActiveLabel ?? 'Access active'}')),
-                      style: TextStyle(
-                        color: isOwner
-                            ? SettingsColors.muted
-                            : (isAdmin ? SettingsColors.orange : SettingsColors.green),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: avatarBg,
+                    foregroundColor: avatarFg,
+                    child: Text(
+                      member.initials,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                cleanName.isNotEmpty ? cleanName : (member.email ?? ''),
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: tokens.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: avatarBg,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                isOwner ? 'Owner' : (isAdmin ? 'Admin' : (isGuest ? 'Guest' : 'Member')),
+                                style: TextStyle(
+                                  color: avatarFg,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          isOwner
+                              ? 'Home owner · Full control'
+                              : (isAdmin
+                                  ? 'Administrator · Device & member control'
+                                  : (isGuest ? 'Guest · Time-limited access' : 'Standard household member')),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: tokens.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    isOwner ? Icons.verified_user_rounded : Icons.chevron_right_rounded,
+                    color: isOwner ? tokens.bluePrimary : tokens.textTertiary,
+                    size: 20,
+                  ),
+                ],
               ),
-              if (!isOwner && onRemove != null)
-                IconButton(
-                  icon: const Icon(Icons.remove_circle_outline_rounded, color: SettingsColors.red),
-                  tooltip: 'Remove member access',
-                  onPressed: onRemove,
-                )
-              else
-                Icon(
-                  isOwner ? Icons.verified_user_rounded : Icons.chevron_right_rounded,
-                  color: isOwner ? SettingsColors.blue : SettingsColors.muted,
-                ),
-            ],
+            ),
           ),
         ),
         if (showDivider)
-          const Padding(
-            padding: EdgeInsets.only(left: 80),
-            child: Divider(height: 1, color: SettingsColors.line),
+          Padding(
+            padding: const EdgeInsets.only(left: 76),
+            child: Divider(height: 1, color: tokens.borderSubtle),
           ),
       ],
     );
   }
+
 }
 
 class _InvitationRow extends StatelessWidget {
@@ -786,6 +838,271 @@ class _InviteDialogState extends State<_InviteDialog> {
           child: const Text('Send Invite'),
         ),
       ],
+    );
+  }
+}
+
+class _MemberRoleSheet extends StatefulWidget {
+  const _MemberRoleSheet({
+    required this.member,
+    required this.onRemove,
+  });
+
+  final HomeMember member;
+  final VoidCallback onRemove;
+
+  @override
+  State<_MemberRoleSheet> createState() => _MemberRoleSheetState();
+}
+
+class _MemberRoleSheetState extends State<_MemberRoleSheet> {
+  late String _selectedRole;
+
+  @override
+  void initState() {
+    super.initState();
+    final role = widget.member.role;
+    _selectedRole = switch (role) {
+      HomeMemberRole.owner => 'OWNER',
+      HomeMemberRole.admin => 'HOME_ADMIN',
+      HomeMemberRole.guest => 'GUEST',
+      _ => 'MEMBER',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    final isOwner = widget.member.role == HomeMemberRole.owner;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.surfaceCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: tokens.borderControl,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: isOwner
+                    ? SettingsColors.paleBlue
+                    : tokens.bluePrimary.withValues(alpha: 0.12),
+                foregroundColor: isOwner ? SettingsColors.blue : tokens.bluePrimary,
+                child: Text(
+                  widget.member.initials,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.member.displayName,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.member.email ?? 'Home Member',
+                      style: TextStyle(fontSize: 13, color: tokens.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Text(
+            'SELECT ROLE & PERMISSIONS',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: tokens.textTertiary,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (isOwner)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2563EB).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.verified_user_rounded, color: Color(0xFF2563EB), size: 24),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'This member is the Home Owner and maintains full, permanent administrative control.',
+                      style: TextStyle(fontSize: 13, height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            _roleOption(
+              roleKey: 'HOME_ADMIN',
+              title: 'Home Admin',
+              description: 'Full administrative access. Can add devices, invite members, set up automations, and organize rooms.',
+              icon: Icons.shield_rounded,
+              tokens: tokens,
+            ),
+            const SizedBox(height: 10),
+            _roleOption(
+              roleKey: 'MEMBER',
+              title: 'Member',
+              description: 'Standard household access. Can control devices, trigger scenes and routines, and view device states.',
+              icon: Icons.people_rounded,
+              tokens: tokens,
+            ),
+            const SizedBox(height: 10),
+            _roleOption(
+              roleKey: 'GUEST',
+              title: 'Guest',
+              description: 'Restricted access. Temporary or limited control of assigned room devices only.',
+              icon: Icons.confirmation_number_rounded,
+              tokens: tokens,
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: widget.onRemove,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFDC2626),
+                      side: const BorderSide(color: Color(0xFFFCA5A5)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: const Text('Remove Member', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context, _selectedRole),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: tokens.bluePrimary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: const Text('Save Role', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _roleOption({
+    required String roleKey,
+    required String title,
+    required String description,
+    required IconData icon,
+    required EHThemeTokens tokens,
+  }) {
+    final isSelected = _selectedRole == roleKey;
+
+    return Material(
+      color: isSelected
+          ? tokens.bluePrimary.withValues(alpha: 0.1)
+          : tokens.bgSecondary,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => setState(() => _selectedRole = roleKey),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected ? tokens.bluePrimary : tokens.borderSubtle,
+              width: isSelected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? tokens.bluePrimary : tokens.textSecondary,
+                size: 22,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: isSelected ? tokens.bluePrimary : tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      description,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: tokens.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? tokens.bluePrimary : tokens.borderControl,
+                    width: 2,
+                  ),
+                  color: isSelected ? tokens.bluePrimary : Colors.transparent,
+                ),
+                child: isSelected
+                    ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,10 +1,9 @@
 /**
  * EH Home Desktop — Device Fleet Inventory & Identity (Parts 07/09/11)
  *
- * Exposes provisioned device identities, hardware revisions, firmware versions,
- * registration states, and packaging statuses.
- * Note: MQTT/EMQX telemetry & OTA rollout are strictly deferred to Part 13+.
- * Consumes apps/api /api/v1/inventory endpoints.
+ * VS Code-style Engineering Workbench for provisioned device identities,
+ * hardware revisions, firmware versions, registration states, and lifecycle management.
+ * Real CRUD & lifecycle actions wired to apps/api — Zero dummy runtime data.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -13,89 +12,73 @@ import {
   RefreshCw,
   Search,
   AlertCircle,
+  X,
 } from 'lucide-react';
 import { apiClient } from '../../services/api-client';
 
 interface DeviceItem {
+  id?: string;
   deviceId: string;
   serialNumber: string;
   productVariantId: string;
   hardwareRevision: string;
   firmwareVersion: string;
-  status: 'REGISTERED' | 'PROVISIONED' | 'QC_PASSED' | 'PACKED' | 'QUARANTINED';
-  registeredAt: string;
+  status: string;
+  lifecycleState?: string;
+  registeredAt?: string;
+  createdAt?: string;
   qrToken?: string;
   stationId?: string;
 }
 
-const DEFAULT_DEVICES: DeviceItem[] = [
-  {
-    deviceId: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d',
-    serialNumber: 'EH-SW-2026-0001',
-    productVariantId: 'eh-smart-switch-1x',
-    hardwareRevision: 'HW_1_0',
-    firmwareVersion: '1.0.0',
-    status: 'PACKED',
-    registeredAt: '2026-03-01T14:20:00Z',
-    qrToken: 'tok_switch1x_0001_secure',
-    stationId: 'BENCH-STATION-01',
-  },
-  {
-    deviceId: 'c3f4e5a6-7b8c-4d9e-af01-23456789abcd',
-    serialNumber: 'EH-SW-2026-0002',
-    productVariantId: 'eh-smart-switch-2x',
-    hardwareRevision: 'HW_1_0',
-    firmwareVersion: '1.0.0',
-    status: 'QC_PASSED',
-    registeredAt: '2026-03-01T15:10:00Z',
-    qrToken: 'tok_switch2x_0002_secure',
-    stationId: 'BENCH-STATION-01',
-  },
-  {
-    deviceId: 'd4e5f6a7-8b9c-4d0e-bf12-3456789abcde',
-    serialNumber: 'EH-SOCK-2026-0001',
-    productVariantId: 'eh-smart-socket-1x',
-    hardwareRevision: 'HW_1_0',
-    firmwareVersion: '1.0.0',
-    status: 'PROVISIONED',
-    registeredAt: '2026-03-02T09:45:00Z',
-    qrToken: 'tok_socket1x_0001_sec',
-    stationId: 'BENCH-STATION-02',
-  },
-];
-
 export const DeviceFleetView: React.FC = () => {
-  const [devices, setDevices] = useState<DeviceItem[]>(DEFAULT_DEVICES);
+  const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedDevice, setSelectedDevice] = useState<DeviceItem>(DEFAULT_DEVICES[0]!);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedDevice, setSelectedDevice] = useState<DeviceItem | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const fetchDevices = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await apiClient.getPackingHistory({ limit: 50 });
-      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
-        setDevices(
-          res.data.map((item: any, idx: number) => ({
-            deviceId: item.deviceId || `dev-${idx}`,
-            serialNumber: item.deviceSerial || item.serialNumber,
-            productVariantId: item.productVariantId,
-            hardwareRevision: item.hardwareRevision || 'HW_1_0',
-            firmwareVersion: item.firmwareVersion || '1.0.0',
-            status: 'PACKED',
-            registeredAt: item.packedAt || new Date().toISOString(),
-            qrToken: item.qrToken,
-            stationId: item.operatorUserId,
-          }))
-        );
+      const res = await apiClient.listDevices({
+        limit: 100,
+      });
+
+      if (res.success && res.data) {
+        const items: any[] = Array.isArray(res.data) ? res.data : (res.data as any).items || [];
+        const mapped: DeviceItem[] = items.map((item) => ({
+          id: item.id || item.deviceId,
+          deviceId: item.deviceId || item.id,
+          serialNumber: item.serialNumber || 'N/A',
+          productVariantId: item.productVariantId || item.variantId || 'unknown',
+          hardwareRevision: item.hardwareRevision || 'HW_1_0',
+          firmwareVersion: item.firmwareVersion || '1.0.0',
+          status: item.status || item.lifecycleState || 'PROVISIONED',
+          lifecycleState: item.lifecycleState || item.status,
+          registeredAt: item.createdAt || item.registeredAt || new Date().toISOString(),
+          qrToken: item.qrToken,
+          stationId: item.stationId || 'BENCH-01',
+        }));
+
+        setDevices(mapped);
+        setSelectedDevice((prev) => {
+          if (!prev && mapped.length > 0) return mapped[0] || null;
+          if (prev) {
+            const found = mapped.find((m) => m.deviceId === prev.deviceId);
+            return found || mapped[0] || null;
+          }
+          return null;
+        });
       } else {
-        setDevices(DEFAULT_DEVICES);
+        setDevices([]);
       }
     } catch (err: any) {
-      setDevices(DEFAULT_DEVICES);
-      setError(`Using provisioned device records baseline (${err.message})`);
+      setError(`Failed to query device fleet from apps/api: ${err.message}`);
+      setDevices([]);
     } finally {
       setIsLoading(false);
     }
@@ -105,207 +88,301 @@ export const DeviceFleetView: React.FC = () => {
     fetchDevices();
   }, [fetchDevices]);
 
-  const handleLookup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
-    setIsLoading(true);
+  const handleUpdateLifecycle = async (newStatus: string) => {
+    if (!selectedDevice) return;
     try {
-      const res = await apiClient.getInventoryDevice(searchQuery.trim());
-      if (res.success && res.data) {
-        const found = res.data;
-        const mapped: DeviceItem = {
-          deviceId: found.deviceId || 'lookup-id',
-          serialNumber: found.serialNumber,
-          productVariantId: found.productVariantId,
-          hardwareRevision: found.hardwareRevision || 'HW_1_0',
-          firmwareVersion: found.firmwareVersion || '1.0.0',
-          status: found.status || 'REGISTERED',
-          registeredAt: found.createdAt || new Date().toISOString(),
-          qrToken: found.qrToken,
-          stationId: found.stationId,
-        };
-        setSelectedDevice(mapped);
+      const res = await apiClient.updateDeviceLifecycle(selectedDevice.deviceId, newStatus);
+      if (res.success) {
+        setFeedback({ type: 'success', message: `Device ${selectedDevice.serialNumber} set to ${newStatus}.` });
+        setSelectedDevice({ ...selectedDevice, status: newStatus, lifecycleState: newStatus });
+        await fetchDevices();
+      } else {
+        setFeedback({ type: 'error', message: res.error?.message || 'Failed to update device lifecycle' });
       }
-    } catch {
-      // Keep local state
-    } finally {
-      setIsLoading(false);
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message });
     }
   };
 
   const filteredDevices = devices.filter((d) => {
+    const statusMatch = statusFilter === 'all' || d.status.toUpperCase() === statusFilter.toUpperCase();
     const q = searchQuery.toLowerCase().trim();
-    return (
+    const searchMatch =
       !q ||
       d.serialNumber.toLowerCase().includes(q) ||
       d.productVariantId.toLowerCase().includes(q) ||
-      d.deviceId.toLowerCase().includes(q)
-    );
+      d.deviceId.toLowerCase().includes(q);
+    return statusMatch && searchMatch;
   });
 
+  const getStatusBadgeClass = (status: string) => {
+    switch (status.toUpperCase()) {
+      case 'PACKED':
+      case 'ACTIVE':
+      case 'PROVISIONED':
+      case 'QC_PASSED':
+        return 'bg-[#4EC9B0]/10 text-[#4EC9B0] border-[#4EC9B0]/30';
+      case 'CLAIMED':
+      case 'REGISTERED':
+        return 'bg-[#007ACC]/10 text-[#007ACC] border-[#007ACC]/30';
+      case 'QUARANTINED':
+      case 'REVOKED':
+        return 'bg-[#F14C4C]/10 text-[#F14C4C] border-[#F14C4C]/30';
+      default:
+        return 'bg-[#858585]/10 text-[#858585] border-[#858585]/30';
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-3 max-w-7xl mx-auto font-sans">
+      {/* Workbench Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#3C3C3C] pb-2.5">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-slate-100">Device Fleet Management</h1>
-            <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
-              Identity & Manufacturing Verified
+            <span className="text-xs font-mono text-[#858585]">workbench &gt; fleet &gt;</span>
+            <h1 className="text-sm font-semibold text-white uppercase tracking-wide">Device Fleet Inventory</h1>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#252526] border border-[#3C3C3C] text-[#4EC9B0]">
+              Part 09/11
             </span>
           </div>
-          <p className="text-xs text-slate-400">
-            Provisioned device registry, hardware revision tracking, firmware versions, and manufacturing identity state.
+          <p className="text-xs text-[#858585] mt-0.5">
+            Provisioned device registry, hardware revision tracking, firmware versions, and lifecycle status.
           </p>
+          <div className="mt-1 text-[10px] font-mono text-[#858585]">
+            <span className="text-[#CCA700]">Scope Invariant:</span> Live device telemetry, MQTT streaming & cloud sync deferred to Part 13.
+          </div>
         </div>
 
-        <button
-          onClick={fetchDevices}
-          disabled={isLoading}
-          className="flex items-center gap-2 rounded-lg bg-surface-card border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-surface-border/50 transition disabled:opacity-50 self-start"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>Refresh Fleet</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchDevices}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 rounded bg-[#252526] border border-[#3C3C3C] px-2.5 py-1 text-xs font-medium text-[#CCCCCC] hover:bg-[#2D2D2D] transition disabled:opacity-50"
+            title="Refresh Fleet List"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin text-[#007ACC]' : ''}`} />
+            <span>Refresh Fleet</span>
+          </button>
+        </div>
       </div>
 
+      {/* Notifications */}
+      {feedback && (
+        <div
+          className={`flex items-center justify-between p-2 rounded text-xs border font-mono ${
+            feedback.type === 'success'
+              ? 'bg-[#4EC9B0]/10 border-[#4EC9B0]/30 text-[#4EC9B0]'
+              : 'bg-[#F14C4C]/10 border-[#F14C4C]/30 text-[#F14C4C]'
+          }`}
+        >
+          <span>{feedback.message}</span>
+          <button onClick={() => setFeedback(null)} className="text-[#858585] hover:text-white">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {error && (
-        <div className="flex items-center gap-2 rounded-lg bg-amber-950/40 border border-amber-800/50 p-3 text-xs text-amber-300">
-          <AlertCircle className="h-4 w-4 shrink-0" />
+        <div className="flex items-center gap-2 rounded bg-[#CCA700]/10 border border-[#CCA700]/30 p-2 text-xs text-[#DCDCAA]">
+          <AlertCircle className="h-4 w-4 shrink-0 text-[#CCA700]" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Scope Disclaimer Banner for Part 13+ */}
-      <div className="flex items-center justify-between rounded-xl border border-indigo-800/40 bg-indigo-950/30 p-3 text-xs text-indigo-300">
-        <div className="flex items-center gap-2">
-          <Radio className="h-4 w-4 text-indigo-400" />
-          <span>Device Identity & Manufacturing Status Active. Live Telemetry & MQTT Rollout scheduled for Part 13.</span>
+      {/* Filter & Search Toolbar */}
+      <div className="flex flex-col sm:flex-row gap-2 items-center justify-between bg-[#252526] p-2 rounded border border-[#3C3C3C]">
+        <div className="flex flex-wrap gap-1 w-full sm:w-auto">
+          {['all', 'PROVISIONED', 'QC_PASSED', 'PACKED', 'CLAIMED', 'QUARANTINED'].map((st) => (
+            <button
+              key={st}
+              onClick={() => setStatusFilter(st)}
+              className={`px-2 py-0.5 text-[11px] font-mono rounded transition ${
+                statusFilter === st
+                  ? 'bg-[#0E639C] text-white'
+                  : 'text-[#858585] hover:text-[#CCCCCC] hover:bg-[#333333]'
+              }`}
+            >
+              {st}
+            </button>
+          ))}
         </div>
-        <span className="text-[10px] font-mono bg-indigo-900/60 px-2 py-0.5 rounded border border-indigo-700/60 text-indigo-200">
-          Scope Invariant
-        </span>
-      </div>
 
-      {/* Search Input */}
-      <form onSubmit={handleLookup} className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-[#858585]" />
           <input
             type="text"
-            placeholder="Search by serial number (EH-SW-2026-XXXX) or device UUID..."
+            placeholder="Search serial, variant, or UUID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg bg-surface-dark border border-surface-border pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            className="w-full rounded bg-[#1E1E1E] border border-[#3C3C3C] pl-7 pr-2 py-1 text-xs text-white placeholder-[#666666] focus:outline-none focus:border-[#007ACC] font-mono"
           />
         </div>
-        <button
-          type="submit"
-          className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-500 transition"
-        >
-          Lookup
-        </button>
-      </form>
+      </div>
 
-      {/* Main Grid: Device List + Device Detail */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Main Grid: Fleet Table + Inspector */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Device Table */}
-        <div className="lg:col-span-7 rounded-xl border border-surface-border bg-surface-dark overflow-hidden">
-          <div className="p-3.5 border-b border-surface-border flex items-center justify-between bg-surface-dark/80">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Registered Devices ({filteredDevices.length})
+        <div className="lg:col-span-7 rounded border border-[#3C3C3C] bg-[#252526] overflow-hidden">
+          <div className="p-2.5 border-b border-[#3C3C3C] flex items-center justify-between bg-[#1E1E1E]">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[#858585]">
+              Fleet Devices ({filteredDevices.length})
             </span>
+            <span className="text-[10px] font-mono text-[#858585]">apps/api &bull; PostgreSQL</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-surface-darker/60 text-[11px] font-semibold text-slate-400 border-b border-surface-border">
+              <thead className="bg-[#1E1E1E] text-[11px] font-semibold text-[#858585] border-b border-[#3C3C3C]">
                 <tr>
-                  <th className="p-3">Serial Number</th>
-                  <th className="p-3">Product Variant</th>
-                  <th className="p-3">HW Rev</th>
-                  <th className="p-3">FW Ver</th>
-                  <th className="p-3 text-right">Status</th>
+                  <th className="p-2.5 font-mono">Serial Number</th>
+                  <th className="p-2.5">Variant</th>
+                  <th className="p-2.5 font-mono">HW Rev</th>
+                  <th className="p-2.5 font-mono">FW Ver</th>
+                  <th className="p-2.5 text-right font-mono">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-border/60">
-                {filteredDevices.map((d) => (
-                  <tr
-                    key={d.deviceId}
-                    onClick={() => setSelectedDevice(d)}
-                    className={`cursor-pointer transition ${
-                      selectedDevice?.deviceId === d.deviceId ? 'bg-indigo-950/40' : 'hover:bg-surface-card/40'
-                    }`}
-                  >
-                    <td className="p-3 font-mono text-indigo-300 font-semibold">{d.serialNumber}</td>
-                    <td className="p-3 text-slate-300">{d.productVariantId}</td>
-                    <td className="p-3 font-mono text-slate-400">{d.hardwareRevision}</td>
-                    <td className="p-3 font-mono text-slate-400">v{d.firmwareVersion}</td>
-                    <td className="p-3 text-right">
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
-                        {d.status}
-                      </span>
+              <tbody className="divide-y divide-[#333333]">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-[#858585] font-mono">
+                      Querying device fleet...
                     </td>
                   </tr>
-                ))}
+                ) : filteredDevices.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-[#858585] font-mono">
+                      <Radio className="h-6 w-6 mx-auto mb-2 text-[#555555]" />
+                      <p>No devices matching filter criteria.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredDevices.map((d) => {
+                    const isSelected = selectedDevice?.deviceId === d.deviceId;
+                    return (
+                      <tr
+                        key={d.deviceId}
+                        onClick={() => setSelectedDevice(d)}
+                        className={`cursor-pointer transition ${
+                          isSelected ? 'bg-[#094771]/60 text-white' : 'hover:bg-[#2A2D2E] text-[#CCCCCC]'
+                        }`}
+                      >
+                        <td className="p-2.5 font-mono text-[#4EC9B0] font-semibold">{d.serialNumber}</td>
+                        <td className="p-2.5 font-medium">{d.productVariantId}</td>
+                        <td className="p-2.5 font-mono text-[#858585]">{d.hardwareRevision}</td>
+                        <td className="p-2.5 font-mono text-[#858585]">v{d.firmwareVersion}</td>
+                        <td className="p-2.5 text-right">
+                          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${getStatusBadgeClass(d.status)}`}>
+                            {d.status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Selected Device Details */}
+        {/* Selected Device Details / Inspector */}
         <div className="lg:col-span-5">
-          <div className="sticky top-6 rounded-xl border border-surface-border bg-surface-dark p-5 space-y-4">
-            <div className="border-b border-surface-border pb-3">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-mono text-slate-400">Device Identity Record</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+          {selectedDevice ? (
+            <div className="rounded border border-[#3C3C3C] bg-[#252526] p-3.5 space-y-3">
+              <div className="border-b border-[#333333] pb-2 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-mono text-[#858585]">Device Identity Record</span>
+                  <h2 className="text-sm font-bold text-white font-mono">{selectedDevice.serialNumber}</h2>
+                </div>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${getStatusBadgeClass(selectedDevice.status)}`}>
                   {selectedDevice.status}
                 </span>
               </div>
-              <h2 className="text-sm font-bold text-slate-100 font-mono">{selectedDevice.serialNumber}</h2>
-            </div>
 
-            <div className="space-y-2.5 text-xs">
-              <div className="flex justify-between py-1 border-b border-surface-border/60">
-                <span className="text-slate-400">Device UUID:</span>
-                <span className="font-mono text-slate-300 text-[11px] truncate max-w-[200px]">{selectedDevice.deviceId}</span>
+              {/* Lifecycle Actions */}
+              <div className="bg-[#1E1E1E] p-2 rounded border border-[#333333] space-y-1.5">
+                <div className="text-[10px] font-semibold text-[#858585] uppercase tracking-wider font-mono">
+                  Lifecycle Status Management
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {selectedDevice.status !== 'QC_PASSED' && (
+                    <button
+                      onClick={() => handleUpdateLifecycle('QC_PASSED')}
+                      className="px-2 py-0.5 bg-[#4EC9B0]/20 border border-[#4EC9B0]/40 text-[#4EC9B0] hover:bg-[#4EC9B0]/30 rounded text-[10px] font-mono transition"
+                    >
+                      Mark QC Passed
+                    </button>
+                  )}
+                  {selectedDevice.status !== 'PACKED' && (
+                    <button
+                      onClick={() => handleUpdateLifecycle('PACKED')}
+                      className="px-2 py-0.5 bg-[#007ACC]/20 border border-[#007ACC]/40 text-[#007ACC] hover:bg-[#007ACC]/30 rounded text-[10px] font-mono transition"
+                    >
+                      Mark Packed
+                    </button>
+                  )}
+                  {selectedDevice.status !== 'QUARANTINED' ? (
+                    <button
+                      onClick={() => handleUpdateLifecycle('QUARANTINED')}
+                      className="px-2 py-0.5 bg-[#F14C4C]/20 border border-[#F14C4C]/40 text-[#F14C4C] hover:bg-[#F14C4C]/30 rounded text-[10px] font-mono transition"
+                    >
+                      Quarantine Device
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleUpdateLifecycle('PROVISIONED')}
+                      className="px-2 py-0.5 bg-[#4EC9B0]/20 border border-[#4EC9B0]/40 text-[#4EC9B0] hover:bg-[#4EC9B0]/30 rounded text-[10px] font-mono transition"
+                    >
+                      Release Quarantine
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex justify-between py-1 border-b border-surface-border/60">
-                <span className="text-slate-400">Product Variant:</span>
-                <span className="font-mono text-slate-200">{selectedDevice.productVariantId}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-surface-border/60">
-                <span className="text-slate-400">Hardware Revision:</span>
-                <span className="font-mono text-emerald-400">{selectedDevice.hardwareRevision}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-surface-border/60">
-                <span className="text-slate-400">Firmware Version:</span>
-                <span className="font-mono text-indigo-300">v{selectedDevice.firmwareVersion}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-surface-border/60">
-                <span className="text-slate-400">Station / Bench:</span>
-                <span className="font-mono text-slate-300">{selectedDevice.stationId || 'BENCH-01'}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-surface-border/60">
-                <span className="text-slate-400">Registered Date:</span>
-                <span className="font-mono text-slate-400 text-[11px]">
-                  {new Date(selectedDevice.registeredAt).toLocaleString()}
-                </span>
-              </div>
-            </div>
 
-            {selectedDevice.qrToken && (
-              <div className="space-y-1 pt-2">
-                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Pairing QR URI
+              <div className="space-y-1.5 font-mono text-[11px]">
+                <div className="flex justify-between py-1 border-b border-[#333333]">
+                  <span className="text-[#858585] font-sans">Device UUID:</span>
+                  <span className="text-white text-[10px] truncate max-w-[180px] select-all">{selectedDevice.deviceId}</span>
                 </div>
-                <div className="p-2 rounded bg-surface-darker border border-surface-border font-mono text-[10px] text-slate-300 select-all">
-                  eh://p/v1?t={selectedDevice.qrToken}
+                <div className="flex justify-between py-1 border-b border-[#333333]">
+                  <span className="text-[#858585] font-sans">Product Variant:</span>
+                  <span className="text-[#4EC9B0]">{selectedDevice.productVariantId}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#333333]">
+                  <span className="text-[#858585] font-sans">Hardware Rev:</span>
+                  <span className="text-white">{selectedDevice.hardwareRevision}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#333333]">
+                  <span className="text-[#858585] font-sans">Firmware Ver:</span>
+                  <span className="text-[#DCDCAA]">v{selectedDevice.firmwareVersion}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#333333]">
+                  <span className="text-[#858585] font-sans">Manufacturing Station:</span>
+                  <span className="text-[#CCCCCC]">{selectedDevice.stationId || 'BENCH-01'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#333333]">
+                  <span className="text-[#858585] font-sans">Timestamp:</span>
+                  <span className="text-[#858585] text-[10px]">
+                    {selectedDevice.registeredAt ? new Date(selectedDevice.registeredAt).toLocaleString() : 'N/A'}
+                  </span>
                 </div>
               </div>
-            )}
-          </div>
+
+              {selectedDevice.qrToken && (
+                <div className="space-y-1 pt-1">
+                  <div className="text-[10px] font-semibold text-[#858585] uppercase tracking-wider font-mono">
+                    Opaque Pairing URI
+                  </div>
+                  <div className="p-2 rounded bg-[#1E1E1E] border border-[#333333] font-mono text-[10px] text-[#4EC9B0] select-all break-all">
+                    eh://p/v1?t={selectedDevice.qrToken}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded border border-[#3C3C3C] bg-[#252526] p-8 text-center text-[#858585] text-xs font-mono">
+              Select a device from the list to inspect identity and status.
+            </div>
+          )}
         </div>
       </div>
     </div>

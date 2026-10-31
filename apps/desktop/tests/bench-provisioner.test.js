@@ -410,7 +410,7 @@ async function main() {
   });
 
   await runTest('Tauri layer invokes Python through explicit argument slice (no arbitrary shell execution)', () => {
-    assert.ok(commandsSource.includes('Command::new("python")'));
+    assert.ok(commandsSource.includes('Command::new("python")') || commandsSource.includes('create_hidden_command("python")'));
     assert.strictEqual(commandsSource.includes('execute_shell'), false);
     assert.strictEqual(commandsSource.includes('execute_cmd'), false);
     assert.strictEqual(commandsSource.includes('cmd.exe'), false);

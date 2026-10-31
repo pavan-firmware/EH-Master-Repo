@@ -34,6 +34,25 @@ static bool s_tx_subscribed = false;
 
 static bool s_initialized = false;
 
+static char s_prod_name[64] = "";
+static char s_prod_variant[64] = "";
+static uint8_t s_prod_channels = 0;
+static bool s_prod_energy = false;
+
+void ble_commissioning_set_product_meta(const char *product_name, const char *variant, uint8_t channels, bool energy)
+{
+    if (product_name) {
+        strncpy(s_prod_name, product_name, sizeof(s_prod_name) - 1);
+        s_prod_name[sizeof(s_prod_name) - 1] = '\0';
+    }
+    if (variant) {
+        strncpy(s_prod_variant, variant, sizeof(s_prod_variant) - 1);
+        s_prod_variant[sizeof(s_prod_variant) - 1] = '\0';
+    }
+    s_prod_channels = channels;
+    s_prod_energy = energy;
+}
+
 #define MAX_TX_QUEUE_ITEMS 16
 #define MAX_TX_FRAME_LEN 32
 
@@ -179,13 +198,57 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
 
     if (attr_handle == s_product_info_handle) {
         /* Encodes JSON public product metadata matching Flutter BleConnectionRepository expectations */
+        const char *p_name = s_prod_name[0] ? s_prod_name :
+#if defined(EH_IS_SOCKET) && (EH_IS_SOCKET == 1)
+            "EH Smart Socket " EH_PRODUCT_VARIANT;
+#elif defined(EH_PRODUCT_VARIANT)
+            "EH Smart Switch " EH_PRODUCT_VARIANT;
+#else
+            "EH Smart Switch 4X";
+#endif
+
+        const char *p_var = s_prod_variant[0] ? s_prod_variant :
+#if defined(EH_IS_SOCKET) && (EH_IS_SOCKET == 1)
+            "eh-smart-socket-" EH_PRODUCT_VARIANT;
+#elif defined(EH_PRODUCT_VARIANT)
+            "eh-smart-switch-" EH_PRODUCT_VARIANT;
+#else
+            "eh-smart-switch-4x";
+#endif
+
+        uint8_t p_chan = s_prod_channels > 0 ? s_prod_channels :
+#if defined(EH_RELAY_CHANNEL_COUNT)
+            EH_RELAY_CHANNEL_COUNT;
+#else
+            4;
+#endif
+
+        bool p_energy = s_prod_channels > 0 ? s_prod_energy :
+#if defined(EH_FEATURE_ENERGY_MONITORING) && (EH_FEATURE_ENERGY_MONITORING != 0)
+            true;
+#else
+            false;
+#endif
+
+        char lower_var[64];
+        strncpy(lower_var, p_var, sizeof(lower_var) - 1);
+        lower_var[sizeof(lower_var) - 1] = '\0';
+        for (int i = 0; lower_var[i]; i++) {
+            if (lower_var[i] >= 'A' && lower_var[i] <= 'Z') {
+                lower_var[i] = lower_var[i] + 32;
+            }
+        }
+
         len = snprintf(payload, sizeof(payload),
-                       "{\"product\":\"EH Smart Switch 3X\",\"p\":\"EH Smart Switch 3X\","
+                       "{\"product\":\"%s\",\"p\":\"%s\","
                        "\"deviceId\":\"%s\",\"serialNumber\":\"%s\",\"firmwareVersion\":\"1.0.0\","
-                       "\"variant\":\"eh-smart-switch-3x\"}",
+                       "\"variant\":\"%s\",\"channels\":%d,\"energy\":%s}",
+                       p_name, p_name,
                        id ? id->device_id : "UNKNOWN",
-                       id ? id->serial_number : "UNKNOWN");
-        ESP_LOGI(TAG, "GATT_6105_READ_START len=%d offset=%d", len, ctxt->offset);
+                       id ? id->serial_number : "UNKNOWN",
+                       lower_var, (int)p_chan, p_energy ? "true" : "false");
+        ESP_LOGI(TAG, "GATT_6105_READ_START len=%d offset=%d payload=%s", len, ctxt->offset, payload);
+
     } else if (attr_handle == s_status_handle) {
         eh_prov1_state_t prov_st = eh_prov1_get_state();
         const char *st_name = (prov_st == EH_PROV1_STATE_ACTIVE)
@@ -195,7 +258,7 @@ static int gatt_svr_access_device_info(uint16_t conn_handle, uint16_t attr_handl
                                          : "BLE_COMMISSIONING");
         bool is_wifi_active = (prov_st == EH_PROV1_STATE_ACTIVE);
         len = snprintf(payload, sizeof(payload),
-                       "{\"state\":\"%s\",\"wifi\":%s,\"mqtt\":false,\"relays\":[false,false,false]}",
+                       "{\"state\":\"%s\",\"wifi\":%s,\"mqtt\":false,\"relays\":[false,false,false,false]}",
                        st_name, is_wifi_active ? "true" : "false");
         ESP_LOGI(TAG, "GATT_6104_READ_START len=%d offset=%d state=%s wifi=%d", len, ctxt->offset, st_name, (int)is_wifi_active);
     } else if (attr_handle == s_telemetry_handle) {

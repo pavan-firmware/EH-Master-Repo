@@ -94,13 +94,23 @@ typedef enum {
 typedef struct {
     char     command_id[EH_MQTT_UUID_LEN + 1];
     char     device_id[EH_MQTT_UUID_LEN + 1];
-    uint8_t  channel_index;       /* 1-16 */
-    char     action[32];          /* e.g., "setPower" */
+    uint8_t  channel_index;       /* 0-16 (0 = device-wide or routine) */
+    char     action[32];          /* e.g., "setPower", "upsertRoutine", "deleteRoutine" */
     bool     params_power;        /* setPower value (if applicable) */
     int32_t  params_level;        /* 0-100 for setLevel (if applicable) */
     char     idempotency_key[EH_MQTT_IDEM_KEY_MAX_LEN];
     int64_t  expires_at_unix_ms;  /* 0 = no expiry */
     char     source[16];          /* APP, AUTOMATION, SCENE */
+    /* Edge Routine Provisioning fields */
+    char     routine_id[37];
+    char     routine_name[48];
+    uint8_t  routine_trigger;     /* 0=manual, 1=timer, 2=schedule */
+    uint32_t routine_duration;    /* duration_sec */
+    uint8_t  routine_hour;
+    uint8_t  routine_minute;
+    uint8_t  routine_days_mask;
+    bool     routine_target_power;
+    bool     routine_enabled;
 } eh_mqtt_command_t;
 
 /* ========================================================================

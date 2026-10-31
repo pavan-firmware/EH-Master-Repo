@@ -12,19 +12,10 @@
 extern "C" {
 #endif
 
-// Target-Specific Factory Reset Button Pin Mapping
-#if defined(CONFIG_IDF_TARGET_ESP32)
-// ESP32-D0WD Development Board Profile: GPIO 0 (BOOT button, active LOW)
-#define GPIO_RESET_BUTTON 0
-#elif defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C3)
-// ESP32-C6 / ESP32-C3 Production Profile: GPIO 9 (BOOT button, active LOW)
-#define GPIO_RESET_BUTTON 9
-#elif !defined(ESP_PLATFORM)
-// Host simulation fallback
-#define GPIO_RESET_BUTTON 0
-#else
-#error "Unsupported EH Home MCU target in reset_button.h"
-#endif
+#include "board_pinout.h"
+
+// Hardware Pin Mapping sourced from canonical board_pinout.h
+#define GPIO_RESET_BUTTON EH_PIN_BUTTON_RESET
 
 #define FACTORY_RESET_HOLD_MS 10000 // 10 seconds hold required
 
@@ -39,6 +30,11 @@ void reset_button_init(void);
  * Register optional custom callback executed immediately before reboot during factory reset.
  */
 void reset_button_register_callback(factory_reset_trigger_cb_t cb);
+
+/**
+ * Manually trigger software-initiated factory reset (e.g. from App 'Forget Device' local command).
+ */
+void reset_button_trigger_factory_reset(void);
 
 /**
  * Testable state machine step for simulated/host evaluation.

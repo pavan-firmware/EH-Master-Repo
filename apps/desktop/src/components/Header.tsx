@@ -1,62 +1,80 @@
-/**
- * Desktop Application Header
- * Displays branding, backend connection indicator, and active environment.
- */
-
 import React from 'react';
-import { Cpu, Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { useAppState } from '../state/app-state';
 import { getDesktopConfig } from '../lib/config';
 
 export const Header: React.FC = () => {
-  const { isApiConnected, isCheckingApi, checkApiConnection } = useAppState();
+  const { isApiConnected, isCheckingApi, checkApiConnection, activeTab } = useAppState();
   const config = getDesktopConfig();
 
+  const getTabLabel = (tab: string) => {
+    switch (tab) {
+      case 'dashboard': return 'Workbench Dashboard';
+      case 'setup': return 'System Setup & Calibration';
+      case 'repositories': return 'Source Control & Repositories';
+      case 'products': return 'Product & Variant Catalog';
+      case 'hardware': return 'Hardware & Bill of Materials (BOM)';
+      case 'firmware': return 'Firmware & Release Management';
+      case 'provisioner': return 'Bench Provisioner & Flasher';
+      case 'labels': return 'Manufacturing Label & QR Printer';
+      case 'devices': return 'Device Fleet Management';
+      case 'production': return 'Production & QC Verification';
+      case 'packing': return 'Dual-Scan Packaging Station';
+      case 'inventory': return 'Finished Goods Inventory';
+      case 'settings': return 'Workbench Preferences';
+      default: return tab;
+    }
+  };
+
   return (
-    <header className="flex h-14 w-full items-center justify-between border-b border-surface-border bg-surface-dark px-4 select-none">
-      {/* Brand Identity */}
-      <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-600 to-indigo-400 shadow-md shadow-indigo-600/20 text-white">
-          <Cpu className="h-5 w-5" />
+    <header className="flex h-9 w-full items-center justify-between border-b border-[#3C3C3C] bg-[#181818] px-3 select-none text-[12.5px] text-[#CCCCCC]">
+      {/* Brand & Active Breadcrumb */}
+      <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 font-semibold text-[#CCCCCC]">
+          <img
+            src="/branding/app_logo.png"
+            alt="EH Home Logo"
+            className="h-4 w-4 object-contain"
+            onError={(e) => {
+              // Fallback to logo.png if app_logo.png is unavailable
+              (e.target as HTMLImageElement).src = '/branding/logo.png';
+            }}
+          />
+          <span className="tracking-wide text-white text-[13px]">EH Home</span>
         </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm tracking-wide text-slate-100">EH HOME</span>
-            <span className="text-xs px-1.5 py-0.5 rounded font-mono font-medium bg-indigo-950/80 text-indigo-300 border border-indigo-800/60">
-              ENG-WORKBENCH
-            </span>
-          </div>
-          <span className="text-[11px] text-slate-400 block -mt-0.5">Manufacturing & Lifecycle Platform</span>
-        </div>
+        <span className="text-[#555555]">/</span>
+        <span className="text-[#9D9D9D] font-mono text-[11.5px]">{getTabLabel(activeTab)}</span>
       </div>
 
-      {/* Connection & Status Indicators */}
-      <div className="flex items-center gap-4">
-        {/* Backend API Indicator */}
-        <div
+      {/* Connection & Runtime Status */}
+      <div className="flex items-center gap-3">
+        {/* Backend API State */}
+        <button
           onClick={checkApiConnection}
-          className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer transition ${
+          disabled={isCheckingApi}
+          className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono transition border ${
             isApiConnected
-              ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/60 hover:bg-emerald-900/40'
-              : 'bg-rose-950/40 text-rose-400 border-rose-800/60 hover:bg-rose-900/40'
+              ? 'border-[#2E6B34] bg-[#1E3A21] text-[#4EC9B0] hover:bg-[#254929]'
+              : 'border-[#6B2E2E] bg-[#3A1E1E] text-[#F48771] hover:bg-[#492525]'
           }`}
-          title="Click to re-verify backend connectivity"
+          title="Click to re-check API status"
         >
           {isCheckingApi ? (
-            <RefreshCw className="h-3 w-3 animate-spin text-slate-400" />
+            <RefreshCw className="h-2.5 w-2.5 animate-spin" />
           ) : isApiConnected ? (
-            <Wifi className="h-3 w-3 text-emerald-400" />
+            <Wifi className="h-2.5 w-2.5 text-[#4EC9B0]" />
           ) : (
-            <WifiOff className="h-3 w-3 text-rose-400" />
+            <WifiOff className="h-2.5 w-2.5 text-[#F48771]" />
           )}
-          <span>{isApiConnected ? 'API Online' : 'API Offline'}</span>
-        </div>
+          <span>{isApiConnected ? 'API: Connected' : 'API: Offline'}</span>
+        </button>
 
-        {/* Environment Tag */}
-        <span className="text-[11px] uppercase tracking-wider font-mono text-slate-400 px-2 py-0.5 rounded bg-surface-card border border-surface-border">
+        {/* Environment Indicator */}
+        <span className="text-[10px] font-mono uppercase tracking-wider text-[#9D9D9D] px-1.5 py-0.5 rounded bg-[#252526] border border-[#3C3C3C]">
           {config.appEnv}
         </span>
       </div>
     </header>
   );
 };
+

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../app/home_controller.dart';
 import '../../../core/models/notification_models.dart';
 import '../../../core/repositories/notification_repository.dart';
 import '../../../core/theme/app_theme.dart';
@@ -21,12 +22,14 @@ class NotificationCenterPage extends StatefulWidget {
 }
 
 class _NotificationCenterPageState extends State<NotificationCenterPage> {
-  NotificationCategory _selectedCategory = NotificationCategory.all;
-  NotificationSeverity? _selectedSeverity;
   List<NotificationItem> _notifications = [];
   bool _isLoading = true;
   String? _errorMessage;
   int _unreadCount = 0;
+  bool _isSelectionMode = false;
+  final Set<String> _selectedIds = {};
+  NotificationCategory _selectedCategory = NotificationCategory.all;
+  NotificationSeverity? _selectedSeverity;
 
   @override
   void initState() {
@@ -61,6 +64,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
           _notifications = list;
           _unreadCount = count;
           _isLoading = false;
+          _selectedIds.removeWhere((id) => !_notifications.any((n) => n.id == id));
         });
       }
     } catch (err) {
@@ -92,6 +96,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
   Future<void> _markAllAsRead() async {
     try {
       await widget.repository.markAllAsRead(homeId: widget.homeId);
+      HomeController.instance?.clearAllAlerts();
       if (mounted) {
         setState(() {
           final now = DateTime.now();
@@ -100,6 +105,61 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _dismissNotification(NotificationItem item) async {
+    setState(() {
+      _notifications.removeWhere((n) => n.id == item.id);
+      _selectedIds.remove(item.id);
+      if (_unreadCount > 0 && !item.isRead) _unreadCount--;
+    });
+    await widget.repository.deleteNotification(item.id);
+  }
+
+  Future<void> _deleteSelected() async {
+    if (_selectedIds.isEmpty) return;
+    final idsToDelete = _selectedIds.toList();
+    setState(() {
+      _notifications.removeWhere((n) => idsToDelete.contains(n.id));
+      _selectedIds.clear();
+      _isSelectionMode = false;
+      _unreadCount = _notifications.where((n) => !n.isRead).length;
+    });
+    await widget.repository.deleteNotifications(idsToDelete);
+  }
+
+  Future<void> _confirmClearAll() async {
+    if (_notifications.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear all notifications?'),
+        content: const Text(
+          'This will permanently remove all notifications and routine execution logs from your device and cloud.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear All'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() {
+        _notifications.clear();
+        _selectedIds.clear();
+        _isSelectionMode = false;
+        _unreadCount = 0;
+      });
+      await widget.repository.clearAllNotifications(homeId: widget.homeId);
+    }
   }
 
   Future<void> _handleNotificationAction(NotificationItem item) async {
@@ -161,36 +221,137 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
     }
   }
 
+  List<NotificationItem> get _filteredNotifications {
+    return _notifications.where((n) {
+      if (_selectedCategory != NotificationCategory.all && n.category != _selectedCategory) {
+        return false;
+      }
+      if (_selectedSeverity != null && n.severity != _selectedSeverity) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+    final currentList = _filteredNotifications;
 
     return Scaffold(
       backgroundColor: tokens.bgApp,
       appBar: AppBar(
         backgroundColor: tokens.bgApp,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: tokens.textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: Icon(Icons.close_rounded, color: tokens.textPrimary),
+                onPressed: () => setState(() {
+                  _isSelectionMode = false;
+                  _selectedIds.clear();
+                }),
+              )
+            : IconButton(
+                icon: Icon(Icons.arrow_back, color: tokens.textPrimary),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
         title: Text(
-          'Notifications',
+          _isSelectionMode ? '${_selectedIds.length} selected' : 'Notifications',
           style: TextStyle(
             color: tokens.textPrimary,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
             fontSize: 20,
           ),
         ),
         actions: [
-          if (_unreadCount > 0)
-            TextButton.icon(
-              onPressed: _markAllAsRead,
-              icon: const Icon(Icons.done_all, size: 18),
-              label: const Text('Mark all read', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          if (_isSelectionMode) ...[
+            IconButton(
+              tooltip: _selectedIds.length == currentList.length ? 'Deselect all' : 'Select all',
+              icon: Icon(
+                _selectedIds.length == currentList.length
+                    ? Icons.deselect_rounded
+                    : Icons.select_all_rounded,
+                color: tokens.textPrimary,
+              ),
+              onPressed: () {
+                setState(() {
+                  if (_selectedIds.length == currentList.length) {
+                    _selectedIds.clear();
+                  } else {
+                    _selectedIds.addAll(currentList.map((e) => e.id));
+                  }
+                });
+              },
             ),
+            IconButton(
+              tooltip: 'Delete selected',
+              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444)),
+              onPressed: _selectedIds.isEmpty ? null : _deleteSelected,
+            ),
+          ] else ...[
+            if (_unreadCount > 0)
+              TextButton.icon(
+                onPressed: _markAllAsRead,
+                icon: const Icon(Icons.done_all_rounded, size: 18),
+                label: const Text(
+                  'Mark all read',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+              ),
+            if (_notifications.isNotEmpty) ...[
+              IconButton(
+                tooltip: 'Select items',
+                icon: Icon(Icons.checklist_rounded, color: tokens.textPrimary),
+                onPressed: () => setState(() => _isSelectionMode = true),
+              ),
+              IconButton(
+                tooltip: 'Clear all',
+                icon: const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444)),
+                onPressed: _confirmClearAll,
+              ),
+            ],
+          ],
+          const SizedBox(width: 4),
         ],
       ),
+      bottomNavigationBar: (_isSelectionMode && _selectedIds.isNotEmpty)
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: tokens.surfaceCard,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_selectedIds.length} item(s) selected',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                      ),
+                      onPressed: _deleteSelected,
+                      icon: const Icon(Icons.delete_rounded, size: 18),
+                      label: const Text('Delete'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : null,
       body: Column(
         children: [
           // Filter Chips Row
@@ -207,7 +368,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                       label: Text(cat.label),
                       selected: isSelected,
                       onSelected: (_) => _onCategorySelected(cat),
-                      selectedColor: tokens.bluePrimary.withAlpha(40),
+                      selectedColor: tokens.bluePrimary.withValues(alpha: 0.2),
                       checkmarkColor: tokens.bluePrimary,
                       labelStyle: TextStyle(
                         color: isSelected ? tokens.bluePrimary : tokens.textSecondary,
@@ -227,7 +388,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                       label: Text(sev.name.toUpperCase()),
                       selected: isSelected,
                       onSelected: (_) => _onSeveritySelected(sev),
-                      selectedColor: sColor.withAlpha(40),
+                      selectedColor: sColor.withValues(alpha: 0.2),
                       checkmarkColor: sColor,
                       labelStyle: TextStyle(
                         color: isSelected ? sColor : tokens.textSecondary,
@@ -242,7 +403,6 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
           ),
           const Divider(height: 1),
 
-          // Content Area
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator.adaptive())
@@ -251,7 +411,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.error_outline, size: 48, color: Colors.red.shade400),
+                            Icon(Icons.error_outline_rounded, size: 48, color: Colors.red.shade400),
                             const SizedBox(height: 12),
                             Text(
                               _errorMessage!,
@@ -265,7 +425,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                           ],
                         ),
                       )
-                    : _notifications.isEmpty
+                    : currentList.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -273,7 +433,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                                 Icon(
                                   Icons.notifications_off_outlined,
                                   size: 56,
-                                  color: tokens.textSecondary.withAlpha(120),
+                                  color: tokens.textSecondary.withValues(alpha: 0.5),
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
@@ -298,15 +458,76 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                         : RefreshIndicator(
                             onRefresh: _loadNotifications,
                             child: ListView.separated(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              itemCount: _notifications.length,
-                              separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                              itemCount: currentList.length,
+                              separatorBuilder: (_, _) => const SizedBox(height: 6),
                               itemBuilder: (context, index) {
-                                final item = _notifications[index];
-                                return NotificationCard(
+                                final item = currentList[index];
+                                final isSelected = _selectedIds.contains(item.id);
+
+                                final card = NotificationCard(
                                   item: item,
-                                  onTap: () => _markAsRead(item),
+                                  onTap: _isSelectionMode
+                                      ? () {
+                                          setState(() {
+                                            if (isSelected) {
+                                              _selectedIds.remove(item.id);
+                                            } else {
+                                              _selectedIds.add(item.id);
+                                            }
+                                          });
+                                        }
+                                      : () => _markAsRead(item),
                                   onAction: (it) => _handleNotificationAction(it),
+                                );
+
+                                if (_isSelectionMode) {
+                                  return InkWell(
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: () {
+                                      setState(() {
+                                        if (isSelected) {
+                                          _selectedIds.remove(item.id);
+                                        } else {
+                                          _selectedIds.add(item.id);
+                                        }
+                                      });
+                                    },
+                                    child: Row(
+                                      children: [
+                                        Checkbox(
+                                          value: isSelected,
+                                          activeColor: tokens.bluePrimary,
+                                          onChanged: (val) {
+                                            setState(() {
+                                              if (val == true) {
+                                                _selectedIds.add(item.id);
+                                              } else {
+                                                _selectedIds.remove(item.id);
+                                              }
+                                            });
+                                          },
+                                        ),
+                                        Expanded(child: card),
+                                      ],
+                                    ),
+                                  );
+                                }
+
+                                return Dismissible(
+                                  key: ValueKey(item.id),
+                                  direction: DismissDirection.endToStart,
+                                  background: Container(
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.only(right: 20),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEF4444),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
+                                  ),
+                                  onDismissed: (_) => _dismissNotification(item),
+                                  child: card,
                                 );
                               },
                             ),

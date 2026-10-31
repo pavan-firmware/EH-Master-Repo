@@ -14,11 +14,27 @@
  *   - Fixed-point telemetry fields are always unsigned integers on wire
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "mqtt_protocol.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <time.h>
+
+#if !defined(ESP_PLATFORM) && defined(_WIN32)
+static void *memmem(const void *haystack, size_t haystacklen, const void *needle, size_t needlelen) {
+    if (!haystack || !needle || needlelen == 0 || haystacklen < needlelen) return NULL;
+    const char *h = (const char *)haystack;
+    const char *n = (const char *)needle;
+    for (size_t i = 0; i <= haystacklen - needlelen; i++) {
+        if (h[i] == n[0] && memcmp(&h[i], n, needlelen) == 0) return (void *)&h[i];
+    }
+    return NULL;
+}
+#endif
 
 /* ========================================================================
  * Internal helpers
@@ -256,16 +272,24 @@ eh_mqtt_err_t eh_mqtt_parse_command(
         return EH_MQTT_ERR_INVALID_CMD;
     }
 
-    /* channelIndex */
-    int64_t ch_raw = _json_get_int64(json_payload, payload_len, "channelIndex");
-    if (ch_raw < 1 || ch_raw > max_channels) return EH_MQTT_ERR_CHANNEL_RANGE;
-    out_cmd->channel_index = (uint8_t)ch_raw;
-
     /* action */
     val = _json_get_string(json_payload, payload_len, "action", &val_len);
     if (!val || val_len == 0 || val_len >= sizeof(out_cmd->action)) return EH_MQTT_ERR_INVALID_CMD;
     memcpy(out_cmd->action, val, val_len);
     out_cmd->action[val_len] = '\0';
+
+    /* channelIndex (supports 0 for device-level / routine commands) */
+    int64_t ch_raw = _json_get_int64(json_payload, payload_len, "channelIndex");
+    bool is_device_action = (strcmp(out_cmd->action, "emergencyStop") == 0 ||
+                             strcmp(out_cmd->action, "upsertRoutine") == 0 ||
+                             strcmp(out_cmd->action, "deleteRoutine") == 0 ||
+                             strcmp(out_cmd->action, "syncRoutines") == 0);
+
+    if (is_device_action && ch_raw == INT64_MIN) {
+        ch_raw = 0;
+    }
+    if (ch_raw < (is_device_action ? 0 : 1) || ch_raw > max_channels) return EH_MQTT_ERR_CHANNEL_RANGE;
+    out_cmd->channel_index = (uint8_t)ch_raw;
 
     /* idempotencyKey */
     val = _json_get_string(json_payload, payload_len, "idempotencyKey", &val_len);
@@ -298,6 +322,45 @@ eh_mqtt_err_t eh_mqtt_parse_command(
         if (pwr < 0) pwr = _json_get_bool(json_payload, payload_len, "enabled");
         if (pwr < 0) pwr = _json_get_bool(json_payload, payload_len, "power");
         out_cmd->params_power = (pwr == 1);
+    }
+
+    /* Edge Routine Provisioning fields (upsertRoutine / deleteRoutine) */
+    if (strcmp(out_cmd->action, "upsertRoutine") == 0 || strcmp(out_cmd->action, "deleteRoutine") == 0) {
+        size_t r_len = 0;
+        const char *r_str = _json_get_string(json_payload, payload_len, "routineId", &r_len);
+        if (!r_str) r_str = _json_get_string(json_payload, payload_len, "id", &r_len);
+        if (r_str && r_len < sizeof(out_cmd->routine_id)) {
+            memcpy(out_cmd->routine_id, r_str, r_len);
+            out_cmd->routine_id[r_len] = '\0';
+        }
+
+        r_str = _json_get_string(json_payload, payload_len, "name", &r_len);
+        if (r_str && r_len < sizeof(out_cmd->routine_name)) {
+            memcpy(out_cmd->routine_name, r_str, r_len);
+            out_cmd->routine_name[r_len] = '\0';
+        }
+
+        int64_t trig = _json_get_int64(json_payload, payload_len, "triggerType");
+        if (trig >= 0) out_cmd->routine_trigger = (uint8_t)trig;
+
+        int64_t dur = _json_get_int64(json_payload, payload_len, "durationSec");
+        if (dur >= 0) out_cmd->routine_duration = (uint32_t)dur;
+
+        int64_t hr = _json_get_int64(json_payload, payload_len, "hour");
+        if (hr >= 0) out_cmd->routine_hour = (uint8_t)hr;
+
+        int64_t mn = _json_get_int64(json_payload, payload_len, "minute");
+        if (mn >= 0) out_cmd->routine_minute = (uint8_t)mn;
+
+        int64_t days = _json_get_int64(json_payload, payload_len, "daysMask");
+        out_cmd->routine_days_mask = (days >= 0) ? (uint8_t)days : 0x7F;
+
+        int tp = _json_get_bool(json_payload, payload_len, "targetPower");
+        if (tp < 0) tp = _json_get_bool(json_payload, payload_len, "power");
+        out_cmd->routine_target_power = (tp != 0);
+
+        int en = _json_get_bool(json_payload, payload_len, "enabled");
+        out_cmd->routine_enabled = (en < 0 || en == 1);
     }
 
     return EH_MQTT_OK;

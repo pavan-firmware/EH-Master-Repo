@@ -10,8 +10,14 @@ param(
     [ValidateSet("esp32c6", "esp32", "esp32s3")]
     [string]$Target = "esp32c6",
 
-    [ValidateSet("esp32c6-switch-platform", "esp32c6-socket-platform")]
-    [string]$Family = "esp32c6-switch-platform",
+    [ValidateSet("esp32c6-switch-platform", "esp32c6-socket-platform", "auto")]
+    [string]$Family = "auto",
+
+    [ValidateSet("switch", "socket")]
+    [string]$ProductType = "switch",
+
+    [ValidateSet("1x", "2x", "3x", "4x")]
+    [string]$Variant = "4x",
 
     [ValidateSet("release", "debug")]
     [string]$Profile = "release",
@@ -20,6 +26,23 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Derive channel count, canonical family, product type, and model name
+$channelCount = switch ($Variant.ToLower()) {
+    "1x" { 1 }
+    "2x" { 2 }
+    "3x" { 3 }
+    "4x" { 4 }
+    Default { 4 }
+}
+
+$pType = if ($ProductType -eq "socket") { "SMART_SOCKET" } else { "SMART_SWITCH" }
+if ($Family -eq "auto") {
+    $Family = if ($ProductType -eq "socket") { "esp32c6-socket-platform" } else { "esp32c6-switch-platform" }
+}
+
+$modelPrefix = if ($ProductType -eq "socket") { "EH-SK" } else { "EH-SW" }
+$modelName = "$modelPrefix-$($Variant.ToUpper())"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
@@ -57,6 +80,9 @@ $pythonVer = (& $pythonExe --version)
 Write-Host "`n>>> Pre-Build Verification:" -ForegroundColor Yellow
 Write-Host "  ESP-IDF  : $actualIdf"
 Write-Host "  Python   : $pythonVer"
+Write-Host "  Product  : $pType"
+Write-Host "  Variant  : $Variant ($channelCount Channels)"
+Write-Host "  Model    : $modelName"
 Write-Host "  Family   : $Family"
 Write-Host "  Target   : $Target ($arch)"
 Write-Host "  Compiler : $gccVersion"
@@ -96,9 +122,13 @@ if ($needsSetTarget) {
 
 # Bind environment variable for CMake configure & pass define
 $env:EH_FIRMWARE_FAMILY = $Family
+$env:EH_CHANNEL_COUNT = "$channelCount"
+$env:EH_PRODUCT_TYPE = $pType
+$env:EH_PRODUCT_VARIANT = $Variant.ToUpper()
+$env:EH_MODEL_NAME = $modelName
 
-Write-Host ">>> Executing idf.py build for $Target ($Family)..." -ForegroundColor Cyan
-& $pythonExe $idfPy -D EH_FIRMWARE_FAMILY=$Family build
+Write-Host ">>> Executing idf.py build for $Target ($modelName / $Family)..." -ForegroundColor Cyan
+& $pythonExe $idfPy -D EH_FIRMWARE_FAMILY=$Family -D EH_CHANNEL_COUNT=$channelCount -D EH_PRODUCT_TYPE=$pType -D EH_PRODUCT_VARIANT=$($Variant.ToUpper()) -D EH_MODEL_NAME=$modelName build
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Firmware build failed with exit code $LASTEXITCODE"

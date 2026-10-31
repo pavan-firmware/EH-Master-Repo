@@ -7,12 +7,12 @@
   "channels": [
     {
       "channelIndex": 1,
-      "defaultLabel": "Channel 1",
+      "defaultLabel": "Switch 1",
       "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
     },
     {
       "channelIndex": 2,
-      "defaultLabel": "Channel 2",
+      "defaultLabel": "Switch 2",
       "capabilities": ["switch", "relay", "local_switch", "energy", "ota"]
     }
   ],

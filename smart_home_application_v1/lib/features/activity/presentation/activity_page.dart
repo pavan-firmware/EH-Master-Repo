@@ -1185,7 +1185,17 @@ class _ActivityEventDetailPageState extends State<ActivityEventDetailPage> {
               icon: Icons.health_and_safety_outlined,
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const SafetyAlertPage()),
+                MaterialPageRoute(
+                  builder: (_) => SafetyAlertPage(
+                    title: event.title,
+                    description: event.description.isNotEmpty
+                        ? event.description
+                        : 'Critical event detected requiring attention.',
+                    roomName: event.roomId,
+                    deviceName: event.deviceId,
+                    severity: 'critical',
+                  ),
+                ),
               ),
             ),
         ],

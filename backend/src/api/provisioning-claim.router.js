@@ -55,7 +55,7 @@ class ProvisioningClaimApiRouter {
       // 6. Claim Device
       if (method === 'POST' && path.startsWith('/api/v1/devices/') && path.endsWith('/claim')) {
         const deviceId = path.replace('/api/v1/devices/', '').replace('/claim', '');
-        const claimResult = await this.deviceClaimService.claimDevice({ ...body, deviceId });
+        const claimResult = await this.deviceClaimService.claimDevice({ ...body, deviceId, actorUserId: body.actorUserId || headers['x-user-id'] });
         return { status: 200, body: { data: claimResult } };
       }
 

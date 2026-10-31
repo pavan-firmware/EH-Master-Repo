@@ -122,3 +122,39 @@ export function generateCompactLabelTspl(
 
   return lines.join('\r\n') + '\r\n';
 }
+
+/** Small factory sticker for a populated PCB: model + Code128 serial only. */
+export function generateSiliconLabelTspl(
+  data: LabelDataModel,
+  opts?: TsplTemplateOptions
+): string {
+  assertNoSecretsInRecord(data);
+  // A full EH serial needs the physical width of a 203-DPI Code128 symbol.
+  // 40x15mm remains a small PCB/silicon-pack sticker without compressing the
+  // barcode below a scanner-safe module width.
+  const width = opts?.widthMm || 40;
+  const height = opts?.heightMm || 15;
+  const serial = sanitizeTsplString(data.serialNumber, 32);
+  const model = sanitizeTsplString(data.productVariantId, 22);
+  const variant = data.productVariantId.includes('smart-switch')
+    ? `S${data.productVariantId.match(/[1-4]x/)?.[0]?.[0] || '3'}`
+    : data.productVariantId.includes('smart-socket') ? 'K1'
+    : data.productVariantId.includes('smart-fan') ? 'F1'
+    : data.productVariantId.includes('smart-light') ? 'L1'
+    : data.productVariantId.includes('sensor') ? 'N1'
+    : data.productVariantId.includes('hub') ? 'B1'
+    : 'X1';
+  const hardware = data.hardwareRevision.match(/\d/)?.[0] || '0';
+  const firmware = data.firmwareVersion.match(/\d/)?.[0] || '0';
+  const barcodeValue = `E1${variant}H${hardware}F${firmware}-${serial.split('-').pop() || '00000'}`;
+  return [
+    `SIZE ${width} mm,${height} mm`,
+    'GAP 2 mm,0 mm',
+    'DIRECTION 1',
+    'CLS',
+    `TEXT 72,10,"1",0,1,1,"${model}"`,
+    `BARCODE 16,34,"128",48,0,0,1,1,"${barcodeValue}"`,
+    `TEXT 72,94,"1",0,1,1,"${serial}"`,
+    'PRINT 1,1',
+  ].join('\r\n') + '\r\n';
+}

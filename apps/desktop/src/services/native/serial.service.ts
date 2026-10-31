@@ -26,36 +26,19 @@ export interface ISerialService {
 }
 
 /**
- * Deterministic Mock Serial Service
+ * Serial Service with test fixture support
  * Used for headless testing, CI pipelines, and browser preview.
  */
 export class MockSerialService implements ISerialService {
-  private mockPorts: SerialPortInfo[] = [
-    {
-      portName: 'COM3',
-      description: 'Silicon Labs CP210x USB to UART Bridge',
-      vendorId: '10C4',
-      productId: 'EA60',
-      status: 'AVAILABLE',
-      isEspCandidate: true,
-      manufacturer: 'Silicon Labs',
-    },
-    {
-      portName: 'COM4',
-      description: 'USB-Enhanced-SERIAL CH340',
-      vendorId: '1A86',
-      productId: '7523',
-      status: 'AVAILABLE',
-      isEspCandidate: true,
-      manufacturer: 'WCH',
-    },
-    {
-      portName: 'COM9',
-      description: 'Standard Serial Port (In Use)',
-      status: 'BUSY',
-      isEspCandidate: false,
-    },
-  ];
+  private mockPorts: SerialPortInfo[] = [];
+
+  constructor(initialPorts: SerialPortInfo[] = []) {
+    this.mockPorts = initialPorts;
+  }
+
+  public setMockPorts(ports: SerialPortInfo[]): void {
+    this.mockPorts = [...ports];
+  }
 
   public async listAvailablePorts(): Promise<SerialPortInfo[]> {
     return [...this.mockPorts];
@@ -77,32 +60,54 @@ export class MockSerialService implements ISerialService {
   }
 }
 
+
 /**
  * Tauri Native Serial Service
  * Invokes allowlisted Tauri native command `list_serial_ports`.
  */
 export class TauriSerialService implements ISerialService {
   private fallbackMock = new MockSerialService();
+  private cachedPorts: SerialPortInfo[] | null = null;
+  private lastFetchTime = 0;
+  private inFlightFetchPorts: Promise<SerialPortInfo[]> | null = null;
 
-  public async listAvailablePorts(): Promise<SerialPortInfo[]> {
-    try {
-      if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const entries = await invoke<any[]>('list_serial_ports');
-        return entries.map((e) => ({
-          portName: e.port_name || e.portName,
-          description: e.description,
-          vendorId: e.vendor_id || e.vendorId,
-          productId: e.product_id || e.productId,
-          status: (e.status as SerialPortStatus) || 'AVAILABLE',
-          isEspCandidate: e.is_esp_candidate ?? e.isEspCandidate ?? true,
-          manufacturer: e.manufacturer,
-        }));
-      }
-    } catch (err) {
-      console.warn('[SerialService] Tauri native invoke failed, using mock service', err);
+  public async listAvailablePorts(forceRefresh = false): Promise<SerialPortInfo[]> {
+    const now = Date.now();
+    if (!forceRefresh && this.cachedPorts && now - this.lastFetchTime < 5000) {
+      return this.cachedPorts;
     }
-    return this.fallbackMock.listAvailablePorts();
+
+    if (this.inFlightFetchPorts) {
+      return this.inFlightFetchPorts;
+    }
+
+    this.inFlightFetchPorts = (async () => {
+      try {
+        if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const entries = await invoke<any[]>('list_serial_ports');
+          const mapped: SerialPortInfo[] = entries.map((e) => ({
+            portName: e.port_name || e.portName,
+            description: e.description,
+            vendorId: e.vendor_id || e.vendorId,
+            productId: e.product_id || e.productId,
+            status: (e.status as SerialPortStatus) || 'AVAILABLE',
+            isEspCandidate: e.is_esp_candidate ?? e.isEspCandidate ?? true,
+            manufacturer: e.manufacturer,
+          }));
+          this.cachedPorts = mapped;
+          this.lastFetchTime = Date.now();
+          return mapped;
+        }
+      } catch (err) {
+        console.warn('[SerialService] Tauri native invoke failed, using mock service', err);
+      } finally {
+        this.inFlightFetchPorts = null;
+      }
+      return this.fallbackMock.listAvailablePorts();
+    })();
+
+    return this.inFlightFetchPorts;
   }
 
   public async getPortStatus(portName: string): Promise<SerialPortStatus> {
@@ -124,9 +129,15 @@ export class TauriSerialService implements ISerialService {
   }
 }
 
+let singletonSerialService: ISerialService | null = null;
+
 export function getSerialService(): ISerialService {
-  if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
-    return new TauriSerialService();
+  if (!singletonSerialService) {
+    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+      singletonSerialService = new TauriSerialService();
+    } else {
+      singletonSerialService = new MockSerialService();
+    }
   }
-  return new MockSerialService();
+  return singletonSerialService;
 }

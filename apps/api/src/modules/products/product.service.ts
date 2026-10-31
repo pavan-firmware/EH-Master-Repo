@@ -56,6 +56,13 @@ export class ProductService {
   }
 
   /**
+   * Retrieves list of all variants.
+   */
+  async listVariants(filters: { familyId?: string; productId?: string; limit?: number; offset?: number } = {}): Promise<{ items: VariantDetail[]; total: number }> {
+    return this.repository.listVariants(filters);
+  }
+
+  /**
    * Lists available product families.
    */
   async listFamilies(): Promise<MappedProductFamily[]> {
@@ -108,4 +115,21 @@ export class ProductService {
       dryRun: options.dryRun || false,
     };
   }
+
+  async createProduct(data: any): Promise<ProductDetail> {
+    return this.repository.createProduct(data);
+  }
+
+  async updateProduct(id: string, data: any): Promise<ProductDetail | null> {
+    return this.repository.updateProduct(id, data);
+  }
+
+  async createVariant(data: any): Promise<VariantDetail> {
+    return this.repository.createVariant(data);
+  }
+
+  async updateVariant(id: string, data: any): Promise<VariantDetail | null> {
+    return this.repository.updateVariant(id, data);
+  }
 }
+

@@ -89,6 +89,12 @@ class InMemoryDatabaseAdapter extends DatabaseAdapter {
   async insert(table, id, data) {
     const tbl = this.getTable(table);
     if (tbl.has(id)) {
+      if (['product_variants', 'products', 'product_families', 'capabilities', 'product_capabilities'].includes(table)) {
+        const existing = tbl.get(id);
+        const updated = { ...existing, ...data, id };
+        tbl.set(id, updated);
+        return { ...updated };
+      }
       throw new Error(`Unique constraint violation: ${table} with id ${id} already exists`);
     }
     const record = {

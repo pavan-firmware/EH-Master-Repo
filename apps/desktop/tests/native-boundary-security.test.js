@@ -698,11 +698,13 @@ async function main() {
       const fnBody = commandsRsSource.slice(fnIdx);
 
       const validateIdx = fnBody.indexOf('validate_flash_request_native(&request)');
-      const spawnIdx = fnBody.indexOf('Command::new("python")');
+      const spawnIdx = fnBody.indexOf('create_hidden_command("python")') !== -1 
+        ? fnBody.indexOf('create_hidden_command("python")')
+        : fnBody.indexOf('Command::new("python")');
 
       assert.ok(validateIdx > 0, 'Must invoke validate_flash_request_native');
       assert.ok(spawnIdx > 0, 'Must invoke python sidecar');
-      assert.ok(validateIdx < spawnIdx, 'Validation must occur strictly BEFORE Command::new("python")');
+      assert.ok(validateIdx < spawnIdx, 'Validation must occur strictly BEFORE spawning python sidecar');
       assert.ok(fnBody.includes('return Ok(FlashDeviceSidecarResponse {'), 'Must early return on error');
     });
 

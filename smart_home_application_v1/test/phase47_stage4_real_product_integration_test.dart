@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/core/api/api_client.dart';
 import 'package:smart_home_application_v1/core/models/activity_models.dart';
 import 'package:smart_home_application_v1/core/models/routine_models.dart';
@@ -73,6 +74,7 @@ void main() {
 
   setUp(() {
     FlutterSecureStorage.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({});
   });
 
   group('Phase 47 Stage 4 - Product Integration & Real Backend Contracts', () {
@@ -316,10 +318,13 @@ void main() {
           home: LoginScreen(controller: authCtrl),
         ),
       );
-      await tester.pumpAndSettle();
+      // Use bounded pumps instead of pumpAndSettle() to avoid hanging on
+      // ChangeNotifier-driven rebuild cycles in the AuthController listener.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.text('Welcome to EH Home'), findsOneWidget);
-      expect(find.text('Sign in to manage your connected smart home'), findsOneWidget);
+      expect(find.text('Sign in to orchestrate your connected devices'), findsOneWidget);
       expect(find.byType(TextFormField), findsNWidgets(2));
       expect(find.text('Sign In'), findsOneWidget);
     });
@@ -337,11 +342,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Join EH Smart Home'), findsOneWidget);
-      expect(find.text('Create an account to securely access your home'), findsOneWidget);
-      expect(find.text('Full Name'), findsOneWidget);
+      expect(find.text('Create Account'), findsNWidgets(2));
+      expect(find.text('Join the EH Home connected ecosystem'), findsOneWidget);
+      expect(find.text('FULL NAME'), findsOneWidget);
       expect(find.byType(TextFormField), findsNWidgets(4));
-      expect(find.widgetWithText(FilledButton, 'Create Account'), findsOneWidget);
+      expect(find.widgetWithText(ElevatedButton, 'Create Account'), findsOneWidget);
     });
 
     testWidgets('RoomsPage shows clean UI and allows adding a room', (tester) async {

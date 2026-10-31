@@ -81,6 +81,12 @@ static void execute_factory_reset_and_reboot(void)
     esp_restart();
 }
 
+void reset_button_trigger_factory_reset(void)
+{
+    ESP_LOGW(TAG, "Factory reset requested via software API");
+    execute_factory_reset_and_reboot();
+}
+
 static void reset_button_task(void* arg)
 {
     (void)arg;
@@ -88,8 +94,14 @@ static void reset_button_task(void* arg)
 
     while (1) {
         // Active LOW button: 0 = pressed, 1 = released
-        int level = gpio_get_level((gpio_num_t)GPIO_RESET_BUTTON);
-        bool is_pressed = (level == 0);
+        int primary_level = gpio_get_level((gpio_num_t)GPIO_RESET_BUTTON);
+        bool is_pressed = (primary_level == 0);
+#if defined(EH_PIN_BUTTON_RESET_SECONDARY)
+        int secondary_level = gpio_get_level((gpio_num_t)EH_PIN_BUTTON_RESET_SECONDARY);
+        if (secondary_level == 0) {
+            is_pressed = true;
+        }
+#endif
 
         if (reset_button_feed_state(is_pressed, poll_period_ms)) {
             execute_factory_reset_and_reboot();
@@ -99,6 +111,12 @@ static void reset_button_task(void* arg)
         vTaskDelay(pdMS_TO_TICKS(poll_period_ms));
     }
     vTaskDelete(NULL);
+}
+#else
+void reset_button_trigger_factory_reset(void)
+{
+    ESP_LOGI(TAG, "[HOST] reset_button_trigger_factory_reset called");
+    if (s_reset_cb) s_reset_cb();
 }
 #endif
 
@@ -112,11 +130,14 @@ void reset_button_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE
     };
+#if defined(EH_PIN_BUTTON_RESET_SECONDARY)
+    io_conf.pin_bit_mask |= (1ULL << EH_PIN_BUTTON_RESET_SECONDARY);
+#endif
     gpio_config(&io_conf);
 
     xTaskCreate(reset_button_task, "reset_btn_task", 3072, NULL, 5, NULL);
 #endif
-    ESP_LOGI(TAG, "Factory reset button monitor initialized on GPIO %d (Hold duration: %d ms)",
+    ESP_LOGI(TAG, "Factory reset button monitor initialized on primary GPIO %d (Hold duration: %d ms)",
              GPIO_RESET_BUTTON, FACTORY_RESET_HOLD_MS);
 }
 

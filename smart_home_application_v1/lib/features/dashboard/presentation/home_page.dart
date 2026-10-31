@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../app/home_controller.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/home_dashboard_models.dart';
+import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_greeting.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
-import 'all_alerts_sheet.dart';
+import 'connection_routing_sheet.dart';
 import 'control_group_editor_sheet.dart';
 import 'other_spaces_devices_sheet.dart';
 import 'space_management_sheet.dart';
+import '../../automations/presentation/active_routine_guard.dart';
+import '../../../core/models/routine_models.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
+    this.homeController,
     required this.dashboard,
     required this.lightOn,
     required this.lightCommandPending,
@@ -27,12 +33,14 @@ class HomePage extends StatelessWidget {
     required this.onShowRoutines,
     required this.onShowActivity,
     this.onShowNotifications,
+    this.onShowSearch,
     required this.onShowSettings,
     required this.onShowInsights,
     required this.onCustomizeControls,
     required this.onUnavailableControl,
     this.isLocalMode = false,
     this.isCloudReachable = true,
+    this.isLoading = false,
     this.activeSpaceId = 'home_default',
     this.activeSpaceName = 'My Home',
     this.spaces = const [],
@@ -56,7 +64,11 @@ class HomePage extends StatelessWidget {
     this.devices = const [],
     this.selectedQuickControlIds = const [],
     this.onSaveQuickControls,
+    this.onClearAllAlerts,
+    this.onDismissAlert,
   });
+
+  final HomeController? homeController;
 
   final HomeDashboardData dashboard;
   final bool lightOn;
@@ -64,6 +76,7 @@ class HomePage extends StatelessWidget {
   final bool alertAcknowledged;
   final bool isLocalMode;
   final bool isCloudReachable;
+  final bool isLoading;
   final String activeSpaceId;
   final String activeSpaceName;
   final List<Map<String, dynamic>> spaces;
@@ -75,13 +88,16 @@ class HomePage extends StatelessWidget {
   final ValueChanged<bool> onLightChanged;
   final void Function(QuickControlPreview control, bool value)? onControlChanged;
   final Future<void> Function()? onRefresh;
-  final VoidCallback onAlertTap;
+  final void Function([SpaceAlertItem? alert]) onAlertTap;
+  final VoidCallback? onClearAllAlerts;
+  final ValueChanged<SpaceAlertItem>? onDismissAlert;
   final VoidCallback onConnectHome;
   final VoidCallback onShowRooms;
   final ValueChanged<RoomPreview> onOpenRoom;
   final VoidCallback onShowRoutines;
   final VoidCallback onShowActivity;
   final VoidCallback? onShowNotifications;
+  final VoidCallback? onShowSearch;
   final VoidCallback onShowSettings;
   final VoidCallback onShowInsights;
   final VoidCallback onCustomizeControls;
@@ -126,7 +142,7 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasContent = dashboard.rooms.isNotEmpty;
     final tokens = context.ehColors;
-    return SafeArea(
+    final mainContent = SafeArea(
       bottom: false,
       child: RefreshIndicator(
         onRefresh: onRefresh ?? () async {},
@@ -142,9 +158,11 @@ class HomePage extends StatelessWidget {
           children: [
             // 1. Header: [(space ) notification (profile)]
             _HomeHeader(
+              homeController: homeController,
               subtitle: _contextualSubtitle(dashboard),
               onActivity: onShowActivity,
               onNotifications: onShowNotifications,
+              onSearch: onShowSearch,
               onSettings: onShowSettings,
               userName: userName,
               activeSpaceId: activeSpaceId,
@@ -158,30 +176,6 @@ class HomePage extends StatelessWidget {
               isCloudReachable: isCloudReachable,
               onSwitchToLanMode: onSwitchToLanMode,
             ),
-
-            // 2. Alerts from all spaces
-            if (allSpacesAlerts.isNotEmpty && !alertAcknowledged) ...[
-              const SizedBox(height: 14),
-              _AllSpacesAlertsCard(
-                alerts: allSpacesAlerts,
-                onTap: () {
-                  showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (ctx) => AllAlertsSheet(
-                      alerts: allSpacesAlerts,
-                      onSelectAlert: (alert) {
-                        if (alert.spaceId != activeSpaceId) {
-                          onSelectSpace?.call(alert.spaceId);
-                        }
-                        onAlertTap();
-                      },
-                    ),
-                  );
-                },
-              ),
-            ],
 
             // 3. Devices ON in other spaces only (not current space)
             if (devicesOnInOtherSpaces.isNotEmpty) ...[
@@ -223,6 +217,7 @@ class HomePage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _QuickControlsSection(
+              homeController: homeController,
               controls: dashboard.controls,
               groupControls: groupControls,
               lightOn: lightOn,
@@ -278,6 +273,41 @@ class HomePage extends StatelessWidget {
               onAction: onShowRoutines,
             ),
             const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: [
+                  _UpcomingRoutineSortChip(
+                    label: 'Current Place First',
+                    icon: Icons.sort_rounded,
+                    isSelected: (homeController?.upcomingRoutineSortMode ?? UpcomingRoutineSortMode.currentSpaceFirst) == UpcomingRoutineSortMode.currentSpaceFirst,
+                    onTap: () {
+                      homeController?.setUpcomingRoutineSortMode(UpcomingRoutineSortMode.currentSpaceFirst);
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  _UpcomingRoutineSortChip(
+                    label: 'Current Place Only',
+                    icon: Icons.my_location_rounded,
+                    isSelected: (homeController?.upcomingRoutineSortMode ?? UpcomingRoutineSortMode.currentSpaceFirst) == UpcomingRoutineSortMode.currentSpaceOnly,
+                    onTap: () {
+                      homeController?.setUpcomingRoutineSortMode(UpcomingRoutineSortMode.currentSpaceOnly);
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  _UpcomingRoutineSortChip(
+                    label: 'Nearest Time',
+                    icon: Icons.access_time_filled_rounded,
+                    isSelected: (homeController?.upcomingRoutineSortMode ?? UpcomingRoutineSortMode.currentSpaceFirst) == UpcomingRoutineSortMode.nearestTimeFirst,
+                    onTap: () {
+                      homeController?.setUpcomingRoutineSortMode(UpcomingRoutineSortMode.nearestTimeFirst);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             if (upcomingRoutines.isEmpty)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -309,6 +339,58 @@ class HomePage extends StatelessWidget {
         ),
       ),
     );
+
+    return Stack(
+      children: [
+        mainContent,
+        // Never show intrusive full-screen overlay during background syncs when UI already has content
+        if (isLoading && dashboard.deviceCount == 0 && spaces.isEmpty)
+          Positioned.fill(
+            child: Container(
+              color: tokens.bgApp.withValues(alpha: 0.60),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: tokens.surfaceCard,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 18,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                    border: Border.all(color: tokens.borderSubtle),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          valueColor: AlwaysStoppedAnimation<Color>(tokens.bluePrimary),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Updating $activeSpaceName...',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }
 
@@ -331,9 +413,11 @@ String _contextualSubtitle(HomeDashboardData data) {
 
 class _HomeHeader extends StatelessWidget {
   const _HomeHeader({
+    this.homeController,
     required this.subtitle,
     required this.onActivity,
     this.onNotifications,
+    this.onSearch,
     required this.onSettings,
     this.userName,
     this.activeSpaceId = 'home_default',
@@ -348,9 +432,11 @@ class _HomeHeader extends StatelessWidget {
     this.onSwitchToLanMode,
   });
 
+  final HomeController? homeController;
   final String subtitle;
   final VoidCallback onActivity;
   final VoidCallback? onNotifications;
+  final VoidCallback? onSearch;
   final VoidCallback onSettings;
   final String? userName;
   final String activeSpaceId;
@@ -399,8 +485,8 @@ class _HomeHeader extends StatelessWidget {
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
                         padding: EdgeInsets.symmetric(
-                          horizontal: compact ? 8 : 10,
-                          vertical: 6,
+                          horizontal: compact ? 6 : 8,
+                          vertical: 5,
                         ),
                         decoration: BoxDecoration(
                           color: tokens.isDark
@@ -419,25 +505,25 @@ class _HomeHeader extends StatelessWidget {
                                       ? Icons.storefront_rounded
                                       : Icons.home_rounded,
                               color: tokens.bluePrimary,
-                              size: 17,
+                              size: 15,
                             ),
-                            const SizedBox(width: 5),
+                            const SizedBox(width: 3),
                             Flexible(
                               child: Text(
                                 activeSpaceName,
                                 style: TextStyle(
                                   color: tokens.textPrimary,
                                   fontWeight: FontWeight.w800,
-                                  fontSize: 13,
+                                  fontSize: 12,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 2),
                             Icon(
                               Icons.keyboard_arrow_down_rounded,
                               color: tokens.textSecondary,
-                              size: 16,
+                              size: 14,
                             ),
                           ],
                         ),
@@ -445,95 +531,161 @@ class _HomeHeader extends StatelessWidget {
                     ),
                   ),
                   SizedBox(width: compact ? 6 : 8),
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: compact ? 6 : 8,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isLocalMode
-                          ? const Color(0xFFF59E0B).withValues(alpha: 0.15)
-                          : isCloudReachable
-                              ? tokens.success.withValues(alpha: 0.15)
-                              : const Color(0xFFEF4444).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircleAvatar(
-                          radius: 3,
-                          backgroundColor: isLocalMode
+                  Tooltip(
+                    message: 'Connection mode: tap to change routing',
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          if (homeController != null) {
+                            showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (ctx) => ConnectionRoutingSheet(homeController: homeController!),
+                            );
+                          } else if (!isLocalMode && onSwitchToLanMode != null) {
+                            onSwitchToLanMode?.call();
+                          }
+                        },
+                        child: Builder(
+                          builder: (context) {
+                          final activeRouting = homeController?.routingMode ??
+                              (isLocalMode ? ConnectionRoutingMode.localOnly : ConnectionRoutingMode.auto);
+                          final isCloudMode = activeRouting == ConnectionRoutingMode.cloudOnly ||
+                              (activeRouting == ConnectionRoutingMode.auto && !isLocalMode && isCloudReachable);
+                          final isLanMode = activeRouting == ConnectionRoutingMode.localOnly ||
+                              (activeRouting == ConnectionRoutingMode.auto && isLocalMode);
+
+                          final badgeColor = isLanMode
                               ? const Color(0xFFF59E0B)
-                              : isCloudReachable
+                              : isCloudMode
                                   ? tokens.success
-                                  : const Color(0xFFEF4444),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          isLocalMode
+                                  : const Color(0xFFEF4444);
+                          final badgeText = isLanMode
                               ? 'LAN'
-                              : isCloudReachable
-                                  ? 'CLOUD'
-                                  : 'OFFLINE',
-                          style: TextStyle(
-                            color: isLocalMode
-                                ? const Color(0xFFF59E0B)
-                                : isCloudReachable
-                                    ? tokens.success
-                                    : const Color(0xFFEF4444),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
+                              : isCloudMode
+                                  ? 'Cloud'
+                                  : 'Offline';
+                          final badgeIcon = isLanMode
+                              ? Icons.wifi_tethering_rounded
+                              : isCloudMode
+                                  ? Icons.cloud_done_rounded
+                                  : Icons.cloud_off_rounded;
+
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: compact ? 7 : 9,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: badgeColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: badgeColor.withValues(alpha: 0.4),
+                                width: 1.0,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  badgeIcon,
+                                  size: 13,
+                                  color: badgeColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  badgeText,
+                                  style: TextStyle(
+                                    color: badgeColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                                const SizedBox(width: 2),
+                                Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  size: 15,
+                                  color: badgeColor,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
+            ),
+            const SizedBox(width: 6),
             Semantics(
               button: true,
-              label: 'Notifications, 2 unread',
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: 'Notifications',
-                    onPressed: onNotifications ?? onActivity,
-                    icon: Icon(
-                      Icons.notifications_none_rounded,
-                      color: tokens.isDark
-                          ? tokens.headerAction
-                          : const Color(0xFF102142),
-                      size: 27,
-                    ),
-                  ),
-                  Positioned(
-                    right: 3,
-                    top: 1,
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      alignment: Alignment.center,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFF02B32),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Text(
-                        '2',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
+              label: 'Search app settings and devices',
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Search',
+                onPressed: onSearch,
+                icon: Icon(
+                  Icons.search_rounded,
+                  color: tokens.isDark
+                      ? tokens.headerAction
+                      : const Color(0xFF102142),
+                  size: 26,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Semantics(
+              button: true,
+              label: 'Notifications',
+              child: Builder(
+                builder: (context) {
+                  final notifCount = homeController?.unreadNotificationCount ?? 0;
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Notifications',
+                        onPressed: onNotifications ?? onActivity,
+                        icon: Icon(
+                          Icons.notifications_none_rounded,
+                          color: tokens.isDark
+                              ? tokens.headerAction
+                              : const Color(0xFF102142),
+                          size: 27,
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                      if (notifCount > 0)
+                        Positioned(
+                          right: 3,
+                          top: 1,
+                          child: Container(
+                            width: 16,
+                            height: 16,
+                            alignment: Alignment.center,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFF02B32),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              '$notifCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
             const SizedBox(width: 14),
@@ -611,127 +763,6 @@ class _HomeHeader extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _AllSpacesAlertsCard extends StatelessWidget {
-  const _AllSpacesAlertsCard({
-    required this.alerts,
-    required this.onTap,
-  });
-
-  final List<SpaceAlertItem> alerts;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    if (alerts.isEmpty) return const SizedBox.shrink();
-    final tokens = context.ehColors;
-    final topAlert = alerts.first;
-    final isCritical = topAlert.severity == AlertSeverity.critical;
-    final alertColor = isCritical ? const Color(0xFFEF4444) : const Color(0xFFF59E0B);
-    final alertBg = isCritical
-        ? (tokens.isDark ? const Color(0xFF2D1214) : const Color(0xFFFEF2F2))
-        : (tokens.isDark ? const Color(0xFF291E09) : const Color(0xFFFFFBEB));
-    final borderColor = isCritical
-        ? const Color(0xFFEF4444).withValues(alpha: 0.3)
-        : const Color(0xFFF59E0B).withValues(alpha: 0.3);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: BoxDecoration(
-          color: alertBg,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: borderColor, width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: alertColor.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: alertColor.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isCritical ? Icons.error_outline_rounded : Icons.warning_amber_rounded,
-                color: alertColor,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: alertColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          topAlert.spaceName.toUpperCase(),
-                          style: TextStyle(
-                            color: alertColor,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          topAlert.title,
-                          style: TextStyle(
-                            color: tokens.textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    alerts.length > 1
-                        ? '${topAlert.message} • +${alerts.length - 1} more alert${alerts.length > 2 ? 's' : ''}'
-                        : topAlert.message,
-                    style: TextStyle(
-                      color: tokens.textSecondary,
-                      fontSize: 12,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.arrow_forward_ios_rounded,
-              color: tokens.textSecondary,
-              size: 14,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -902,6 +933,7 @@ class _DevicesOnInOtherSpacesStrip extends StatelessWidget {
 
 class _QuickControlsSection extends StatelessWidget {
   const _QuickControlsSection({
+    this.homeController,
     required this.controls,
     required this.groupControls,
     required this.lightOn,
@@ -912,6 +944,7 @@ class _QuickControlsSection extends StatelessWidget {
     required this.onUnavailable,
   });
 
+  final HomeController? homeController;
   final List<QuickControlPreview> controls;
   final List<GroupControlItem> groupControls;
   final bool lightOn;
@@ -943,56 +976,87 @@ class _QuickControlsSection extends StatelessWidget {
     }
 
     return SizedBox(
-      height: 122,
+      height: 154,
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         children: [
-          // 1. Group controls (Small Brick)
+          // 1. Group controls (Neat vertical stack: Room/Space -> Switch -> Label -> Status)
           ...groupControls.map((group) {
             final isOn = group.isOn;
+            final isGroupAvailable = controls.any((c) => group.targetControlIds.contains(c.id) && c.isAvailable);
             return Padding(
               padding: const EdgeInsets.only(right: 10),
               child: InkWell(
-                onTap: () => onToggleGroup?.call(group, !isOn),
+                onTap: () {
+                  if (!isGroupAvailable) {
+                    onUnavailable();
+                  } else {
+                    onToggleGroup?.call(group, !isOn);
+                  }
+                },
                 borderRadius: BorderRadius.circular(18),
                 child: Container(
-                  width: 148,
-                  padding: const EdgeInsets.all(12),
+                  width: 158,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                   decoration: BoxDecoration(
-                    color: isOn
+                    color: (isOn && isGroupAvailable)
                         ? (tokens.isDark ? const Color(0xFF221834) : const Color(0xFFF5F3FF))
                         : tokens.surfaceCard,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                      color: isOn
+                      color: (isOn && isGroupAvailable)
                           ? (tokens.isDark ? const Color(0xFF7C3AED) : const Color(0xFFDDD6FE))
                           : tokens.borderSubtle,
-                      width: isOn ? 1.5 : 1.0,
+                      width: (isOn && isGroupAvailable) ? 1.5 : 1.0,
                     ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      // Top: Room / Group Category tag
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.layers_outlined,
+                            size: 13,
+                            color: (isOn && isGroupAvailable) ? const Color(0xFF7C3AED) : tokens.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Group Control',
+                              style: TextStyle(
+                                color: (isOn && isGroupAvailable) ? const Color(0xFF7C3AED) : tokens.textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Down side: Switch row
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(7),
+                            padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: isOn ? const Color(0xFF7C3AED) : tokens.borderSubtle.withValues(alpha: 0.5),
+                              color: (isOn && isGroupAvailable) ? const Color(0xFF7C3AED) : tokens.borderSubtle.withValues(alpha: 0.5),
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
                               Icons.all_inclusive_rounded,
                               size: 16,
-                              color: isOn ? Colors.white : tokens.textSecondary,
+                              color: (isOn && isGroupAvailable) ? Colors.white : tokens.textSecondary,
                             ),
                           ),
                           Switch(
-                            value: isOn,
-                            onChanged: (val) => onToggleGroup?.call(group, val),
+                            value: isOn && isGroupAvailable,
+                            onChanged: isGroupAvailable ? (val) => onToggleGroup?.call(group, val) : null,
                             activeTrackColor: const Color(0xFF7C3AED),
                             activeThumbColor: Colors.white,
                             inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
@@ -1002,25 +1066,43 @@ class _QuickControlsSection extends StatelessWidget {
                           ),
                         ],
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      // Down side: Switch label
+                      Text(
+                        group.label,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      // Down side: Status
+                      Row(
                         children: [
-                          Text(
-                            group.label,
-                            style: TextStyle(
-                              color: tokens.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: !isGroupAvailable
+                                  ? tokens.textSecondary
+                                  : (isOn ? const Color(0xFF7C3AED) : tokens.textSecondary.withValues(alpha: 0.6)),
+                              shape: BoxShape.circle,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${group.targetControlIds.length} target channels',
-                            style: TextStyle(
-                              color: tokens.textSecondary,
-                              fontSize: 11,
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              !isGroupAvailable
+                                  ? 'OFFLINE'
+                                  : (isOn ? 'ACTIVE (${group.targetControlIds.length} Ch)' : 'OFF'),
+                              style: TextStyle(
+                                color: (isOn && isGroupAvailable) ? const Color(0xFF7C3AED) : tokens.textSecondary,
+                                fontSize: 11,
+                                fontWeight: (isOn && isGroupAvailable) ? FontWeight.w800 : FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -1032,14 +1114,47 @@ class _QuickControlsSection extends StatelessWidget {
             );
           }),
 
-          // 2. Specialized Single Controls (Wide for Light & Fan, Small for Switch & Socket)
+          // 2. Specialized Single Controls (Room -> Switch -> Label -> Status)
           ...controls.map((ctrl) {
+            String devId = ctrl.id;
+            int chIdx = 1;
+            if (ctrl.id.contains('_ch')) {
+              final parts = ctrl.id.split('_ch');
+              devId = parts[0];
+              chIdx = int.tryParse(parts[1]) ?? 1;
+            }
+            final effectiveCtrl = homeController ?? HomeController.instance;
+            final activeRoutine = effectiveCtrl?.getActiveRoutineForChannel(devId, chIdx);
+
+            if (activeRoutine != null) {
+              final isFan = ctrl.kind == QuickControlKind.fan;
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: SizedBox(
+                  width: isFan ? 250 : 158,
+                  height: 154,
+                  child: RoutineControlWarningOverlay(
+                    routine: activeRoutine,
+                    controlTitle: ctrl.label,
+                    isFullWidth: false,
+                  ),
+                ),
+              );
+            }
+
+            final isDevOnline = effectiveCtrl != null
+                ? (effectiveCtrl.devices.any((d) => (d.id == devId || d.id.toLowerCase() == devId.toLowerCase()) && d.online) ||
+                   LocalLanDeviceService.instance.isDeviceReachableOnLan(devId))
+                : ctrl.isAvailable;
+            final dynamicPower = effectiveCtrl?.getDeviceChannelPower(devId, chIdx) ?? ctrl.isOn;
+
             if (ctrl.kind == QuickControlKind.light) {
               return Padding(
                 padding: const EdgeInsets.only(right: 10),
                 child: _LightQuickBrick(
                   control: ctrl,
-                  lightOn: lightOn,
+                  lightOn: dynamicPower,
+                  isOnlineOverride: isDevOnline,
                   onLightChanged: onLightChanged,
                   onControlChanged: onControlChanged,
                   onUnavailable: onUnavailable,
@@ -1052,14 +1167,17 @@ class _QuickControlsSection extends StatelessWidget {
                 padding: const EdgeInsets.only(right: 10),
                 child: _FanQuickBrick(
                   control: ctrl,
+                  isOnOverride: dynamicPower,
+                  isOnlineOverride: isDevOnline,
                   onControlChanged: onControlChanged,
                   onUnavailable: onUnavailable,
                 ),
               );
             }
 
-            // Standard Compact Brick for switches and sockets
-            final isOn = ctrl.isOn;
+            // Standard Neatly Formatted Brick: Room on top, Switch below, Label below, Status at bottom
+            final isAvailable = isDevOnline;
+            final isOn = isAvailable && dynamicPower;
             final isSocket = ctrl.kind == QuickControlKind.socket;
             final activeColor = isSocket ? const Color(0xFF059669) : const Color(0xFF2563EB);
 
@@ -1067,16 +1185,16 @@ class _QuickControlsSection extends StatelessWidget {
               padding: const EdgeInsets.only(right: 10),
               child: InkWell(
                 onTap: () {
-                  if (!ctrl.isAvailable) {
+                  if (!isAvailable) {
                     onUnavailable();
                   } else {
-                    onControlChanged?.call(ctrl, !isOn);
+                    onControlChanged?.call(ctrl, !dynamicPower);
                   }
                 },
                 borderRadius: BorderRadius.circular(18),
                 child: Container(
-                  width: 148,
-                  padding: const EdgeInsets.all(12),
+                  width: 158,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                   decoration: BoxDecoration(
                     color: isOn
                         ? (isSocket
@@ -1097,11 +1215,37 @@ class _QuickControlsSection extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      // 1. Room name on top
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.meeting_room_outlined,
+                            size: 13,
+                            color: isOn ? (tokens.isDark ? Colors.white70 : activeColor) : tokens.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              (ctrl.roomName != null && ctrl.roomName!.trim().isNotEmpty)
+                                  ? ctrl.roomName!.trim()
+                                  : 'Living Room',
+                              style: TextStyle(
+                                color: isOn ? (tokens.isDark ? Colors.white70 : activeColor) : tokens.textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // 2. Down side: Switch row with icon and toggle
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(7),
+                            padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
                               color: isOn ? activeColor : tokens.borderSubtle.withValues(alpha: 0.5),
                               shape: BoxShape.circle,
@@ -1114,7 +1258,7 @@ class _QuickControlsSection extends StatelessWidget {
                           ),
                           Switch(
                             value: isOn,
-                            onChanged: ctrl.isAvailable
+                            onChanged: isAvailable
                                 ? (val) => onControlChanged?.call(ctrl, val)
                                 : null,
                             activeTrackColor: activeColor,
@@ -1126,26 +1270,43 @@ class _QuickControlsSection extends StatelessWidget {
                           ),
                         ],
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      // 3. Down side: Switch label
+                      Text(
+                        ctrl.label,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      // 4. Down side: Status
+                      Row(
                         children: [
-                          Text(
-                            ctrl.label,
-                            style: TextStyle(
-                              color: tokens.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: !isAvailable
+                                  ? tokens.textSecondary
+                                  : (isOn ? activeColor : tokens.textSecondary.withValues(alpha: 0.6)),
+                              shape: BoxShape.circle,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isOn ? 'ON' : 'OFF',
-                            style: TextStyle(
-                              color: isOn ? activeColor : tokens.textSecondary,
-                              fontSize: 11,
-                              fontWeight: isOn ? FontWeight.w800 : FontWeight.w500,
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              !isAvailable ? 'OFFLINE' : (isOn ? 'ON' : 'OFF'),
+                              style: TextStyle(
+                                color: !isAvailable
+                                    ? tokens.textSecondary
+                                    : (isOn ? activeColor : tokens.textSecondary),
+                                fontSize: 11,
+                                fontWeight: isOn ? FontWeight.w800 : FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -1166,6 +1327,7 @@ class _LightQuickBrick extends StatefulWidget {
   const _LightQuickBrick({
     required this.control,
     required this.lightOn,
+    this.isOnlineOverride,
     required this.onLightChanged,
     this.onControlChanged,
     required this.onUnavailable,
@@ -1173,6 +1335,7 @@ class _LightQuickBrick extends StatefulWidget {
 
   final QuickControlPreview control;
   final bool lightOn;
+  final bool? isOnlineOverride;
   final ValueChanged<bool> onLightChanged;
   final void Function(QuickControlPreview control, bool value)? onControlChanged;
   final VoidCallback onUnavailable;
@@ -1187,15 +1350,17 @@ class _LightQuickBrickState extends State<_LightQuickBrick> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final isOn = widget.control.id == 'main_light' ? widget.lightOn : widget.control.isOn;
+    final isAvailable = widget.isOnlineOverride ?? widget.control.isAvailable;
+    final rawIsOn = widget.lightOn;
+    final isOn = isAvailable && rawIsOn;
     const accentColor = Color(0xFFD97706);
 
     return InkWell(
       onTap: () {
-        if (!widget.control.isAvailable) {
+        if (!isAvailable) {
           widget.onUnavailable();
         } else {
-          final nextVal = !isOn;
+          final nextVal = !rawIsOn;
           if (widget.control.id == 'main_light') {
             widget.onLightChanged(nextVal);
           } else {
@@ -1254,9 +1419,13 @@ class _LightQuickBrickState extends State<_LightQuickBrick> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        isOn ? 'Brightness ${_brightness.round()}%' : 'OFF',
+                        !isAvailable
+                            ? 'OFFLINE'
+                            : (isOn ? 'Brightness ${_brightness.round()}%' : 'OFF'),
                         style: TextStyle(
-                          color: isOn ? accentColor : tokens.textSecondary,
+                          color: !isAvailable
+                              ? tokens.textSecondary
+                              : (isOn ? accentColor : tokens.textSecondary),
                           fontSize: 11,
                           fontWeight: isOn ? FontWeight.w700 : FontWeight.w500,
                         ),
@@ -1264,23 +1433,17 @@ class _LightQuickBrickState extends State<_LightQuickBrick> {
                     ],
                   ),
                 ),
-                Switch(
-                  value: isOn,
-                  onChanged: widget.control.isAvailable
-                      ? (val) {
-                          if (widget.control.id == 'main_light') {
-                            widget.onLightChanged(val);
-                          } else {
-                            widget.onControlChanged?.call(widget.control, val);
-                          }
-                        }
-                      : null,
-                  activeTrackColor: accentColor,
-                  activeThumbColor: Colors.white,
-                  inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
-                  inactiveThumbColor: Colors.white,
-                  trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                IgnorePointer(
+                  child: Switch(
+                    value: isOn,
+                    onChanged: null,
+                    activeTrackColor: accentColor,
+                    activeThumbColor: Colors.white,
+                    inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                    inactiveThumbColor: Colors.white,
+                    trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               ],
             ),
@@ -1307,16 +1470,18 @@ class _LightQuickBrickState extends State<_LightQuickBrick> {
                       value: _brightness,
                       min: 10,
                       max: 100,
-                      onChanged: (val) {
-                        setState(() => _brightness = val);
-                        if (!isOn) {
-                          if (widget.control.id == 'main_light') {
-                            widget.onLightChanged(true);
-                          } else {
-                            widget.onControlChanged?.call(widget.control, true);
-                          }
-                        }
-                      },
+                      onChanged: !isAvailable
+                          ? null
+                          : (val) {
+                              setState(() => _brightness = val);
+                              if (!isOn) {
+                                if (widget.control.id == 'main_light') {
+                                  widget.onLightChanged(true);
+                                } else {
+                                  widget.onControlChanged?.call(widget.control, true);
+                                }
+                              }
+                            },
                     ),
                   ),
                 ),
@@ -1337,11 +1502,15 @@ class _LightQuickBrickState extends State<_LightQuickBrick> {
 class _FanQuickBrick extends StatefulWidget {
   const _FanQuickBrick({
     required this.control,
+    this.isOnOverride,
+    this.isOnlineOverride,
     this.onControlChanged,
     required this.onUnavailable,
   });
 
   final QuickControlPreview control;
+  final bool? isOnOverride;
+  final bool? isOnlineOverride;
   final void Function(QuickControlPreview control, bool value)? onControlChanged;
   final VoidCallback onUnavailable;
 
@@ -1355,15 +1524,17 @@ class _FanQuickBrickState extends State<_FanQuickBrick> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final isOn = widget.control.isOn;
+    final isAvailable = widget.isOnlineOverride ?? widget.control.isAvailable;
+    final rawIsOn = widget.isOnOverride ?? widget.control.isOn;
+    final isOn = isAvailable && rawIsOn;
     const accentColor = Color(0xFF0D9488);
 
     return InkWell(
       onTap: () {
-        if (!widget.control.isAvailable) {
+        if (!isAvailable) {
           widget.onUnavailable();
         } else {
-          widget.onControlChanged?.call(widget.control, !isOn);
+          widget.onControlChanged?.call(widget.control, !rawIsOn);
         }
       },
       borderRadius: BorderRadius.circular(18),
@@ -1417,9 +1588,13 @@ class _FanQuickBrickState extends State<_FanQuickBrick> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        isOn ? 'Speed $_speed' : 'OFF',
+                        !isAvailable
+                            ? 'OFFLINE'
+                            : (isOn ? 'Speed $_speed' : 'OFF'),
                         style: TextStyle(
-                          color: isOn ? accentColor : tokens.textSecondary,
+                          color: !isAvailable
+                              ? tokens.textSecondary
+                              : (isOn ? accentColor : tokens.textSecondary),
                           fontSize: 11,
                           fontWeight: isOn ? FontWeight.w700 : FontWeight.w500,
                         ),
@@ -1427,17 +1602,17 @@ class _FanQuickBrickState extends State<_FanQuickBrick> {
                     ],
                   ),
                 ),
-                Switch(
-                  value: isOn,
-                  onChanged: widget.control.isAvailable
-                      ? (val) => widget.onControlChanged?.call(widget.control, val)
-                      : null,
-                  activeTrackColor: accentColor,
-                  activeThumbColor: Colors.white,
-                  inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
-                  inactiveThumbColor: Colors.white,
-                  trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                IgnorePointer(
+                  child: Switch(
+                    value: isOn,
+                    onChanged: null,
+                    activeTrackColor: accentColor,
+                    activeThumbColor: Colors.white,
+                    inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                    inactiveThumbColor: Colors.white,
+                    trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               ],
             ),
@@ -1448,12 +1623,14 @@ class _FanQuickBrickState extends State<_FanQuickBrick> {
               children: [1, 2, 3, 4, 5].map((lvl) {
                 final isSelected = isOn && _speed == lvl;
                 return InkWell(
-                  onTap: () {
-                    setState(() => _speed = lvl);
-                    if (!isOn) {
-                      widget.onControlChanged?.call(widget.control, true);
-                    }
-                  },
+                  onTap: !isAvailable
+                      ? () => widget.onUnavailable()
+                      : () {
+                          setState(() => _speed = lvl);
+                          if (!rawIsOn) {
+                            widget.onControlChanged?.call(widget.control, true);
+                          }
+                        },
                   borderRadius: BorderRadius.circular(6),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -1537,7 +1714,9 @@ class _FavouriteDevicesStrip extends StatelessWidget {
         itemCount: favList.length,
         itemBuilder: (context, index) {
           final item = favList[index];
-          final isOn = item.isOn;
+          final isAvailable = item.isAvailable;
+          final rawIsOn = item.isOn;
+          final isOn = isAvailable && rawIsOn;
           final isLight = item.kind == QuickControlKind.light;
           final isFan = item.kind == QuickControlKind.fan;
           final isSocket = item.kind == QuickControlKind.socket;
@@ -1549,13 +1728,13 @@ class _FavouriteDevicesStrip extends StatelessWidget {
             padding: const EdgeInsets.only(right: 12),
             child: InkWell(
               onTap: () {
-                if (!item.isAvailable) {
+                if (!isAvailable) {
                   onUnavailable();
                 } else {
-                  if (item.kind == QuickControlKind.light && item.id == 'main_light') {
-                    onLightChanged(!lightOn);
+                  if (onControlChanged != null) {
+                    onControlChanged!(item, !rawIsOn);
                   } else {
-                    onControlChanged?.call(item, !isOn);
+                    onLightChanged(!lightOn);
                   }
                 }
               },
@@ -1610,23 +1789,17 @@ class _FavouriteDevicesStrip extends StatelessWidget {
                             color: isOn ? Colors.white : tokens.textSecondary,
                           ),
                         ),
-                        Switch(
-                          value: isOn,
-                          onChanged: item.isAvailable
-                              ? (val) {
-                                  if (item.kind == QuickControlKind.light && item.id == 'main_light') {
-                                    onLightChanged(val);
-                                  } else {
-                                    onControlChanged?.call(item, val);
-                                  }
-                                }
-                              : null,
-                          activeTrackColor: activeColor,
-                          activeThumbColor: Colors.white,
-                          inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
-                          inactiveThumbColor: Colors.white,
-                          trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        IgnorePointer(
+                          child: Switch(
+                            value: isOn,
+                            onChanged: null,
+                            activeTrackColor: activeColor,
+                            activeThumbColor: Colors.white,
+                            inactiveTrackColor: tokens.isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                            inactiveThumbColor: Colors.white,
+                            trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
                       ],
                     ),
@@ -1645,10 +1818,11 @@ class _FavouriteDevicesStrip extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          item.roomName ?? 'Living Room',
+                          !isAvailable ? 'Offline' : (item.roomName ?? 'Living Room'),
                           style: TextStyle(
-                            color: tokens.textSecondary,
+                            color: !isAvailable ? tokens.textTertiary : tokens.textSecondary,
                             fontSize: 11,
+                            fontWeight: !isAvailable ? FontWeight.w600 : FontWeight.normal,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1682,6 +1856,17 @@ class _UpcomingRoutinesStrip extends StatelessWidget {
     final tokens = context.ehColors;
     return Column(
       children: routines.map((r) {
+        final isLight = r.iconKey.contains('light') || r.title.toLowerCase().contains('light');
+        final iconData = isLight
+            ? Icons.lightbulb_rounded
+            : r.iconKey == 'sun'
+                ? Icons.wb_sunny_rounded
+                : r.iconKey == 'work'
+                    ? Icons.business_rounded
+                    : (r.iconKey == 'bedtime' || r.iconKey == 'moon')
+                        ? Icons.bedtime_rounded
+                        : Icons.auto_awesome_rounded;
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: InkWell(
@@ -1692,25 +1877,25 @@ class _UpcomingRoutinesStrip extends StatelessWidget {
               decoration: BoxDecoration(
                 color: tokens.surfaceCard,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: tokens.borderSubtle),
+                border: Border.all(
+                  color: r.isEnabled ? tokens.bluePrimary.withValues(alpha: 0.25) : tokens.borderSubtle,
+                ),
               ),
               child: Row(
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
-                      color: tokens.bluePrimary.withValues(alpha: 0.1),
+                      color: r.isEnabled
+                          ? tokens.bluePrimary.withValues(alpha: 0.12)
+                          : tokens.borderSubtle.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
-                      r.iconKey == 'sun'
-                          ? Icons.wb_sunny_rounded
-                          : r.iconKey == 'work'
-                              ? Icons.business_rounded
-                              : Icons.bedtime_rounded,
-                      color: tokens.bluePrimary,
-                      size: 20,
+                      iconData,
+                      color: r.isEnabled ? tokens.bluePrimary : tokens.textSecondary,
+                      size: 22,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1723,47 +1908,84 @@ class _UpcomingRoutinesStrip extends StatelessWidget {
                             Text(
                               r.timeLabel,
                               style: TextStyle(
-                                color: tokens.bluePrimary,
+                                color: r.isEnabled ? tokens.bluePrimary : tokens.textSecondary,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 13,
                               ),
                             ),
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
-                                color: tokens.borderSubtle.withValues(alpha: 0.6),
+                                color: r.isCurrentSpace
+                                    ? tokens.bluePrimary.withValues(alpha: 0.12)
+                                    : tokens.borderSubtle.withValues(alpha: 0.6),
                                 borderRadius: BorderRadius.circular(6),
+                                border: r.isCurrentSpace
+                                    ? Border.all(color: tokens.bluePrimary.withValues(alpha: 0.3), width: 0.8)
+                                    : null,
                               ),
-                              child: Text(
-                                r.spaceName,
-                                style: TextStyle(
-                                  color: tokens.textSecondary,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    r.isCurrentSpace ? Icons.home_rounded : Icons.business_rounded,
+                                    size: 11,
+                                    color: r.isCurrentSpace ? tokens.bluePrimary : tokens.textSecondary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    r.spaceName,
+                                    style: TextStyle(
+                                      color: r.isCurrentSpace ? tokens.bluePrimary : tokens.textSecondary,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          r.title,
-                          style: TextStyle(
-                            color: tokens.textPrimary,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                r.title,
+                                style: TextStyle(
+                                  color: tokens.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (r.roomName != null && r.roomName!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '• ${r.roomName}${r.channelLabel != null ? ' (${r.channelLabel})' : ''}',
+                                style: TextStyle(
+                                  color: tokens.textSecondary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Switch(
                     value: r.isEnabled,
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: tokens.bluePrimary,
+                    inactiveThumbColor: Colors.white,
+                    inactiveTrackColor: tokens.borderControl,
                     onChanged: (val) => onToggleRoutine(r.id, val),
-                    activeThumbColor: tokens.bluePrimary,
                   ),
                 ],
               ),
@@ -1771,6 +1993,60 @@ class _UpcomingRoutinesStrip extends StatelessWidget {
           ),
         );
       }).toList(),
+    );
+  }
+}
+
+class _UpcomingRoutineSortChip extends StatelessWidget {
+  const _UpcomingRoutineSortChip({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected ? tokens.bluePrimary.withValues(alpha: 0.12) : tokens.surfaceCard,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? tokens.bluePrimary : tokens.borderSubtle,
+            width: isSelected ? 1.4 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: isSelected ? tokens.bluePrimary : tokens.textSecondary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? tokens.bluePrimary : tokens.textSecondary,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1789,10 +2065,8 @@ class _HomeOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final setup =
-        data.isSetupFlow ||
-        data.state == HomeDashboardState.loading ||
-        data.state == HomeDashboardState.offline;
+    final hasDevices = data.deviceCount > 0 || data.roomCount > 0 || DeviceStorageService.cachedDevices.isNotEmpty;
+    final setup = (data.isSetupFlow || data.state == HomeDashboardState.setupRequired) && !hasDevices;
     return Semantics(
       button: true,
       label: setup
@@ -2692,13 +2966,19 @@ class _RoomPreviewCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text(
-                  '${room.deviceCount} ${room.deviceCount == 1 ? 'device' : 'devices'}${room.devicesOnCount > 0 ? ' • ${room.devicesOnCount} ON' : ''}',
-                  style: TextStyle(
-                    color: room.devicesOnCount > 0 ? const Color(0xFF10B981) : tokens.textSecondary,
-                    fontSize: 12,
-                    fontWeight: room.devicesOnCount > 0 ? FontWeight.w700 : FontWeight.normal,
-                  ),
+                Builder(
+                  builder: (context) {
+                    final isRoomOffline = room.status == 'Offline' || room.summary.toLowerCase().contains('offline');
+                    final hasOn = !isRoomOffline && room.devicesOnCount > 0;
+                    return Text(
+                      '${room.deviceCount} ${room.deviceCount == 1 ? 'device' : 'devices'}${hasOn ? ' • ${room.devicesOnCount} ON' : ''}',
+                      style: TextStyle(
+                        color: hasOn ? const Color(0xFF10B981) : tokens.textSecondary,
+                        fontSize: 12,
+                        fontWeight: hasOn ? FontWeight.w700 : FontWeight.normal,
+                      ),
+                    );
+                  },
                 ),
                 Divider(
                   height: 18,
@@ -2788,6 +3068,19 @@ class _QuickControlStripState extends State<_QuickControlStrip> {
   void initState() {
     super.initState();
     _controller = PageController(viewportFraction: _viewportFraction);
+    _loadSavedViewMode();
+  }
+
+  Future<void> _loadSavedViewMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('eh_quick_control_view_mode_v1');
+      if (saved != null && mounted) {
+        if (saved == 'brick') setState(() => _viewMode = _QuickControlViewMode.brick);
+        if (saved == 'carousel') setState(() => _viewMode = _QuickControlViewMode.carousel);
+        if (saved == 'list') setState(() => _viewMode = _QuickControlViewMode.list);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -2957,7 +3250,12 @@ class _QuickControlStripState extends State<_QuickControlStrip> {
   }) {
     final isSelected = _viewMode == mode;
     return InkWell(
-      onTap: () => setState(() => _viewMode = mode),
+      onTap: () {
+        setState(() => _viewMode = mode);
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setString('eh_quick_control_view_mode_v1', mode.name);
+        }).catchError((_) {});
+      },
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -3001,12 +3299,35 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
     final unavailable =
         !control.isEnabled ||
         control.confidence == ActuatorConfidence.unavailable;
-    final isOn = control.value == 'On';
+
+    String devId = control.id;
+    int chIdx = 1;
+    if (control.id.contains('_ch')) {
+      final parts = control.id.split('_ch');
+      devId = parts[0];
+      chIdx = int.tryParse(parts[1]) ?? 1;
+    } else {
+      final ctrl = HomeController.instance;
+      if (ctrl != null && ctrl.devices.isNotEmpty) {
+        devId = ctrl.devices.first.id;
+      }
+    }
+    final ctrl = HomeController.instance;
+    final isOn = ctrl?.getDeviceChannelPower(devId, chIdx) ?? (control.value == 'On');
+    final activeRoutine = ctrl?.getActiveRoutineForChannel(devId, chIdx);
+
+    if (activeRoutine != null) {
+      return RoutineControlWarningOverlay(
+        routine: activeRoutine,
+        controlTitle: control.title,
+        isFullWidth: isFullWidth,
+      );
+    }
 
     if (isFullWidth) {
-      return _buildWideCard(context, tokens, visual, unavailable, isOn);
+      return _buildWideCard(context, tokens, visual, unavailable, isOn, activeRoutine);
     }
-    return _buildCompactCard(context, tokens, visual, unavailable, isOn);
+    return _buildCompactCard(context, tokens, visual, unavailable, isOn, activeRoutine);
   }
 
   Widget _buildCompactCard(
@@ -3015,7 +3336,20 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
     _ControlVisual visual,
     bool unavailable,
     bool isOn,
+    Routine? activeRoutine,
   ) {
+    void handleToggle(bool val) async {
+      if (activeRoutine != null) {
+        final proceed = await confirmRoutineInterruption(context, activeRoutine);
+        if (!proceed) return;
+      }
+      if (onControlChanged != null) {
+        onControlChanged!(control, val);
+      } else {
+        onLightChanged(val);
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -3065,13 +3399,7 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
                 value: isOn && !unavailable,
                 enabled: !unavailable,
                 activeColor: visual.color,
-                onChanged: (val) {
-                  if (onControlChanged != null) {
-                    onControlChanged!(control, val);
-                  } else {
-                    onLightChanged(val);
-                  }
-                },
+                onChanged: handleToggle,
               ),
             ],
           ),
@@ -3099,6 +3427,8 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (activeRoutine != null)
+            ActiveRoutineBadge(routine: activeRoutine),
         ],
       ),
     );
@@ -3110,8 +3440,21 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
     _ControlVisual visual,
     bool unavailable,
     bool isOn,
+    Routine? activeRoutine,
   ) {
     final isFan = control.kind == QuickControlKind.fan;
+
+    void handleToggle(bool val) async {
+      if (activeRoutine != null) {
+        final proceed = await confirmRoutineInterruption(context, activeRoutine);
+        if (!proceed) return;
+      }
+      if (onControlChanged != null) {
+        onControlChanged!(control, val);
+      } else {
+        onLightChanged(val);
+      }
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -3186,6 +3529,8 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (activeRoutine != null)
+                      ActiveRoutineBadge(routine: activeRoutine, showRoutineName: true),
                   ],
                 ),
               ),
@@ -3193,13 +3538,7 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
                 value: isOn && !unavailable,
                 enabled: !unavailable,
                 activeColor: visual.color,
-                onChanged: (val) {
-                  if (onControlChanged != null) {
-                    onControlChanged!(control, val);
-                  } else {
-                    onLightChanged(val);
-                  }
-                },
+                onChanged: handleToggle,
               ),
             ],
           ),
@@ -3594,5 +3933,5 @@ _ControlVisual _controlVisual(QuickControlKind kind, EHThemeTokens tokens) {
       Color(0xFF7850DD),
       Color(0xFF6144B4),
     ),
-  };
+};
 }

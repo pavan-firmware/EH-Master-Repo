@@ -29,6 +29,16 @@ bool local_server_is_running(void);
  */
 void local_server_broadcast_state(const bool* powers, uint8_t count);
 
+/**
+ * Broadcast boot announcement over UDP port 4210 to notify all LAN clients immediately on Wi-Fi connection.
+ */
+void local_server_broadcast_boot_announce(const bool* powers, uint8_t count);
+
+/**
+ * Start asynchronous 3-burst boot announcement (spaced 1.5s apart) on port 4210.
+ */
+void local_server_start_boot_announce_burst(const bool* powers, uint8_t count);
+
 #ifdef __cplusplus
 }
 #endif

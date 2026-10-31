@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Manages application-wide theme mode (System, Light, Dark) with persistence.
 class ThemeController extends ChangeNotifier {
@@ -10,7 +10,7 @@ class ThemeController extends ChangeNotifier {
   }
 
   ThemeMode _themeMode;
-  static const String _prefFileName = 'eh_home_theme_mode.txt';
+  static const String _prefKey = 'eh_theme_mode_v2';
 
   ThemeMode get themeMode => _themeMode;
 
@@ -27,37 +27,26 @@ class ThemeController extends ChangeNotifier {
 
   Future<void> _loadPreference() async {
     try {
-      final file = await _getPrefFile();
-      if (await file.exists()) {
-        final content = (await file.readAsString()).trim();
-        if (content == 'dark') {
-          _themeMode = ThemeMode.dark;
-          notifyListeners();
-        } else if (content == 'light') {
-          _themeMode = ThemeMode.light;
-          notifyListeners();
-        } else if (content == 'system') {
-          _themeMode = ThemeMode.system;
-          notifyListeners();
-        }
+      final prefs = await SharedPreferences.getInstance();
+      final content = prefs.getString(_prefKey);
+      if (content == 'dark') {
+        _themeMode = ThemeMode.dark;
+        notifyListeners();
+      } else if (content == 'light') {
+        _themeMode = ThemeMode.light;
+        notifyListeners();
+      } else if (content == 'system') {
+        _themeMode = ThemeMode.system;
+        notifyListeners();
       }
-    } catch (_) {
-      // Ignored for environments without local filesystem access
-    }
+    } catch (_) {}
   }
 
   Future<void> _savePreference(ThemeMode mode) async {
     try {
-      final file = await _getPrefFile();
-      await file.writeAsString(mode.name);
-    } catch (_) {
-      // Ignored for environments without local filesystem access
-    }
-  }
-
-  Future<File> _getPrefFile() async {
-    final dir = Directory.systemTemp;
-    return File('${dir.path}/$_prefFileName');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKey, mode.name);
+    } catch (_) {}
   }
 }
 

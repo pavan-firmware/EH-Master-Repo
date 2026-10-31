@@ -16,6 +16,7 @@ import uuid
 import secrets
 import json
 import argparse
+import re
 from datetime import datetime, timezone
 
 from ca_manager import ManufacturingCAManager
@@ -48,6 +49,10 @@ class FactoryProvisioner:
                          seq_num: int = 1,
                          setup_code: str = "123456") -> dict:
         device_id = str(uuid.uuid4())
+        # Never reuse a serial when the operator flashes multiple boards or
+        # retries a failed station cycle. The audit log is the local allocator
+        # source; the API database remains the final uniqueness constraint.
+        seq_num = self._next_available_sequence(product_variant_id, seq_num)
         serial_number = self.generate_serial_number(product_variant_id, seq_num)
         comm_secret_bytes = secrets.token_bytes(32)
         comm_secret_hex = comm_secret_bytes.hex()
@@ -84,6 +89,34 @@ class FactoryProvisioner:
             "cert_data": cert_data,
             "nvs_csv": nvs_csv
         }
+
+    def _next_available_sequence(self, product_variant_id: str, requested: int) -> int:
+        """Return the first unused sequence for this variant/year/week."""
+        variant_code = "SW3X"
+        if "1x" in product_variant_id:
+            variant_code = "SW1X"
+        elif "2x" in product_variant_id:
+            variant_code = "SW2X"
+        elif "4x" in product_variant_id:
+            variant_code = "SW4X"
+        now = datetime.now(timezone.utc)
+        prefix = f"EH-{variant_code}-{now.year}W{now.isocalendar()[1]:02d}-"
+        used = set()
+        if os.path.exists(self.audit_log_path):
+            try:
+                with open(self.audit_log_path, "r", encoding="utf-8") as f:
+                    for item in json.load(f):
+                        serial = str(item.get("serialNumber", ""))
+                        if serial.startswith(prefix):
+                            match = re.fullmatch(r".*-(\d{5})", serial)
+                            if match:
+                                used.add(int(match.group(1)))
+            except (OSError, ValueError, TypeError):
+                pass
+        candidate = max(1, int(requested or 1))
+        while candidate in used:
+            candidate += 1
+        return candidate
 
     def _generate_nvs_csv(self, device_id: str, serial_number: str, comm_secret_hex: str, cert_fp: str) -> str:
         """

@@ -11,6 +11,7 @@ abstract interface class SettingsRepository {
   Future<SettingsOperationResult> invitePerson(String recipient);
   Future<SettingsOperationResult> invitePersonWithRole(String recipient, {String role = 'MEMBER'});
   Future<SettingsOperationResult> removeMember(String memberId);
+  Future<SettingsOperationResult> updateMemberRole(String memberId, String role);
   Future<SettingsOperationResult> resendInvitation(String invitationId);
   Future<SettingsOperationResult> cancelInvitation(String invitationId);
 }
@@ -20,6 +21,10 @@ abstract interface class SettingsRepository {
 /// backend and household-access APIs are available.
 class PreviewSettingsRepository implements SettingsRepository {
   const PreviewSettingsRepository();
+
+  @override
+  Future<SettingsOperationResult> updateMemberRole(String memberId, String role) async =>
+      SettingsOperationResult.unsupported;
 
   @override
   Future<SettingsOperationResult> invitePersonWithRole(String recipient, {String role = 'MEMBER'}) async =>

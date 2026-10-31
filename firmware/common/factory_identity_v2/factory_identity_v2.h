@@ -18,6 +18,9 @@ typedef struct {
     bool is_development;
 } factory_identity_v2_t;
 
+void factory_identity_v2_set_product_meta(const char *product_type, const char *variant);
+const char *factory_identity_v2_get_variant(void);
+const char *factory_identity_v2_get_product_type(void);
 esp_err_t factory_identity_v2_init(void);
 const factory_identity_v2_t *factory_identity_v2_get(void);
 esp_err_t factory_identity_v2_set_secret_consumed(bool consumed);

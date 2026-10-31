@@ -296,6 +296,15 @@ runStep('70. Desktop Production Packing Tests', `${nodeBin} apps/desktop/tests/p
 // 71. Desktop UI Domain Reconciliation Tests
 runStep('71. Desktop UI Domain Reconciliation Tests', `${nodeBin} apps/desktop/tests/ui-reconciliation.test.js`);
 
+// 71b. Desktop Real Windows Integration: Microsoft Print to PDF Tests
+runStep('71b. Desktop Windows PDF Printer & Subsystem Tests', `${nodeBin} apps/desktop/tests/windows-pdf-printer.test.js`);
+
+// 71c. Desktop Installer, System Requirements & Diagnostics Tests
+runStep('71c. Desktop Installer, Requirements & Diagnostics Tests', `${nodeBin} apps/desktop/tests/system-installer-requirements.test.js`);
+
+// 71d. Desktop Setup Persistence & Performance Regression Tests
+runStep('71d. Desktop Setup Persistence & Performance Tests', `${nodeBin} apps/desktop/tests/setup-persistence-performance.test.js`);
+
 // 72. Part 15 Desktop E2E & Cross-Layer Integration Tests
 runStep('72. Part 15 Desktop E2E & Cross-Layer Integration Tests', `${nodeBin} apps/desktop/tests/desktop-e2e.test.js`);
 

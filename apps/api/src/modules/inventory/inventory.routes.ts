@@ -12,8 +12,28 @@ import {
 } from './inventory.schema';
 
 export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
-  // Database instance from plugin
-  const db = fastify.db;
+  // Migration 033 is required for durable inventory/packing storage. During
+  // local bench testing the API may be connected while that migration is not
+  // installed (or PostgreSQL may be unavailable). In that case use the
+  // repository's in-memory adapter instead of turning a successful flash into
+  // an HTTP 500 and losing the label workflow.
+  let db: typeof fastify.db | undefined = fastify.db;
+  try {
+    const result = await fastify.dbPool.query(`
+      SELECT to_regclass('public.inventory_items') AS inventory_items,
+             to_regclass('public.packaging_cartons') AS packaging_cartons,
+             to_regclass('public.dual_scan_verifications') AS dual_scan_verifications,
+             to_regclass('public.packaging_records') AS packaging_records
+    `);
+    const tables = result.rows[0] || {};
+    if (!tables.inventory_items || !tables.packaging_cartons || !tables.dual_scan_verifications || !tables.packaging_records) {
+      fastify.log.warn('Inventory migration 033 is not installed; using in-memory inventory for bench testing.');
+      db = undefined;
+    }
+  } catch (error) {
+    fastify.log.warn({ error }, 'Inventory database unavailable; using in-memory inventory for bench testing.');
+    db = undefined;
+  }
   const repository = new InventoryRepository(db);
   const service = new InventoryService(repository);
 
@@ -98,4 +118,75 @@ export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get<{ Querystring: { limit?: number; offset?: number } }>('/packing-history', { schema: getPackingHistorySchema }, handleGetHistory);
   fastify.get<{ Querystring: { limit?: number; offset?: number } }>('/history', { schema: getPackingHistorySchema }, handleGetHistory);
+
+  // 8. GET /api/v1/inventory/items — List inventory items
+  fastify.get('/items', async (request: any, reply) => {
+    const filters = {
+      status: request.query?.status,
+      productVariantId: request.query?.productVariantId,
+      cartonId: request.query?.cartonId,
+      limit: Number(request.query?.limit) || 50,
+      offset: Number(request.query?.offset) || 0,
+    };
+    const items = await service.listInventoryItems(filters);
+    return reply.status(200).send({
+      success: true,
+      data: items,
+      count: items.length,
+    });
+  });
+
+  // 9. GET /api/v1/inventory/cartons — List packaging cartons
+  fastify.get('/cartons', async (request: any, reply) => {
+    const filters = {
+      status: request.query?.status,
+      limit: Number(request.query?.limit) || 50,
+      offset: Number(request.query?.offset) || 0,
+    };
+    const cartons = await service.listCartons(filters);
+    return reply.status(200).send({
+      success: true,
+      data: cartons,
+      count: cartons.length,
+    });
+  });
+
+  // 10. GET /api/v1/inventory/qc — List QC verification logs
+  fastify.get('/qc', async (request: any, reply) => {
+    const filters = {
+      stationId: request.query?.stationId,
+      deviceId: request.query?.deviceId,
+      limit: Number(request.query?.limit) || 50,
+      offset: Number(request.query?.offset) || 0,
+    };
+    const qcLogs = await service.listQcRecords(filters);
+    return reply.status(200).send({
+      success: true,
+      data: qcLogs,
+      count: qcLogs.length,
+    });
+  });
+
+  // 11. POST /api/v1/inventory/qc — Record QC operation
+  fastify.post('/qc', async (request: any, reply) => {
+    const body = request.body || {};
+    const created = await service.recordQcOperation(body);
+    return reply.status(201).send({
+      success: true,
+      data: created,
+    });
+  });
+
+  // 12. POST /api/v1/inventory/adjust — Adjust inventory item status
+  fastify.post('/adjust', async (request: any, reply) => {
+    const { deviceId, status, notes } = request.body || {};
+    if (!deviceId || !status) {
+      return reply.status(400).send({ success: false, error: 'deviceId and status required' });
+    }
+    const updated = await service.adjustInventory(deviceId, status, notes);
+    return reply.status(200).send({
+      success: true,
+      data: updated,
+    });
+  });
 };

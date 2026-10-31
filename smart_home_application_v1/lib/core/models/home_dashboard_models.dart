@@ -1,3 +1,6 @@
+import '../services/local_lan_device_service.dart';
+import '../capabilities/repositories/product_catalog_repository.dart';
+
 /// Dashboard domain types deliberately stay independent from BLE, Wi-Fi, or
 /// cloud APIs. A repository/controller maps transport events into these values.
 enum HomeDashboardState {
@@ -164,6 +167,38 @@ class SpaceAlertItem {
   final DateTime timestamp;
   final String? roomId;
   final String? deviceId;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'spaceId': spaceId,
+    'spaceName': spaceName,
+    'title': title,
+    'message': message,
+    'severity': severity.name,
+    'timestamp': timestamp.toIso8601String(),
+    if (roomId != null) 'roomId': roomId,
+    if (deviceId != null) 'deviceId': deviceId,
+  };
+
+  factory SpaceAlertItem.fromJson(Map<String, dynamic> json) {
+    AlertSeverity sev = AlertSeverity.informational;
+    try {
+      sev = AlertSeverity.values.byName(json['severity']?.toString() ?? 'informational');
+    } catch (_) {}
+    return SpaceAlertItem(
+      id: json['id']?.toString() ?? '',
+      spaceId: json['spaceId']?.toString() ?? '',
+      spaceName: json['spaceName']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      message: json['message']?.toString() ?? '',
+      severity: sev,
+      timestamp: json['timestamp'] != null
+          ? DateTime.tryParse(json['timestamp'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      roomId: json['roomId']?.toString(),
+      deviceId: json['deviceId']?.toString(),
+    );
+  }
 }
 
 class UpcomingRoutineItem {
@@ -176,6 +211,10 @@ class UpcomingRoutineItem {
     required this.timeLabel,
     required this.iconKey,
     required this.isEnabled,
+    this.nextExecutionTime,
+    this.roomName,
+    this.channelLabel,
+    this.isCurrentSpace = false,
   });
 
   final String id;
@@ -186,6 +225,10 @@ class UpcomingRoutineItem {
   final String timeLabel;
   final String iconKey;
   final bool isEnabled;
+  final DateTime? nextExecutionTime;
+  final String? roomName;
+  final String? channelLabel;
+  final bool isCurrentSpace;
 }
 
 class GroupControlItem {
@@ -598,24 +641,38 @@ class HomeDashboardData {
       );
       int devicesOnCount = 0;
       for (final d in roomDevices) {
+        final isDevReachable = d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
+        if (!isDevReachable) continue;
         bool isDevOn = false;
         for (int ch = 1; ch <= 4; ch++) {
-          if (channelStates?[d.id]?[ch] ?? (ch == 1 ? lightOn : false)) {
+          bool isChOn = channelStates?[d.id]?[ch] == true;
+          if (!isChOn && channelStates != null) {
+            for (final entry in channelStates.entries) {
+              if (entry.key.trim().toLowerCase() == d.id.trim().toLowerCase()) {
+                if (entry.value[ch] == true) {
+                  isChOn = true;
+                  break;
+                }
+              }
+            }
+          }
+          if (isChOn) {
             isDevOn = true;
             break;
           }
         }
         if (isDevOn) devicesOnCount++;
       }
-      final anyChOnInRoom = devicesOnCount > 0;
-      final allOffline = roomDevices.every((d) => d.online == false);
+      final allOffline = roomDevices.every((d) => d.online == false && !LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id));
+      final effectiveDevicesOn = allOffline ? 0 : devicesOnCount;
+      final anyChOnInRoom = effectiveDevicesOn > 0;
 
       return RoomPreview(
         id: roomId,
         name: roomName,
         deviceCount: roomDevices.length,
-        devicesOnCount: devicesOnCount,
-        summary: allOffline ? 'Offline' : (anyChOnInRoom ? '$devicesOnCount ON' : 'Standby'),
+        devicesOnCount: effectiveDevicesOn,
+        summary: allOffline ? 'Offline' : (anyChOnInRoom ? '$effectiveDevicesOn ON' : 'Standby'),
         status: allOffline ? 'Offline' : 'Online',
         isAttention: false,
         freshness: allOffline ? TelemetryFreshness.stale : TelemetryFreshness.current,
@@ -656,15 +713,26 @@ class HomeDashboardData {
           : rawName;
       final modelStr = (d.model as String? ?? '').toLowerCase();
       final nameStr = cleanName.toLowerCase();
-      final isSocket = nameStr.contains('socket') || modelStr.contains('socket');
-      final is4X = nameStr.contains('4x') || modelStr.contains('4x');
-      final is3X = nameStr.contains('3x') || modelStr.contains('3x');
-      final is2X = nameStr.contains('2x') || modelStr.contains('2x');
-      final channelCount = is4X ? 4 : (is3X ? 3 : (is2X ? 2 : 1));
-      final isDevOnline = d.online == true;
+      final normModel = MockProductCatalogRepository.normalizeVariantId(d.model as String? ?? '');
+      final isSocket = nameStr.contains('socket') || modelStr.contains('socket') || modelStr.contains('sk') || normModel.contains('socket');
+      final is4X = nameStr.contains('4x') || modelStr.contains('4x') || normModel.contains('4x');
+      final is3X = nameStr.contains('3x') || modelStr.contains('3x') || normModel.contains('3x');
+      final is2X = nameStr.contains('2x') || modelStr.contains('2x') || normModel.contains('2x');
+      final channelCount = is4X ? 4 : (is3X ? 3 : (is2X ? 2 : (nameStr.contains('1x') || modelStr.contains('1x') ? 1 : (isSocket ? 3 : 4))));
+      final isDevOnline = d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
 
       for (int ch = 1; ch <= channelCount; ch++) {
-        final isChOn = channelStates?[d.id]?[ch] ?? (ch == 1 ? lightOn : false);
+        bool isChOn = channelStates?[d.id]?[ch] == true;
+        if (!isChOn && channelStates != null) {
+          for (final entry in channelStates.entries) {
+            if (entry.key.trim().toLowerCase() == d.id.trim().toLowerCase()) {
+              if (entry.value[ch] == true) {
+                isChOn = true;
+                break;
+              }
+            }
+          }
+        }
         final chPrefix = isSocket ? 'Socket' : 'Sw';
         final customName = channelLabels?[d.id]?[ch];
         final defaultTitle = isSocket ? 'Socket $ch' : '$cleanName $chPrefix$ch';
@@ -687,7 +755,7 @@ class HomeDashboardData {
     }
 
     final List<QuickControlPreview> controls = [];
-    if (selectedControlIds != null) {
+    if (selectedControlIds != null && selectedControlIds.isNotEmpty) {
       for (final id in selectedControlIds) {
         final match = allControls.cast<QuickControlPreview?>().firstWhere(
           (c) => c?.id == id,
@@ -698,8 +766,11 @@ class HomeDashboardData {
         }
       }
     }
+    if (controls.isEmpty) {
+      controls.addAll(allControls);
+    }
 
-    final onlineCount = devices.where((d) => d.online == true).length;
+    final onlineCount = devices.where((d) => d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)).length;
 
     return HomeDashboardData(
       state: HomeDashboardState.ready,

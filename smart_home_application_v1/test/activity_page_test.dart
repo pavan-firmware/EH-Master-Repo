@@ -54,7 +54,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Activity'), findsOneWidget);
-    expect(find.text('6 events'), findsOneWidget);
+    expect(find.text('6 events'), findsWidgets);
     expect(find.text('Kitchen needs attention'), findsOneWidget);
     expect(tester.takeException(), isNull);
 

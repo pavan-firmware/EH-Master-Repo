@@ -16,6 +16,12 @@ abstract class NotificationRepository {
 
   Future<int> markAllAsRead({String? homeId});
 
+  Future<bool> deleteNotification(String notificationId);
+
+  Future<int> deleteNotifications(List<String> notificationIds);
+
+  Future<int> clearAllNotifications({String? homeId});
+
   Future<bool> performAction(
     String notificationId,
     String actionType, {

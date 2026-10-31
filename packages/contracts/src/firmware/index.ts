@@ -339,6 +339,12 @@ export function validateProductionReleaseFamily(family: string): {
   };
 }
 
+/** Bench-only family names for dev kits and generic bring-up firmware. */
+export function isBenchTestFirmwareFamily(family: string): boolean {
+  if (!family || CANONICAL_FIRMWARE_FAMILIES[family]) return false;
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(family);
+}
+
 /**
  * Parses release git tags into firmware family and semantic version.
  * Supports:
@@ -373,5 +379,4 @@ export const ReleaseReadinessGateSchema = z.object({
   ),
 });
 export type ReleaseReadinessGate = z.infer<typeof ReleaseReadinessGateSchema>;
-
 

@@ -1,5 +1,5 @@
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, like } from 'drizzle-orm';
 import {
   inventoryItems,
   packagingCartons,
@@ -48,6 +48,38 @@ export class InventoryRepository {
       .select()
       .from(inventoryItems)
       .where(eq(inventoryItems.serialNumber, serialNumber))
+      .limit(1);
+    return rows[0];
+  }
+
+  async findInventoryItemBySerialSuffix(suffix: string): Promise<InventoryItem | undefined> {
+    if (!/^\d{5}$/.test(suffix)) return undefined;
+    if (!this.db) {
+      for (const item of this.memInventory.values()) {
+        if (item.serialNumber.endsWith(`-${suffix}`)) return item;
+      }
+      return undefined;
+    }
+    const rows = await this.db
+      .select()
+      .from(inventoryItems)
+      .where(like(inventoryItems.serialNumber, `%-${suffix}`))
+      .limit(1);
+    return rows[0];
+  }
+
+  async findInventoryItemByQrToken(qrToken: string): Promise<InventoryItem | undefined> {
+    if (!qrToken) return undefined;
+    if (!this.db) {
+      for (const item of this.memInventory.values()) {
+        if (item.qrToken === qrToken) return item;
+      }
+      return undefined;
+    }
+    const rows = await this.db
+      .select()
+      .from(inventoryItems)
+      .where(eq(inventoryItems.qrToken, qrToken))
       .limit(1);
     return rows[0];
   }
@@ -437,5 +469,55 @@ export class InventoryRepository {
         carton: updatedCartonRows[0]!,
       };
     });
+  }
+
+  async listInventoryItems(filters: { status?: string; productVariantId?: string; cartonId?: string; limit?: number; offset?: number }): Promise<InventoryItem[]> {
+    if (!this.db) {
+      let list = Array.from(this.memInventory.values());
+      if (filters.status) list = list.filter((i) => i.status === filters.status);
+      if (filters.productVariantId) list = list.filter((i) => i.productVariantId === filters.productVariantId);
+      if (filters.cartonId) list = list.filter((i) => i.cartonId === filters.cartonId);
+      return list.slice(filters.offset || 0, (filters.offset || 0) + (filters.limit || 50));
+    }
+
+    return this.db
+      .select()
+      .from(inventoryItems)
+      .limit(filters.limit || 50)
+      .offset(filters.offset || 0);
+  }
+
+  async listCartons(filters?: { status?: string; limit?: number; offset?: number }): Promise<PackagingCarton[]> {
+    if (!this.db) {
+      let list = Array.from(this.memCartons.values());
+      if (filters?.status) list = list.filter((c) => c.status === filters.status);
+      return list.slice(filters?.offset || 0, (filters?.offset || 0) + (filters?.limit || 50));
+    }
+
+    return this.db
+      .select()
+      .from(packagingCartons)
+      .limit(filters?.limit || 50)
+      .offset(filters?.offset || 0);
+  }
+
+  async listQcRecords(filters?: { stationId?: string; deviceId?: string; limit?: number; offset?: number }): Promise<DualScanVerification[]> {
+    if (!this.db) {
+      let list = Array.from(this.memDualScans.values());
+      if (filters?.stationId) list = list.filter((v) => v.stationId === filters.stationId);
+      if (filters?.deviceId) list = list.filter((v) => v.deviceId === filters.deviceId);
+      return list.slice(filters?.offset || 0, (filters?.offset || 0) + (filters?.limit || 50));
+    }
+
+    return this.db
+      .select()
+      .from(dualScanVerifications)
+      .orderBy(desc(dualScanVerifications.verifiedAt))
+      .limit(filters?.limit || 50)
+      .offset(filters?.offset || 0);
+  }
+
+  async adjustInventory(deviceId: string, status: string, _notes?: string): Promise<InventoryItem | undefined> {
+    return this.updateInventoryStatus(deviceId, status);
   }
 }

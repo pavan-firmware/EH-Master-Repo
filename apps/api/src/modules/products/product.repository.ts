@@ -584,4 +584,385 @@ export class ProductRepository {
     this.memoryCache.set(def.variant.id, def);
     return { success: true, dryRun: false };
   }
+
+  /**
+   * Lists all product variants with optional filters.
+   */
+  async listVariants(filters: { familyId?: string; productId?: string; limit?: number; offset?: number } = {}): Promise<{ items: VariantDetail[]; total: number }> {
+    if (this.db) {
+      try {
+        const query = this.db.select().from(productVariants);
+        const rows = await (filters.productId ? query.where(eq(productVariants.productId, filters.productId)) : query);
+        if (rows.length > 0) {
+          const items: VariantDetail[] = [];
+          for (const v of rows) {
+            items.push({
+              variantId: v.id,
+              productId: v.productId,
+              variantSlug: v.variantSlug,
+              displayName: v.displayName,
+              channelCount: v.channelCount,
+              channels: (v.channels as any[]) || [],
+              hardwareProfile: v.hardwareProfile as any,
+              connectivityProfile: v.connectivityProfile as any,
+              capabilities: (v.capabilities as string[]) || [],
+              electricalSpecifications: (v.electricalSpecifications as Record<string, any>) || {},
+              firmwareFamily: v.firmwareFamily,
+              supportedHardwareRevisions: (v.supportedHardwareRevisions as string[]) || [],
+              assets: [],
+              createdAt: v.createdAt.toISOString(),
+            });
+          }
+          return { items, total: items.length };
+        }
+      } catch {
+        // Fall back to memory
+      }
+    }
+
+    const items: VariantDetail[] = [];
+    for (const def of this.memoryCache.values()) {
+      if (filters.productId && def.product.id !== filters.productId) continue;
+      if (filters.familyId && def.family.id !== filters.familyId && def.family.slug !== filters.familyId) continue;
+      items.push({
+        variantId: def.variant.id,
+        productId: def.variant.productId,
+        variantSlug: def.variant.variantSlug,
+        displayName: def.variant.displayName,
+        channelCount: def.variant.channelCount,
+        channels: def.variant.channels,
+        hardwareProfile: def.variant.hardwareProfile,
+        connectivityProfile: def.variant.connectivityProfile,
+        capabilities: def.variant.capabilities,
+        electricalSpecifications: def.variant.electricalSpecifications,
+        firmwareFamily: def.variant.firmwareFamily,
+        supportedHardwareRevisions: def.variant.supportedHardwareRevisions,
+        assets: def.assets,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return { items, total: items.length };
+  }
+
+  async createProduct(data: { id?: string; productId?: string; familyId?: string; displayName?: string; name?: string; description?: string; status?: any }): Promise<ProductDetail> {
+    const now = new Date();
+    const id = data.id || data.productId || (data.displayName || data.name ? (data.displayName || data.name)!.toLowerCase().replace(/[^a-z0-9]+/g, '-') : `prod_${Date.now()}`);
+    const inputFamily = data.familyId || 'smart-switch';
+    const displayName = data.displayName || data.name || id;
+    const description = data.description || null;
+    const status = data.status || 'PUBLISHED';
+
+    let resolvedFamilyId = inputFamily;
+
+    if (this.db) {
+      try {
+        const families = await this.db.select().from(productFamilies);
+        const match = families.find((f) => f.id === inputFamily || f.slug === inputFamily);
+        if (match) {
+          resolvedFamilyId = match.id;
+        } else {
+          // Provision family safely
+          const famSlug = inputFamily.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          const famId = inputFamily.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+          try {
+            await this.db
+              .insert(productFamilies)
+              .values({
+                id: famId,
+                slug: famSlug,
+                displayName: inputFamily.replace(/[-_]/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+                description: `Product Family: ${inputFamily}`,
+                createdAt: now,
+              })
+              .onConflictDoNothing();
+          } catch {
+            // Ignored
+          }
+          resolvedFamilyId = famId;
+        }
+      } catch {
+        // Fallback
+      }
+
+      try {
+        await this.db
+          .insert(products)
+          .values({
+            id,
+            familyId: resolvedFamilyId,
+            displayName,
+            description,
+            status,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: products.id,
+            set: {
+              displayName,
+              description,
+              status,
+              updatedAt: now,
+            },
+          });
+        const detail = await this.getProductById(id);
+        if (detail) return detail;
+      } catch {
+        // Fall back to memory return
+      }
+    }
+
+    return {
+      id,
+      familyId: resolvedFamilyId,
+      displayName,
+      description,
+      schemaVersion: 1,
+      status,
+      variants: [],
+      capabilities: [],
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+  }
+
+  async updateProduct(id: string, data: { displayName?: string; name?: string; description?: string; status?: any; familyId?: string }): Promise<ProductDetail | null> {
+    const now = new Date();
+    const updateFields: Record<string, any> = { updatedAt: now };
+    if (data.displayName || data.name) updateFields.displayName = data.displayName || data.name;
+    if (data.description !== undefined) updateFields.description = data.description;
+    if (data.status) updateFields.status = data.status;
+    if (data.familyId) updateFields.familyId = data.familyId;
+
+    if (this.db) {
+      try {
+        await this.db
+          .update(products)
+          .set(updateFields)
+          .where(eq(products.id, id));
+        return await this.getProductById(id);
+      } catch {
+        // Fall back to memory
+      }
+    }
+    return this.getProductById(id);
+  }
+
+  async createVariant(data: any): Promise<VariantDetail> {
+    const now = new Date();
+    const id = data.id || data.variantId || data.variantSlug || (data.name ? data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : `var_${Date.now()}`);
+    const variantSlug = data.variantSlug || data.variantId || id;
+    const displayName = data.displayName || data.name || variantSlug;
+    
+    // Determine or provision parent productId
+    let productId = data.productId;
+    if (!productId) {
+      if (variantSlug.includes('switch')) productId = 'eh-smart-switch';
+      else if (variantSlug.includes('socket')) productId = 'eh-smart-socket';
+      else if (variantSlug.includes('fan')) productId = 'eh-smart-fan';
+      else if (variantSlug.includes('light')) productId = 'eh-smart-light';
+      else if (variantSlug.includes('hub')) productId = 'eh-smart-hub';
+      else if (variantSlug.includes('sensor')) productId = 'eh-sensor-node';
+      else productId = 'eh-smart-switch';
+    }
+
+    const channelCount = Number(data.channelCount) || 1;
+    const firmwareFamily = data.firmwareFamily || (productId.includes('socket') ? 'esp32c6-socket-platform' : productId.includes('fan') ? 'esp32c6-fan-platform' : productId.includes('light') ? 'esp32c6-light-platform' : productId.includes('hub') ? 'esp32s3-hub-platform' : productId.includes('sensor') ? 'esp32c6-sensor-platform' : 'esp32c6-switch-platform');
+    const supportedHardwareRevisions = Array.isArray(data.supportedHardwareRevisions) && data.supportedHardwareRevisions.length > 0
+      ? data.supportedHardwareRevisions
+      : ['HW_1_0', 'HW_1_1'];
+
+    const channels = data.channels || Array.from({ length: channelCount }, (_, i) => ({
+      channelIndex: i + 1,
+      defaultLabel: `Channel ${i + 1}`,
+      capabilities: ['switch', 'relay', 'local_switch', 'energy', 'ota'],
+    }));
+
+    const hardwareProfile = data.hardwareProfile || {
+      schemaVersion: 1,
+      mcuFamily: (data.targetMcu || 'ESP32-C6').toLowerCase(),
+      flashSizeBytes: 4194304,
+      psramSizeBytes: null,
+      hasEnergyMetering: true,
+      energyMeterChip: 'BL0942',
+      maxRelayAmpsPerChannel: 10.0,
+      maxTotalAmps: 16.0,
+      gpioMap: {},
+    };
+
+    const connectivityProfile = data.connectivityProfile || {
+      schemaVersion: 1,
+      supportsWifi: true,
+      wifiStandards: ['802.11b', '802.11g', '802.11n', '802.11ax'],
+      supportsBle: true,
+      bleVersion: '5.0',
+      supportsThread: false,
+      threadVersion: null,
+      supportsMatter: false,
+      matterDeviceType: null,
+    };
+
+    const capabilities = Array.isArray(data.capabilities) && data.capabilities.length > 0
+      ? data.capabilities
+      : ['switch', 'relay', 'local_switch', 'energy', 'voltage', 'current', 'power', 'ota', 'automation'];
+
+    const electricalSpecifications = data.electricalSpecifications || {
+      voltageRange: '90V - 250V AC',
+      frequencyHz: '50/60Hz',
+      maxCurrentPerChannelAmps: 10.0,
+      maxTotalCurrentAmps: 16.0,
+    };
+
+    if (this.db) {
+      // Ensure parent product exists in DB before inserting variant
+      try {
+        await this.createProduct({
+          id: productId,
+          familyId: productId.replace(/^eh-/, '').replace(/-/g, '_'),
+          displayName: productId.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          status: 'PUBLISHED',
+        });
+      } catch {
+        // Ignored
+      }
+
+      try {
+        await this.db
+          .insert(productVariants)
+          .values({
+            id,
+            productId,
+            variantSlug,
+            displayName,
+            channelCount,
+            channels,
+            hardwareProfile,
+            connectivityProfile,
+            capabilities,
+            electricalSpecifications,
+            firmwareFamily,
+            supportedHardwareRevisions,
+            createdAt: now,
+          })
+          .onConflictDoUpdate({
+            target: productVariants.id,
+            set: {
+              displayName,
+              channelCount,
+              channels,
+              hardwareProfile,
+              connectivityProfile,
+              capabilities,
+              electricalSpecifications,
+              firmwareFamily,
+              supportedHardwareRevisions,
+            },
+          });
+        const detail = await this.getVariantById(id);
+        if (detail) return detail;
+      } catch {
+        // Fallback to memory
+      }
+    }
+
+    // Sync memory cache
+    const mockDef: CanonicalMappedProductDefinition = {
+      product: {
+        id: productId,
+        familyId: productId.replace(/^eh-/, '').replace(/-/g, '_'),
+        displayName: productId.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+        description: `Product platform for ${productId}`,
+        schemaVersion: 1,
+        status: 'PUBLISHED',
+      },
+      family: {
+        id: productId.replace(/^eh-/, '').replace(/-/g, '_'),
+        slug: productId.replace(/^eh-/, '').replace(/_/g, '-'),
+        displayName: productId.replace(/^eh-/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+        description: `Family for ${productId}`,
+      },
+      variant: {
+        id,
+        productId,
+        variantSlug,
+        displayName,
+        channelCount,
+        channels,
+        hardwareProfile: hardwareProfile as any,
+        connectivityProfile: connectivityProfile as any,
+        capabilities,
+        electricalSpecifications,
+        firmwareFamily,
+        supportedHardwareRevisions,
+      },
+      assets: [],
+      capabilities: capabilities.map((c: string) => ({
+        productVariantId: id,
+        capabilityId: c,
+        config: {},
+      })),
+    };
+    this.memoryCache.set(id, mockDef);
+
+    return {
+      variantId: id,
+      productId,
+      variantSlug,
+      displayName,
+      channelCount,
+      channels,
+      hardwareProfile: hardwareProfile as any,
+      connectivityProfile: connectivityProfile as any,
+      capabilities,
+      electricalSpecifications,
+      firmwareFamily,
+      supportedHardwareRevisions,
+      assets: [],
+      createdAt: now.toISOString(),
+    };
+  }
+
+  async updateVariant(id: string, data: any): Promise<VariantDetail | null> {
+    const updateFields: Record<string, any> = {};
+    if (data.displayName || data.name) updateFields.displayName = data.displayName || data.name;
+    if (data.channelCount !== undefined) updateFields.channelCount = Number(data.channelCount);
+    if (data.channels) updateFields.channels = data.channels;
+    if (data.hardwareProfile) updateFields.hardwareProfile = data.hardwareProfile;
+    if (data.connectivityProfile) updateFields.connectivityProfile = data.connectivityProfile;
+    if (data.capabilities) updateFields.capabilities = data.capabilities;
+    if (data.electricalSpecifications) updateFields.electricalSpecifications = data.electricalSpecifications;
+    if (data.firmwareFamily) updateFields.firmwareFamily = data.firmwareFamily;
+    if (data.supportedHardwareRevisions) updateFields.supportedHardwareRevisions = data.supportedHardwareRevisions;
+    if (data.variantSlug) updateFields.variantSlug = data.variantSlug;
+
+    if (this.db) {
+      try {
+        if (Object.keys(updateFields).length > 0) {
+          await this.db
+            .update(productVariants)
+            .set(updateFields)
+            .where(eq(productVariants.id, id));
+        }
+        const updated = await this.getVariantById(id);
+        if (updated) return updated;
+      } catch {
+        // Fall back to memory
+      }
+    }
+
+    const def = this.memoryCache.get(id);
+    if (def) {
+      if (updateFields.displayName) def.variant.displayName = updateFields.displayName;
+      if (updateFields.channelCount) def.variant.channelCount = updateFields.channelCount;
+      if (updateFields.firmwareFamily) def.variant.firmwareFamily = updateFields.firmwareFamily;
+      if (updateFields.hardwareProfile) def.variant.hardwareProfile = updateFields.hardwareProfile;
+      if (updateFields.connectivityProfile) def.variant.connectivityProfile = updateFields.connectivityProfile;
+      if (updateFields.channels) def.variant.channels = updateFields.channels;
+      if (updateFields.electricalSpecifications) def.variant.electricalSpecifications = updateFields.electricalSpecifications;
+      this.memoryCache.set(id, def);
+      return this.getVariantFromMemory(id);
+    }
+    return this.getVariantById(id);
+  }
 }
+

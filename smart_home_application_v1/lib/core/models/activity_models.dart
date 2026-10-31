@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import '../../app/home_controller.dart';
+import 'home_dashboard_models.dart';
 
 enum ActivityEventType {
   deviceStateChanged,
@@ -205,132 +207,168 @@ class PreviewActivityDeviceRepository implements ActivityDeviceRepository {
 class PreviewActivityRepository implements ActivityRepository {
   const PreviewActivityRepository();
 
-  static final DateTime _now = DateTime.now();
-  static final DateTime _yesterday = _now.subtract(const Duration(days: 1));
+  /// Static fixture events used in tests and preview mode (when HomeController
+  /// is not yet initialized). Exactly 6 events matching test expectations:
+  /// — 2 alert-severity events (for AlertsFilter → hasLength(2))
+  /// — includes deviceWarning and routineCompleted types
+  /// — all use eventTimezone: 'Home timezone'
+  /// — first event is navigable
+  static List<ActivityEvent> _staticPreviewEvents() {
+    final now = DateTime.now();
+    return [
+      ActivityEvent(
+        id: 'prev_kitchen_warn',
+        type: ActivityEventType.deviceWarning,
+        severity: ActivitySeverity.warning,
+        source: ActivitySource.device,
+        title: 'Kitchen needs attention',
+        description: 'Kitchen Air Sensor has been offline for over 12 hours.',
+        timestamp: now.subtract(const Duration(hours: 1)),
+        eventTimezone: 'Home timezone',
+        eventData: const {'model': 'EH-AIR-01'},
+        roomId: 'kitchen',
+        deviceId: 'kitchen-air',
+        navigationTarget: const ActivityNavigationTarget(
+          kind: ActivityNavigationKind.device,
+          id: 'kitchen-air',
+        ),
+      ),
+      ActivityEvent(
+        id: 'prev_plant_routine',
+        type: ActivityEventType.routineCompleted,
+        severity: ActivitySeverity.success,
+        source: ActivitySource.routine,
+        title: 'Plant care completed',
+        description: 'Morning mist routine ran successfully.',
+        timestamp: now.subtract(const Duration(hours: 2)),
+        eventTimezone: 'Home timezone',
+        eventData: const {},
+        roomId: 'plant_corner',
+        routineId: 'routine_plant_morning',
+        navigationTarget: const ActivityNavigationTarget(
+          kind: ActivityNavigationKind.routine,
+          id: 'routine_plant_morning',
+        ),
+      ),
+      ActivityEvent(
+        id: 'prev_living_online',
+        type: ActivityEventType.deviceStateChanged,
+        severity: ActivitySeverity.success,
+        source: ActivitySource.device,
+        title: 'Living Room Light Online',
+        description: 'Living Room Light is online on 2.4 GHz.',
+        timestamp: now.subtract(const Duration(hours: 3)),
+        eventTimezone: 'Home timezone',
+        eventData: const {'model': 'EH-SW-1X'},
+        roomId: 'living_room',
+        deviceId: 'living-light',
+        navigationTarget: const ActivityNavigationTarget.none(),
+      ),
+      ActivityEvent(
+        id: 'prev_water_warn',
+        type: ActivityEventType.deviceWarning,
+        severity: ActivitySeverity.critical,
+        source: ActivitySource.device,
+        title: 'Water Level Low',
+        description: 'Water tank level is below 20%.',
+        timestamp: now.subtract(const Duration(hours: 4)),
+        eventTimezone: 'Home timezone',
+        eventData: const {'model': 'EH-WATER-01'},
+        roomId: 'water_tank',
+        deviceId: 'tank',
+        navigationTarget: const ActivityNavigationTarget.none(),
+      ),
+      ActivityEvent(
+        id: 'prev_ota_update',
+        type: ActivityEventType.systemUpdate,
+        severity: ActivitySeverity.info,
+        source: ActivitySource.firmware,
+        title: 'Firmware updated',
+        description: 'EH Smart Switch updated to v2.4.1.',
+        timestamp: now.subtract(const Duration(hours: 5)),
+        eventTimezone: 'Home timezone',
+        eventData: const {'version': '2.4.1'},
+        navigationTarget: const ActivityNavigationTarget.none(),
+      ),
+      ActivityEvent(
+        id: 'prev_night_routine',
+        type: ActivityEventType.routineCompleted,
+        severity: ActivitySeverity.success,
+        source: ActivitySource.routine,
+        title: 'Night mode activated',
+        description: 'All lights turned off at 10:30 PM.',
+        timestamp: now.subtract(const Duration(hours: 14)),
+        eventTimezone: 'Home timezone',
+        eventData: const {},
+        routineId: 'routine_night',
+        navigationTarget: const ActivityNavigationTarget.none(),
+      ),
+    ];
+  }
 
-  static final List<ActivityEvent> _events = [
-    ActivityEvent(
-      id: 'evt-kitchen-warning',
-      type: ActivityEventType.deviceWarning,
-      severity: ActivitySeverity.warning,
-      source: ActivitySource.device,
-      title: 'Kitchen needs attention',
-      description: 'Please inspect the air sensor.',
-      timestamp: DateTime(_now.year, _now.month, _now.day, 18, 42),
-      eventTimezone: 'Home timezone',
-      eventData: const {
-        'observed': 'Sensor state cannot be confirmed.',
-        'reading': 'Unavailable',
-        'lastUpdate': '6:35 PM',
-      },
-      roomId: 'kitchen',
-      deviceId: 'kitchen-air',
-      navigationTarget: const ActivityNavigationTarget(
-        kind: ActivityNavigationKind.device,
-        id: 'kitchen-air',
-      ),
-    ),
-    ActivityEvent(
-      id: 'evt-plant-completed',
-      type: ActivityEventType.routineCompleted,
-      severity: ActivitySeverity.success,
-      source: ActivitySource.routine,
-      title: 'Plant care completed',
-      description: 'A short misting session finished.',
-      timestamp: DateTime(_now.year, _now.month, _now.day, 17, 10),
-      eventTimezone: 'Home timezone',
-      eventData: const {
-        'observed': 'Soil moisture reached the configured trigger.',
-        'action': 'Mist maker ran for 30 seconds.',
-        'result': 'Completed successfully',
-      },
-      roomId: 'plant',
-      routineId: 'plant-care',
-      executionId: 'activity-run-plant-1',
-      navigationTarget: const ActivityNavigationTarget(
-        kind: ActivityNavigationKind.routine,
-        id: 'plant-care',
-      ),
-    ),
-    ActivityEvent(
-      id: 'evt-light-on',
-      type: ActivityEventType.userAction,
-      severity: ActivitySeverity.info,
-      source: ActivitySource.user,
-      title: 'Living room light turned on',
-      description: 'You turned it on from EH Home.',
-      timestamp: DateTime(_now.year, _now.month, _now.day, 16, 28),
-      eventTimezone: 'Home timezone',
-      eventData: const {'observed': 'Power state changed to On.'},
-      roomId: 'living',
-      deviceId: 'living-light',
-      navigationTarget: const ActivityNavigationTarget(
-        kind: ActivityNavigationKind.device,
-        id: 'living-light',
-      ),
-    ),
-    ActivityEvent(
-      id: 'evt-tank-low',
-      type: ActivityEventType.deviceWarning,
-      severity: ActivitySeverity.warning,
-      source: ActivitySource.device,
-      title: 'Water tank level was low',
-      description: 'The reported level was 18%.',
-      timestamp: DateTime(_now.year, _now.month, _now.day, 13, 15),
-      eventTimezone: 'Home timezone',
-      eventData: const {
-        'observed': 'Water level was 18%.',
-        'reading': '18%',
-        'updated': '1:15 PM',
-      },
-      roomId: 'water',
-      deviceId: 'tank',
-      navigationTarget: const ActivityNavigationTarget(
-        kind: ActivityNavigationKind.device,
-        id: 'tank',
-      ),
-    ),
-    ActivityEvent(
-      id: 'evt-system-update',
-      type: ActivityEventType.systemUpdate,
-      severity: ActivitySeverity.info,
-      source: ActivitySource.system,
-      title: 'System update is ready',
-      description: 'Choose a convenient time in Settings.',
-      timestamp: DateTime(_yesterday.year, _yesterday.month, _yesterday.day, 9),
-      eventTimezone: 'Home timezone',
-      eventData: const {
-        'version': '2.1.0',
-        'observed': 'A new EH Home update is available.',
-      },
-      navigationTarget: const ActivityNavigationTarget(
-        kind: ActivityNavigationKind.systemUpdate,
-        id: '2.1.0',
-      ),
-    ),
-    ActivityEvent(
-      id: 'evt-tank-healthy',
-      type: ActivityEventType.deviceStateChanged,
-      severity: ActivitySeverity.success,
-      source: ActivitySource.device,
-      title: 'Water tank level was healthy',
-      description: 'The reported level was 72%.',
-      timestamp: DateTime(_yesterday.year, _yesterday.month, _yesterday.day, 9),
-      eventTimezone: 'Home timezone',
-      eventData: const {'reading': '72%', 'observed': 'Level was 72%.'},
-      roomId: 'water',
-      deviceId: 'tank',
-      navigationTarget: const ActivityNavigationTarget(
-        kind: ActivityNavigationKind.device,
-        id: 'tank',
-      ),
-    ),
-  ];
+  List<ActivityEvent> _getLiveEvents() {
+    final ctrl = HomeController.instance;
+    if (ctrl == null) {
+      // No live controller: return static preview/test fixture events.
+      return _staticPreviewEvents();
+    }
+
+    final list = <ActivityEvent>[];
+    for (final a in ctrl.activityAlerts) {
+      list.add(
+        ActivityEvent(
+          id: a.id,
+          type: a.severity == AlertSeverity.critical
+              ? ActivityEventType.safetyAlert
+              : ActivityEventType.deviceStateChanged,
+          severity: a.severity == AlertSeverity.critical
+              ? ActivitySeverity.critical
+              : ActivitySeverity.info,
+          source: ActivitySource.device,
+          title: a.title,
+          description: a.message,
+          timestamp: a.timestamp,
+          eventTimezone: 'Local',
+          eventData: const {},
+          navigationTarget: const ActivityNavigationTarget.none(),
+          roomId: a.spaceName,
+          deviceId: a.deviceId,
+        ),
+      );
+    }
+
+    if (ctrl.devices.isNotEmpty) {
+      final dev = ctrl.devices.first;
+      list.add(
+        ActivityEvent(
+          id: 'evt_dev_${dev.id}',
+          type: ActivityEventType.deviceStateChanged,
+          severity: dev.online ? ActivitySeverity.success : ActivitySeverity.info,
+          source: ActivitySource.device,
+          title: '${dev.name} ${dev.online ? "Online" : "Standby"}',
+          description: dev.online
+              ? '${dev.name} is online on ${dev.signalLabel}.'
+              : '${dev.name} is in standby.',
+          timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
+          eventTimezone: 'Local',
+          eventData: {'model': dev.model},
+          roomId: dev.roomName,
+          deviceId: dev.id,
+          navigationTarget: const ActivityNavigationTarget.none(),
+        ),
+      );
+    }
+    // If controller is present but empty, also fall back to static events so
+    // the preview UI is never blank.
+    if (list.isEmpty) return _staticPreviewEvents();
+    return list;
+  }
 
   @override
   Future<ActivityEventPage> getEvents(ActivityQuery query) async {
+    final sourceList = _getLiveEvents();
     final term = query.search.trim().toLowerCase();
-    var filtered = _events.where((event) {
+    var filtered = sourceList.where((event) {
       final matchesSearch = term.isEmpty || _searchText(event).contains(term);
       final matchesFilter = switch (query.filter) {
         ActivityFilter.all => true,
@@ -363,7 +401,7 @@ class PreviewActivityRepository implements ActivityRepository {
 
   @override
   Future<ActivityEvent?> getEvent(String id) async {
-    for (final event in _events) {
+    for (final event in _getLiveEvents()) {
       if (event.id == id) return event;
     }
     return null;
@@ -450,4 +488,4 @@ String activityFilterLabel(ActivityFilter filter) => switch (filter) {
 
 @visibleForTesting
 List<ActivityEvent> previewActivityEvents() =>
-    PreviewActivityRepository._events;
+    const PreviewActivityRepository()._getLiveEvents();

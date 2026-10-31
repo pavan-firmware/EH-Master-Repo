@@ -58,6 +58,7 @@ function createServer(appInstance = null, options = {}) {
   });
 
   const appOpts = {
+    startWorkers: true,
     ...options,
     config: validation.config
   };
@@ -231,54 +232,7 @@ async function seedDevelopmentData(app) {
       console.warn('[EH Home Server] Home seed notice:', hErr.message);
     }
 
-    // 5. Ensure Default Rooms
-    let livingRoomId = null;
-    if (home && roomRepo) {
-      try {
-        const homeRooms = await roomRepo.listRoomsByHome(home.id);
-        if (homeRooms.length === 0) {
-          const lr = await roomRepo.createRoom({ homeId: home.id, name: 'Living Room', iconKey: 'living-room', sortOrder: 0 });
-          livingRoomId = lr.id;
-          await roomRepo.createRoom({ homeId: home.id, name: 'Bedroom', iconKey: 'bedroom', sortOrder: 1 });
-          await roomRepo.createRoom({ homeId: home.id, name: 'Kitchen', iconKey: 'kitchen', sortOrder: 2 });
-        } else {
-          livingRoomId = homeRooms[0].id;
-        }
-      } catch (_) {}
-    }
-
-    // 6. Ensure Physical ESP32 Switch Registration & Claim
-    const physicalEsp32Id = 'ce196211-91cf-496a-9403-709d8589eb15';
-    try {
-      const existingDev = await deviceRepo.getDevice(physicalEsp32Id);
-      if (!existingDev) {
-        await deviceRepo.registerDevice({
-          deviceId: physicalEsp32Id,
-          serialNumber: 'EH-SOCK3X-PHYSICAL-01',
-          productVariantId: 'eh-smart-socket-3x',
-          hardwareRevision: 'HW_1_0',
-          firmwareFamily: 'esp32-socket-platform',
-          firmwareVersion: '1.0.0'
-        });
-      }
-      if (home) {
-        const auth = await deviceRepo.getDeviceAuthorization(physicalEsp32Id);
-        if (!auth) {
-          await deviceRepo.claimDevice({
-            deviceId: physicalEsp32Id,
-            homeId: home.id,
-            customName: 'Smart Socket 3X',
-            claimedByUserId: home.owner_id || (user ? user.id : '41fa1669-438e-4dac-a81b-2807ba460f7f'),
-            roomId: livingRoomId || null
-          });
-        }
-      }
-      const existingState = await deviceStateRepo.getFullState(physicalEsp32Id);
-      if (!existingState) {
-        await deviceStateRepo.updateDeviceConnection(physicalEsp32Id, 'OFFLINE');
-      }
-    } catch (_) {}
-    console.log('[EH Home Server] Dev database successfully verified & seeded for chandra77807@gmail.com.');
+    console.log('[EH Home Server] Dev database successfully verified & seeded.');
   } catch (err) {
     console.warn('[EH Home Server] Dev seed skipped:', err.message);
   }
@@ -304,6 +258,22 @@ if (require.main === module) {
         await appDb.connect();
       }
       setupGracefulShutdown(server);
+
+      // Reset stale device presence on startup so no ghost ONLINE flags persist
+      try {
+        if (appDb) {
+          const tableName = (appDb._tables && appDb._tables.device_states) ? 'device_states' : 'device_state';
+          if (typeof appDb.query === 'function') {
+            await appDb.query(`UPDATE ${tableName} SET connection_state = 'OFFLINE', updated_at = NOW() WHERE connection_state = 'ONLINE'`);
+          }
+        }
+        if (server.appInstance && server.appInstance.services && server.appInstance.services.redisStateCacheService) {
+          await server.appInstance.services.redisStateCacheService.clearAll();
+        }
+        console.log('[EH Home Server] Startup presence reset: all devices initialized to OFFLINE pending fresh telemetry.');
+      } catch (pErr) {
+        console.warn('[EH Home Server] Startup presence reset warning:', pErr.message);
+      }
 
       if (process.env.NODE_ENV !== 'production' && server.appInstance) {
         await seedDevelopmentData(server.appInstance);

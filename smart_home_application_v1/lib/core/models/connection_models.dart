@@ -68,6 +68,28 @@ class ConnectedDeviceSummary {
   final String signalLabel;
   final String roomName;
   final bool online;
+
+  ConnectedDeviceSummary copyWith({
+    String? id,
+    String? name,
+    String? model,
+    String? firmware,
+    String? connectedVia,
+    String? signalLabel,
+    String? roomName,
+    bool? online,
+  }) {
+    return ConnectedDeviceSummary(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      model: model ?? this.model,
+      firmware: firmware ?? this.firmware,
+      connectedVia: connectedVia ?? this.connectedVia,
+      signalLabel: signalLabel ?? this.signalLabel,
+      roomName: roomName ?? this.roomName,
+      online: online ?? this.online,
+    );
+  }
 }
 
 class HomeConnectionOverview {

@@ -19,6 +19,22 @@ import {
   assertNoSecretsInRecord
 } from '@eh-home/contracts';
 
+function compactFactoryBarcode(item: Pick<InventoryItem, 'productVariantId' | 'hardwareRevision' | 'firmwareVersion' | 'serialNumber'>): string {
+  const variant = item.productVariantId;
+  const variantCode = variant.includes('smart-switch')
+    ? `S${variant.match(/[1-4]x/)?.[0]?.[0] || '3'}`
+    : variant.includes('smart-socket') ? 'K1'
+    : variant.includes('smart-fan') ? 'F1'
+    : variant.includes('smart-light') ? 'L1'
+    : variant.includes('sensor') ? 'N1'
+    : variant.includes('hub') ? 'B1'
+    : 'X1';
+  const hardware = item.hardwareRevision.match(/\d/)?.[0] || '0';
+  const firmware = item.firmwareVersion.match(/\d/)?.[0] || '0';
+  const sequence = item.serialNumber.split('-').pop() || '00000';
+  return `E1${variantCode}H${hardware}F${firmware}-${sequence}`;
+}
+
 export class InventoryService {
   constructor(private readonly repository: InventoryRepository) {}
 
@@ -73,7 +89,8 @@ export class InventoryService {
 
     // 5. Validate Firmware Family Consistency
     const prodDef = getCanonicalProductDefinition(record.productVariantId);
-    if (!prodDef || prodDef.firmwareFamily !== record.firmwareFamily) {
+    const isBenchTestRecord = record.benchTestMode === true;
+    if (!prodDef || (!isBenchTestRecord && prodDef.firmwareFamily !== record.firmwareFamily)) {
       return {
         success: false,
         errorCode: 'FIRMWARE_FAMILY_MISMATCH',
@@ -92,6 +109,16 @@ export class InventoryService {
       };
     }
 
+    const existingSerial = await this.repository.findInventoryItemBySerialNumber(record.serialNumber);
+    if (existingSerial && existingSerial.deviceId !== record.deviceId) {
+      return {
+        success: false,
+        errorCode: 'SERIAL_ALREADY_REGISTERED',
+        errorMessage: `Serial number '${record.serialNumber}' is already assigned to another device. Re-provision with a new serial.`,
+        registeredAt: new Date().toISOString(),
+      };
+    }
+
     const qrToken = request.qrToken;
     const qrUri = qrToken ? `eh://p/v1?t=${qrToken}` : null;
     const now = new Date();
@@ -102,7 +129,9 @@ export class InventoryService {
       serialNumber: record.serialNumber,
       productVariantId: record.productVariantId,
       hardwareRevision: record.hardwareRevision,
-      firmwareFamily: record.firmwareFamily,
+      // Keep inventory/packing compatibility canonical while allowing the
+      // original generic family to remain in the traceability record.
+      firmwareFamily: isBenchTestRecord ? prodDef!.firmwareFamily : record.firmwareFamily,
       firmwareVersion: record.firmwareVersion,
       traceId: record.traceId,
       status: 'PROVISIONED',
@@ -134,14 +163,30 @@ export class InventoryService {
    * Executes dual-scan verification comparing a device's identity with a scanned label QR token/carton.
    */
   async performDualScan(request: DualScanVerificationRequest): Promise<DualScanVerificationResult> {
-    const item = await this.repository.findInventoryItemBySerialNumber(request.deviceSerial);
+    const scannedValue = request.deviceSerial.trim();
+    const scannedToken = request.boxTokenOrUri.startsWith('eh://p/v1?t=')
+      ? request.boxTokenOrUri.replace('eh://p/v1?t=', '').split('&')[0] || ''
+      : request.boxTokenOrUri;
+    let item = await this.repository.findInventoryItemBySerialNumber(scannedValue);
+    const compactMatch = /^E1[A-Z]\dH\dF\d-(\d{5})$/.exec(scannedValue);
+    if (!item && compactMatch) {
+      // The compact factory barcode includes model, HW and FW identifiers.
+      // Prefer the exact box QR record, then resolve by sequence and validate
+      // that its calculated compact code is identical to the scanned value.
+      const qrItem = await this.repository.findInventoryItemByQrToken(scannedToken);
+      item = qrItem && compactFactoryBarcode(qrItem) === scannedValue
+        ? qrItem
+        : await this.repository.findInventoryItemBySerialSuffix(compactMatch[1] || '').then((candidate) =>
+            candidate && compactFactoryBarcode(candidate) === scannedValue ? candidate : undefined
+          );
+    }
     if (!item) {
       return {
         schemaVersion: 1,
         success: false,
         isMatch: false,
         status: 'DEVICE_NOT_FOUND',
-        deviceSerial: request.deviceSerial,
+        deviceSerial: scannedValue,
         rejectionReason: `Device with serial '${request.deviceSerial}' was not found in inventory.`,
         errorCode: 'DEVICE_NOT_FOUND',
         verifiedAt: new Date().toISOString(),
@@ -325,5 +370,50 @@ export class InventoryService {
       packedAt: dbRecord.packedAt instanceof Date ? dbRecord.packedAt.toISOString() : dbRecord.packedAt,
       notes: dbRecord.notes,
     };
+  }
+
+  async listInventoryItems(filters: { status?: string; productVariantId?: string; cartonId?: string; limit?: number; offset?: number }): Promise<any[]> {
+    const items = await this.repository.listInventoryItems(filters);
+    return items.map((i) => this.mapToContractInventoryItem(i));
+  }
+
+  async listCartons(filters?: { status?: string; limit?: number; offset?: number }): Promise<PackagingCarton[]> {
+    const cartons = await this.repository.listCartons(filters);
+    return cartons.map((c) => this.mapToContractCarton(c));
+  }
+
+  async listQcRecords(filters?: { stationId?: string; deviceId?: string; limit?: number; offset?: number }): Promise<any[]> {
+    return this.repository.listQcRecords(filters);
+  }
+
+  async recordQcOperation(data: {
+    stationId: string;
+    operatorUserId?: string;
+    deviceId: string;
+    serialNumber: string;
+    scannedQrToken?: string;
+    scannedQrUri?: string;
+    isMatch: boolean;
+    verificationStatus: string;
+    rejectionReason?: string;
+  }): Promise<any> {
+    return this.repository.recordDualScanVerification({
+      id: `qc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      stationId: data.stationId,
+      operatorUserId: data.operatorUserId || 'operator_qc',
+      deviceId: data.deviceId,
+      serialNumber: data.serialNumber,
+      scannedQrToken: data.scannedQrToken || 'tok_manual_qc',
+      scannedQrUri: data.scannedQrUri || `eh://p/v1?t=tok_manual_qc`,
+      isMatch: data.isMatch,
+      verificationStatus: data.verificationStatus,
+      rejectionReason: data.rejectionReason || null,
+      verifiedAt: new Date(),
+    });
+  }
+
+  async adjustInventory(deviceId: string, status: string, notes?: string): Promise<any> {
+    const updated = await this.repository.adjustInventory(deviceId, status, notes);
+    return updated ? this.mapToContractInventoryItem(updated) : null;
   }
 }

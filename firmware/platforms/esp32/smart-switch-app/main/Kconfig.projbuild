@@ -1,0 +1,41 @@
+menu "EH Home Product Variant Configuration"
+
+    config EH_PRODUCT_TYPE
+        string "Product Type (SMART_SWITCH or SMART_SOCKET)"
+        default "SMART_SWITCH"
+        help
+            Product category classification: SMART_SWITCH or SMART_SOCKET.
+
+    config EH_CHANNEL_COUNT
+        int "Relay and Physical Switch Channel Count (1 to 4)"
+        range 1 4
+        default 4
+        help
+            Active channel count for this product variant (1X=1, 2X=2, 3X=3, 4X=4).
+            Channels above this count will remain unconfigured with zero pin allocation.
+
+    config EH_PRODUCT_VARIANT
+        string "Variant Identifier (1X, 2X, 3X, 4X)"
+        default "4X"
+        help
+            Marketing/technical variant identifier string.
+
+    config EH_MODEL_NAME
+        string "Model Name (e.g. EH-SW-4X, EH-SK-2X)"
+        default ""
+        help
+            Deterministic hardware model string. Leave empty for automatic derivation.
+
+    config EH_FIRMWARE_FAMILY
+        string "Canonical Firmware Family"
+        default "esp32c6-switch-platform"
+        help
+            Canonical platform lineage: esp32c6-switch-platform or esp32c6-socket-platform.
+
+    config EH_ENERGY_METERING_ENABLED
+        bool "Enable BL0942 Energy Metering Telemetry"
+        default n
+        help
+            Enable UART BL0942 energy metering telemetry driver (EM model variant).
+
+endmenu

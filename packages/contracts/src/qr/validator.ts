@@ -9,6 +9,7 @@ export { CANONICAL_APPROVED_VARIANTS, CANONICAL_HARDWARE_REVISIONS, isCanonicalP
 export const SUPPORTED_TEMPLATES = new Set([
   'device-primary-50x30-v1',
   'device-compact-40x20-v1',
+  'device-silicon-25x10-v1',
   'box-receipt-escpos-v1',
 ]);
 

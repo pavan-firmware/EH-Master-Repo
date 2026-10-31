@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/app/app.dart';
 import 'package:smart_home_application_v1/app/home_controller.dart';
 import 'package:smart_home_application_v1/app/theme_controller.dart';
@@ -7,6 +8,10 @@ import 'package:smart_home_application_v1/core/repositories/unavailable_connecti
 import 'package:smart_home_application_v1/core/theme/app_theme.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   group('Theme Tokens & Specification Verification', () {
     test('Dark theme tokens match EH Home brand specifications', () {
       const dark = EHThemeTokens.dark;

@@ -76,9 +76,16 @@ bool ota_validate_manifest(const eh_ota_manifest_t* manifest, const char* curren
         return false;
     }
 
-    // 6. Secure transport check (HTTPS mandatory)
-    if (strncmp(manifest->download_url, "https://", 8) != 0) {
-        ESP_LOGE(TAG, "Insecure OTA transport URL rejected: %s (HTTPS required)", manifest->download_url);
+    // 6. Transport check (HTTPS mandatory in production; local subnet HTTP permitted for development)
+    bool is_https = (strncmp(manifest->download_url, "https://", 8) == 0);
+    bool is_local_http = (strncmp(manifest->download_url, "http://192.168.", 16) == 0) ||
+                         (strncmp(manifest->download_url, "http://10.", 11) == 0) ||
+                         (strncmp(manifest->download_url, "http://172.", 12) == 0) ||
+                         (strncmp(manifest->download_url, "http://127.0.0.1", 17) == 0) ||
+                         (strncmp(manifest->download_url, "http://localhost", 17) == 0);
+
+    if (!is_https && !is_local_http) {
+        ESP_LOGE(TAG, "Insecure OTA transport URL rejected: %s (HTTPS or local subnet required)", manifest->download_url);
         return false;
     }
 

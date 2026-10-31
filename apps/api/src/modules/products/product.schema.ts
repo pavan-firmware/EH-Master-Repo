@@ -127,3 +127,57 @@ export const ImportDefinitionOptionsSchema = z.object({
 });
 
 export type ImportDefinitionOptions = z.infer<typeof ImportDefinitionOptionsSchema>;
+
+// Create Product Schema
+export const CreateProductBodySchema = z.object({
+  id: z.string().min(1),
+  familyId: z.string().min(1),
+  displayName: z.string().min(1),
+  description: z.string().optional(),
+  status: ProductStatusSchema.default('DRAFT'),
+});
+
+export type CreateProductBody = z.infer<typeof CreateProductBodySchema>;
+
+// Update Product Schema
+export const UpdateProductBodySchema = z.object({
+  displayName: z.string().optional(),
+  description: z.string().optional(),
+  status: ProductStatusSchema.optional(),
+});
+
+export type UpdateProductBody = z.infer<typeof UpdateProductBodySchema>;
+
+// Create Variant Schema
+export const CreateVariantBodySchema = z.object({
+  id: z.string().min(1),
+  productId: z.string().min(1),
+  variantSlug: z.string().min(1),
+  displayName: z.string().min(1),
+  channelCount: z.number().int().min(1).default(1),
+  channels: z.array(z.any()).default([]),
+  hardwareProfile: z.any().default({}),
+  connectivityProfile: z.any().default({}),
+  capabilities: z.array(z.string()).default([]),
+  electricalSpecifications: z.record(z.unknown()).default({}),
+  firmwareFamily: z.string().min(1),
+  supportedHardwareRevisions: z.array(z.string()).default(['HW_1_0']),
+});
+
+export type CreateVariantBody = z.infer<typeof CreateVariantBodySchema>;
+
+// Update Variant Schema
+export const UpdateVariantBodySchema = z.object({
+  displayName: z.string().optional(),
+  channelCount: z.number().int().min(1).optional(),
+  channels: z.array(z.any()).optional(),
+  hardwareProfile: z.any().optional(),
+  connectivityProfile: z.any().optional(),
+  capabilities: z.array(z.string()).optional(),
+  electricalSpecifications: z.record(z.unknown()).optional(),
+  firmwareFamily: z.string().optional(),
+  supportedHardwareRevisions: z.array(z.string()).optional(),
+});
+
+export type UpdateVariantBody = z.infer<typeof UpdateVariantBodySchema>;
+

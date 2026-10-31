@@ -10,21 +10,60 @@
  */
 
 class DeviceClaimService {
-  constructor({ deviceService, deviceRepo, sessionRepo, auditRepo }) {
+  constructor({ deviceService, deviceRepo, homeRepo, sessionRepo, provisioningRepo, auditRepo }) {
     this.deviceService = deviceService;
     this.deviceRepo = deviceRepo;
-    this.sessionRepo = sessionRepo;
+    this.homeRepo = homeRepo || (deviceService && deviceService.homeRepo);
+    this.sessionRepo = sessionRepo || provisioningRepo;
     this.auditRepo = auditRepo;
   }
 
   async claimDevice({ deviceId, homeId, roomId = null, customName, channelLabels = {}, sessionId = null, actorUserId = null }) {
+    let targetHomeId = homeId;
+    const hr = this.homeRepo || (this.deviceService && this.deviceService.homeRepo);
+    if ((!targetHomeId || targetHomeId === 'home_default' || targetHomeId === 'local-home') && actorUserId && hr) {
+      let userMemberships = await hr.getMembershipsForUser(actorUserId);
+      if ((!userMemberships || userMemberships.length === 0) && actorUserId) {
+        try {
+          const newHome = await hr.createHome({
+            name: 'My Home',
+            ownerUserId: actorUserId
+          });
+          targetHomeId = newHome.id;
+        } catch (_) {}
+      } else if (userMemberships && userMemberships.length > 0) {
+        targetHomeId = userMemberships[0].home_id;
+      }
+    }
+
     // Check if already claimed by this exact home (Idempotency Check)
     const existingAuth = await this.deviceRepo.getDeviceAuthorization(deviceId);
     if (existingAuth) {
-      if (existingAuth.home_id === homeId) {
+      if (existingAuth.home_id === targetHomeId) {
+        const updates = {};
+        if (customName && customName.trim() && customName !== existingAuth.custom_name) {
+          updates.customName = customName.trim();
+        }
+        if (channelLabels && typeof channelLabels === 'object' && Object.keys(channelLabels).length > 0) {
+          updates.channelLabels = { ...(existingAuth.channel_labels || {}), ...channelLabels };
+        }
+        if (roomId && roomId !== existingAuth.room_id) {
+          updates.roomId = roomId;
+        }
+        if (Object.keys(updates).length > 0) {
+          return await this.deviceRepo.updateDeviceAuthorization(deviceId, updates);
+        }
         return existingAuth; // Idempotent: return existing claim
       }
-      throw new Error(`Device ${deviceId} is already claimed by home ${existingAuth.home_id}`);
+      // Re-assign to new home
+      return await this.deviceService.assignDeviceToHome({
+        deviceId,
+        homeId: targetHomeId,
+        roomId,
+        customName,
+        channelLabels,
+        actorUserId
+      });
     }
 
     // Require authenticated commissioning evidence if sessionId is passed
@@ -43,7 +82,7 @@ class DeviceClaimService {
     // Reuse Phase 4 DeviceService assignment
     const auth = await this.deviceService.assignDeviceToHome({
       deviceId,
-      homeId,
+      homeId: targetHomeId,
       roomId,
       customName,
       channelLabels,
