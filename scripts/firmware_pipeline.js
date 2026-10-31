@@ -20,7 +20,16 @@ let contracts;
 try {
   contracts = require('@eh-home/contracts');
 } catch {
-  contracts = require(path.join(ROOT_DIR, 'packages', 'contracts', 'dist', 'index.js'));
+  const distPath = path.join(ROOT_DIR, 'packages', 'contracts', 'dist', 'index.js');
+  if (!fs.existsSync(distPath)) {
+    try {
+      execSync('npx pnpm --filter @eh-home/contracts build || npx tsc --project packages/contracts/tsconfig.json', {
+        cwd: ROOT_DIR,
+        stdio: 'inherit'
+      });
+    } catch (_) {}
+  }
+  contracts = require(distPath);
 }
 const {
   FirmwareBuildManifestSchema,

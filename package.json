@@ -4,6 +4,7 @@
   "description": "EH Home — Production Smart-Home Platform Monorepo",
   "main": "backend/src/repositories/index.js",
   "scripts": {
+    "build": "pnpm --filter @eh-home/contracts build && pnpm --filter @eh-home/db-schema build && pnpm --filter @eh-home/api build && pnpm --filter @eh-home/desktop build",
     "test": "node scripts/validate-repo.js",
     "test:mqtt-mock": "node backend/tests/phase6-mqtt.test.js",
     "test:mqtt-harness": "node backend/tests/phase6-protocol-harness.test.js",
@@ -12,7 +13,8 @@
   },
   "dependencies": {
     "mqtt": "^5.10.0",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "zod": "^3.24.2"
   },
   "devDependencies": {},
   "engines": {

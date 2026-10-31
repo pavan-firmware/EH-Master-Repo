@@ -38,6 +38,24 @@ if (process.platform === 'win32') {
   }
 }
 
+// Pre-flight check: ensure monorepo distribution artifacts are built
+const contractsDist = path.join(rootDir, 'packages', 'contracts', 'dist', 'index.js');
+const apiDist = path.join(rootDir, 'apps', 'api', 'dist', 'app.js');
+const desktopDist = path.join(rootDir, 'apps', 'desktop', 'dist', 'index.html');
+
+if (!fs.existsSync(contractsDist) || !fs.existsSync(apiDist) || !fs.existsSync(desktopDist)) {
+  console.log('[BUILD] Monorepo dist outputs missing. Triggering automated compilation...');
+  try {
+    execSync('npx pnpm --filter @eh-home/contracts build && npx pnpm --filter @eh-home/db-schema build && npx pnpm --filter @eh-home/api build && npx pnpm --filter @eh-home/desktop build', {
+      cwd: rootDir,
+      stdio: 'inherit'
+    });
+    console.log('[BUILD] Monorepo dist outputs successfully compiled.\n');
+  } catch (buildErr) {
+    console.warn('[BUILD] Warning: Automated build attempt failed:', buildErr.message);
+  }
+}
+
 function runStep(name, command, cwd = rootDir) {
   if (isFlutterTesterBlocked && name.includes('Flutter Test')) {
     console.log(`  [SKIPPED - HOST OS RESTRICTION] ${name} (flutter_tester.exe blocked by Windows Application Control policy on host)`);
