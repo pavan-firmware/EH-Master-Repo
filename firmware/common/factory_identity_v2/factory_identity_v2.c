@@ -16,6 +16,27 @@
 #define KEY_CERT_FP "cert_fp"
 #define KEY_IS_DEV "is_dev"
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#include "esp_mac.h"
+#endif
+
+#ifndef EH_PRODUCT_TYPE
+#ifdef CONFIG_EH_PRODUCT_TYPE
+#define EH_PRODUCT_TYPE CONFIG_EH_PRODUCT_TYPE
+#else
+#define EH_PRODUCT_TYPE "SMART_SWITCH"
+#endif
+#endif
+
+#ifndef EH_PRODUCT_VARIANT
+#ifdef CONFIG_EH_PRODUCT_VARIANT
+#define EH_PRODUCT_VARIANT CONFIG_EH_PRODUCT_VARIANT
+#else
+#define EH_PRODUCT_VARIANT "4X"
+#endif
+#endif
+
 static const char *TAG = "factory_identity_v2";
 static factory_identity_v2_t s_identity;
 
@@ -75,18 +96,6 @@ static void generate_canonical_uuid(char *out_uuid, size_t len)
              b[8], b[9],
              b[10], b[11], b[12], b[13], b[14], b[15]);
 }
-
-#ifdef ESP_PLATFORM
-#include "esp_mac.h"
-#endif
-
-#ifndef EH_PRODUCT_TYPE
-#define EH_PRODUCT_TYPE "SMART_SWITCH"
-#endif
-
-#ifndef EH_PRODUCT_VARIANT
-#define EH_PRODUCT_VARIANT "4X"
-#endif
 
 static void generate_dynamic_serial(char *out_serial, size_t len)
 {
