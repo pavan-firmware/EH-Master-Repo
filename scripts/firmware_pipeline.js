@@ -735,8 +735,22 @@ async function runFirmwarePipeline(options = {}) {
   });
 
   const manifestPath = path.join(buildDir, 'firmware-build-manifest.json');
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-  console.log(`    Saved manifest to: ${manifestPath}`);
+  try {
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    console.log(`    Saved manifest to: ${manifestPath}`);
+  } catch (writeErr) {
+    if (writeErr.code === 'EACCES') {
+      try {
+        fs.chmodSync(buildDir, 0o777);
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+        console.log(`    Saved manifest to: ${manifestPath} (after chmod)`);
+      } catch {
+        throw writeErr;
+      }
+    } else {
+      throw writeErr;
+    }
+  }
 
   // Stage 7: Release-Readiness Gate
   console.log('\n>>> [7/7] Evaluating Release-Readiness Gates...');

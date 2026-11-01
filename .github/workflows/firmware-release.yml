@@ -105,7 +105,8 @@ jobs:
 
       - name: Execute Production Release Pipeline & Generate Manifest
         run: |
-          sudo chmod -R a+rX firmware/platforms/esp32/smart-switch-app
+          sudo chown -R $USER:$USER firmware/platforms/esp32/smart-switch-app
+          sudo chmod -R u+rwX,go+rX firmware/platforms/esp32/smart-switch-app
           node scripts/firmware_pipeline.js --target-mcu "${TARGET_MCU}" --idf-target "${IDF_TARGET}" --toolchain "${TOOLCHAIN}" --family "${TARGET_FAMILY}" --version "${TARGET_VERSION}" --profile release --skip-tests
 
       - name: Verify Production Manifest Content & Embedded Family Identity
