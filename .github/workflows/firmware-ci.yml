@@ -1,3 +1,4 @@
+# EH Home Firmware CI & Multi-Target Verification Pipeline v2.1
 name: EH Home Firmware CI & Multi-Target Verification
 
 on:
