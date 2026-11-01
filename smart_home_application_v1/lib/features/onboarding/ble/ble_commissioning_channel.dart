@@ -176,17 +176,26 @@ class BleCommissioningChannel {
       '[BLE] BLE_SCAN_START withService=$infoServiceUuid prefix=$namePrefix',
     );
 
-    // Production Service-Filtered scan: 6101
+    // High-speed low-latency BLE scan matching advertised name prefix or service UUIDs
     _activeScanSub = _ble
         .scanForDevices(
-          withServices: [infoServiceUuid],
+          withServices: [],
           scanMode: ScanMode.lowLatency,
         )
         .listen(
           (device) {
-            if (!completer.isCompleted) {
+            final name = device.name.trim();
+            final hasMatchingService = device.serviceUuids.contains(infoServiceUuid) ||
+                device.serviceUuids.contains(provServiceUuid);
+            final hasMatchingName = name.isNotEmpty &&
+                (name.toUpperCase().startsWith(namePrefix.toUpperCase()) ||
+                 name.toUpperCase().startsWith('EH') ||
+                 name.toLowerCase().contains('smart switch') ||
+                 name.toLowerCase().contains('smart socket'));
+
+            if ((hasMatchingService || hasMatchingName) && !completer.isCompleted) {
               debugPrint(
-                '[BLE] BLE_DEVICE_FOUND id=${device.id} name=${device.name}',
+                '[BLE] BLE_DEVICE_FOUND id=${device.id} name=${device.name} rssi=${device.rssi}',
               );
               completer.complete(device);
             }
@@ -431,24 +440,55 @@ class BleCommissioningChannel {
 
       final decoded = jsonDecode(jsonStr);
       if (decoded is Map<String, dynamic>) {
-        final product = decoded['product'] as String? ?? decoded['p'] as String?;
-        final devId = decoded['deviceId'] as String?;
-        final serial = decoded['serialNumber'] as String?;
-        final variant =
-            decoded['variant'] as String? ??
+        final product = decoded['product'] as String? ??
+            decoded['p'] as String? ??
+            decoded['name'] as String? ??
+            fallbackDeviceName ??
+            'EH Smart Device';
+        final devId = decoded['deviceId'] as String? ?? decoded['id'] as String? ?? deviceId;
+        final serial = decoded['serialNumber'] as String? ?? decoded['s'] as String? ?? decoded['sn'] as String? ?? devId;
+        String variant = decoded['variant'] as String? ??
             decoded['productVariantId'] as String? ??
-            'eh-smart-switch-3x';
+            decoded['model'] as String? ??
+            '';
 
-        if (product != null && devId != null && serial != null) {
-          return OnboardingDeviceIdentity(
-            deviceId: devId,
-            serialNumber: serial,
-            productVariantId: variant,
-            hardwareRevision: 'HW_1_0',
-            firmwareFamily: 'esp32-switch-platform',
-            displayName: product,
-          );
+        if (variant.isEmpty) {
+          final lProd = product.toLowerCase();
+          final isSocket = lProd.contains('socket') || lProd.contains('sk') || lProd.contains('plug');
+          if (isSocket) {
+            if (lProd.contains('4x') || lProd.contains('4ch') || lProd.contains('4-ch')) {
+              variant = 'eh-smart-socket-4x';
+            } else if (lProd.contains('3x') || lProd.contains('3ch') || lProd.contains('3-ch')) {
+              variant = 'eh-smart-socket-3x';
+            } else if (lProd.contains('2x') || lProd.contains('2ch') || lProd.contains('2-ch')) {
+              variant = 'eh-smart-socket-2x';
+            } else {
+              variant = 'eh-smart-socket-1x';
+            }
+          } else {
+            if (lProd.contains('4x') || lProd.contains('4ch') || lProd.contains('4-ch')) {
+              variant = 'eh-smart-switch-4x';
+            } else if (lProd.contains('3x') || lProd.contains('3ch') || lProd.contains('3-ch')) {
+              variant = 'eh-smart-switch-3x';
+            } else if (lProd.contains('2x') || lProd.contains('2ch') || lProd.contains('2-ch')) {
+              variant = 'eh-smart-switch-2x';
+            } else if (lProd.contains('1x') || lProd.contains('1ch') || lProd.contains('1-ch')) {
+              variant = 'eh-smart-switch-1x';
+            } else {
+              variant = 'eh-smart-switch-4x';
+            }
+          }
         }
+
+        final isSocketFamily = variant.contains('socket');
+        return OnboardingDeviceIdentity(
+          deviceId: devId,
+          serialNumber: serial,
+          productVariantId: variant,
+          hardwareRevision: 'HW_1_0',
+          firmwareFamily: isSocketFamily ? 'esp32c6-socket-platform' : 'esp32c6-switch-platform',
+          displayName: product,
+        );
       }
     } catch (e) {
       debugPrint(
@@ -456,16 +496,64 @@ class BleCommissioningChannel {
       );
     }
 
-    final name = fallbackDeviceName ?? 'EH-SW3X-2026W12-00001';
+    final name = fallbackDeviceName ?? 'EH Smart Device';
     final serial = name.startsWith('EH-') ? name.substring(3) : name;
+    final lowerName = name.toLowerCase();
+    final isSocket = lowerName.contains('socket') || lowerName.contains('sk') || lowerName.contains('plug');
+    String variant = 'eh-smart-switch-4x';
+
+    if (isSocket) {
+      if (lowerName.contains('4x') || lowerName.contains('4ch') || lowerName.contains('4-ch')) {
+        variant = 'eh-smart-socket-4x';
+      } else if (lowerName.contains('3x') || lowerName.contains('3ch') || lowerName.contains('3-ch')) {
+        variant = 'eh-smart-socket-3x';
+      } else if (lowerName.contains('2x') || lowerName.contains('2ch') || lowerName.contains('2-ch')) {
+        variant = 'eh-smart-socket-2x';
+      } else {
+        variant = 'eh-smart-socket-1x';
+      }
+    } else {
+      if (lowerName.contains('4x') || lowerName.contains('4ch') || lowerName.contains('4-ch')) {
+        variant = 'eh-smart-switch-4x';
+      } else if (lowerName.contains('3x') || lowerName.contains('3ch') || lowerName.contains('3-ch')) {
+        variant = 'eh-smart-switch-3x';
+      } else if (lowerName.contains('2x') || lowerName.contains('2ch') || lowerName.contains('2-ch')) {
+        variant = 'eh-smart-switch-2x';
+      } else if (lowerName.contains('1x') || lowerName.contains('1ch') || lowerName.contains('1-ch')) {
+        variant = 'eh-smart-switch-1x';
+      }
+    }
+
+    String resolvedDisplayName = name;
+    if (resolvedDisplayName == 'EH Smart Device' || resolvedDisplayName.startsWith('EH-')) {
+      if (variant == 'eh-smart-socket-3x') {
+        resolvedDisplayName = 'EH Smart Socket 3X';
+      } else if (variant == 'eh-smart-socket-4x') {
+        resolvedDisplayName = 'EH Smart Socket 4X';
+      } else if (variant == 'eh-smart-socket-2x') {
+        resolvedDisplayName = 'EH Smart Socket 2X';
+      } else if (variant == 'eh-smart-socket-1x') {
+        resolvedDisplayName = 'EH Smart Socket 1X';
+      } else if (variant == 'eh-smart-switch-3x') {
+        resolvedDisplayName = 'EH Smart Switch 3X';
+      } else if (variant == 'eh-smart-switch-2x') {
+        resolvedDisplayName = 'EH Smart Switch 2X';
+      } else if (variant == 'eh-smart-switch-1x') {
+        resolvedDisplayName = 'EH Smart Switch 1X';
+      } else {
+        resolvedDisplayName = 'EH Smart Switch 4X';
+      }
+    }
+
     return OnboardingDeviceIdentity(
       deviceId: deviceId,
       serialNumber: serial,
-      productVariantId: 'eh-smart-switch-3x',
+      productVariantId: variant,
       hardwareRevision: 'HW_1_0',
-      firmwareFamily: 'esp32-switch-platform',
-      displayName: 'EH Smart Switch 3X',
+      firmwareFamily: isSocket ? 'esp32c6-socket-platform' : 'esp32c6-switch-platform',
+      displayName: resolvedDisplayName,
     );
+
   }
 
   void _resetReassemblyState() {

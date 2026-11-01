@@ -35,6 +35,11 @@ abstract interface class HomeRepository {
     String? iconKey,
   });
 
+  Future<void> removeDevice({
+    required String deviceId,
+    String? homeId,
+  });
+
   Future<FirmwareRelease?> getAvailableRelease();
 
   Stream<FirmwareJob> watchFirmwareJob();

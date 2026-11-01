@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/core/api/api_client.dart';
 import 'package:smart_home_application_v1/core/repositories/auth_repository.dart';
 import 'package:smart_home_application_v1/features/auth/auth_controller.dart';
@@ -45,6 +46,7 @@ class _FakeAuthApiClient extends ApiClient {
 void main() {
   setUp(() {
     FlutterSecureStorage.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({});
   });
 
   group('Phase 48: Legacy Profile Completion UX Tests', () {

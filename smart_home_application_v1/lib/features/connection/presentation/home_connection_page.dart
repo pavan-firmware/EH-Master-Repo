@@ -24,6 +24,8 @@ class HomeConnectionPage extends StatefulWidget {
     this.systemBleActions,
     this.onDeviceProvisioned,
     this.initialRoomName,
+    this.availableRooms,
+    this.spaceId,
   });
 
   final Future<ConnectionResult> Function()? onStart;
@@ -32,11 +34,14 @@ class HomeConnectionPage extends StatefulWidget {
   final HomeConnectionRepository repository;
   final SystemBleActions? systemBleActions;
   final String? initialRoomName;
+  final List<String>? availableRooms;
+  final String? spaceId;
   final void Function({
     required String deviceId,
     required String displayName,
     required String serialNumber,
     String? roomName,
+    String? model,
   })?
   onDeviceProvisioned;
 
@@ -73,9 +78,14 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _pendingBleRecovery && !_inProgress) {
-      _pendingBleRecovery = false;
-      _handleConnect();
+    if (state == AppLifecycleState.resumed && !_inProgress) {
+      if (_pendingBleRecovery ||
+          _failureKind == ConnectionFailureKind.locationServicesDisabled ||
+          _failureKind == ConnectionFailureKind.bluetoothDisabled ||
+          _failureKind == ConnectionFailureKind.locationPermissionRequired) {
+        _pendingBleRecovery = false;
+        _handleConnect();
+      }
     }
   }
 
@@ -187,25 +197,29 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
                             .replaceFirst('Connected to ', '')
                             .split(' (')
                             .first
-                      : 'EH Smart Switch 3X'),
+                      : 'EH Smart Device'),
               deviceId: result.deviceId,
               serialNumber: result.serialNumber,
               channel: result.channel is BleCommissioningChannel
                   ? result.channel as BleCommissioningChannel
                   : null,
               initialRoomName: widget.initialRoomName,
+              availableRooms: widget.availableRooms,
+              spaceId: widget.spaceId,
               onDeviceProvisioned:
                   ({
                     required String deviceId,
                     required String displayName,
                     required String serialNumber,
                     String? roomName,
+                    String? model,
                   }) {
                     widget.onDeviceProvisioned?.call(
                       deviceId: deviceId,
                       displayName: displayName,
                       serialNumber: serialNumber,
                       roomName: roomName,
+                      model: model,
                     );
                     if (mounted) {
                       _load();
@@ -442,7 +456,9 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
                             builder: (_) => DeviceProvisioningPage(
                               deviceName:
                                   overview.primaryDevice?.name ??
-                                  'EH Smart Switch 3X',
+                                  'EH Smart Device',
+                              availableRooms: widget.availableRooms,
+                              spaceId: widget.spaceId,
                             ),
                           ),
                         ),
@@ -462,23 +478,39 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    icon: const Icon(Icons.add_rounded, size: 22),
-                    label: const Text(
-                      'Add Another Device',
-                      style: TextStyle(
+                    icon: _inProgress
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.add_rounded, size: 22),
+                    label: Text(
+                      _inProgress ? 'Connecting...' : 'Add Another Device',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => DeviceProvisioningPage(
-                          deviceName: 'EH Smart Device',
-                          onDeviceProvisioned: widget.onDeviceProvisioned,
-                        ),
-                      ),
-                    ),
+                    onPressed: _inProgress
+                        ? null
+                        : (widget.onStart != null
+                            ? _handleConnect
+                            : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => DeviceProvisioningPage(
+                                      deviceName: 'EH Smart Device',
+                                      availableRooms: widget.availableRooms,
+                                      spaceId: widget.spaceId,
+                                      onDeviceProvisioned:
+                                          widget.onDeviceProvisioned,
+                                    ),
+                                  ),
+                                )),
                   ),
                 ),
               ] else ...[

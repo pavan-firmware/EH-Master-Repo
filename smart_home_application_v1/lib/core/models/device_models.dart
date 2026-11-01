@@ -73,6 +73,8 @@ class DeviceSnapshot {
     required this.reportedAt,
     this.firmwareVersion = '1.0.0',
     this.channels = const [],
+    this.channelLabels,
+    this.channelConfigs,
     this.productVariantId,
     this.serialNumber,
   });
@@ -86,6 +88,8 @@ class DeviceSnapshot {
   final DateTime reportedAt;
   final String firmwareVersion;
   final List<Map<String, dynamic>> channels;
+  final Map<String, dynamic>? channelLabels;
+  final Map<String, dynamic>? channelConfigs;
   final String? productVariantId;
   final String? serialNumber;
 }

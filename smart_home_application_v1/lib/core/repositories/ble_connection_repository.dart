@@ -76,6 +76,14 @@ class BleConnectionRepository implements ConnectionRepository {
 
       final activeChannel = channel;
 
+      // Disconnect any dangling BLE session so peripheral can resume advertising
+      if (activeChannel.isConnected) {
+        try {
+          await activeChannel.disconnect();
+          await Future.delayed(const Duration(milliseconds: 350));
+        } catch (_) {}
+      }
+
       // 2. Scan for EH Home physical device
       final device = await activeChannel.scanForSingleDevice(
         namePrefix: config.deviceNamePrefix,

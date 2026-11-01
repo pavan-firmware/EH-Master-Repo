@@ -2,6 +2,8 @@ import '../api/api_client.dart';
 import '../models/device_models.dart';
 import '../models/settings_models.dart';
 import 'settings_repository.dart';
+import '../../app/home_controller.dart';
+import '../services/device_storage_service.dart';
 
 class CloudSettingsRepository implements SettingsRepository {
   final ApiClient _apiClient;
@@ -30,7 +32,10 @@ class CloudSettingsRepository implements SettingsRepository {
   }
 
   Future<String?> _resolveHomeId() async {
-    if (_activeHomeId != null && _activeHomeId!.isNotEmpty) {
+    if (_activeHomeId != null &&
+        _activeHomeId!.isNotEmpty &&
+        _activeHomeId != 'home_default' &&
+        _activeHomeId != 'local-home') {
       return _activeHomeId;
     }
     try {
@@ -50,11 +55,15 @@ class CloudSettingsRepository implements SettingsRepository {
   @override
   Future<HomeSettingsData> getHome() async {
     final homeId = await _resolveHomeId();
+    final ctrl = HomeController.instance;
+    final homeName = ctrl?.activeSpaceName ?? 'My Home';
+    final hasDevices = (ctrl?.devices.isNotEmpty ?? false) || DeviceStorageService.cachedDevices.isNotEmpty;
+
     if (homeId == null || homeId.isEmpty) {
       return HomeSettingsData(
-        id: '',
-        name: 'No Home Configured',
-        ownerName: 'Unknown',
+        id: 'home_default',
+        name: homeName,
+        ownerName: DeviceStorageService.cachedUserName ?? 'Pavan',
         location: null,
         timezone: 'UTC',
         createdAt: DateTime.now(),
@@ -63,9 +72,9 @@ class CloudSettingsRepository implements SettingsRepository {
           notificationsEnabled: true,
           timeFormat: '12-hour',
         ),
-        connectionAvailability: HomeConnectionAvailability.setupRequired,
-        connectionTransport: 'Bluetooth + Wi-Fi',
-        lastChecked: null,
+        connectionAvailability: hasDevices ? HomeConnectionAvailability.connected : HomeConnectionAvailability.setupRequired,
+        connectionTransport: ctrl?.isLocalMode == true ? 'Direct Local Wi-Fi' : 'Cloud + Wi-Fi',
+        lastChecked: DateTime.now(),
       );
     }
 
@@ -73,8 +82,8 @@ class CloudSettingsRepository implements SettingsRepository {
       final res = await _apiClient.get('/api/v1/homes/$homeId');
       final Map<String, dynamic> data = _extractMap(res);
 
-      String ownerName = data['owner_name'] ?? data['ownerName'] ?? 'Owner';
-      String name = data['name'] ?? 'My Home';
+      String ownerName = data['owner_name'] ?? data['ownerName'] ?? (DeviceStorageService.cachedUserName ?? 'Pavan');
+      String name = data['name'] ?? homeName;
       String timezone = data['timezone'] ?? 'UTC';
       String? address = data['address'];
 
@@ -98,14 +107,14 @@ class CloudSettingsRepository implements SettingsRepository {
           timeFormat: '12-hour',
         ),
         connectionAvailability: HomeConnectionAvailability.connected,
-        connectionTransport: 'Cloud + Wi-Fi',
+        connectionTransport: ctrl?.isLocalMode == true ? 'Direct Local Wi-Fi' : 'Cloud + Wi-Fi',
         lastChecked: DateTime.now(),
       );
     } catch (_) {
       return HomeSettingsData(
         id: homeId,
-        name: 'Home',
-        ownerName: 'Owner',
+        name: homeName,
+        ownerName: DeviceStorageService.cachedUserName ?? 'Pavan',
         location: null,
         timezone: 'UTC',
         createdAt: DateTime.now(),
@@ -114,9 +123,9 @@ class CloudSettingsRepository implements SettingsRepository {
           notificationsEnabled: true,
           timeFormat: '12-hour',
         ),
-        connectionAvailability: HomeConnectionAvailability.setupRequired,
-        connectionTransport: 'Bluetooth + Wi-Fi',
-        lastChecked: null,
+        connectionAvailability: hasDevices ? HomeConnectionAvailability.connected : HomeConnectionAvailability.setupRequired,
+        connectionTransport: ctrl?.isLocalMode == true ? 'Direct Local Wi-Fi' : 'Cloud + Wi-Fi',
+        lastChecked: DateTime.now(),
       );
     }
   }
@@ -142,9 +151,7 @@ class CloudSettingsRepository implements SettingsRepository {
           final isAdmin = roleStr == 'ADMIN' || roleStr == 'HOME_ADMIN';
           final isGuest = roleStr == 'GUEST';
 
-          final displayName = isOwner
-              ? '$primaryName (Owner)'
-              : (isAdmin ? '$primaryName (Home Admin)' : primaryName);
+          final displayName = primaryName;
           final initials = primaryName.isNotEmpty ? primaryName[0].toUpperCase() : 'U';
 
           final HomeMemberRole memberRole = isOwner
@@ -312,6 +319,25 @@ class CloudSettingsRepository implements SettingsRepository {
 
     try {
       await _apiClient.delete('/api/v1/homes/$homeId/members/$memberId');
+      return SettingsOperationResult.success;
+    } catch (e) {
+      if (e is ApiException && (e.statusCode == 401 || e.statusCode == 403)) {
+        return SettingsOperationResult.unauthorized;
+      }
+      return SettingsOperationResult.failed;
+    }
+  }
+
+  @override
+  Future<SettingsOperationResult> updateMemberRole(String memberId, String role) async {
+    final homeId = await _resolveHomeId();
+    if (homeId == null || homeId.isEmpty) return SettingsOperationResult.failed;
+
+    try {
+      await _apiClient.patch(
+        '/api/v1/homes/$homeId/members/$memberId/role',
+        body: {'role': role.toUpperCase()},
+      );
       return SettingsOperationResult.success;
     } catch (e) {
       if (e is ApiException && (e.statusCode == 401 || e.statusCode == 403)) {

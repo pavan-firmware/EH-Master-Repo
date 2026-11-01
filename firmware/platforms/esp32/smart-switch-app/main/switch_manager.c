@@ -19,11 +19,18 @@
 
 static const int s_switch_gpios[EH_SWITCH_CHANNEL_COUNT] = {
     GPIO_SWITCH_IN_CH1,
+#if EH_SWITCH_CHANNEL_COUNT >= 2
     GPIO_SWITCH_IN_CH2,
-    GPIO_SWITCH_IN_CH3
+#endif
+#if EH_SWITCH_CHANNEL_COUNT >= 3
+    GPIO_SWITCH_IN_CH3,
+#endif
+#if EH_SWITCH_CHANNEL_COUNT >= 4
+    GPIO_SWITCH_IN_CH4,
+#endif
 };
 
-static uint32_t s_last_trigger_ms[EH_SWITCH_CHANNEL_COUNT] = { 0, 0, 0 };
+static uint32_t s_last_trigger_ms[EH_SWITCH_CHANNEL_COUNT] = { 0 };
 static switch_toggle_cb_t s_toggle_cb = NULL;
 
 #ifdef ESP_PLATFORM
@@ -33,9 +40,12 @@ static void IRAM_ATTR gpio_isr_handler(void* arg)
 {
     uint32_t gpio_num = (uint32_t) arg;
     uint8_t ch = 0;
-    if (gpio_num == GPIO_SWITCH_IN_CH1) ch = 1;
-    else if (gpio_num == GPIO_SWITCH_IN_CH2) ch = 2;
-    else if (gpio_num == GPIO_SWITCH_IN_CH3) ch = 3;
+    for (int i = 0; i < EH_SWITCH_CHANNEL_COUNT; i++) {
+        if (gpio_num == (uint32_t)s_switch_gpios[i]) {
+            ch = (uint8_t)(i + 1);
+            break;
+        }
+    }
 
     if (ch > 0 && s_switch_evt_queue != NULL) {
         switch_event_t evt = {
@@ -55,18 +65,24 @@ static void switch_task(void* arg)
     switch_event_t evt;
     while (1) {
         if (xQueueReceive(s_switch_evt_queue, &evt, portMAX_DELAY)) {
-            // Hardware Validation: delay 25ms to let contact bounce / power transients settle
-            vTaskDelay(pdMS_TO_TICKS(25));
+            // Hardware Validation: Multi-sample debouncing across 45ms
+            // Ensures transients from relay inductive switching or noise on unpressed/floating pins are rejected
+            bool valid_press = true;
+            for (int sample = 0; sample < 3; sample++) {
+                vTaskDelay(pdMS_TO_TICKS(15));
+                if (gpio_get_level((gpio_num_t)s_switch_gpios[evt.channel_index - 1]) != 0) {
+                    valid_press = false;
+                    break;
+                }
+            }
 
-            // Verify the physical pin is genuinely held LOW (active button press)
-            // If the adapter was switched off, voltage drops trigger false interrupts without pin being held LOW
-            int physical_level = gpio_get_level((gpio_num_t)s_switch_gpios[evt.channel_index - 1]);
-            if (physical_level != 0) {
-                // False trigger / transient ripple during power-down - discard safely
+            if (!valid_press) {
+                // False trigger / transient ripple / EMI spike from relay coil - safely discarded
                 continue;
             }
 
-            if (switch_manager_feed_event(evt.channel_index, evt.timestamp_ms)) {
+            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            if (switch_manager_feed_event(evt.channel_index, now_ms)) {
                 if (s_toggle_cb) {
                     s_toggle_cb(evt.channel_index);
                 }
@@ -83,8 +99,13 @@ void switch_manager_init(void)
 #ifdef ESP_PLATFORM
     s_switch_evt_queue = xQueueCreate(16, sizeof(switch_event_t));
 
+    uint64_t pin_mask = 0;
+    for (int i = 0; i < EH_SWITCH_CHANNEL_COUNT; i++) {
+        pin_mask |= (1ULL << s_switch_gpios[i]);
+    }
+
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << GPIO_SWITCH_IN_CH1) | (1ULL << GPIO_SWITCH_IN_CH2) | (1ULL << GPIO_SWITCH_IN_CH3),
+        .pin_bit_mask = pin_mask,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -100,8 +121,8 @@ void switch_manager_init(void)
     xTaskCreate(switch_task, "switch_task", 8192, NULL, 10, NULL);
 #endif
 
-    ESP_LOGI(TAG, "Switches initialized (CH1: GPIO%d, CH2: GPIO%d, CH3: GPIO%d) with %dms debounce",
-             GPIO_SWITCH_IN_CH1, GPIO_SWITCH_IN_CH2, GPIO_SWITCH_IN_CH3, EH_SWITCH_DEBOUNCE_MS);
+    ESP_LOGI(TAG, "Switches initialized (%d physical channels) with %dms debounce",
+             EH_SWITCH_CHANNEL_COUNT, EH_SWITCH_DEBOUNCE_MS);
 }
 
 bool switch_manager_feed_event(uint8_t channel_index, uint32_t current_time_ms)

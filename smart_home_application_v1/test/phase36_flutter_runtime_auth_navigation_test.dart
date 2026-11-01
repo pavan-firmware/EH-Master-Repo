@@ -471,33 +471,20 @@ void main() {
 
       // Verify sections are present
       expect(find.text('Settings'), findsOneWidget);
-      expect(find.text('HOME AND PEOPLE'), findsOneWidget);
-      expect(find.text('ENERGY AND EFFICIENCY'), findsOneWidget);
-      expect(find.text('INTELLIGENCE AND CONTEXT'), findsOneWidget);
-      expect(find.text('DEVICES AND ECOSYSTEM'), findsOneWidget);
-      expect(find.text('NOTIFICATIONS AND SYNC'), findsOneWidget);
-      expect(find.text('OBSERVABILITY AND OPERATIONS'), findsOneWidget);
-      expect(find.text('SECURITY AND RESILIENCE'), findsOneWidget);
       expect(find.text('YOUR SYSTEM'), findsOneWidget);
+      expect(find.text('HOME AND MEMBERS'), findsOneWidget);
+      expect(find.text('PREFERENCES & TOOLS'), findsOneWidget);
       expect(find.text('HELP AND PRIVACY'), findsOneWidget);
 
-      // Verify feature tile titles
-      expect(find.text('Energy dashboard'), findsOneWidget);
-      expect(find.text('Energy optimization'), findsOneWidget);
-      expect(find.text('Electricity tariffs'), findsOneWidget);
-      expect(find.text('Intelligence center'), findsOneWidget);
-      expect(find.text('Presence & occupancy'), findsOneWidget);
-      expect(find.text('Product discovery'), findsOneWidget);
-      expect(find.text('Fleet reliability'), findsOneWidget);
-      expect(find.text('Multi-protocol connectivity'), findsOneWidget);
-      expect(find.text('Matter & Ecosystems'), findsOneWidget);
-      expect(find.text('Edge control dashboard'), findsOneWidget);
-      expect(find.text('Notification center'), findsOneWidget);
-      expect(find.text('Sync center'), findsOneWidget);
-      expect(find.text('Operations dashboard'), findsOneWidget);
-      expect(find.text('System readiness'), findsOneWidget);
-      expect(find.text('Device trust center'), findsOneWidget);
-      expect(find.text('Disaster recovery'), findsOneWidget);
+      // Verify core feature tiles
+      expect(find.text('Add a room device'), findsOneWidget);
+      expect(find.text('Connect your home'), findsOneWidget);
+      expect(find.text('System update'), findsOneWidget);
+      expect(find.text('Device health'), findsOneWidget);
+      expect(find.text('People at home'), findsOneWidget);
+      expect(find.text('Appearance'), findsOneWidget);
+      expect(find.text('Help and support'), findsOneWidget);
+      expect(find.text('Privacy'), findsOneWidget);
     });
 
     testWidgets('15. Non-admin users see Admin only status chips on restricted management features', (tester) async {
@@ -517,8 +504,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Check for Admin only chip badges
-      expect(find.text('Admin only'), findsWidgets);
+      // Check for Advanced chip badges for non-admin
+      expect(find.text('Advanced'), findsWidgets);
     });
 
     testWidgets('17-20. SettingsPage handles loading, error, and offline retry gracefully', (tester) async {

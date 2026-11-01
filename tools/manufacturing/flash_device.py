@@ -60,7 +60,6 @@ def list_comports() -> list:
     if not HAVE_SERIAL or serial is None:
         return []
     try:
-        import serial.tools.list_ports
         return list(serial.tools.list_ports.comports())
     except Exception as e:
         sys.stderr.write(f"[WARN] list_ports failed: {e}\n")
@@ -248,7 +247,12 @@ class SerialPortDetector:
     @classmethod
     def detect_connected_chip(cls, port: str, baud: int = 115200) -> Dict[str, Any]:
         """Safely queries target silicon using esptool without modifying flash."""
+        import io
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
         try:
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
             esp = detect_chip_esptool(port=port, baud=baud)
             chip_name = esp.CHIP_NAME
             mac_bytes = esp.read_mac()
@@ -264,6 +268,8 @@ class SerialPortDetector:
                 family = "esp32-c3"
             elif "S3" in chip_name_upper:
                 family = "esp32-s3"
+            elif "S2" in chip_name_upper:
+                family = "esp32-s2"
             elif "ESP32" in chip_name_upper:
                 family = "esp32"
 
@@ -287,6 +293,9 @@ class SerialPortDetector:
                 "error": str(e),
                 "port": port
             }
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
 
 # ==============================================================================
@@ -713,6 +722,46 @@ class ManufacturingFlasher:
         except Exception as e:
             return {"status": "FAIL", "error": str(e), "port": target_port}
 
+    def send_command(self, port: Optional[str] = None, command: str = "help", timeout_sec: float = 1.5, line_ending: str = "\r\n") -> Dict[str, Any]:
+        """Sends an interactive command to connected target over UART and captures response lines."""
+        target_port = port or self.port
+        if not target_port:
+            return {"status": "FAIL", "error": "Target port required to send command."}
+        if not HAVE_SERIAL or serial is None:
+            return {"status": "FAIL", "error": "pyserial runtime required."}
+
+        try:
+            ser = serial.Serial(target_port, self.baud, timeout=0.2)
+            time.sleep(0.05)
+            ser.reset_input_buffer()
+            cmd_bytes = (command + line_ending).encode("utf-8", errors="replace")
+            ser.write(cmd_bytes)
+            ser.flush()
+
+            lines = []
+            start_time = time.time()
+            while time.time() - start_time < timeout_sec:
+                line = ser.readline()
+                if line:
+                    decoded = line.decode("utf-8", errors="replace").strip()
+                    if decoded:
+                        lines.append(decoded)
+                elif len(lines) > 0:
+                    time.sleep(0.1)
+                    if ser.in_waiting == 0:
+                        break
+
+            ser.close()
+            return {
+                "status": "PASS",
+                "port": target_port,
+                "command": command,
+                "responseLines": lines,
+                "rawOutput": "\n".join(lines)
+            }
+        except Exception as e:
+            return {"status": "FAIL", "error": str(e), "port": target_port, "command": command}
+
     def flash(self, port: Optional[str] = None, product: Optional[str] = None,
               partitions_csv: Optional[str] = None,
               bootloader_bin: Optional[str] = None,
@@ -781,14 +830,26 @@ class ManufacturingFlasher:
             print("========================================================")
 
         try:
+            chip_family_str = chip_info.get("chipFamily", "esp32").lower()
+            chip_arg = "esp32c6" if "c6" in chip_family_str else (
+                "esp32s3" if "s3" in chip_family_str else (
+                    "esp32c3" if "c3" in chip_family_str else (
+                        "esp32s2" if "s2" in chip_family_str else "esp32"
+                    )
+                )
+            )
+
             flash_args = [
+                "--chip", chip_arg,
                 "--port", target_port,
                 "--baud", str(self.baud),
                 "write-flash",
+                "--flash_mode", "dio",
+                "--flash_freq", "40m",
                 hex(fact_part.offset if fact_part else 0x12000), fact_bin_path
             ]
             if bootloader_bin and os.path.exists(bootloader_bin):
-                bootloader_offset = "0x0" if "c" in chip_info.get("chipFamily", "").lower() else "0x1000"
+                bootloader_offset = "0x1000" if chip_arg == "esp32" else "0x0"
                 flash_args.extend([bootloader_offset, bootloader_bin])
             if partition_table_bin and os.path.exists(partition_table_bin):
                 flash_args.extend(["0x8000", partition_table_bin])
@@ -804,7 +865,7 @@ class ManufacturingFlasher:
             port=target_port,
             baud=self.baud,
             timeout_sec=4.0,
-            expected_product=target_product
+            expected_product=target_product if not force else None
         )
 
         return {
@@ -871,6 +932,15 @@ def main(argv=None) -> int:
     reset_parser.add_argument("--non-interactive", action="store_true", help="Non-interactive mode")
     reset_parser.add_argument("--json", action="store_true", help="Output JSON format")
 
+    # Command: send-cmd
+    send_cmd_parser = subparsers.add_parser("send-cmd", help="Send interactive command to connected serial device and read response")
+    send_cmd_parser.add_argument("--port", required=True, help="Serial port")
+    send_cmd_parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
+    send_cmd_parser.add_argument("--cmd", required=True, help="Command text to send")
+    send_cmd_parser.add_argument("--timeout", type=float, default=1.5, help="Read response timeout")
+    send_cmd_parser.add_argument("--line-ending", default="\r\n", help="Line ending (\\r\\n or \\n)")
+    send_cmd_parser.add_argument("--json", action="store_true", help="Output JSON format")
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -905,6 +975,13 @@ def main(argv=None) -> int:
         result = flasher.run_lifecycle(port=args.port)
     elif args.command == "reset":
         result = flasher.reset_device_runtime(port=args.port)
+    elif args.command == "send-cmd":
+        result = flasher.send_command(
+            port=args.port,
+            command=args.cmd,
+            timeout_sec=args.timeout,
+            line_ending=args.line_ending.replace("\\r", "\r").replace("\\n", "\n")
+        )
 
     if json_mode:
         print(json.dumps(result, indent=2))

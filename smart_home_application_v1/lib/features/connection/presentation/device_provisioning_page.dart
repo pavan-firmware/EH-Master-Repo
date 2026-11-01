@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
+import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../onboarding/ble/ble_commissioning_channel.dart';
 import '../../onboarding/models/onboarding_models.dart';
@@ -31,6 +33,8 @@ class DeviceProvisioningPage extends StatefulWidget {
     this.storageService,
     this.onDeviceProvisioned,
     this.initialRoomName,
+    this.availableRooms,
+    this.spaceId,
   });
 
   final String deviceName;
@@ -40,11 +44,14 @@ class DeviceProvisioningPage extends StatefulWidget {
   final OnboardingService? onboardingService;
   final DeviceStorageService? storageService;
   final String? initialRoomName;
+  final List<String>? availableRooms;
+  final String? spaceId;
   final void Function({
     required String deviceId,
     required String displayName,
     required String serialNumber,
     String? roomName,
+    String? model,
   })?
   onDeviceProvisioned;
 
@@ -93,10 +100,38 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   }
 
   Future<void> _loadRooms() async {
-    final rooms = await _storageService.loadRooms();
-    if (mounted && rooms.isNotEmpty) {
+    final Set<String> roomSet = {};
+
+    // 1. Incorporate rooms passed from active space
+    if (widget.availableRooms != null && widget.availableRooms!.isNotEmpty) {
+      roomSet.addAll(widget.availableRooms!.where((r) => r.trim().isNotEmpty && r.trim().toLowerCase() != 'unassigned'));
+    }
+
+    // 2. Load persisted rooms from storage
+    final loaded = await _storageService.loadRooms();
+    roomSet.addAll(loaded.where((r) => r.trim().isNotEmpty && r.trim().toLowerCase() != 'unassigned'));
+
+    if (widget.spaceId != null && widget.spaceId!.isNotEmpty) {
+      final spaceRooms = await _storageService.loadRoomsForSpace(widget.spaceId!);
+      roomSet.addAll(spaceRooms.where((r) => r.trim().isNotEmpty && r.trim().toLowerCase() != 'unassigned'));
+    }
+
+    // 3. Always include standard canonical rooms
+    for (final def in [
+      'Living Room',
+      'Bedroom',
+      'Kitchen',
+      'Office',
+      'Dining Room',
+      'Balcony',
+      'Bathroom',
+    ]) {
+      roomSet.add(def);
+    }
+
+    if (mounted) {
       setState(() {
-        _availableRooms = List.from(rooms);
+        _availableRooms = roomSet.toList();
         if (widget.initialRoomName != null && widget.initialRoomName!.isNotEmpty) {
           _selectedRoom = widget.initialRoomName!;
           if (!_availableRooms.contains(_selectedRoom)) {
@@ -111,6 +146,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
 
   @override
   void dispose() {
+    if (!_isProvisioned) {
+      widget.channel?.disconnect();
+    }
     _ssidController.dispose();
     _passwordController.dispose();
     _qrController.dispose();
@@ -365,6 +403,37 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         _statusDetail = 'Choose a room for your ${identity.displayName}.';
       });
     } catch (e) {
+      debugPrint('[PROV] Provisioning caught error: $e. Checking LAN fallback...');
+      final targetDevId = _activeIdentity?.deviceId ?? widget.deviceId ?? '';
+      bool verifiedOnLan = false;
+      if (targetDevId.isNotEmpty) {
+        try {
+          final lan = await LocalLanDeviceService.instance.fetchLocalDeviceState(deviceId: targetDevId);
+          if (lan != null && lan.channels.isNotEmpty) {
+            verifiedOnLan = true;
+          } else {
+            final disc = await LocalLanDeviceService.instance.autoDiscoverDevices(
+              expectedDeviceIds: [targetDevId],
+              timeout: const Duration(seconds: 2),
+            );
+            if (disc.containsKey(targetDevId)) {
+              verifiedOnLan = true;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (verifiedOnLan && mounted) {
+        debugPrint('[PROV] Device verified active on local Wi-Fi despite BLE drop. Transitioning to room assignment.');
+        final dName = _activeIdentity?.displayName ?? widget.deviceName;
+        setState(() {
+          _stage = ProvisioningUiStage.roomAssignment;
+          _statusDetail = 'Choose a room for your $dName.';
+          _errorMessage = null;
+        });
+        return;
+      }
+
       final isBleLost = widget.channel != null && !widget.channel!.isConnected;
       if (isBleLost) {
         _session = null;
@@ -381,28 +450,52 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     }
   }
 
-  void _finishRoomAssignment() {
+  void _finishRoomAssignment({String? fallbackRoom}) {
     if (_isProvisioned) return;
     _isProvisioned = true;
 
-    final assignedRoom = _customRoomController.text.trim().isNotEmpty
-        ? _customRoomController.text.trim()
-        : _selectedRoom;
+    final assignedRoom = fallbackRoom ??
+        (_customRoomController.text.trim().isNotEmpty
+            ? _customRoomController.text.trim()
+            : _selectedRoom);
+
+    final devName = widget.deviceName.isNotEmpty ? widget.deviceName : 'EH Smart Device';
+    final serial = widget.serialNumber ?? widget.deviceId ?? (devName.startsWith('EH-') ? devName : 'EH-DEV-${DateTime.now().millisecondsSinceEpoch % 100000}');
+    String variant = MockProductCatalogRepository.normalizeVariantId(devName);
+    if (variant.isEmpty && widget.serialNumber != null) {
+      variant = MockProductCatalogRepository.normalizeVariantId(widget.serialNumber!);
+    }
+    if (variant.isEmpty) {
+      final lower = devName.toLowerCase();
+      final isSocket = lower.contains('socket') || lower.contains('plug');
+      if (lower.contains('4x') || lower.contains('4ch')) {
+        variant = isSocket ? 'eh-smart-socket-4x' : 'eh-smart-switch-4x';
+      } else if (lower.contains('3x') || lower.contains('3ch')) {
+        variant = isSocket ? 'eh-smart-socket-3x' : 'eh-smart-switch-3x';
+      } else if (lower.contains('2x') || lower.contains('2ch')) {
+        variant = isSocket ? 'eh-smart-socket-2x' : 'eh-smart-switch-2x';
+      } else {
+        variant = isSocket ? 'eh-smart-socket-1x' : 'eh-smart-switch-4x';
+      }
+    }
 
     final targetIdentity =
         _activeIdentity ??
         widget.channel?.deviceIdentity ??
         OnboardingDeviceIdentity(
-          deviceId: widget.deviceId ?? '4444688e-989d-458e-820e-ac62a99ed8e1',
-          serialNumber: widget.serialNumber ?? 'EH-SW3X-2026W12-00001',
-          productVariantId: 'eh-smart-switch-3x',
+          deviceId: widget.deviceId ?? 'dev-${DateTime.now().millisecondsSinceEpoch}',
+          serialNumber: serial,
+          productVariantId: variant,
           hardwareRevision: 'HW_1_0',
           firmwareFamily: 'esp32-switch-platform',
-          displayName: widget.deviceName,
+          displayName: devName,
         );
 
-    if (_customRoomController.text.trim().isNotEmpty) {
+    if (assignedRoom.toLowerCase() != 'unassigned') {
       _storageService.addRoom(assignedRoom);
+      if (widget.spaceId != null) {
+        _storageService.addRoomForSpace(widget.spaceId!, assignedRoom);
+      }
     }
 
     debugPrint('[ROOM] DEVICE_ASSIGNED room=$assignedRoom');
@@ -413,14 +506,51 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         displayName: targetIdentity.displayName,
         serialNumber: targetIdentity.serialNumber,
         roomName: assignedRoom,
+        model: targetIdentity.productVariantId,
       );
     }
 
     setState(() {
       _stage = ProvisioningUiStage.success;
-      _statusDetail =
-          '${targetIdentity.displayName} is securely connected in $assignedRoom!';
+      _statusDetail = (assignedRoom.toLowerCase() == 'unassigned')
+          ? '${targetIdentity.displayName} is connected! You can assign it to a room anytime in device settings.'
+          : '${targetIdentity.displayName} is securely connected in $assignedRoom!';
     });
+  }
+
+  Future<void> _handleBackNavigation() async {
+    if (_stage == ProvisioningUiStage.roomAssignment && !_isProvisioned) {
+      final shouldAssignLater = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Assign Room to Complete Setup'),
+          content: const Text(
+            'Your device is connected to Wi-Fi!\n\n'
+            'Would you like to assign it to a room now, or assign it later?\n\n'
+            'If you assign later, it will be listed under "Unassigned Devices" so you can organize it anytime.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true), // Assign later
+              child: const Text('Assign Later'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, false), // Stay and choose room
+              child: const Text('Choose Room'),
+            ),
+          ],
+        ),
+      );
+      if (shouldAssignLater == true && mounted) {
+        _finishRoomAssignment(fallbackRoom: 'Unassigned');
+        Navigator.pop(context);
+      }
+      return;
+    }
+    if (!_isProvisioned) {
+      widget.channel?.disconnect();
+    }
+    Navigator.pop(context);
   }
 
   void _backToHome() {
@@ -432,14 +562,20 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
 
-    return Scaffold(
-      backgroundColor: tokens.bgApp,
-      appBar: AppBar(
+    return PopScope(
+      canPop: _stage != ProvisioningUiStage.roomAssignment || _isProvisioned,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleBackNavigation();
+      },
+      child: Scaffold(
         backgroundColor: tokens.bgApp,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
-        ),
+        appBar: AppBar(
+          backgroundColor: tokens.bgApp,
+          leading: IconButton(
+            onPressed: _handleBackNavigation,
+            icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
+          ),
         title: Text(
           'Set up device',
           style: TextStyle(
@@ -452,7 +588,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
           Text(
-            widget.deviceName,
+            _activeIdentity?.displayName ??
+                widget.channel?.deviceIdentity?.displayName ??
+                widget.deviceName,
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w800,
@@ -852,6 +990,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
           ],
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

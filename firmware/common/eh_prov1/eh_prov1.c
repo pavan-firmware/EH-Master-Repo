@@ -6,9 +6,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_random.h"
-#include "mbedtls/gcm.h"
-#include "mbedtls/hkdf.h"
-#include "mbedtls/md.h"
+#include "psa/crypto.h"
 
 #include "factory_identity_v2.h"
 
@@ -163,9 +161,23 @@ static esp_err_t compute_hmac_sha256(const uint8_t *key, size_t key_len,
                                      const uint8_t *data, size_t data_len,
                                      uint8_t out_mac[32])
 {
-    const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    if (!md_info) return ESP_FAIL;
-    return mbedtls_md_hmac(md_info, key, key_len, data, data_len, out_mac) == 0 ? ESP_OK : ESP_FAIL;
+    psa_crypto_init();
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(PSA_ALG_SHA_256));
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+    psa_set_key_bits(&attributes, key_len * 8);
+
+    psa_key_id_t key_id = 0;
+    psa_status_t status = psa_import_key(&attributes, key, key_len, &key_id);
+    if (status != PSA_SUCCESS) return ESP_FAIL;
+
+    size_t mac_length = 0;
+    status = psa_mac_compute(key_id, PSA_ALG_HMAC(PSA_ALG_SHA_256),
+                             data, data_len,
+                             out_mac, 32, &mac_length);
+    psa_destroy_key(key_id);
+    return status == PSA_SUCCESS ? ESP_OK : ESP_FAIL;
 }
 
 static esp_err_t derive_hkdf_session_key(const uint8_t ikm[32],
@@ -175,6 +187,7 @@ static esp_err_t derive_hkdf_session_key(const uint8_t ikm[32],
                                           const char *device_id,
                                           uint8_t out_key[32])
 {
+    psa_crypto_init();
     uint8_t salt[64];
     memcpy(salt, app_chal, 32);
     memcpy(salt + 32, dev_chal, 32);
@@ -182,14 +195,22 @@ static esp_err_t derive_hkdf_session_key(const uint8_t ikm[32],
     char info[128];
     snprintf(info, sizeof(info), "EH-PROV/1|WIFI|%s|%s", session_id, device_id);
 
-    const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    if (!md_info) return ESP_FAIL;
+    psa_key_derivation_operation_t op = PSA_KEY_DERIVATION_OPERATION_INIT;
+    psa_status_t status = psa_key_derivation_setup(&op, PSA_ALG_HKDF(PSA_ALG_SHA_256));
+    if (status != PSA_SUCCESS) return ESP_FAIL;
 
-    int ret = mbedtls_hkdf(md_info, salt, sizeof(salt),
-                           ikm, 32,
-                           (const unsigned char *)info, strlen(info),
-                           out_key, 32);
-    return ret == 0 ? ESP_OK : ESP_FAIL;
+    status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_SALT, salt, sizeof(salt));
+    if (status != PSA_SUCCESS) { psa_key_derivation_abort(&op); return ESP_FAIL; }
+
+    status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_SECRET, ikm, 32);
+    if (status != PSA_SUCCESS) { psa_key_derivation_abort(&op); return ESP_FAIL; }
+
+    status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_INFO, (const uint8_t*)info, strlen(info));
+    if (status != PSA_SUCCESS) { psa_key_derivation_abort(&op); return ESP_FAIL; }
+
+    status = psa_key_derivation_output_bytes(&op, out_key, 32);
+    psa_key_derivation_abort(&op);
+    return status == PSA_SUCCESS ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t eh_prov1_init(void)
@@ -357,21 +378,37 @@ esp_err_t eh_prov1_handle_message(const uint8_t *in_data, size_t in_len,
                                                      s_session.device_challenge, 4,
                                                      aad_buf, sizeof(aad_buf));
 
-        mbedtls_gcm_context gcm;
-        mbedtls_gcm_init(&gcm);
-        int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, s_session.session_key, 256);
-        if (ret != 0) {
-            mbedtls_gcm_free(&gcm);
-            return ESP_FAIL;
+        psa_crypto_init();
+        psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+        psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_DECRYPT);
+        psa_set_key_algorithm(&attr, PSA_ALG_GCM);
+        psa_set_key_type(&attr, PSA_KEY_TYPE_AES);
+        psa_set_key_bits(&attr, 256);
+
+        psa_key_id_t key_id = 0;
+        psa_status_t status = psa_import_key(&attr, s_session.session_key, 32, &key_id);
+        if (status != PSA_SUCCESS) return ESP_FAIL;
+
+        uint8_t cipher_with_tag[256];
+        if (cipher_len + 16 > sizeof(cipher_with_tag)) {
+            psa_destroy_key(key_id);
+            return ESP_ERR_NO_MEM;
         }
+        memcpy(cipher_with_tag, ciphertext, cipher_len);
+        memcpy(cipher_with_tag + cipher_len, tag, 16);
 
         uint8_t plaintext[256];
-        ret = mbedtls_gcm_auth_decrypt(&gcm, cipher_len, nonce, 12, aad_buf, aad_len,
-                                       tag, 16, ciphertext, plaintext);
-        mbedtls_gcm_free(&gcm);
+        size_t plaintext_len = 0;
+        status = psa_aead_decrypt(key_id, PSA_ALG_GCM,
+                                  nonce, 12,
+                                  aad_buf, aad_len,
+                                  cipher_with_tag, cipher_len + 16,
+                                  plaintext, sizeof(plaintext),
+                                  &plaintext_len);
+        psa_destroy_key(key_id);
 
-        if (ret != 0) {
-            ESP_LOGE(TAG, "AES-256-GCM auth_decrypt failed! Tampered payload.");
+        if (status != PSA_SUCCESS) {
+            ESP_LOGE(TAG, "AES-256-GCM psa_aead_decrypt failed! Tampered payload.");
             s_state = EH_PROV1_STATE_FAILED;
             return ESP_ERR_INVALID_RESPONSE;
         }

@@ -28,7 +28,11 @@ static bool s_action_feedback_active = false;
 static void set_physical_led(bool level)
 {
     s_led_level = level;
-    gpio_set_level((gpio_num_t)GPIO_STATUS_LED, level ? 1 : 0);
+    int pin_val = level ? GPIO_STATUS_LED_ACTIVE_LEVEL : (!GPIO_STATUS_LED_ACTIVE_LEVEL);
+    gpio_set_level((gpio_num_t)GPIO_STATUS_LED, pin_val);
+#if defined(EH_PIN_STATUS_LED_SECONDARY)
+    gpio_set_level((gpio_num_t)EH_PIN_STATUS_LED_SECONDARY, pin_val);
+#endif
 }
 
 static void action_timer_callback(void* arg)
@@ -38,7 +42,7 @@ static void action_timer_callback(void* arg)
     // Restore base pattern level
     if (s_current_pattern == STATUS_LED_SOLID_ON) {
         set_physical_led(true);
-    } else if (s_current_pattern == STATUS_LED_OFF) {
+    } else {
         set_physical_led(false);
     }
 }
@@ -94,8 +98,11 @@ void status_led_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE
     };
+#if defined(EH_PIN_STATUS_LED_SECONDARY)
+    io_conf.pin_bit_mask |= (1ULL << EH_PIN_STATUS_LED_SECONDARY);
+#endif
     gpio_config(&io_conf);
-    gpio_set_level((gpio_num_t)GPIO_STATUS_LED, 0);
+    set_physical_led(false);
 
     const esp_timer_create_args_t timer_args = {
         .callback = &led_timer_callback,
@@ -121,7 +128,9 @@ void status_led_set_pattern(status_led_pattern_t pattern)
 #ifdef ESP_PLATFORM
     if (!s_led_timer) return;
 
-    esp_timer_stop(s_led_timer);
+    if (esp_timer_is_active(s_led_timer)) {
+        esp_timer_stop(s_led_timer);
+    }
     s_cycle_step = 0;
     s_action_feedback_active = false;
 
@@ -144,12 +153,12 @@ void status_led_set_pattern(status_led_pattern_t pattern)
             set_physical_led(true);
             esp_timer_start_periodic(s_led_timer, 200 * 1000);
             break;
-        case STATUS_LED_HEARTBEAT: // 100ms base step (2.5s cycle)
-            set_physical_led(true);
+        case STATUS_LED_HEARTBEAT: // 100ms base step (2.5s cycle, resting OFF)
+            set_physical_led(false);
             esp_timer_start_periodic(s_led_timer, 100 * 1000);
             break;
-        case STATUS_LED_DOUBLE_BLINK: // 100ms intervals (1.8s cycle)
-            set_physical_led(true);
+        case STATUS_LED_DOUBLE_BLINK: // 100ms intervals (1.8s cycle, resting OFF)
+            set_physical_led(false);
             esp_timer_start_periodic(s_led_timer, 100 * 1000);
             break;
         case STATUS_LED_RAPID_BURST: // 50ms

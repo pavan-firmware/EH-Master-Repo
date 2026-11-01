@@ -1,0 +1,257 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DeviceCommandRepository = void 0;
+const crypto_1 = require("crypto");
+class DeviceCommandRepository {
+    db;
+    commandsStore = new Map();
+    idempotencyIndex = new Map(); // `${deviceId}:${idempotencyKey}` -> commandId
+    deviceStateStore = new Map();
+    channelStateStore = new Map(); // `${deviceId}:${channelIndex}` -> state
+    availabilityHistoryStore = [];
+    outboxStore = [];
+    constructor(db) {
+        this.db = db;
+    }
+    async recordCommand(cmd) {
+        const idemKey = `${cmd.deviceId}:${cmd.idempotencyKey}`;
+        if (!this.db || !this.db.insert) {
+            if (this.idempotencyIndex.has(idemKey)) {
+                const existingId = this.idempotencyIndex.get(idemKey);
+                const existing = this.commandsStore.get(existingId);
+                return { record: existing, isIdempotentReplay: true };
+            }
+            const record = {
+                id: cmd.commandId,
+                deviceId: cmd.deviceId,
+                channelIndex: cmd.channelIndex,
+                action: cmd.action,
+                params: cmd.params,
+                idempotencyKey: cmd.idempotencyKey,
+                source: cmd.source,
+                status: 'CREATED',
+                failureReason: null,
+                createdAt: new Date().toISOString(),
+                expiresAt: cmd.expiresAt,
+                completedAt: null
+            };
+            this.commandsStore.set(cmd.commandId, record);
+            this.idempotencyIndex.set(idemKey, cmd.commandId);
+            return { record, isIdempotentReplay: false };
+        }
+        const { deviceCommands, eq, and } = require('@eh-home/db-schema');
+        const existing = await this.db
+            .select()
+            .from(deviceCommands)
+            .where(and(eq(deviceCommands.deviceId, cmd.deviceId), eq(deviceCommands.idempotencyKey, cmd.idempotencyKey)))
+            .limit(1);
+        if (existing.length > 0) {
+            return { record: existing[0], isIdempotentReplay: true };
+        }
+        const newRecord = {
+            id: cmd.commandId,
+            deviceId: cmd.deviceId,
+            channelIndex: cmd.channelIndex,
+            action: cmd.action,
+            params: cmd.params,
+            idempotencyKey: cmd.idempotencyKey,
+            source: cmd.source,
+            status: 'CREATED',
+            failureReason: null,
+            createdAt: new Date(),
+            expiresAt: new Date(cmd.expiresAt),
+            completedAt: null
+        };
+        await this.db.insert(deviceCommands).values(newRecord);
+        return { record: newRecord, isIdempotentReplay: false };
+    }
+    async updateCommandStatus(commandId, status, failureReason) {
+        if (!this.db || !this.db.update) {
+            const record = this.commandsStore.get(commandId);
+            if (record) {
+                record.status = status;
+                record.failureReason = failureReason || null;
+                if (['APPLIED', 'FAILED', 'EXPIRED', 'OVERRIDDEN'].includes(status)) {
+                    record.completedAt = new Date().toISOString();
+                }
+            }
+            return;
+        }
+        const { deviceCommands, eq } = require('@eh-home/db-schema');
+        await this.db
+            .update(deviceCommands)
+            .set({
+            status,
+            failureReason: failureReason || null,
+            completedAt: ['APPLIED', 'FAILED', 'EXPIRED', 'OVERRIDDEN'].includes(status) ? new Date() : null
+        })
+            .where(eq(deviceCommands.id, commandId));
+    }
+    async getCommand(commandId) {
+        if (!this.db || !this.db.select) {
+            return this.commandsStore.get(commandId) || null;
+        }
+        const { deviceCommands, eq } = require('@eh-home/db-schema');
+        const rows = await this.db.select().from(deviceCommands).where(eq(deviceCommands.id, commandId)).limit(1);
+        return rows.length > 0 ? rows[0] : null;
+    }
+    async getDeviceState(deviceId) {
+        if (!this.db || !this.db.select) {
+            const state = this.deviceStateStore.get(deviceId) || {
+                deviceId,
+                connectionState: 'OFFLINE',
+                lastSeenAt: null,
+                channels: []
+            };
+            // Gather channel states
+            const channels = [];
+            this.channelStateStore.forEach((ch, key) => {
+                if (key.startsWith(`${deviceId}:`)) {
+                    channels.push(ch);
+                }
+            });
+            state.channels = channels.sort((a, b) => a.channelIndex - b.channelIndex);
+            return state;
+        }
+        const { deviceState, channelState, eq } = require('@eh-home/db-schema');
+        const stateRows = await this.db.select().from(deviceState).where(eq(deviceState.deviceId, deviceId)).limit(1);
+        const channelRows = await this.db.select().from(channelState).where(eq(channelState.deviceId, deviceId));
+        if (stateRows.length === 0 && channelRows.length === 0) {
+            return {
+                deviceId,
+                connectionState: 'OFFLINE',
+                lastSeenAt: null,
+                channels: []
+            };
+        }
+        const baseState = stateRows.length > 0 ? stateRows[0] : { connectionState: 'OFFLINE', lastSeenAt: null };
+        return {
+            deviceId,
+            connectionState: baseState.connectionState,
+            lastSeenAt: baseState.lastSeenAt,
+            lastCommandId: baseState.lastCommandId,
+            lastEventId: baseState.lastEventId,
+            channels: channelRows.map((c) => ({
+                channelIndex: c.channelIndex,
+                desiredState: c.desiredState,
+                reportedState: c.reportedState,
+                confidence: c.confidence
+            }))
+        };
+    }
+    async updateChannelState(deviceId, channelIndex, state) {
+        const key = `${deviceId}:${channelIndex}`;
+        if (!this.db || !this.db.insert) {
+            const existing = this.channelStateStore.get(key) || {
+                deviceId,
+                channelIndex,
+                reportedState: {},
+                desiredState: {},
+                confidence: 'UNKNOWN'
+            };
+            if (state.reportedState !== undefined)
+                existing.reportedState = state.reportedState;
+            if (state.desiredState !== undefined)
+                existing.desiredState = state.desiredState;
+            if (state.confidence !== undefined)
+                existing.confidence = state.confidence;
+            this.channelStateStore.set(key, existing);
+            return;
+        }
+        const { channelState, eq, and } = require('@eh-home/db-schema');
+        const existing = await this.db
+            .select()
+            .from(channelState)
+            .where(and(eq(channelState.deviceId, deviceId), eq(channelState.channelIndex, channelIndex)))
+            .limit(1);
+        if (existing.length > 0) {
+            await this.db
+                .update(channelState)
+                .set({
+                reportedState: state.reportedState !== undefined ? state.reportedState : existing[0].reportedState,
+                desiredState: state.desiredState !== undefined ? state.desiredState : existing[0].desiredState,
+                confidence: state.confidence || existing[0].confidence,
+                updatedAt: new Date()
+            })
+                .where(and(eq(channelState.deviceId, deviceId), eq(channelState.channelIndex, channelIndex)));
+        }
+        else {
+            await this.db.insert(channelState).values({
+                id: (0, crypto_1.randomUUID)(),
+                deviceId,
+                channelIndex,
+                reportedState: state.reportedState || {},
+                desiredState: state.desiredState || {},
+                confidence: state.confidence || 'CONFIRMED',
+                updatedAt: new Date()
+            });
+        }
+    }
+    async updateConnectionState(deviceId, connectionState, source = 'MQTT_LWT') {
+        const now = new Date().toISOString();
+        if (!this.db || !this.db.insert) {
+            const state = this.deviceStateStore.get(deviceId) || { deviceId };
+            state.connectionState = connectionState;
+            state.lastSeenAt = now;
+            this.deviceStateStore.set(deviceId, state);
+            this.availabilityHistoryStore.push({
+                id: (0, crypto_1.randomUUID)(),
+                deviceId,
+                status: connectionState,
+                source,
+                recordedAt: now
+            });
+            return;
+        }
+        const { deviceState, deviceAvailabilityHistory, eq } = require('@eh-home/db-schema');
+        const existing = await this.db.select().from(deviceState).where(eq(deviceState.deviceId, deviceId)).limit(1);
+        if (existing.length > 0) {
+            await this.db
+                .update(deviceState)
+                .set({
+                connectionState,
+                lastSeenAt: new Date(),
+                updatedAt: new Date()
+            })
+                .where(eq(deviceState.deviceId, deviceId));
+        }
+        else {
+            await this.db.insert(deviceState).values({
+                deviceId,
+                connectionState,
+                lastSeenAt: new Date(),
+                updatedAt: new Date()
+            });
+        }
+        await this.db.insert(deviceAvailabilityHistory).values({
+            id: (0, crypto_1.randomUUID)(),
+            deviceId,
+            status: connectionState,
+            source,
+            recordedAt: new Date()
+        });
+    }
+    async enqueueOutbox(event) {
+        if (!this.db || !this.db.insert) {
+            this.outboxStore.push({
+                id: (0, crypto_1.randomUUID)(),
+                ...event,
+                status: 'PENDING',
+                createdAt: new Date().toISOString()
+            });
+            return;
+        }
+        const { outbox } = require('@eh-home/db-schema');
+        await this.db.insert(outbox).values({
+            id: (0, crypto_1.randomUUID)(),
+            eventType: event.eventType,
+            aggregateType: 'device',
+            aggregateId: event.aggregateId,
+            payload: event.payload,
+            status: 'PENDING',
+            createdAt: new Date()
+        });
+    }
+}
+exports.DeviceCommandRepository = DeviceCommandRepository;
+//# sourceMappingURL=command.repository.js.map

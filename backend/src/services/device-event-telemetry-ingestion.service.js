@@ -50,7 +50,7 @@ class DeviceEventTelemetryIngestionService {
    * @param {Object}   [opts.healthRepo]     - DeviceHealthRepository instance
    * @param {Object}   [opts.energyService]  - EnergyService instance
    */
-  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null, energyService = null, eventBus = null, deviceRepo = null }) {
+  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null, energyService = null, eventBus = null, deviceRepo = null, redisStateCacheService = null, telemetryBatchWorker = null }) {
     this.deviceStateRepo = deviceStateRepo;
     this.eventRepo       = eventRepo;
     this.commandRepo     = commandRepo;
@@ -61,6 +61,8 @@ class DeviceEventTelemetryIngestionService {
     this.energyService   = energyService;
     this.eventBus        = eventBus;
     this.deviceRepo      = deviceRepo;
+    this.redisStateCacheService = redisStateCacheService;
+    this.telemetryBatchWorker   = telemetryBatchWorker;
     this._telemetryLastSeqByDevice = new Map(); // deviceId -> { channelIndex -> lastSeq }
   }
 
@@ -84,6 +86,21 @@ class DeviceEventTelemetryIngestionService {
     const connectionState = availability === 'ONLINE' ? 'ONLINE' : 'OFFLINE';
 
     try {
+      if (this.deviceRepo) {
+        try {
+          const dev = await this.deviceRepo.getDevice(deviceId);
+          if (!dev) {
+            await this.deviceRepo.registerDevice({
+              deviceId,
+              serialNumber: 'EH-DEV-' + deviceId.substring(0, Math.min(deviceId.length, 8)),
+              productVariantId: 'eh-smart-switch-3x',
+              hardwareRevision: 'ESP32_DEV_BOARD',
+              firmwareFamily: 'eh-smart-switch',
+              firmwareVersion: '1.0.0'
+            });
+          }
+        } catch (_) {}
+      }
       const updated = await this.deviceStateRepo.updateDeviceConnection(deviceId, connectionState);
       if (!updated) {
         // Unknown or unregistered device on broker, ignore
@@ -117,13 +134,22 @@ class DeviceEventTelemetryIngestionService {
             if (auth && auth.home_id) homeId = auth.home_id;
           } catch (_) {}
         }
-        if (homeId) {
+        this.eventBus.publish({
+          homeId: homeId || 'global',
+          type: 'device.availability',
+          payload: { deviceId, status: connectionState }
+        });
+        if (homeId && homeId !== 'global') {
           this.eventBus.publish({
-            homeId,
+            homeId: 'global',
             type: 'device.availability',
             payload: { deviceId, status: connectionState }
           });
         }
+      }
+
+      if (this.redisStateCacheService) {
+        await this.redisStateCacheService.updateDeviceState(deviceId, { online: connectionState === 'ONLINE' });
       }
     } catch (err) {
       console.warn(`[Ingestion] Cannot update availability for ${deviceId}:`, err.message);
@@ -166,7 +192,32 @@ class DeviceEventTelemetryIngestionService {
       return;
     }
 
+    // Anti-spam delta check via Redis cache:
+    // Drop identical duplicate state reports before executing DB updates or WebSocket fanout
+    if (this.redisStateCacheService) {
+      const isDelta = await this.redisStateCacheService.isDelta(stateMsg.deviceId, stateMsg);
+      if (!isDelta) {
+        return; // Zero delta chatter suppressed
+      }
+      await this.redisStateCacheService.updateDeviceState(stateMsg.deviceId, stateMsg);
+    }
+
     try {
+      if (this.deviceRepo) {
+        try {
+          const dev = await this.deviceRepo.getDevice(stateMsg.deviceId);
+          if (!dev) {
+            await this.deviceRepo.registerDevice({
+              deviceId: stateMsg.deviceId,
+              serialNumber: 'EH-DEV-' + stateMsg.deviceId.substring(0, Math.min(stateMsg.deviceId.length, 8)),
+              productVariantId: 'eh-smart-switch-3x',
+              hardwareRevision: 'ESP32_DEV_BOARD',
+              firmwareFamily: 'eh-smart-switch',
+              firmwareVersion: '1.0.0'
+            });
+          }
+        } catch (_) {}
+      }
       // Update connection state to ONLINE (device is publishing — it's live)
       await this.deviceStateRepo.updateDeviceConnection(stateMsg.deviceId, 'ONLINE');
 
@@ -191,9 +242,14 @@ class DeviceEventTelemetryIngestionService {
             if (auth && auth.home_id) homeId = auth.home_id;
           } catch (_) {}
         }
-        if (homeId) {
+        this.eventBus.publish({
+          homeId: homeId || 'global',
+          type: 'device.state',
+          payload: stateMsg
+        });
+        if (homeId && homeId !== 'global') {
           this.eventBus.publish({
-            homeId,
+            homeId: 'global',
             type: 'device.state',
             payload: stateMsg
           });
@@ -295,9 +351,27 @@ class DeviceEventTelemetryIngestionService {
           if (auth && auth.home_id) homeId = auth.home_id;
         } catch (_) {}
       }
-      if (homeId) {
+      const targetChannel = homeId || 'global';
+      this.eventBus.publish({
+        homeId: targetChannel,
+        type: 'device.state',
+        payload: {
+          deviceId: eventMsg.deviceId,
+          channels: [{
+            channelIndex: eventMsg.channelIndex,
+            reportedState: eventMsg.payload,
+            desiredState: eventMsg.payload
+          }]
+        }
+      });
+      this.eventBus.publish({
+        homeId: targetChannel,
+        type: 'device.event',
+        payload: eventMsg
+      });
+      if (homeId && homeId !== 'global') {
         this.eventBus.publish({
-          homeId,
+          homeId: 'global',
           type: 'device.state',
           payload: {
             deviceId: eventMsg.deviceId,
@@ -309,11 +383,18 @@ class DeviceEventTelemetryIngestionService {
           }
         });
         this.eventBus.publish({
-          homeId,
+          homeId: 'global',
           type: 'device.event',
           payload: eventMsg
         });
       }
+    }
+
+    if (this.redisStateCacheService) {
+      await this.redisStateCacheService.updateDeviceState(eventMsg.deviceId, {
+        channelIndex: eventMsg.channelIndex,
+        power: eventMsg.payload?.power
+      });
     }
   }
 

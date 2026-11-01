@@ -54,8 +54,15 @@ class FirmwareReleaseService {
     if (!downloadUrl || typeof downloadUrl !== 'string') {
       return { valid: false, error: 'downloadUrl is required' };
     }
-    if (!downloadUrl.startsWith('https://')) {
-      return { valid: false, error: 'downloadUrl must use secure HTTPS protocol' };
+    const isHttps = downloadUrl.startsWith('https://');
+    const isLocalHttp = downloadUrl.startsWith('http://localhost') ||
+      downloadUrl.startsWith('http://127.0.0.1') ||
+      downloadUrl.startsWith('http://192.168.') ||
+      downloadUrl.startsWith('http://10.') ||
+      /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\./.test(downloadUrl);
+
+    if (!isHttps && !isLocalHttp) {
+      return { valid: false, error: 'downloadUrl must use secure HTTPS protocol (or local private subnet HTTP for local development)' };
     }
     if (!manifest.sha256 || typeof manifest.sha256 !== 'string' || manifest.sha256.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(manifest.sha256)) {
       return { valid: false, error: 'sha256 must be a 64-character hexadecimal SHA-256 hash' };

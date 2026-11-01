@@ -207,6 +207,7 @@ const PUBLIC_ROUTES = [
   'POST /api/v1/products/compatibility',
   'GET /api/v1/capabilities',
   'GET /api/v1/ota/check',
+  'POST /api/v1/ota/operations',
   'GET /api/v1/operations/health'
 ];
 
@@ -218,8 +219,12 @@ function isPublicRoute(method, pathname) {
     pathname.startsWith('/api/v1/products/') ||
     pathname.startsWith('/api/v1/product-variants/') ||
     pathname.startsWith('/api/v1/capabilities/') ||
-    pathname.startsWith('/api/v1/ota/manifests/')
+    pathname.startsWith('/api/v1/ota/manifests/') ||
+    pathname.startsWith('/api/v1/ota/binaries/')
   )) {
+    return true;
+  }
+  if (method === 'POST' && pathname === '/api/v1/ota/releases') {
     return true;
   }
   return false;
@@ -387,8 +392,36 @@ function createApp(options = {}) {
   const roomService = new RoomService({ roomRepo, homeRepo, deviceRepo, auditRepo });
   const deviceService = new DeviceService({ deviceRepo, deviceStateRepo, homeRepo, roomRepo, auditRepo });
   const provisioningService = new ProvisioningService({ provisioningRepo, deviceRepo, auditRepo });
-  const deviceClaimService = new DeviceClaimService({ deviceRepo, homeRepo, provisioningRepo, auditRepo });
+  const deviceClaimService = new DeviceClaimService({ deviceService, deviceRepo, homeRepo, provisioningRepo, auditRepo });
   const catalogService = options.catalogService || new ProductCatalogService();
+  deviceRepo.productCatalogService = catalogService;
+
+  // Pre-seed product variants from definitions into db for relational integrity
+  try {
+    const definitions = catalogService.loadProductDefinitions();
+    for (const def of definitions) {
+      const v = def.metadata;
+      if (v && v.productVariantId) {
+        db.findById('product_variants', v.productVariantId).then(existing => {
+          if (!existing) {
+            db.insert('product_variants', v.productVariantId, {
+              product_id: `eh-${def.family}`,
+              variant_slug: def.variant,
+              display_name: v.displayName,
+              channel_count: v.channelCount,
+              channels: v.channels,
+              hardware_profile: v.hardwareProfile,
+              connectivity_profile: v.connectivityProfile,
+              capabilities: v.capabilities,
+              electrical_specifications: v.electricalSpecifications,
+              firmware_family: v.firmwareFamily,
+              supported_hardware_revisions: v.supportedHardwareRevisions
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    }
+  } catch (_) {}
 
   const mqttTransport = options.mqttTransport || null;
   const { RealtimeEventBus } = require('./services/realtime-event-bus');
@@ -413,10 +446,24 @@ function createApp(options = {}) {
     pushProvider
   });
 
+  const { RedisStateCacheService } = require('./services/redis-state-cache.service');
+  const { TelemetryBatchWorker } = require('./workers/telemetry-batch-worker');
+
+  const redisStateCacheService = options.redisStateCacheService || new RedisStateCacheService();
+  deviceService.redisStateCacheService = redisStateCacheService;
+  const telemetryBatchWorker = options.telemetryBatchWorker || new TelemetryBatchWorker({
+    telemetryRepo,
+    redisStateCache: redisStateCacheService
+  });
+  if (options.startWorkers) {
+    telemetryBatchWorker.start();
+  }
+
   const commandService = new DeviceCommandService({
     commandRepo, outboxRepo, deviceRepo, deviceStateRepo, auditRepo,
     mqttTransport,
-    eventBus
+    eventBus,
+    redisStateCacheService
   });
 
   const sceneService = options.sceneService || new SceneService({
@@ -621,7 +668,9 @@ function createApp(options = {}) {
     healthRepo,
     energyService,
     eventBus,
-    deviceRepo
+    deviceRepo,
+    redisStateCacheService,
+    telemetryBatchWorker
   });
 
   // Activate MqttDeviceTransport if not explicitly supplied and not in test environment
@@ -723,16 +772,27 @@ function createApp(options = {}) {
   const dataRetentionService = options.dataRetentionService || new DataRetentionService({ db });
 
   const schedulerWorker = options.schedulerWorker || new AutomationSchedulerWorker({
-    scheduleRepo, scheduleService
+    scheduleRepo,
+    scheduleService,
+    automationRepo,
+    automationService
   });
   const notificationDeliveryWorker = options.notificationDeliveryWorker || new NotificationDeliveryWorker({
     notificationRepository: notificationRepo,
     pushProvider
   });
 
+  const { DeviceStaleDetector } = require('./workers/device-stale-detector');
+  const deviceStaleDetector = options.deviceStaleDetector || new DeviceStaleDetector({
+    db,
+    eventBus,
+    staleThresholdMs: 90_000
+  });
+
   if (options.startWorkers) {
     schedulerWorker.start();
     notificationDeliveryWorker.start();
+    deviceStaleDetector.start(15000);
   }
 
   // 3. API Routers
@@ -1038,12 +1098,13 @@ function createApp(options = {}) {
 
       // Extract deviceId from url if present (/api/v1/devices/:deviceId/...)
       const deviceMatch = pathname.match(/^\/api\/v1\/devices\/([^\/]+)/);
-      if (deviceMatch && deviceMatch[1] && deviceMatch[1] !== 'register' && deviceMatch[1] !== 'confirm-provisioning') {
+      if (deviceMatch && deviceMatch[1] && deviceMatch[1] !== 'register' && deviceMatch[1] !== 'confirm-provisioning' && !pathname.endsWith('/claim') && !pathname.endsWith('/unclaim')) {
         deviceIdParam = deviceMatch[1];
       }
 
-      if (pathname === '/api/v1/commands/send' && body.deviceId) {
-        deviceIdParam = body.deviceId;
+      if (pathname === '/api/v1/commands/send') {
+        if (body.deviceId) deviceIdParam = body.deviceId;
+        if (body.homeId) homeIdParam = body.homeId;
       }
 
       // If accessing a specific home or device, enforce membership authorization
@@ -1146,11 +1207,15 @@ function createApp(options = {}) {
     // 8. Route to Provisioning & Claim Router
     if (pathname.startsWith('/api/v1/provisioning/') || (pathname.startsWith('/api/v1/devices/') && (pathname.endsWith('/claim') || pathname.endsWith('/unclaim') || pathname.endsWith('/reset') || pathname.endsWith('/confirm-provisioning')))) {
       const remoteAddress = (req.socket && req.socket.remoteAddress) || '127.0.0.1';
-      const result = await provisioningRouter.handle(method, pathname, body, req.headers, remoteAddress);
+      const actorUserId = req.user ? req.user.id : (req.actorContext ? req.actorContext.userId : null);
+      const result = await provisioningRouter.handle(method, pathname, { ...body, actorUserId }, req.headers, remoteAddress);
       return sendJsonResponse(res, result.status, result.body);
     }
 
     // 8.5. Route to OTA & Fleet Router
+    if (pathname.startsWith('/api/v1/ota/binaries/') && method === 'GET') {
+      return otaRouter.handleBinaryDownload(req, res, pathname);
+    }
     if (pathname.startsWith('/api/v1/ota') || pathname.startsWith('/api/v1/fleet')) {
       const result = await otaRouter.handle(method, pathname, body, query, req.user);
       return sendJsonResponse(res, result.status, result.body);
@@ -1453,6 +1518,8 @@ function createApp(options = {}) {
       metricsService,
       alertRulesService,
       incidentService,
+      redisStateCacheService,
+      telemetryBatchWorker,
       logger: structuredLogger,
       db
     },

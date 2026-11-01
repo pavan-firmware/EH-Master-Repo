@@ -76,7 +76,7 @@ void main() {
 
       expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Version 1.0.0'), findsOneWidget);
-      expect(find.text('1 issue'), findsOneWidget);
+      expect(find.text('Healthy'), findsOneWidget);
 
       await _tapSettingsRow(tester, 'Connect your home');
       expect(find.text('Your home is connected'), findsOneWidget);
@@ -136,10 +136,10 @@ void main() {
 
       await tester.pageBack();
       await tester.pumpAndSettle();
-      await _tapSettingsRow(tester, 'Home details');
-      expect(find.textContaining('Created Aug 12, 2026'), findsOneWidget);
+      await _tapSettingsRow(tester, 'Cloud sync & backup center');
+      expect(find.text('Cloud Sync & Backup Center'), findsOneWidget);
 
-      await tester.pageBack();
+      await tester.tap(find.byIcon(Icons.close_rounded));
       await tester.pumpAndSettle();
       await _tapSettingsRow(tester, 'Add a room device');
       expect(find.text('Nearby devices'), findsOneWidget);

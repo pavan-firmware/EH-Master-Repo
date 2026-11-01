@@ -124,28 +124,106 @@ def generate_html_qr(payload: str, output_path: str = "dev_qr_preview.html"):
     print(f"         file:///{abs_path.replace(os.sep, '/')}")
     return abs_path
 
+import webbrowser
+try:
+    import serial
+    HAVE_SERIAL = True
+except ImportError:
+    serial = None
+    HAVE_SERIAL = False
+
+def print_terminal_qr(payload: str):
+    """Prints a high-contrast ASCII QR code directly to the terminal."""
+    try:
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=1,
+            border=1,
+        )
+        qr.add_data(payload)
+        qr.make(fit=True)
+        print("\n" + "=" * 50)
+        print("   SCAN THIS QR WITH EH HOME MOBILE APP:")
+        print("=" * 50 + "\n")
+        qr.print_ascii(invert=True)
+        print("=" * 50 + "\n")
+    except Exception as e:
+        pass
+
+def capture_qr_from_port(port: str, baud: int = 115200, timeout_sec: float = 3.5) -> str:
+    """Resets ESP32 on specified serial port and captures DEV_COMMISSIONING_QR from boot output."""
+    if not HAVE_SERIAL or serial is None:
+        raise RuntimeError("pyserial is required to capture from port. Run: pip install pyserial")
+    
+    print(f"\n[QR_CAPTURE] Connecting to {port} @ {baud} baud...")
+    ser = serial.Serial(port, baud, timeout=0.1)
+    try:
+        # Hardware auto-reset pulse sequence
+        ser.setDTR(False)
+        ser.setRTS(True)
+        import time
+        time.sleep(0.1)
+        ser.setRTS(False)
+        time.sleep(0.1)
+        ser.setDTR(True)
+        time.sleep(0.05)
+        ser.setDTR(False)
+
+        print(f"[QR_CAPTURE] Reset ESP32. Waiting for bootloader & factory identity...")
+        start_time = time.time()
+        buffer = ""
+        while time.time() - start_time < timeout_sec:
+            chunk = ser.read(512)
+            if chunk:
+                buffer += chunk.decode("utf-8", errors="replace")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip()
+                    if "DEV_COMMISSIONING_QR:" in line:
+                        match = re.search(r'(EH1:[a-zA-Z0-9\-]+:[a-zA-Z0-9\-]+:[a-fA-F0-9]+:[0-9]+)', line)
+                        if match:
+                            ser.close()
+                            return match.group(1)
+            time.sleep(0.02)
+    finally:
+        if ser.is_open:
+            ser.close()
+    return None
+
 def main():
     parser = argparse.ArgumentParser(description="Generate EH1 QR code for EH Home devices")
     parser.add_argument("raw_input", nargs="?", default=None, help="Raw DEV_COMMISSIONING_QR line or EH1: payload")
+    parser.add_argument("--port", default=None, help="COM port of connected ESP32 (e.g. COM6) to capture QR on boot")
     parser.add_argument("--payload", default=None, help="Full canonical EH1:... payload string")
     parser.add_argument("--device-id", default="4444688e-989d-458e-820e-ac62a99ed8e1", help="Device UUID v4")
     parser.add_argument("--variant", default="eh-smart-switch-3x", help="Product variant ID")
     parser.add_argument("--secret", default=None, help="64-character hex commissioning secret")
     parser.add_argument("--pin", default="123456", help="6-digit setup PIN code")
-    parser.add_argument("--out-html", default="dev_qr_preview.html", help="Output HTML filepath")
+    parser.add_argument("--out-html", default=None, help="Output HTML filepath")
+    parser.add_argument("--ascii", action="store_true", help="Print ASCII QR code directly to terminal")
+    parser.add_argument("--open", action="store_true", help="Automatically open generated HTML preview in browser")
 
     args = parser.parse_args()
 
     payload = None
 
-    # Check raw positional input or --payload
-    raw = args.raw_input or args.payload
-    if raw:
-        match = re.search(r'(EH1:[a-zA-Z0-9\-]+:[a-zA-Z0-9\-]+:[a-fA-F0-9]+:[0-9]+)', raw)
-        if match:
-            payload = match.group(1)
-        elif raw.startswith("EH1:"):
-            payload = raw.strip()
+    if args.port:
+        captured = capture_qr_from_port(args.port)
+        if captured:
+            payload = captured
+            print(f"[QR_CAPTURE] Successfully captured live payload from {args.port}!")
+        else:
+            print(f"[QR_CAPTURE] WARNING: No DEV_COMMISSIONING_QR detected on {args.port} within timeout.")
+
+    if not payload:
+        raw = args.raw_input or args.payload
+        if raw:
+            match = re.search(r'(EH1:[a-zA-Z0-9\-]+:[a-zA-Z0-9\-]+:[a-fA-F0-9]+:[0-9]+)', raw)
+            if match:
+                payload = match.group(1)
+            elif raw.startswith("EH1:"):
+                payload = raw.strip()
 
     if not payload and args.secret:
         payload = f"EH1:{args.device_id}:{args.variant}:{args.secret.strip()}:{args.pin}"
@@ -153,9 +231,22 @@ def main():
     if not payload:
         payload = "EH1:4444688e-989d-458e-820e-ac62a99ed8e1:eh-smart-switch-3x:61a58854c26cfd0199d35904b01e8531ffc0926f0ea14f30ef1568106c7fca20:123456"
 
-    print(f"\n[QR_GEN] Canonical Payload: {payload}")
-    html_path = generate_html_qr(payload, args.out_html)
-    print(f"[QR_GEN] Done.\n")
+    print(f"\n[QR_GEN] Canonical Payload:\n  {payload}\n")
+
+    # Output HTML
+    html_target = args.out_html or os.path.join(os.path.dirname(os.path.abspath(__file__)), "dev_qr_preview.html")
+    html_path = generate_html_qr(payload, html_target)
+
+    # ASCII Terminal QR
+    if args.ascii or args.port:
+        print_terminal_qr(payload)
+
+    # Auto-open browser
+    if args.open or args.port:
+        print("[QR_GEN] Opening QR Code preview in your default browser...")
+        webbrowser.open(f"file:///{html_path.replace(os.sep, '/')}")
+
+    print(f"[QR_GEN] Ready for phone scanning.\n")
 
 if __name__ == "__main__":
     main()

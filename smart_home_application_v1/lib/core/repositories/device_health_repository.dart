@@ -135,7 +135,7 @@ class PreviewDeviceHealthRepository implements DeviceHealthRepository {
 
   @override
   Future<HomeHealthSummary> getSummary() async {
-    const attention = 1;
+    const attention = 0;
     const online = 8;
     return HomeHealthSummary(
       overall: HomeHealthOverall.healthy,

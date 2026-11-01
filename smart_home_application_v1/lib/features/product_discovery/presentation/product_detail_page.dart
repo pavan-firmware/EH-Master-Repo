@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/product_catalog_models.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
 import 'compatibility_result_widget.dart';
 
 /// Rich, dynamic product detail screen driven entirely by catalog metadata.
@@ -108,18 +109,12 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               ),
               child: Column(
                 children: [
-                  Container(
-                    width: 90,
-                    height: 90,
-                    decoration: BoxDecoration(
-                      color: tokens.iconBgBlue,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Icon(
-                      Icons.settings_input_component_rounded,
-                      size: 48,
-                      color: tokens.bluePrimary,
-                    ),
+                  ProductImageWidget(
+                    imageUrl: product.imageUrl,
+                    size: 90,
+                    borderRadius: BorderRadius.circular(24),
+                    fallbackIcon: Icons.settings_input_component_rounded,
+                    placeholderColor: tokens.iconBgBlue,
                   ),
                   const SizedBox(height: 16),
                   Text(

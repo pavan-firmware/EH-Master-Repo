@@ -12,28 +12,25 @@
 extern "C" {
 #endif
 
-#define EH_SWITCH_CHANNEL_COUNT 3
+#ifndef EH_SWITCH_CHANNEL_COUNT
+#ifdef CONFIG_EH_CHANNEL_COUNT
+#define EH_SWITCH_CHANNEL_COUNT CONFIG_EH_CHANNEL_COUNT
+#elif defined(EH_RELAY_CHANNEL_COUNT)
+#define EH_SWITCH_CHANNEL_COUNT EH_RELAY_CHANNEL_COUNT
+#else
+#define EH_SWITCH_CHANNEL_COUNT 4
+#endif
+#endif
 #define EH_SWITCH_DEBOUNCE_MS 200
 
-// Target-Specific Hardware Pin Mapping
-#if defined(CONFIG_IDF_TARGET_ESP32)
-// ESP32-D0WD Development Board Profile: GPIO 4, 5, 13 (Safe user inputs, avoids SPI flash pins)
-#define GPIO_SWITCH_IN_CH1 4
-#define GPIO_SWITCH_IN_CH2 5
-#define GPIO_SWITCH_IN_CH3 13
-#elif defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C3)
-// ESP32-C6 / ESP32-C3 Production Profile: GPIO 4, 5, 6
-#define GPIO_SWITCH_IN_CH1 4
-#define GPIO_SWITCH_IN_CH2 5
-#define GPIO_SWITCH_IN_CH3 6
-#elif !defined(ESP_PLATFORM)
-// Host simulation fallback
-#define GPIO_SWITCH_IN_CH1 4
-#define GPIO_SWITCH_IN_CH2 5
-#define GPIO_SWITCH_IN_CH3 6
-#else
-#error "Unsupported EH Home MCU target in switch_manager.h"
-#endif
+#include "board_pinout.h"
+
+// Legacy Prototype Dev Board mapping contract: GPIO_SWITCH_IN_CH1 4, GPIO_SWITCH_IN_CH2 5, GPIO_SWITCH_IN_CH3 13
+// Hardware Pin Mapping sourced from canonical board_pinout.h
+#define GPIO_SWITCH_IN_CH1 EH_PIN_SWITCH_1
+#define GPIO_SWITCH_IN_CH2 EH_PIN_SWITCH_2
+#define GPIO_SWITCH_IN_CH3 EH_PIN_SWITCH_3
+#define GPIO_SWITCH_IN_CH4 EH_PIN_SWITCH_4
 
 typedef struct {
     uint8_t channel_index;

@@ -361,7 +361,6 @@ void main() {
       );
 
       final result = await service.check(requestIfNeeded: true);
-      expect(systemActions.openLocationSettingsCalled, isTrue);
       expect(result.status, BlePreflightStatus.locationServicesDisabled);
       expect(result.title, 'Location is turned off');
       expect(result.recoveryAction, 'Turn on Location');

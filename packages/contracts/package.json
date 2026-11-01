@@ -1,0 +1,20 @@
+{
+  "name": "@eh-home/contracts",
+  "version": "1.0.0",
+  "description": "EH Home Canonical Protocol, Telemetry, and Capability Contracts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/contract-test.js && node tests/zod-contract.test.js"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
+  }
+}

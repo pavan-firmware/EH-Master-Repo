@@ -12,37 +12,30 @@
 extern "C" {
 #endif
 
-#define EH_RELAY_CHANNEL_COUNT 3
+#ifndef EH_RELAY_CHANNEL_COUNT
+#ifdef CONFIG_EH_CHANNEL_COUNT
+#define EH_RELAY_CHANNEL_COUNT CONFIG_EH_CHANNEL_COUNT
+#else
+#define EH_RELAY_CHANNEL_COUNT 4
+#endif
+#endif
+
+#include "board_pinout.h"
 
 // Relay Module Trigger Logic:
-// Standard optocoupler 5V relay modules are Active LOW (0 = Relay ON, 1 = Relay OFF)
+// 0 for Active-LOW optocoupler relay modules (Standard multi-channel relay modules: LOW = ON, HIGH = OFF)
+// Configurable trigger logic (Active-HIGH reference: #define EH_RELAY_ACTIVE_LEVEL 1)
+#ifndef EH_RELAY_ACTIVE_LEVEL
 #define EH_RELAY_ACTIVE_LEVEL 0
+#endif
 #define EH_RELAY_POWER_TO_LEVEL(pwr) ((pwr) ? EH_RELAY_ACTIVE_LEVEL : (!EH_RELAY_ACTIVE_LEVEL))
 
-// Target-Specific Hardware Pin Mapping
-#if defined(CONFIG_IDF_TARGET_ESP32)
-// ESP32-D0WD Development Board Profile: GPIO 18, 19, 21
-#define GPIO_RELAY_CH1 18
-#define GPIO_RELAY_CH2 19
-#define GPIO_RELAY_CH3 21
-#elif defined(CONFIG_IDF_TARGET_ESP32C6)
-// ESP32-C6 Production Profile: GPIO 18, 19, 20
-#define GPIO_RELAY_CH1 18
-#define GPIO_RELAY_CH2 19
-#define GPIO_RELAY_CH3 20
-#elif defined(CONFIG_IDF_TARGET_ESP32C3)
-// ESP32-C3 Production Profile: GPIO 18, 19, 10 (GPIO 10 avoids UART0 RX collision on GPIO 20)
-#define GPIO_RELAY_CH1 18
-#define GPIO_RELAY_CH2 19
-#define GPIO_RELAY_CH3 10
-#elif !defined(ESP_PLATFORM)
-// Host simulation fallback
-#define GPIO_RELAY_CH1 18
-#define GPIO_RELAY_CH2 19
-#define GPIO_RELAY_CH3 20
-#else
-#error "Unsupported EH Home MCU target in relay_manager.h"
-#endif
+// Legacy Prototype Dev Board mapping contract: GPIO_RELAY_CH1 18, GPIO_RELAY_CH2 19, GPIO_RELAY_CH3 21
+// Hardware Pin Mapping sourced from canonical board_pinout.h
+#define GPIO_RELAY_CH1 EH_PIN_RELAY_1
+#define GPIO_RELAY_CH2 EH_PIN_RELAY_2
+#define GPIO_RELAY_CH3 EH_PIN_RELAY_3
+#define GPIO_RELAY_CH4 EH_PIN_RELAY_4
 
 typedef void (*relay_state_change_cb_t)(uint8_t channel_index, bool new_power, const char* source);
 

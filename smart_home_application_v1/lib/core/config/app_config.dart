@@ -6,7 +6,7 @@ import '../services/device_storage_service.dart';
 /// 1. Runtime override via [setBaseUrl] (for tests / explicit runtime configuration)
 /// 2. Persisted custom backend URL in [DeviceStorageService]
 /// 3. Compile-time `--dart-define=BACKEND_BASE_URL=http://...`
-/// 4. Local network production default (http://192.168.55.103:3000)
+/// 4. Local network production default (http://192.168.0.227:3000)
 class AppConfig {
   AppConfig._();
 
@@ -30,13 +30,16 @@ class AppConfig {
 
     final stored = DeviceStorageService.backendUrl;
     if (stored != null && stored.trim().isNotEmpty) {
-      return stored.trim();
+      final s = stored.trim();
+      if (!s.contains('localhost') && !s.contains('127.0.0.1')) {
+        return s;
+      }
     }
 
     if (_definedBaseUrl.isNotEmpty) {
       return _definedBaseUrl;
     }
 
-    return 'http://192.168.55.103:3000';
+    return 'http://192.168.0.227:3000';
   }
 }

@@ -34,25 +34,45 @@ function test(name, fn) {
 // ---------------------------------------------------------------------------
 // 1. Canonical ESP32 Development Board Pin Map Invariant Check
 // ---------------------------------------------------------------------------
-test('HW01: Canonical ESP32 Dev-Board Pin Map Invariants in C Headers', () => {
+test('HW01: Canonical ESP32 and ESP32-C6 Datasheet-Verified Safe Pin Map Invariants', () => {
+  const pinoutH = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/board_pinout.h'), 'utf8');
+
+  // ESP32-D0WD-V3 Target Invariants
+  assert(pinoutH.includes('#define EH_PIN_RELAY_1 18'), 'Relay 1 must be GPIO 18 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_RELAY_2 19'), 'Relay 2 must be GPIO 19 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_RELAY_3 21'), 'Relay 3 must be GPIO 21 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_RELAY_4 22'), 'Relay 4 must be GPIO 22 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_1 23'), 'Switch 1 must be GPIO 23 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_2 25'), 'Switch 2 must be GPIO 25 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_3 26'), 'Switch 3 must be GPIO 26 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_4 27'), 'Switch 4 must be GPIO 27 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_BL0942_TX 17'), 'BL0942 TX must be GPIO 17 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_BL0942_RX 16'), 'BL0942 RX must be GPIO 16 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_BUTTON_RESET           33'), 'Primary Reset button must be GPIO 33 on ESP32');
+  assert(pinoutH.includes('#define EH_PIN_STATUS_LED             13'), 'Primary Status LED must be GPIO 13 on ESP32');
+
+  // ESP32-C6-WROOM-1 Target Invariants
+  assert(pinoutH.includes('#define EH_PIN_RELAY_1 0'), 'Relay 1 must be GPIO 0 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_RELAY_2 1'), 'Relay 2 must be GPIO 1 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_RELAY_3 2'), 'Relay 3 must be GPIO 2 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_RELAY_4 3'), 'Relay 4 must be GPIO 3 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_1 18'), 'Switch 1 must be GPIO 18 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_2 19'), 'Switch 2 must be GPIO 19 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_3 20'), 'Switch 3 must be GPIO 20 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_SWITCH_4 21'), 'Switch 4 must be GPIO 21 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_BL0942_TX 6'), 'BL0942 TX must be GPIO 6 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_BL0942_RX 7'), 'BL0942 RX must be GPIO 7 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_BUTTON_RESET 10'), 'Reset button must be GPIO 10 on ESP32-C6');
+  assert(pinoutH.includes('#define EH_PIN_STATUS_LED 22'), 'Status LED must be GPIO 22 on ESP32-C6');
+
+  // Zero-Chatter Pre-Bias & Header Inclusion Invariants
   const relayH = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/relay_manager.h'), 'utf8');
-  assert(relayH.includes('#define GPIO_RELAY_CH1 18'), 'Relay CH1 must be GPIO 18 on ESP32');
-  assert(relayH.includes('#define GPIO_RELAY_CH2 19'), 'Relay CH2 must be GPIO 19 on ESP32');
-  assert(relayH.includes('#define GPIO_RELAY_CH3 21'), 'Relay CH3 must be GPIO 21 on ESP32');
-
-  const switchH = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/switch_manager.h'), 'utf8');
-  assert(switchH.includes('#define GPIO_SWITCH_IN_CH1 4'), 'Switch CH1 must be GPIO 4 on ESP32');
-  assert(switchH.includes('#define GPIO_SWITCH_IN_CH2 5'), 'Switch CH2 must be GPIO 5 on ESP32');
-  assert(switchH.includes('#define GPIO_SWITCH_IN_CH3 13'), 'Switch CH3 must be GPIO 13 on ESP32');
-
-  const telemetryC = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/telemetry_manager.c'), 'utf8');
-  assert(telemetryC.includes('uart_set_pin(BL0942_UART_PORT, 17, 16,'), 'BL0942 UART1 must use TX=17, RX=16 on ESP32 dev board');
-
-  const statusLedH = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/status_led.h'), 'utf8');
-  assert(statusLedH.includes('#define GPIO_STATUS_LED 2'), 'Status LED must map to GPIO 2 on ESP32 dev board');
+  assert(relayH.includes('#define EH_RELAY_ACTIVE_LEVEL 0') || relayH.includes('#define EH_RELAY_ACTIVE_LEVEL 1'), 'Relay active level must be defined');
+  const relayC = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/relay_manager.c'), 'utf8');
+  assert(relayC.includes('gpio_set_pull_mode'), 'Relay init must call gpio_set_pull_mode for pre-bias');
+  assert(relayC.includes('gpio_set_direction(pin, GPIO_MODE_OUTPUT)'), 'Relay init must enable output direction after level set');
 
   const resetBtnH = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/reset_button.h'), 'utf8');
-  assert(resetBtnH.includes('#define GPIO_RESET_BUTTON 0'), 'Reset Button must map to GPIO 0 on ESP32 dev board');
   assert(resetBtnH.includes('#define FACTORY_RESET_HOLD_MS 10000'), 'Factory reset must require >= 10,000 ms hold');
 });
 
@@ -287,6 +307,37 @@ test('HW08: Hardware Safety Boundary & Bench Classification Invariants', () => {
   assert.strictEqual(boundaries.LOW_VOLTAGE_BENCH_TESTING, 'ALLOWED');
   assert.strictEqual(boundaries.HIGH_VOLTAGE_MAINS_AC, 'PROHIBITED');
   assert.strictEqual(boundaries.PHYSICAL_BL0942_ABSENT, 'BENCH BOUNDARY: NOT RUN');
+});
+
+// ---------------------------------------------------------------------------
+// 8. Edge Routine Engine & Wear-Leveling Write-Cycle Management
+// ---------------------------------------------------------------------------
+test('HW09: On-Chip Edge Routine Engine Invariants & Wear-Leveling Flash Protection', () => {
+  const engineH = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/edge_routine_engine.h'), 'utf8');
+  assert(engineH.includes('MAX_EDGE_ROUTINES'), 'Engine must define MAX_EDGE_ROUTINES');
+  assert(engineH.includes('edge_routine_engine_emergency_stop'), 'Engine must export emergency stop');
+  assert(engineH.includes('edge_routine_engine_upsert_routine'), 'Engine must export upsert routine');
+
+  const engineC = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/edge_routine_engine.c'), 'utf8');
+  assert(engineC.includes('save_table_to_nvs_wear_leveled'), 'Engine must implement wear-leveled flash commit');
+  assert(engineC.includes('memcmp'), 'Wear-leveling must perform dirty checking before flash write');
+  assert(engineC.includes('eh_routines'), 'Engine must use eh_routines NVS namespace');
+});
+
+// ---------------------------------------------------------------------------
+// 9. Dual Emergency Stop Invariants (Office MQTT & Home Physical/LAN)
+// ---------------------------------------------------------------------------
+test('HW10: Dual Emergency Stop Wire-Up (Office Cloud MQTT + Home Physical Switch / LAN)', () => {
+  const mainC = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/main.c'), 'utf8');
+  assert(mainC.includes('on_physical_switch_toggled'), 'Physical switch toggle handler present');
+  assert(mainC.includes('edge_routine_engine_emergency_stop(channel_index, "PHYSICAL_SWITCH")'),
+    'Local tactile wall switch toggle must disarm active edge routine timer immediately');
+  assert(mainC.includes('emergencyStop'), 'MQTT emergencyStop action supported');
+  assert(mainC.includes('stopRoutine'), 'MQTT stopRoutine action supported');
+
+  const localServerC = fs.readFileSync(path.join(__dirname, '../platforms/esp32/smart-switch-app/main/local_server.c'), 'utf8');
+  assert(localServerC.includes('/api/v1/routines/stop'), 'Local LAN HTTP emergency stop endpoint registered');
+  assert(localServerC.includes('edge_routine_engine_emergency_stop'), 'Local HTTP control off must trigger emergency stop');
 });
 
 console.log(`\n================================================================`);

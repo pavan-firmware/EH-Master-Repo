@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../ble/ble_commissioning_channel.dart';
 import '../crypto/eh_prov1_crypto.dart';
 import '../models/onboarding_models.dart';
@@ -545,6 +546,19 @@ class DefaultOnboardingService implements OnboardingService {
         }
         await Future<void>.delayed(const Duration(milliseconds: 1500));
       }
+
+      // LAN fallback check: if device joined Wi-Fi, verify via local network
+      try {
+        final lanState = await LocalLanDeviceService.instance.fetchLocalDeviceState(deviceId: deviceId);
+        if (lanState != null) {
+          debugPrint('[PROV] Device verified active on LAN via fallback check!');
+          return OnboardingProgress(
+            stepState: OnboardingStepState.complete,
+            sessionId: session?.sessionId ?? '',
+            session: session,
+          );
+        }
+      } catch (_) {}
 
       return OnboardingProgress(
         stepState: OnboardingStepState.failed,

@@ -1,5 +1,7 @@
 import '../models/connection_models.dart';
 import '../models/device_models.dart';
+import '../../app/home_controller.dart';
+import '../services/device_storage_service.dart';
 
 abstract interface class HomeConnectionRepository {
   Future<HomeConnectionOverview> getOverview({HomeConnectionState? liveState});
@@ -11,18 +13,28 @@ class RealHomeConnectionRepository implements HomeConnectionRepository {
     this.primaryDevice,
     this.wifiSsid,
     this.onRefresh,
+    this.forceCommissioningMode = false,
   });
 
   final ConnectedDeviceSummary? primaryDevice;
   final String? wifiSsid;
   final Future<void> Function()? onRefresh;
+  final bool forceCommissioningMode;
 
   @override
   Future<HomeConnectionOverview> getOverview({
     HomeConnectionState? liveState,
   }) async {
-    final state = liveState ?? HomeConnectionState.notConfigured;
-    if (state == HomeConnectionState.connected && primaryDevice != null) {
+    final effectiveDevice = forceCommissioningMode
+        ? null
+        : (primaryDevice ?? HomeController.instance?.connectedDeviceSummary ?? DeviceStorageService.primaryDevice);
+    final ctrl = HomeController.instance;
+    final isOnline = !forceCommissioningMode && ((ctrl?.devices.any((d) => d.online) ?? false) || (effectiveDevice?.online ?? false));
+    final state = (effectiveDevice != null && isOnline)
+        ? HomeConnectionState.connected
+        : (liveState ?? (effectiveDevice != null ? HomeConnectionState.offline : HomeConnectionState.notConfigured));
+
+    if (state == HomeConnectionState.connected && effectiveDevice != null) {
       return HomeConnectionOverview(
         overall: HomeConnectionState.connected,
         title: 'Your home is connected',

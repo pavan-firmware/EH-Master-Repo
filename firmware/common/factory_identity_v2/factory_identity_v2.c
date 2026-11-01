@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -15,8 +16,70 @@
 #define KEY_CERT_FP "cert_fp"
 #define KEY_IS_DEV "is_dev"
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#include "esp_mac.h"
+#endif
+
+#ifndef EH_PRODUCT_TYPE
+#ifdef CONFIG_EH_PRODUCT_TYPE
+#define EH_PRODUCT_TYPE CONFIG_EH_PRODUCT_TYPE
+#else
+#define EH_PRODUCT_TYPE "SMART_SWITCH"
+#endif
+#endif
+
+#ifndef EH_PRODUCT_VARIANT
+#ifdef CONFIG_EH_PRODUCT_VARIANT
+#define EH_PRODUCT_VARIANT CONFIG_EH_PRODUCT_VARIANT
+#else
+#define EH_PRODUCT_VARIANT "4X"
+#endif
+#endif
+
 static const char *TAG = "factory_identity_v2";
 static factory_identity_v2_t s_identity;
+
+static char s_override_prod_type[32] = {0};
+static char s_override_variant[16] = {0};
+
+void factory_identity_v2_set_product_meta(const char *product_type, const char *variant)
+{
+    if (product_type && product_type[0]) {
+        strncpy(s_override_prod_type, product_type, sizeof(s_override_prod_type) - 1);
+        s_override_prod_type[sizeof(s_override_prod_type) - 1] = '\0';
+    }
+    if (variant && variant[0]) {
+        strncpy(s_override_variant, variant, sizeof(s_override_variant) - 1);
+        s_override_variant[sizeof(s_override_variant) - 1] = '\0';
+    }
+}
+
+static const char *get_active_prod_type(void)
+{
+    return s_override_prod_type[0] ? s_override_prod_type : EH_PRODUCT_TYPE;
+}
+
+static const char *get_active_variant(void)
+{
+    return s_override_variant[0] ? s_override_variant : EH_PRODUCT_VARIANT;
+}
+
+const char *factory_identity_v2_get_variant(void)
+{
+    return get_active_variant();
+}
+
+const char *factory_identity_v2_get_product_type(void)
+{
+    return get_active_prod_type();
+}
+
+static bool is_socket_product(void)
+{
+    const char *pt = get_active_prod_type();
+    return (strcmp(pt, "SMART_SOCKET") == 0 || strcmp(pt, "socket") == 0 || strstr(pt, "SOCKET") != NULL);
+}
 
 static void generate_canonical_uuid(char *out_uuid, size_t len)
 {
@@ -25,7 +88,6 @@ static void generate_canonical_uuid(char *out_uuid, size_t len)
     // Set UUID v4 variant/version bits
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
-
     snprintf(out_uuid, len,
              "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
              b[0], b[1], b[2], b[3],
@@ -33,6 +95,21 @@ static void generate_canonical_uuid(char *out_uuid, size_t len)
              b[6], b[7],
              b[8], b[9],
              b[10], b[11], b[12], b[13], b[14], b[15]);
+}
+
+static void generate_dynamic_serial(char *out_serial, size_t len)
+{
+    uint8_t mac[6] = {0};
+#ifdef ESP_PLATFORM
+    esp_err_t m_err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    if (m_err != ESP_OK) {
+        esp_fill_random(mac, sizeof(mac));
+    }
+#else
+    esp_fill_random(mac, sizeof(mac));
+#endif
+    const char *prefix = is_socket_product() ? "EH-SK" : "EH-SW";
+    snprintf(out_serial, len, "%s%s-%02X%02X%02X", prefix, get_active_variant(), mac[3], mac[4], mac[5]);
 }
 
 esp_err_t factory_identity_v2_init(void)
@@ -59,10 +136,25 @@ esp_err_t factory_identity_v2_init(void)
         nvs_get_u8(handle, KEY_COMM_CONSUMED, &consumed);
         nvs_get_str(handle, KEY_CERT_FP, s_identity.tls_cert_fingerprint, &fp_len);
         nvs_get_u8(handle, KEY_IS_DEV, &is_dev);
+
+        // Check if stored serial matches current flashed product type and variant
+        const char *expected_prefix = is_socket_product() ? "EH-SK" : "EH-SW";
+        char expected_tag[32];
+        snprintf(expected_tag, sizeof(expected_tag), "%s%s", expected_prefix, get_active_variant());
+
+        if (strstr(s_identity.serial_number, expected_tag) == NULL ||
+            strstr(s_identity.serial_number, "2026W12-00001") != NULL ||
+            strlen(s_identity.serial_number) == 0) {
+            ESP_LOGI(TAG, "Serial number tag mismatch with running firmware (%s vs %s). Regenerating serial...",
+                     s_identity.serial_number, expected_tag);
+            generate_dynamic_serial(s_identity.serial_number, sizeof(s_identity.serial_number));
+            nvs_set_str(handle, KEY_SERIAL, s_identity.serial_number);
+            nvs_commit(handle);
+        }
     } else {
         // Provision new development defaults if factory partition is blank
         generate_canonical_uuid(s_identity.device_id, sizeof(s_identity.device_id));
-        snprintf(s_identity.serial_number, sizeof(s_identity.serial_number), "EH-SW3X-2026W12-00001");
+        generate_dynamic_serial(s_identity.serial_number, sizeof(s_identity.serial_number));
         esp_fill_random(s_identity.commissioning_secret, sizeof(s_identity.commissioning_secret));
         s_identity.commissioning_secret_consumed = false;
         snprintf(s_identity.tls_cert_fingerprint, sizeof(s_identity.tls_cert_fingerprint),
@@ -90,8 +182,17 @@ esp_err_t factory_identity_v2_init(void)
         for (int i = 0; i < 32; i++) {
             snprintf(comm_sec_hex + i * 2, 3, "%02x", s_identity.commissioning_secret[i]);
         }
-        ESP_LOGI(TAG, "DEV_COMMISSIONING_QR: EH1:%s:eh-smart-switch-3x:%s:123456",
-                 s_identity.device_id, comm_sec_hex);
+        char var_lower[16];
+        const char *v = get_active_variant();
+        strncpy(var_lower, v, sizeof(var_lower) - 1);
+        var_lower[sizeof(var_lower) - 1] = '\0';
+        for (int i = 0; var_lower[i]; i++) {
+            var_lower[i] = tolower((unsigned char)var_lower[i]);
+        }
+        char qr_sku[64];
+        snprintf(qr_sku, sizeof(qr_sku), is_socket_product() ? "eh-smart-socket-%s" : "eh-smart-switch-%s", var_lower);
+        ESP_LOGI(TAG, "DEV_COMMISSIONING_QR: EH1:%s:%s:%s:123456",
+                 s_identity.device_id, qr_sku, comm_sec_hex);
     }
     return ESP_OK;
 }

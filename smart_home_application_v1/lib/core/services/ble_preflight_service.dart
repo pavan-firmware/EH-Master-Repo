@@ -484,9 +484,6 @@ class BlePreflightService {
             locationService: 'disabled',
             result: 'location_services_disabled',
           );
-          if (requestIfNeeded) {
-            await _systemActions.openLocationSettings();
-          }
           return const BlePreflightResult(
             status: BlePreflightStatus.locationServicesDisabled,
             title: 'Location is turned off',

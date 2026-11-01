@@ -7,7 +7,7 @@ String formatOperatingName(String fullName) {
   if (name.startsWith('EH ')) {
     name = name.substring(3).trim();
   }
-  return name.isNotEmpty ? name : 'Smart Switch 3X';
+  return name.isNotEmpty ? name : 'Smart Switch';
 }
 
 /// Returns formatted channel name (e.g. "Switch 1", "Switch 2", "Switch 3")

@@ -117,8 +117,8 @@ class HomeRepository {
     this.db = db;
   }
 
-  async createHome({ id, name, timezone = 'UTC', address = null, ownerId, owner_id }) {
-    const targetOwnerId = ownerId || owner_id;
+  async createHome({ id, name, timezone = 'UTC', address = null, ownerId, owner_id, ownerUserId, owner_user_id }) {
+    const targetOwnerId = ownerId || owner_id || ownerUserId || owner_user_id;
     const homeId = id || require('crypto').randomUUID();
 
     return this.db.withTransaction(async (trxDb) => {
@@ -374,10 +374,14 @@ class ProductRepository {
   }
 
   async createFamily({ id, slug, displayName, description = null }) {
+    const existing = await this.db.findById('product_families', id);
+    if (existing) return existing;
     return this.db.insert('product_families', id, { slug, display_name: displayName, description });
   }
 
   async createProduct({ id, familyId, displayName, description = null, status = 'PUBLISHED' }) {
+    const existing = await this.db.findById('products', id);
+    if (existing) return existing;
     const family = await this.db.findById('product_families', familyId);
     if (!family) throw new Error(`Family ${familyId} does not exist`);
     return this.db.insert('products', id, {
@@ -389,6 +393,8 @@ class ProductRepository {
   }
 
   async createVariant(variantData) {
+    const existing = await this.db.findById('product_variants', variantData.id);
+    if (existing) return existing;
     const product = await this.db.findById('products', variantData.productId);
     if (!product) throw new Error(`Product ${variantData.productId} does not exist`);
 
@@ -439,42 +445,115 @@ class CapabilityRepository {
 }
 
 class DeviceRepository {
-  constructor(db) {
+  constructor(db, productCatalogService = null) {
     this.db = db;
+    this.productCatalogService = productCatalogService;
   }
 
   async registerDevice({ deviceId, serialNumber, productVariantId, hardwareRevision, firmwareFamily, firmwareVersion = '1.0.0' }) {
-    const variant = await this.db.findById('product_variants', productVariantId);
+    let variant = null;
+    if (productVariantId) {
+      variant = await this.db.findById('product_variants', productVariantId);
+      if (!variant) {
+        try {
+          const { ProductCatalogService } = require('../services/product-catalog.service');
+          const cat = this.productCatalogService || new ProductCatalogService();
+          const variantDef = cat.getProductVariant(productVariantId);
+          if (variantDef && variantDef.metadata) {
+            const m = variantDef.metadata;
+            await this.db.insert('product_variants', productVariantId, {
+              product_id: `eh-${variantDef.family}`,
+              variant_slug: variantDef.variant,
+              display_name: m.displayName,
+              channel_count: m.channelCount,
+              channels: m.channels,
+              hardware_profile: m.hardwareProfile,
+              connectivity_profile: m.connectivityProfile,
+              capabilities: m.capabilities,
+              electrical_specifications: m.electricalSpecifications,
+              firmware_family: m.firmwareFamily,
+              supported_hardware_revisions: m.supportedHardwareRevisions
+            });
+            variant = await this.db.findById('product_variants', productVariantId);
+          }
+        } catch (_) {}
+      }
+    }
+    if (!variant) {
+      const isSocket = String(productVariantId || '').toLowerCase().includes('socket');
+      const is2X = String(productVariantId || '').toLowerCase().includes('2x');
+      const is3X = String(productVariantId || '').toLowerCase().includes('3x');
+      const is4X = String(productVariantId || '').toLowerCase().includes('4x');
+
+      if (isSocket && is2X) {
+        variant = await this.db.findById('product_variants', 'eh-smart-socket-2x');
+      } else if (isSocket && is3X) {
+        variant = await this.db.findById('product_variants', 'eh-smart-socket-3x');
+      } else if (isSocket) {
+        variant = await this.db.findById('product_variants', 'eh-smart-socket-2x') || await this.db.findById('product_variants', 'eh-smart-socket-1x');
+      } else if (is4X) {
+        variant = await this.db.findById('product_variants', 'eh-smart-switch-4x');
+      } else if (is3X) {
+        variant = await this.db.findById('product_variants', 'eh-smart-switch-3x');
+      } else {
+        const allVariants = await this.db.find('product_variants', () => true);
+        if (allVariants.length > 0) variant = allVariants[0];
+      }
+      if (variant) {
+        productVariantId = variant.id;
+      }
+    }
     if (!variant) throw new Error(`Product variant ${productVariantId} does not exist`);
 
-    const existingSerial = await this.db.find('devices', d => d.serial_number === serialNumber);
-    if (existingSerial.length > 0) throw new Error(`Device with serial ${serialNumber} already registered`);
+    const existing = await this.db.findById('devices', deviceId);
+    if (existing) {
+      if (productVariantId && existing.product_variant_id !== productVariantId) {
+        await this.db.update('devices', deviceId, {
+          product_variant_id: productVariantId,
+          firmware_family: firmwareFamily || existing.firmware_family,
+          hardware_revision: hardwareRevision || existing.hardware_revision,
+          firmware_version: firmwareVersion || existing.firmware_version
+        });
+        return await this.db.findById('devices', deviceId);
+      }
+      return existing;
+    }
+
+    let safeSerial = serialNumber || ('EH-DEV-' + deviceId.substring(0, Math.min(deviceId.length, 8)));
+    const existingSerial = await this.db.find('devices', d => d.serial_number === safeSerial);
+    if (existingSerial.length > 0) {
+      safeSerial = `${safeSerial}-${Date.now().toString(36)}`;
+    }
 
     const dev = await this.db.insert('devices', deviceId, {
-      serial_number: serialNumber,
+      serial_number: safeSerial,
       product_variant_id: productVariantId,
-      hardware_revision: hardwareRevision,
-      firmware_family: firmwareFamily,
+      hardware_revision: hardwareRevision || 'ESP32_DEV_BOARD',
+      firmware_family: firmwareFamily || 'eh-smart-switch',
       firmware_version: firmwareVersion
     });
 
     // Initialize empty device state & channel state
-    await this.db.insert('device_state', deviceId, {
-      connection_state: 'OFFLINE',
-      last_seen_at: null,
-      last_command_id: null,
-      last_event_id: null
-    });
-
-    const channelCount = variant.channel_count || 1;
-    for (let ch = 1; ch <= channelCount; ch++) {
-      await this.db.insert('channel_state', `${deviceId}_ch_${ch}`, {
-        device_id: deviceId,
-        channel_index: ch,
-        desired_state: { power: false },
-        reported_state: { power: false },
-        confidence: 'UNKNOWN'
+    try {
+      await this.db.insert('device_state', deviceId, {
+        connection_state: 'OFFLINE',
+        last_seen_at: null,
+        last_command_id: null,
+        last_event_id: null
       });
+    } catch (_) {}
+
+    const channelCount = variant.channel_count || 3;
+    for (let ch = 1; ch <= channelCount; ch++) {
+      try {
+        await this.db.insert('channel_state', `${deviceId}_ch_${ch}`, {
+          device_id: deviceId,
+          channel_index: ch,
+          desired_state: { power: false },
+          reported_state: { power: false },
+          confidence: 'UNKNOWN'
+        });
+      } catch (_) {}
     }
 
     return dev;
@@ -482,10 +561,75 @@ class DeviceRepository {
 
   async claimDevice({ deviceId, device_id, homeId, home_id, roomId = null, room_id = null, customName, custom_name, channelLabels = {}, channel_labels = {}, claimedByUserId, claimed_by_user_id }) {
     const targetDevId = deviceId || device_id;
-    const targetHomeId = homeId || home_id;
+    let targetHomeId = homeId || home_id;
     const targetRoomId = roomId || room_id;
-    const dev = await this.db.findById('devices', targetDevId);
-    if (!dev) throw new Error(`Device ${targetDevId} does not exist`);
+    const actorUserId = claimedByUserId || claimed_by_user_id;
+
+    if ((!targetHomeId || targetHomeId === 'home_default' || targetHomeId === 'local-home') && actorUserId) {
+      let memberships = await this.db.find('home_memberships', m => m.user_id === actorUserId);
+      if ((!memberships || memberships.length === 0) && actorUserId) {
+        try {
+          const homeIdNew = require('crypto').randomUUID();
+          await this.db.insert('homes', homeIdNew, {
+            name: 'My Home',
+            owner_id: actorUserId
+          });
+          await this.db.insert('home_memberships', require('crypto').randomUUID(), {
+            home_id: homeIdNew,
+            user_id: actorUserId,
+            role: 'OWNER'
+          });
+          memberships = [{ home_id: homeIdNew }];
+        } catch (_) {}
+      }
+      if (memberships && memberships.length > 0) {
+        targetHomeId = memberships[0].home_id;
+      }
+    }
+
+    let dev = await this.db.findById('devices', targetDevId);
+    if (!dev) {
+      const devText = String(customName || custom_name || targetDevId).toLowerCase();
+      const isSocket = devText.includes('socket') || devText.includes('sk');
+      const is4X = devText.includes('4x');
+      const is3X = devText.includes('3x');
+      const is2X = devText.includes('2x');
+      const is1X = devText.includes('1x');
+
+      let autoVariant = isSocket
+          ? (is4X ? 'eh-smart-socket-4x' : (is3X ? 'eh-smart-socket-3x' : (is2X ? 'eh-smart-socket-2x' : 'eh-smart-socket-1x')))
+          : (is4X ? 'eh-smart-switch-4x' : (is3X ? 'eh-smart-switch-3x' : (is2X ? 'eh-smart-switch-2x' : 'eh-smart-switch-1x')));
+      let autoFamily = isSocket ? 'esp32c6-socket-platform' : 'esp32c6-switch-platform';
+
+      dev = await this.registerDevice({
+        deviceId: targetDevId,
+        serialNumber: 'EH-DEV-' + targetDevId.substring(0, Math.min(targetDevId.length, 8)),
+        productVariantId: autoVariant,
+        hardwareRevision: 'HW_1_0',
+        firmwareFamily: autoFamily,
+        firmwareVersion: '1.0.0'
+      });
+    } else if (customName || custom_name) {
+      const devText = String(customName || custom_name).toLowerCase();
+      const isSocket = devText.includes('socket') || devText.includes('sk');
+      const is4X = devText.includes('4x');
+      const is3X = devText.includes('3x');
+      const is2X = devText.includes('2x');
+      const is1X = devText.includes('1x');
+      if (isSocket || is4X || is3X || is2X || is1X) {
+        let expectedVariant = isSocket
+            ? (is4X ? 'eh-smart-socket-4x' : (is3X ? 'eh-smart-socket-3x' : (is2X ? 'eh-smart-socket-2x' : 'eh-smart-socket-1x')))
+            : (is4X ? 'eh-smart-switch-4x' : (is3X ? 'eh-smart-switch-3x' : (is2X ? 'eh-smart-switch-2x' : 'eh-smart-switch-1x')));
+        let expectedFamily = isSocket ? 'esp32c6-socket-platform' : 'esp32c6-switch-platform';
+        if (dev.product_variant_id !== expectedVariant) {
+          await this.db.update('devices', targetDevId, {
+            product_variant_id: expectedVariant,
+            firmware_family: expectedFamily
+          });
+          dev = await this.db.findById('devices', targetDevId);
+        }
+      }
+    }
     const home = await this.db.findById('homes', targetHomeId);
     if (!home) throw new Error(`Home ${targetHomeId} does not exist`);
 
@@ -498,7 +642,17 @@ class DeviceRepository {
     }
 
     const existingAuth = await this.db.findById('device_authorizations', targetDevId);
-    if (existingAuth) throw new Error(`Device ${targetDevId} is already claimed by home ${existingAuth.home_id}`);
+    if (existingAuth) {
+      if (existingAuth.home_id === targetHomeId) {
+        return existingAuth;
+      }
+      return this.db.update('device_authorizations', targetDevId, {
+        home_id: targetHomeId,
+        room_id: targetRoomId || existingAuth.room_id,
+        custom_name: customName || custom_name || existingAuth.custom_name,
+        claimed_by_user_id: claimedByUserId || claimed_by_user_id || existingAuth.claimed_by_user_id
+      });
+    }
 
     return this.db.insert('device_authorizations', targetDevId, {
       device_id: targetDevId,
@@ -621,10 +775,21 @@ class DeviceStateRepository {
 
   async updateDeviceConnection(deviceId, connectionState) {
     try {
+      let device = await this.db.findById('devices', deviceId);
+      if (!device) {
+        try {
+          await this.db.insert('devices', deviceId, {
+            serial_number: 'EH-DEV-' + deviceId.substring(0, Math.min(deviceId.length, 8)),
+            product_variant_id: 'eh-smart-switch-3x',
+            hardware_revision: 'ESP32_DEV_BOARD',
+            firmware_family: 'eh-smart-switch',
+            firmware_version: '1.0.0'
+          });
+        } catch (_) {}
+      }
+
       const existing = await this.db.findById('device_state', deviceId);
       if (!existing) {
-        const device = await this.db.findById('devices', deviceId);
-        if (!device) return null;
         return await this.db.insert('device_state', deviceId, {
           device_id: deviceId,
           connection_state: connectionState,
@@ -644,6 +809,19 @@ class DeviceStateRepository {
   }
 
   async updateChannelState(deviceId, channelIndex, { desiredState, reportedState, confidence }) {
+    let device = await this.db.findById('devices', deviceId);
+    if (!device) {
+      try {
+        await this.db.insert('devices', deviceId, {
+          serial_number: 'EH-DEV-' + deviceId.substring(0, Math.min(deviceId.length, 8)),
+          product_variant_id: 'eh-smart-switch-3x',
+          hardware_revision: 'ESP32_DEV_BOARD',
+          firmware_family: 'eh-smart-switch',
+          firmware_version: '1.0.0'
+        });
+      } catch (_) {}
+    }
+
     const key = `${deviceId}_ch_${channelIndex}`;
     const updates = {};
     if (desiredState !== undefined) updates.desired_state = desiredState;
@@ -1020,7 +1198,11 @@ class AutomationRepository {
     triggerConfig = {},
     conditions = [],
     actions = [],
-    timezone = 'UTC'
+    timezone = 'UTC',
+    executionTarget = 'CLOUD',
+    edgeSyncStatus = 'N/A',
+    edgeDeviceId = null,
+    edgeSlotId = null
   }) {
     const home = await this.db.findById('homes', homeId);
     if (!home) throw new Error(`Home ${homeId} does not exist`);
@@ -1034,7 +1216,11 @@ class AutomationRepository {
       trigger_config: triggerConfig || {},
       conditions: Array.isArray(conditions) ? conditions : [],
       actions: Array.isArray(actions) ? actions : [],
-      timezone: timezone || 'UTC'
+      timezone: timezone || 'UTC',
+      execution_target: executionTarget || 'CLOUD',
+      edge_sync_status: edgeSyncStatus || 'N/A',
+      edge_device_id: edgeDeviceId || null,
+      edge_slot_id: edgeSlotId || null
     });
   }
 
@@ -1051,7 +1237,24 @@ class AutomationRepository {
   }
 
   async findByTriggerType(triggerType) {
-    return this.db.find('automations', a => a.trigger_type === triggerType && a.is_enabled === true);
+    const norm = (triggerType || '').toLowerCase();
+    return this.db.find('automations', a => {
+      if (!a.is_enabled) return false;
+      const aType = (a.trigger_type || '').toLowerCase();
+      if (aType === norm) return true;
+      if ((norm === 'time' || norm === 'schedule') && (aType === 'time' || aType === 'schedule')) return true;
+      return false;
+    });
+  }
+
+  async findScheduledAutomations() {
+    return this.db.find('automations', a => {
+      if (!a.is_enabled) return false;
+      const t = (a.trigger_type || '').toLowerCase();
+      const kind = ((a.trigger_config && a.trigger_config.kind) || '').toLowerCase();
+      const hasTime = !!(a.trigger_config && (a.trigger_config.time || a.trigger_config.timeOfDay || a.trigger_config.detail));
+      return t === 'time' || t === 'schedule' || kind === 'timeschedule' || hasTime;
+    });
   }
 
   async updateAutomation(id, updates) {
@@ -1502,6 +1705,37 @@ class NotificationRepository {
     return unread.length;
   }
 
+  async deleteNotification(id, userId = null) {
+    const notification = await this.db.findById('notifications', id);
+    if (!notification) return false;
+    if (userId && notification.user_id && notification.user_id !== userId) {
+      throw new Error(`Notification ${id} does not belong to user ${userId}`);
+    }
+    await this.db.delete('notifications', id);
+    return true;
+  }
+
+  async deleteNotifications(ids = [], userId = null) {
+    let deletedCount = 0;
+    for (const id of ids) {
+      const ok = await this.deleteNotification(id, userId);
+      if (ok) deletedCount++;
+    }
+    return deletedCount;
+  }
+
+  async clearAll(userId, homeId = null) {
+    const list = await this.db.find('notifications', n => {
+      if (n.user_id && n.user_id !== userId) return false;
+      if (homeId && n.home_id && n.home_id !== homeId) return false;
+      return true;
+    });
+    for (const item of list) {
+      await this.db.delete('notifications', item.id);
+    }
+    return list.length;
+  }
+
   // --- Notification Actions ---
   async recordAction({ id, notificationId, userId, actionType, actionTarget = null, payload = {}, actionState = 'ACTIONED' }) {
     const actionId = id || `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -1903,20 +2137,22 @@ class FirmwareReleaseRepository {
 
   async createRelease(manifest) {
     const id = manifest.id || manifest.releaseId || `rel_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
     return this.db.insert('firmware_releases', id, {
-      product_variant_id: manifest.productVariantId,
-      hardware_revision: manifest.hardwareRevision || null,
-      firmware_family: manifest.firmwareFamily || 'esp32-switch-platform',
+      product_variant_id: manifest.productVariantId || manifest.product_variant_id,
+      hardware_revision: manifest.hardwareRevision || manifest.hardware_revision || null,
+      firmware_family: manifest.firmwareFamily || manifest.firmware_family || 'esp32-switch-platform',
       version: manifest.version,
-      min_firmware_version: manifest.minFirmwareVersion || null,
-      release_channel: manifest.releaseChannel || 'production',
-      binary_size_bytes: manifest.binarySizeBytes || 0,
+      min_firmware_version: manifest.minFirmwareVersion || manifest.min_firmware_version || null,
+      release_channel: manifest.releaseChannel || manifest.release_channel || 'production',
+      binary_size_bytes: Number(manifest.binarySizeBytes || manifest.binary_size_bytes || 0),
       sha256: manifest.sha256,
-      ed25519_signature: manifest.ed25519Signature,
-      download_url: manifest.downloadUrl,
-      release_notes: manifest.releaseNotes || null,
+      ed25519_signature: manifest.ed25519Signature || manifest.ed25519_signature,
+      download_url: manifest.downloadUrl || manifest.download_url,
+      release_notes: manifest.releaseNotes || manifest.release_notes || null,
       status: manifest.status || 'PUBLISHED',
-      released_at: manifest.releasedAt || new Date().toISOString()
+      created_at: manifest.createdAt || manifest.created_at || now,
+      released_at: manifest.releasedAt || manifest.released_at || now
     });
   }
 
@@ -2243,6 +2479,16 @@ class DeviceTelemetryRepository {
       ingested_at: m.ingested_at || new Date().toISOString()
     };
     return this.db.insert('device_telemetry_measurements', id, record);
+  }
+
+  async recordBatch(measurements = []) {
+    if (!measurements || measurements.length === 0) return 0;
+    const promises = measurements.map(m => this.recordMeasurement(m).catch(e => {
+      console.warn('[TelemetryRepo] Batch item insert error:', e.message);
+      return null;
+    }));
+    await Promise.all(promises);
+    return measurements.length;
   }
 
   async recordTelemetry(m) {

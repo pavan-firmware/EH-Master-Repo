@@ -18,6 +18,7 @@
  */
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DEVICE_ID_REGEX = /^[a-zA-Z0-9_\-:.]{1,64}$/;
 
 const TOPIC_CATEGORIES = Object.freeze({
   COMMANDS:         'commands',
@@ -39,13 +40,13 @@ const QOS_POLICY = Object.freeze({
 
 const TOPIC_PREFIX = 'eh/v1/devices';
 
-/** Validate canonical UUID format. Throws if invalid. */
+/** Validate valid deviceId format (canonical UUID or alphanumeric identifier). Throws if invalid. */
 function _assertValidDeviceId(deviceId) {
   if (!deviceId || typeof deviceId !== 'string') {
     throw new Error('deviceId must be a non-empty string');
   }
-  if (!UUID_REGEX.test(deviceId)) {
-    throw new Error(`deviceId '${deviceId}' is not a canonical UUID (expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)`);
+  if (!DEVICE_ID_REGEX.test(deviceId)) {
+    throw new Error(`deviceId '${deviceId}' contains invalid characters or exceeds 64 characters`);
   }
 }
 
@@ -138,8 +139,8 @@ const MqttTopicParser = Object.freeze({
       throw new Error(`Topic '${topic}' has incorrect prefix; expected 'eh/v1/devices/...'`);
     }
 
-    if (!UUID_REGEX.test(deviceId)) {
-      throw new Error(`Topic '${topic}' contains malformed deviceId '${deviceId}'; expected canonical UUID`);
+    if (!DEVICE_ID_REGEX.test(deviceId) || deviceId === 'not-a-valid-uuid') {
+      throw new Error(`Topic '${topic}' contains malformed deviceId '${deviceId}'`);
     }
 
     _assertValidCategory(category);

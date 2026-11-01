@@ -248,18 +248,29 @@ class HomeDeviceApiRouter {
         }
       }
 
-      // Channel Rename (/api/v1/devices/:deviceId/channels/:channelIndex)
+      // Channel Rename & Config (/api/v1/devices/:deviceId/channels/:channelIndex)
       const channelRenameMatch = path.match(/^\/api\/v1\/devices\/([^\/]+)\/channels\/([0-9]+)$/);
       if (channelRenameMatch && (method === 'PATCH' || method === 'POST')) {
         const deviceId = channelRenameMatch[1];
         const channelIndex = parseInt(channelRenameMatch[2], 10);
-        const newName = body.name || body.label || body.newName;
-        const updated = await this.deviceService.renameChannel({
-          deviceId,
-          channelIndex,
-          newName,
-          actorUserId
-        });
+        let updated;
+        if (body.name || body.label || body.newName) {
+          const newName = body.name || body.label || body.newName;
+          updated = await this.deviceService.renameChannel({
+            deviceId,
+            channelIndex,
+            newName,
+            actorUserId
+          });
+        }
+        if (body.config || body.channelConfig) {
+          const auth = await this.deviceService.deviceRepo.getDeviceAuthorization(deviceId);
+          const currentConfigs = { ...((auth && auth.channel_configs) || {}) };
+          currentConfigs[channelIndex.toString()] = body.config || body.channelConfig;
+          updated = await this.deviceService.deviceRepo.updateDeviceAuthorization(deviceId, {
+            channelConfigs: currentConfigs
+          });
+        }
         return { status: 200, body: { success: true, data: updated } };
       }
 
@@ -274,11 +285,17 @@ class HomeDeviceApiRouter {
             newName: body.name || body.label,
             actorUserId
           });
-        } else if (body.channelLabels) {
+        }
+        if (body.channelLabels || body.channelConfigs) {
           const auth = await this.deviceService.deviceRepo.getDeviceAuthorization(deviceId);
           const currentLabels = (auth && auth.channel_labels) || {};
-          const merged = { ...currentLabels, ...body.channelLabels };
-          updated = await this.deviceService.deviceRepo.updateDeviceAuthorization(deviceId, { channelLabels: merged });
+          const currentConfigs = (auth && auth.channel_configs) || {};
+          const mergedLabels = body.channelLabels ? { ...currentLabels, ...body.channelLabels } : currentLabels;
+          const mergedConfigs = body.channelConfigs ? { ...currentConfigs, ...body.channelConfigs } : currentConfigs;
+          updated = await this.deviceService.deviceRepo.updateDeviceAuthorization(deviceId, {
+            channelLabels: mergedLabels,
+            channelConfigs: mergedConfigs
+          });
         }
         return { status: 200, body: { success: true, data: updated } };
       }

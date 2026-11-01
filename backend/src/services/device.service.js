@@ -13,13 +13,14 @@
 const { ProductCatalogService } = require('./product-catalog.service');
 
 class DeviceService {
-  constructor({ deviceRepo, deviceStateRepo, homeRepo, roomRepo, auditRepo, productCatalogService }) {
+  constructor({ deviceRepo, deviceStateRepo, homeRepo, roomRepo, auditRepo, productCatalogService, redisStateCacheService = null }) {
     this.deviceRepo = deviceRepo;
     this.deviceStateRepo = deviceStateRepo;
     this.homeRepo = homeRepo;
     this.roomRepo = roomRepo;
     this.auditRepo = auditRepo;
     this.productCatalogService = productCatalogService || new ProductCatalogService();
+    this.redisStateCacheService = redisStateCacheService;
   }
 
   // ---------------------------------------------------------------------------
@@ -317,10 +318,30 @@ class DeviceService {
     });
 
     let connectionState = 'OFFLINE';
-    if (fullState && fullState.connectionState === 'ONLINE') {
-      connectionState = 'ONLINE';
-    } else if (fullState && fullState.connectionState) {
-      connectionState = fullState.connectionState;
+    let lastSeenAt = fullState ? fullState.lastSeenAt : null;
+
+    if (this.redisStateCacheService) {
+      try {
+        const hotState = await this.redisStateCacheService.getDeviceState(deviceId);
+        if (hotState) {
+          if (hotState.lastSeenAt) lastSeenAt = hotState.lastSeenAt;
+          if (hotState.online === true && hotState.connectionState === 'ONLINE') {
+            connectionState = 'ONLINE';
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (connectionState !== 'ONLINE' && fullState && fullState.connectionState === 'ONLINE') {
+      const lastSeenMs = fullState.lastSeenAt ? new Date(fullState.lastSeenAt).getTime() : 0;
+      const isFresh = Boolean(lastSeenMs && (Date.now() - lastSeenMs) <= 90000);
+      if (isFresh) {
+        connectionState = 'ONLINE';
+      } else {
+        connectionState = 'OFFLINE';
+      }
+    } else if (connectionState !== 'ONLINE' && fullState && fullState.connectionState) {
+      connectionState = fullState.connectionState === 'ONLINE' ? 'OFFLINE' : fullState.connectionState;
     }
 
     return {
@@ -336,8 +357,10 @@ class DeviceService {
       roomName,
       displayName: auth ? auth.custom_name : resolvedCaps.displayName,
       connectionState,
-      last_seen_at: fullState ? fullState.lastSeenAt : null,
+      last_seen_at: lastSeenAt,
       channels: resolvedCaps.channels,
+      channelLabels: auth ? (auth.channel_labels || {}) : {},
+      channelConfigs: auth ? (auth.channel_configs || {}) : {},
       capabilities: resolvedCaps.capabilities,
       capabilityUiHints: resolvedCaps.capabilityUiHints,
       hasEnergyMonitoring: resolvedCaps.hasEnergyMonitoring,

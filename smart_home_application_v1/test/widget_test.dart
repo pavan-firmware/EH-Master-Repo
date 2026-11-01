@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/app/app.dart';
 import 'package:smart_home_application_v1/app/home_controller.dart';
 import 'package:smart_home_application_v1/core/repositories/unavailable_connection_repository.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('shows the consumer home dashboard after splash', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     final controller = HomeController(

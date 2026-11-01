@@ -77,6 +77,10 @@ class ApiClient {
     };
 
     http.Response response;
+    final timeoutDuration = path.startsWith('/api/v1/auth/')
+        ? const Duration(seconds: 4)
+        : const Duration(seconds: 8);
+
     try {
       if (method == 'POST') {
         response = await _client
@@ -85,7 +89,7 @@ class ApiClient {
               headers: headers,
               body: body != null ? jsonEncode(body) : null,
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(timeoutDuration);
       } else if (method == 'PUT') {
         response = await _client
             .put(
@@ -93,7 +97,7 @@ class ApiClient {
               headers: headers,
               body: body != null ? jsonEncode(body) : null,
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(timeoutDuration);
       } else if (method == 'PATCH') {
         response = await _client
             .patch(
@@ -101,18 +105,18 @@ class ApiClient {
               headers: headers,
               body: body != null ? jsonEncode(body) : null,
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(timeoutDuration);
       } else if (method == 'DELETE') {
         response = await _client
             .delete(uri, headers: headers)
-            .timeout(const Duration(seconds: 10));
+            .timeout(timeoutDuration);
       } else {
         response = await _client
             .get(uri, headers: headers)
-            .timeout(const Duration(seconds: 10));
+            .timeout(timeoutDuration);
       }
     } on Exception catch (e) {
-      throw ApiException(statusCode: 0, message: 'Network error: $e');
+      throw ApiException(statusCode: 0, message: 'Backend server unreachable: $e');
     }
 
     final isAuthEndpoint = path.startsWith('/api/v1/auth/');

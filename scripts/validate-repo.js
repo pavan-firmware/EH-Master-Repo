@@ -38,26 +38,44 @@ if (process.platform === 'win32') {
   }
 }
 
+// Pre-flight check: ensure monorepo distribution artifacts are built
+const contractsDist = path.join(rootDir, 'packages', 'contracts', 'dist', 'index.js');
+const apiDist = path.join(rootDir, 'apps', 'api', 'dist', 'app.js');
+const desktopDist = path.join(rootDir, 'apps', 'desktop', 'dist', 'index.html');
+
+if (!fs.existsSync(contractsDist) || !fs.existsSync(apiDist) || !fs.existsSync(desktopDist)) {
+  console.log('[BUILD] Monorepo dist outputs missing. Triggering automated compilation...');
+  try {
+    execSync('npx pnpm --filter @eh-home/contracts build && npx pnpm --filter @eh-home/db-schema build && npx pnpm --filter @eh-home/api build && npx pnpm --filter @eh-home/desktop build', {
+      cwd: rootDir,
+      stdio: 'inherit'
+    });
+    console.log('[BUILD] Monorepo dist outputs successfully compiled.\n');
+  } catch (buildErr) {
+    console.warn('[BUILD] Warning: Automated build attempt failed:', buildErr.message);
+  }
+}
+
 function runStep(name, command, cwd = rootDir) {
   if (isFlutterTesterBlocked && name.includes('Flutter Test')) {
     console.log(`  [SKIPPED - HOST OS RESTRICTION] ${name} (flutter_tester.exe blocked by Windows Application Control policy on host)`);
-    results.push({ name, passed: true, skipped: true });
+    results.push({ name, passed: false, skipped: true });
     return;
   }
 
   try {
     execSync(command, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 });
     console.log(`  [PASS] ${name}`);
-    results.push({ name, passed: true });
+    results.push({ name, passed: true, skipped: false });
   } catch (error) {
     if (error.status === 2) {
       console.log(`  [SKIPPED - PENDING DAEMON] ${name} (Exit code: 2 - Docker not running)`);
-      results.push({ name, passed: true, skipped: true });
+      results.push({ name, passed: false, skipped: true });
       return;
     }
     if (error.status === 1 && name.includes('Flutter Test') && isFlutterTesterBlocked) {
       console.log(`  [SKIPPED - HOST OS RESTRICTION] ${name} (flutter_tester.exe blocked by Windows Application Control policy on host)`);
-      results.push({ name, passed: true, skipped: true });
+      results.push({ name, passed: false, skipped: true });
       return;
     }
 
@@ -272,18 +290,67 @@ runStep('62. Phase 48 ESP32 Firmware Hardware Integration Tests', `${nodeBin} fi
 // 63. Phase 48 ESP-IDF Toolchain Drift & Reproducibility Guard
 runStep('63. Phase 48 ESP-IDF Toolchain Drift & Reproducibility Guard', `${nodeBin} scripts/check-esp-idf-toolchain.js`);
 
+// 64. Phase 49 Part 14 RBAC, Security & Audit Tests
+runStep('64. Phase 49 Part 14 RBAC, Security & Audit Tests', `${nodeBin} apps/api/tests/security-rbac-audit.test.js`);
+
+// 65. Phase 50 Part 15 E2E Cross-Layer Master Flows Tests
+runStep('65. Phase 50 Part 15 E2E Cross-Layer Master Flows Tests', `${nodeBin} apps/api/tests/e2e-master-flows.test.js`);
+
+// 66. Desktop Foundation & Bundle Security Tests
+runStep('66. Desktop Foundation & Bundle Security Tests', `${nodeBin} apps/desktop/tests/desktop.test.js`);
+
+// 67. Desktop Privileged Native Security Boundary Tests
+runStep('67. Desktop Privileged Native Security Boundary Tests', `${nodeBin} apps/desktop/tests/native-boundary-security.test.js`);
+
+// 68. Desktop Bench Provisioner Integration Tests
+runStep('68. Desktop Bench Provisioner Integration Tests', `${nodeBin} apps/desktop/tests/bench-provisioner.test.js`);
+
+// 69. Desktop Label Printer & TSPL Tests
+runStep('69. Desktop Label Printer & TSPL Tests', `${nodeBin} apps/desktop/tests/label-printer.test.js`);
+
+// 70. Desktop Production Packing Tests
+runStep('70. Desktop Production Packing Tests', `${nodeBin} apps/desktop/tests/packing.test.js`);
+
+// 71. Desktop UI Domain Reconciliation Tests
+runStep('71. Desktop UI Domain Reconciliation Tests', `${nodeBin} apps/desktop/tests/ui-reconciliation.test.js`);
+
+// 71b. Desktop Real Windows Integration: Microsoft Print to PDF Tests
+runStep('71b. Desktop Windows PDF Printer & Subsystem Tests', `${nodeBin} apps/desktop/tests/windows-pdf-printer.test.js`);
+
+// 71c. Desktop Installer, System Requirements & Diagnostics Tests
+runStep('71c. Desktop Installer, Requirements & Diagnostics Tests', `${nodeBin} apps/desktop/tests/system-installer-requirements.test.js`);
+
+// 71d. Desktop Setup Persistence & Performance Regression Tests
+runStep('71d. Desktop Setup Persistence & Performance Tests', `${nodeBin} apps/desktop/tests/setup-persistence-performance.test.js`);
+
+// 72. Part 15 Desktop E2E & Cross-Layer Integration Tests
+runStep('72. Part 15 Desktop E2E & Cross-Layer Integration Tests', `${nodeBin} apps/desktop/tests/desktop-e2e.test.js`);
+
+// 73. Part 16 Storage Contracts Hardening
+runStep('73. Part 16 Storage Contracts Hardening', `${nodeBin} packages/contracts/tests/storage-contract.test.js`);
+
+// 74. Part 16 S3-Compatible Storage Provider Tests
+runStep('74. Part 16 S3-Compatible Storage Provider Tests', `${nodeBin} --test apps/api/tests/storage-provider.test.js`);
+
+// 75. Part 16 Database Backup, Restore & Recovery Tests
+runStep('75. Part 16 Database Backup, Restore & Recovery Tests', `${nodeBin} --test apps/api/tests/backup-restore-recovery.test.js`);
+
+// 76. Part 16 Storage & Backup HTTP API Route Tests
+runStep('76. Part 16 Storage & Backup HTTP API Route Tests', `${nodeBin} --test apps/api/tests/storage-backup-routes.test.js`);
+
 
 
 const totalSuites = results.length;
-const passedSuites = results.filter(r => r.passed).length;
-const failed = results.filter(result => !result.passed);
+const passedSuites = results.filter(r => r.passed && !r.skipped).length;
+const skippedSuites = results.filter(r => r.skipped).length;
+const failedSuites = results.filter(result => !result.passed && !result.skipped);
 
 console.log('\n===============================================================');
-console.log(`  ${totalSuites} SUITES ATTEMPTED. ${passedSuites}/${totalSuites} PASSED.`);
+console.log(`  ${totalSuites} SUITES ATTEMPTED: ${passedSuites} PASSED, ${skippedSuites} SKIPPED, ${failedSuites.length} FAILED.`);
 
-if (failed.length > 0) {
+if (failedSuites.length > 0) {
   console.error('\nFailed validation suites:');
-  for (const suite of failed) {
+  for (const suite of failedSuites) {
     console.error(
       `- ${suite.name} (exit code: ${suite.exitCode ?? 'unknown'})`
     );
@@ -291,7 +358,7 @@ if (failed.length > 0) {
   console.log('===============================================================');
   process.exit(1);
 } else {
-  console.log('  ALL TEST SUITES PASSED! REPOSITORY IS IN HEALTHY STATE.');
+  console.log('  ALL ATTEMPTED TEST SUITES COMPLETED WITHOUT FAILURE.');
   console.log('===============================================================');
   process.exit(0);
 }

@@ -87,7 +87,11 @@ class NotificationApiRouter {
       if (method === 'GET' && (path === '/api/v1/notifications/unread-count' || path === '/api/v1/users/me/notifications/unread-count')) {
         const homeId = params.homeId || null;
         if (homeId && this.homeAuth) {
-          await this.homeAuth.assertMembership(effectiveUserId, homeId);
+          if (typeof this.homeAuth.assertMembership === 'function') {
+            await this.homeAuth.assertMembership(effectiveUserId, homeId);
+          } else if (typeof this.homeAuth.requireMembership === 'function') {
+            await this.homeAuth.requireMembership(effectiveUserId, homeId);
+          }
         }
         const count = await this.repo.countUnread(effectiveUserId, homeId);
         return { status: 200, body: { data: { unreadCount: count }, unreadCount: count } };
@@ -134,7 +138,11 @@ class NotificationApiRouter {
       if (method === 'POST' && (path === '/api/v1/notifications/mark-all-read' || path === '/api/v1/users/me/notifications/read-all')) {
         const homeId = body.homeId || params.homeId || null;
         if (homeId && this.homeAuth) {
-          await this.homeAuth.assertMembership(effectiveUserId, homeId);
+          if (typeof this.homeAuth.assertMembership === 'function') {
+            await this.homeAuth.assertMembership(effectiveUserId, homeId);
+          } else if (typeof this.homeAuth.requireMembership === 'function') {
+            await this.homeAuth.requireMembership(effectiveUserId, homeId);
+          }
         }
         const updated = await this.repo.markAllRead(effectiveUserId, homeId);
         return { status: 200, body: { success: true, markedCount: updated.length } };
@@ -170,7 +178,29 @@ class NotificationApiRouter {
         return { status: 200, body: { success: true, data: updated } };
       }
 
-      // 10. POST /api/v1/notifications/release-deferred
+      // 10. DELETE /api/v1/notifications/:id
+      const deleteSingleMatch = path.match(/^\/api\/v1\/(?:users\/me\/)?notifications\/([a-zA-Z0-9_-]+)$/);
+      if (deleteSingleMatch && method === 'DELETE') {
+        const notificationId = deleteSingleMatch[1];
+        const deleted = await this.repo.deleteNotification(notificationId, effectiveUserId);
+        return { status: 200, body: { success: true, deleted } };
+      }
+
+      // 11. POST /api/v1/notifications/batch-delete
+      if (method === 'POST' && path === '/api/v1/notifications/batch-delete') {
+        const ids = body.ids || [];
+        const deletedCount = await this.repo.deleteNotifications(ids, effectiveUserId);
+        return { status: 200, body: { success: true, deletedCount } };
+      }
+
+      // 12. POST /api/v1/notifications/clear-all or DELETE /api/v1/notifications
+      if ((method === 'POST' && path === '/api/v1/notifications/clear-all') || (method === 'DELETE' && path === '/api/v1/notifications')) {
+        const homeId = body.homeId || params.homeId || null;
+        const clearedCount = await this.repo.clearAll(effectiveUserId, homeId);
+        return { status: 200, body: { success: true, clearedCount } };
+      }
+
+      // 13. POST /api/v1/notifications/release-deferred
       if (method === 'POST' && path === '/api/v1/notifications/release-deferred') {
         const homeId = body.homeId || params.homeId || null;
         const releasedIds = await this.service.releaseDeferredNotifications(effectiveUserId, homeId);
@@ -181,7 +211,11 @@ class NotificationApiRouter {
       if (method === 'GET' && (path === '/api/v1/notifications' || path === '/api/v1/users/me/notifications')) {
         const homeId = params.homeId || null;
         if (homeId && this.homeAuth) {
-          await this.homeAuth.assertMembership(effectiveUserId, homeId);
+          if (typeof this.homeAuth.assertMembership === 'function') {
+            await this.homeAuth.assertMembership(effectiveUserId, homeId);
+          } else if (typeof this.homeAuth.requireMembership === 'function') {
+            await this.homeAuth.requireMembership(effectiveUserId, homeId);
+          }
         }
         const category = params.category || null;
         const severity = params.severity || null;

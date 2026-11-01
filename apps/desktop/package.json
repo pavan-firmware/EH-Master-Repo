@@ -1,0 +1,33 @@
+{
+  "name": "@eh-home/desktop",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "EH Home Engineering, Manufacturing & Production Desktop App (Tauri v2 + React)",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test": "node tests/desktop.test.js && node tests/bench-provisioner.test.js && node tests/native-boundary-security.test.js && node tests/label-printer.test.js && node tests/packing.test.js && node tests/ui-reconciliation.test.js && node tests/windows-pdf-printer.test.js && node tests/system-installer-requirements.test.js && node tests/setup-persistence-performance.test.js && node tests/desktop-e2e.test.js && node tests/desktop-silicon-repo-polish.test.js",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@eh-home/contracts": "workspace:*",
+    "@tauri-apps/api": "^2.2.0",
+    "@tauri-apps/plugin-shell": "^2.2.0",
+    "lucide-react": "^0.475.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.2.7",
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
+  }
+}

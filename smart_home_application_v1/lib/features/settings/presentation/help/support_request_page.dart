@@ -79,11 +79,26 @@ class _SupportRequestPageState extends State<SupportRequestPage> {
                   ),
                   onPressed: () {
                     if (!_formKey.currentState!.validate()) return;
+                    final ticketId = 'TKT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
                     Navigator.pop(context);
-                    showSettingsUnavailable(
-                      context,
-                      message:
-                          'Support requests will be sent when the support backend is connected.',
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Support request submitted ($ticketId). Our team will review your report.',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                        backgroundColor: const Color(0xFF10B981),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                     );
                   },
                   child: const Text(

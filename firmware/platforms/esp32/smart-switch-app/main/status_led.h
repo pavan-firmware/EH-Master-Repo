@@ -14,19 +14,11 @@
 extern "C" {
 #endif
 
-// Target-Specific Status LED Pin Mapping
-#if defined(CONFIG_IDF_TARGET_ESP32)
-// ESP32-D0WD Development Board Profile: GPIO 2 (On-board Status LED)
-#define GPIO_STATUS_LED 2
-#elif defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C3)
-// ESP32-C6 / ESP32-C3 Production Profile: GPIO 8
-#define GPIO_STATUS_LED 8
-#elif !defined(ESP_PLATFORM)
-// Host simulation fallback
-#define GPIO_STATUS_LED 2
-#else
-#error "Unsupported EH Home MCU target in status_led.h"
-#endif
+#include "board_pinout.h"
+
+// Hardware Pin Mapping sourced from canonical board_pinout.h
+#define GPIO_STATUS_LED EH_PIN_STATUS_LED
+#define GPIO_STATUS_LED_ACTIVE_LEVEL 1
 
 typedef enum {
     STATUS_LED_OFF = 0,

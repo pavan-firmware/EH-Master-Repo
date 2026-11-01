@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/models/device_models.dart';
@@ -23,8 +24,13 @@ import '../core/repositories/cloud_settings_repository.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/settings/presentation/settings_page.dart';
 import '../features/notifications/presentation/notification_center_page.dart';
+import '../features/search/presentation/global_app_search_sheet.dart';
 import '../core/repositories/cloud_notification_repository.dart';
 import '../core/repositories/local_notification_repository.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../features/dashboard/presentation/cloud_sync_center_sheet.dart';
+import '../core/config/app_config.dart';
+import '../core/repositories/cloud_update_repository.dart';
 import '../core/services/device_storage_service.dart';
 import 'home_controller.dart';
 
@@ -56,14 +62,276 @@ class _HomeShellState extends State<HomeShell> {
     (_) => GlobalKey<NavigatorState>(),
   );
 
+  StreamSubscription<SpaceAlertItem>? _alertSub;
+  Timer? _entranceDialogTimer;
+
   @override
   void initState() {
     super.initState();
     _homeController = widget.homeController ?? HomeController();
+    _alertSub = _homeController.channelAlertStream.listen((alert) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          duration: const Duration(seconds: 4),
+          elevation: 6,
+          content: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.notifications_active_rounded, color: Color(0xFFF59E0B), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      alert.title,
+                      style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.white, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      alert.message,
+                      style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'View',
+            textColor: const Color(0xFF38BDF8),
+            onPressed: () => _openAlertDetail(alert),
+          ),
+        ),
+      );
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _entranceDialogTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          _checkUnsavedChangesEntranceDialog();
+        }
+      });
+    });
+  }
+
+  Future<void> _checkUnsavedChangesEntranceDialog() async {
+    if (!mounted) return;
+    if (!_homeController.hasPendingCloudUpload) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final dontRemind = prefs.getBool('eh_unsaved_dont_remind') ?? false;
+      if (dontRemind) return;
+
+      final remindAfterMs = prefs.getInt('eh_unsaved_remind_after') ?? 0;
+      if (DateTime.now().millisecondsSinceEpoch < remindAfterMs) return;
+
+      if (!mounted) return;
+      _showUnsavedChangesEntranceDialog();
+    } catch (e) {
+      debugPrint('[HOME_SHELL] Error checking unsaved reminder preferences: $e');
+    }
+  }
+
+  Future<void> _showUnsavedChangesEntranceDialog() async {
+    if (!mounted) return;
+
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.cloud_upload_rounded, color: Color(0xFFF59E0B), size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Unsaved Changes',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'You have local offline changes that have not been backed up to the cloud. Would you like to review and upload them now?',
+            style: TextStyle(fontSize: 14, height: 1.4),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('close'),
+              child: const Text('Close', style: TextStyle(color: Color(0xFF94A3B8))),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () => Navigator.of(ctx).pop('view'),
+              icon: const Icon(Icons.cloud_sync_rounded, size: 18),
+              label: const Text('View'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    if (action == 'view') {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => CloudSyncCenterSheet(homeController: _homeController),
+      );
+    } else if (action == 'close') {
+      _showReminderPreferencesDialog();
+    }
+  }
+
+  Future<void> _showReminderPreferencesDialog() async {
+    if (!mounted) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+            title: const Text(
+              'Reminder Preferences',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'When should we remind you again to upload your unsaved changes?',
+                  style: TextStyle(fontSize: 13, height: 1.3),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.schedule_rounded, color: Color(0xFF38BDF8), size: 22),
+                  title: const Text('Remind in 6 hours', style: TextStyle(fontSize: 14)),
+                  onTap: () async {
+                    final target = DateTime.now().add(const Duration(hours: 6)).millisecondsSinceEpoch;
+                    await prefs.setInt('eh_unsaved_remind_after', target);
+                    if (ctx.mounted) Navigator.of(ctx).pop();
+                  },
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.today_rounded, color: Color(0xFF38BDF8), size: 22),
+                  title: const Text('Remind in 1 day', style: TextStyle(fontSize: 14)),
+                  onTap: () async {
+                    final target = DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
+                    await prefs.setInt('eh_unsaved_remind_after', target);
+                    if (ctx.mounted) Navigator.of(ctx).pop();
+                  },
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.date_range_rounded, color: Color(0xFF38BDF8), size: 22),
+                  title: const Text('Remind in 3 days', style: TextStyle(fontSize: 14)),
+                  onTap: () async {
+                    final target = DateTime.now().add(const Duration(days: 3)).millisecondsSinceEpoch;
+                    await prefs.setInt('eh_unsaved_remind_after', target);
+                    if (ctx.mounted) Navigator.of(ctx).pop();
+                  },
+                ),
+                const Divider(height: 16),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.do_not_disturb_on_rounded, color: Color(0xFFEF4444), size: 22),
+                  title: const Text(
+                    "Don't remind again",
+                    style: TextStyle(fontSize: 14, color: Color(0xFFEF4444), fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () async {
+                    await prefs.setBool('eh_unsaved_dont_remind', true);
+                    if (ctx.mounted) Navigator.of(ctx).pop();
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint('[HOME_SHELL] Error displaying reminder dialog: $e');
+    }
+  }
+
+  void _openAlertDetail(SpaceAlertItem alert) {
+    _navigatorKeys[_selectedIndex].currentState?.push(
+      MaterialPageRoute(
+        builder: (_) => SafetyAlertPage(
+          title: alert.title,
+          description: alert.message,
+          spaceName: alert.spaceName,
+          roomName: alert.spaceName,
+          deviceId: alert.deviceId,
+          timestamp: alert.timestamp,
+          severity: alert.severity.name,
+          onDismiss: () {
+            _homeController.dismissAlert(alert.id);
+          },
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _entranceDialogTimer?.cancel();
+    _alertSub?.cancel();
     if (widget.homeController == null) _homeController.dispose();
     super.dispose();
   }
@@ -100,6 +368,8 @@ class _HomeShellState extends State<HomeShell> {
       onStart: _homeController.startConnectionSetup,
       connectionState: _homeController.connectionState,
       connectionMessage: _homeController.connectionMessage,
+      availableRooms: _homeController.rooms.map((r) => r.name).toList(),
+      spaceId: _homeController.activeSpaceId,
       repository: RealHomeConnectionRepository(
         primaryDevice: _homeController.connectedDeviceSummary,
         onRefresh: _homeController.startConnectionSetup,
@@ -114,7 +384,10 @@ class _HomeShellState extends State<HomeShell> {
         connectionState: HomeConnectionState.notConfigured,
         onStart: _homeController.startConnectionSetup,
         initialRoomName: targetRoomName,
+        availableRooms: _homeController.rooms.map((r) => r.name).toList(),
+        spaceId: _homeController.activeSpaceId,
         repository: RealHomeConnectionRepository(
+          forceCommissioningMode: true,
           primaryDevice: null,
           onRefresh: _homeController.startConnectionSetup,
         ),
@@ -123,12 +396,14 @@ class _HomeShellState extends State<HomeShell> {
           required String displayName,
           required String serialNumber,
           String? roomName,
+          String? model,
         }) {
           _homeController.markDeviceProvisioned(
             deviceId: deviceId,
             displayName: displayName,
             serialNumber: serialNumber,
             roomName: roomName ?? targetRoomName,
+            model: model,
           );
         },
       ),
@@ -358,6 +633,20 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  void _openGlobalSearch() {
+    GlobalAppSearchSheet.show(
+      context,
+      homeController: _homeController,
+      onOpenRoom: _openRoomContext,
+      onOpenSettings: () => _selectTab(4),
+      onOpenActivity: () => _selectTab(3),
+      onOpenNotifications: _openNotificationCenter,
+      onOpenInsights: _openInsights,
+      onOpenAddDevice: () => _openAddDevice(),
+      onOpenRoutines: () => _selectTab(2),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
@@ -400,13 +689,14 @@ class _HomeShellState extends State<HomeShell> {
                   // Global Sticky Alert Banner when Cloud/Internet is down & not in LAN mode
                   if (!_homeController.isCloudReachable &&
                       !_homeController.isLocalMode &&
+                      !_homeController.isLoading &&
                       _homeController.isCurrentSpaceOnLocalLan)
                     _GlobalOfflineAlertBar(
                       onSwitchToLan: () async {
                         final ok = await _homeController.switchToLanMode();
                         if (!ok && context.mounted) {
                           _showMessage(
-                            'No local devices responded to UDP/Subnet scan. Ensure ESP32 is powered and on this Wi-Fi.',
+                            'No local devices found on this Wi-Fi network. Ensure your smart devices are powered on and nearby.',
                           );
                         }
                       },
@@ -429,15 +719,21 @@ class _HomeShellState extends State<HomeShell> {
                           key: _navigatorKeys[0],
                           onGenerateRoute: (_) => MaterialPageRoute(
                             builder: (_) => AnimatedBuilder(
-                              animation: _homeController,
+                              animation: Listenable.merge([
+                                _homeController,
+                                if (widget.authController != null) widget.authController!,
+                              ]),
                               builder: (context, _) => HomePage(
-                                userName: widget.authController?.currentUser?.displayName,
+                                homeController: _homeController,
+                                userName: widget.authController?.currentUser?.displayName ??
+                                    DeviceStorageService.cachedUserName,
                                 dashboard: _homeController.dashboard,
                                 lightOn: _homeController.livingRoomLightOn,
                                 alertAcknowledged: _homeController.alertAcknowledged,
                                 lightCommandPending: _homeController.lightCommandPending,
                                 isLocalMode: _homeController.isLocalMode,
                                 isCloudReachable: _homeController.isCloudReachable,
+                                isLoading: _homeController.isLoading,
                                 activeSpaceId: _homeController.activeSpaceId,
                                 activeSpaceName: _homeController.activeSpaceName,
                                 spaces: _homeController.spaces,
@@ -464,10 +760,16 @@ class _HomeShellState extends State<HomeShell> {
                                 selectedQuickControlIds: _homeController.selectedQuickControlIds,
                                 onSaveQuickControls: (ids) => _homeController.saveQuickControlsForSpace(ids),
                                 onShowNotifications: _openNotificationCenter,
+                                onShowSearch: _openGlobalSearch,
+                                onRefresh: () async {
+                                  await _homeController.loadHomeData();
+                                  await _homeController.probeLanAndPromote();
+                                  await _homeController.refreshUpcomingRoutines();
+                                },
                                 onSwitchToLanMode: () async {
                                   final ok = await _homeController.switchToLanMode();
                                   if (!ok && context.mounted) {
-                                    _showMessage('No local devices responded to UDP/Subnet scan. Ensure ESP32 is powered and on this Wi-Fi.');
+                                    _showMessage('No local devices found on this Wi-Fi network. Ensure your smart devices are powered on and nearby.');
                                   }
                                 },
                                 onLightChanged: (value) async {
@@ -484,23 +786,59 @@ class _HomeShellState extends State<HomeShell> {
                                       value: value,
                                     );
                                   } else {
-                                    await _homeController.setLivingRoomLight(value);
+                                    final matchedDev = _homeController.devices.where((d) => d.id == control.id).firstOrNull;
+                                    if (matchedDev != null) {
+                                      await _homeController.setDeviceChannelPower(
+                                        deviceId: matchedDev.id,
+                                        channelIndex: 1,
+                                        value: value,
+                                      );
+                                    } else {
+                                      await _homeController.setLivingRoomLight(value);
+                                    }
                                   }
                                 },
-                                onRefresh: () async {
-                                  await _homeController.loadHomeData();
+                                onClearAllAlerts: () {
+                                  _homeController.clearAllAlerts();
+                                  _showMessage('All alerts cleared.');
                                 },
-                                onAlertTap: () async {
+                                onDismissAlert: (alert) {
+                                  _homeController.dismissAlert(alert.id);
+                                  _showMessage('Alert dismissed.');
+                                },
+                                onAlertTap: ([selectedAlert]) async {
+                                  final activeAlert = selectedAlert ?? _homeController.allSpacesAlerts.firstOrNull;
                                   final acknowledged = await _navigatorKeys[0]
                                       .currentState
                                       ?.push<bool>(
                                     MaterialPageRoute(
-                                        builder: (_) => const SafetyAlertPage()),
+                                        builder: (_) {
+                                          return SafetyAlertPage(
+                                            title: activeAlert?.title ?? 'Device safety alert',
+                                            description: activeAlert?.message ?? 'Please check connected device states and power supply.',
+                                            spaceName: activeAlert?.spaceName ?? _homeController.activeSpaceName,
+                                            roomName: activeAlert?.spaceName ?? _homeController.activeSpaceName,
+                                            deviceId: activeAlert?.deviceId,
+                                            timestamp: activeAlert?.timestamp,
+                                            severity: activeAlert?.severity.name ?? 'warning',
+                                            onDismiss: () {
+                                              if (activeAlert != null) {
+                                                _homeController.dismissAlert(activeAlert.id);
+                                              } else {
+                                                _homeController.acknowledgeAlert();
+                                              }
+                                            },
+                                          );
+                                        }),
                                   );
                                   if (acknowledged == true) {
-                                    _homeController.acknowledgeAlert();
+                                    if (activeAlert != null) {
+                                      _homeController.dismissAlert(activeAlert.id);
+                                    } else {
+                                      _homeController.acknowledgeAlert();
+                                    }
                                     _showMessage(
-                                      'Alert acknowledged. Safety monitoring remains active.',
+                                      'Alert dismissed. Safety monitoring remains active.',
                                     );
                                   }
                                 },
@@ -513,7 +851,7 @@ class _HomeShellState extends State<HomeShell> {
                                 onShowInsights: _openInsights,
                                 onCustomizeControls: _showFavouritesCustomization,
                                 onUnavailableControl: () => _showMessage(
-                                  'This control stays unavailable until secure device acknowledgement is implemented.',
+                                  'Device is offline or unreachable. Please check device power and network connection.',
                                 ),
                               ),
                             ),
@@ -591,6 +929,17 @@ class _HomeShellState extends State<HomeShell> {
                                 connectionRepository: RealHomeConnectionRepository(
                                   primaryDevice: _homeController.connectedDeviceSummary,
                                   onRefresh: _homeController.startConnectionSetup,
+                                ),
+                                updateRepository: CloudUpdateRepository(
+                                  apiClient: widget.apiClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl),
+                                  getActiveHomeId: () => _homeController.activeHomeId ?? widget.homeId,
+                                  getLocalDevices: () {
+                                    final devs = _homeController.devices;
+                                    if (devs.isEmpty && _homeController.connectedDeviceSummary != null) {
+                                      return [_homeController.connectedDeviceSummary!];
+                                    }
+                                    return devs;
+                                  },
                                 ),
                                 apiClient: widget.apiClient,
                                 authController: widget.authController,
@@ -771,7 +1120,7 @@ class _GlobalLanActiveBar extends StatelessWidget {
           const SizedBox(width: 8),
           const Expanded(
             child: Text(
-              'Local Wi-Fi Mode Active • Direct ESP32 Control',
+              'Local Wi-Fi Mode Active • Direct Device Control',
               style: TextStyle(
                 color: Color(0xFFD97706),
                 fontWeight: FontWeight.w700,

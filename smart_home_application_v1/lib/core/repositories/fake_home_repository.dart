@@ -18,21 +18,15 @@ class FakeHomeRepository implements HomeRepository {
 
   @override
   Future<List<DeviceSnapshot>> getDevices({String? homeId}) async {
-    if (_mockDevices.isNotEmpty) return List.unmodifiable(_mockDevices);
-    return [
-      DeviceSnapshot(
-        id: 'home-main',
-        name: 'Home device',
-        roomName: 'Home',
-        hardwareRevision: 'prototype',
-        connection: DeviceConnection.online,
-        capabilities: const [
-          DeviceCapability(id: 'status', label: 'Home status'),
-          DeviceCapability(id: 'system_update', label: 'System updates'),
-        ],
-        reportedAt: DateTime.now(),
-      ),
-    ];
+    return List.unmodifiable(_mockDevices);
+  }
+
+  @override
+  Future<void> removeDevice({
+    required String deviceId,
+    String? homeId,
+  }) async {
+    _mockDevices.removeWhere((d) => d.id == deviceId);
   }
 
   @override

@@ -9,7 +9,11 @@
 extern "C" {
 #endif
 
+#include "board_pinout.h"
+
+#ifndef BL0942_UART_PORT
 #define BL0942_UART_PORT 1
+#endif
 #define BL0942_BAUD_RATE 4800
 #define BL0942_FRAME_LEN 23 // 1 header (0x55) + 21 data bytes + 1 checksum
 

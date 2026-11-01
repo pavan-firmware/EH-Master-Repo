@@ -176,6 +176,10 @@ class HomeAuthorizationService {
     return res;
   }
 
+  async assertMembership(userId, homeId, allowedRoles = null, requiredCapability = null) {
+    return this.requireMembership(userId, homeId, allowedRoles, requiredCapability);
+  }
+
   /**
    * Resolve homeId for a device via device_authorizations or deviceRepo.
    */

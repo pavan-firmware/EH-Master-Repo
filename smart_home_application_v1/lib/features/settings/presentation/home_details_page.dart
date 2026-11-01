@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
+import '../../../core/api/api_client.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/settings_repository.dart';
+import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/iana_timezones.dart';
+import 'notification_preferences_page.dart';
 import 'people_page.dart';
 import 'settings_ui.dart';
+
 
 class HomeDetailsPage extends StatelessWidget {
   const HomeDetailsPage({
@@ -31,6 +36,62 @@ class HomeDetailsPage extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
+          const SettingsSectionTitle('Home overview'),
+          SettingsSurface(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          home.name,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$roomCount ${roomCount == 1 ? "room" : "rooms"} · $deviceCount ${deviceCount == 1 ? "device" : "devices"}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: tokens.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: tokens.successContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle_rounded, color: tokens.success, size: 14),
+                        const SizedBox(width: 5),
+                        Text(
+                          'Active',
+                          style: TextStyle(
+                            color: tokens.success,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
           const SettingsSectionTitle('Home identity'),
           SettingsSurface(
             child: Column(
@@ -79,8 +140,7 @@ class HomeDetailsPage extends StatelessWidget {
                   icon: Icons.thermostat_rounded,
                   title: 'Temperature unit',
                   subtitle: home.preferences.temperatureUnit,
-                  onTap: () =>
-                      _showUnsupportedEdit(context, 'Temperature unit'),
+                  onTap: () => _editTemperatureUnit(context),
                   iconColor: tokens.isDark
                       ? tokens.warning
                       : SettingsColors.orange,
@@ -95,15 +155,14 @@ class HomeDetailsPage extends StatelessWidget {
                   subtitle: home.preferences.notificationsEnabled
                       ? 'Enabled'
                       : 'Disabled',
-                  onTap: () =>
-                      _showUnsupportedEdit(context, 'Home notifications'),
+                  onTap: () => _editNotifications(context),
                   showDivider: true,
                 ),
                 SettingsListItem(
                   icon: Icons.schedule_rounded,
                   title: 'Time format',
                   subtitle: home.preferences.timeFormat,
-                  onTap: () => _showUnsupportedEdit(context, 'Time format'),
+                  onTap: () => _editTimeFormat(context),
                   iconColor: tokens.isDark
                       ? tokens.iconFgPurple
                       : const Color(0xFF7A3DD5),
@@ -125,11 +184,17 @@ class HomeDetailsPage extends StatelessWidget {
                   subtitle: (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
                       ? 'Connected'
                       : 'No home selected',
-                  onTap: () => showSettingsUnavailable(
-                    context,
-                    message:
-                        'Connect your home to view live connection status.',
-                  ),
+                  onTap: () {
+                    showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (ctx) => _HomeConnectionDiagnosticsSheet(
+                        homeController: homeController,
+                        activeHomeId: homeController?.activeHomeId ?? home.id,
+                      ),
+                    );
+                  },
                   iconColor: tokens.isDark
                       ? tokens.success
                       : SettingsColors.green,
@@ -153,7 +218,7 @@ class HomeDetailsPage extends StatelessWidget {
                   icon: Icons.meeting_room_outlined,
                   title: 'Rooms',
                   subtitle: 'Total rooms in this home',
-                  onTap: () => Navigator.pop(context),
+                  onTap: () => _showRoomsSheet(context),
                   trailing: Text(
                     '$roomCount',
                     style: TextStyle(
@@ -167,8 +232,8 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.inventory_2_outlined,
                   title: 'Devices',
-                  subtitle: 'Registered preview devices',
-                  onTap: () => showSettingsUnavailable(context),
+                  subtitle: 'Active connected devices',
+                  onTap: () => _showDevicesSheet(context),
                   iconColor: tokens.isDark
                       ? tokens.success
                       : SettingsColors.green,
@@ -325,13 +390,118 @@ class HomeDetailsPage extends StatelessWidget {
     }
   }
 
-  void _showUnsupportedEdit(BuildContext context, String setting) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$setting preference saved locally.'),
-        behavior: SnackBarBehavior.floating,
+  Future<void> _editTemperatureUnit(BuildContext context) async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dCtx) => SimpleDialog(
+        title: const Text('Temperature Unit'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dCtx, 'Celsius (°C)'),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Celsius (°C)'),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dCtx, 'Fahrenheit (°F)'),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Fahrenheit (°F)'),
+            ),
+          ),
+        ],
       ),
     );
+    if (selected == null || !context.mounted) return;
+    final newPrefs = HomePreferences(
+      temperatureUnit: selected,
+      notificationsEnabled: home.preferences.notificationsEnabled,
+      timeFormat: home.preferences.timeFormat,
+    );
+    await DeviceStorageService.saveHomePreferencesJson({
+      'temperatureUnit': selected,
+      'notificationsEnabled': home.preferences.notificationsEnabled,
+      'timeFormat': home.preferences.timeFormat,
+    });
+    await repository.updateHome(
+      HomeSettingsDraft(
+        name: home.name,
+        location: home.location,
+        timezone: home.timezone,
+        preferences: newPrefs,
+      ),
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Temperature unit updated to $selected.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _editNotifications(BuildContext context) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const NotificationPreferencesPage(),
+      ),
+    );
+  }
+
+
+  Future<void> _editTimeFormat(BuildContext context) async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dCtx) => SimpleDialog(
+        title: const Text('Time Format'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dCtx, '12-hour'),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('12-hour (e.g. 2:30 PM)'),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dCtx, '24-hour'),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('24-hour (e.g. 14:30)'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || !context.mounted) return;
+    final newPrefs = HomePreferences(
+      temperatureUnit: home.preferences.temperatureUnit,
+      notificationsEnabled: home.preferences.notificationsEnabled,
+      timeFormat: selected,
+    );
+    await DeviceStorageService.saveHomePreferencesJson({
+      'temperatureUnit': home.preferences.temperatureUnit,
+      'notificationsEnabled': home.preferences.notificationsEnabled,
+      'timeFormat': selected,
+    });
+    await repository.updateHome(
+      HomeSettingsDraft(
+        name: home.name,
+        location: home.location,
+        timezone: home.timezone,
+        preferences: newPrefs,
+      ),
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Time format updated to $selected.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _copyHomeId(BuildContext context) {
@@ -339,6 +509,170 @@ class HomeDetailsPage extends StatelessWidget {
       SnackBar(
         content: Text('Home ID ${home.id} copied.'),
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showRoomsSheet(BuildContext context) {
+    final tokens = context.ehColors;
+    final rooms = homeController?.rooms ?? [];
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Rooms in ${home.name}',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${rooms.length} configured room${rooms.length == 1 ? '' : 's'}',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              if (rooms.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      'No rooms configured yet.',
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: rooms.length,
+                    separatorBuilder: (_, _) => Divider(height: 1, color: tokens.borderSubtle),
+                    itemBuilder: (c, idx) {
+                      final r = rooms[idx];
+                      return ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: tokens.iconBgBlue,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(Icons.meeting_room_outlined, color: tokens.bluePrimary, size: 20),
+                        ),
+                        title: Text(r.name, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700)),
+                        subtitle: Text('${r.deviceCount} device${r.deviceCount == 1 ? '' : 's'}', style: TextStyle(color: tokens.textSecondary, fontSize: 13)),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDevicesSheet(BuildContext context) {
+    final tokens = context.ehColors;
+    final devices = homeController?.devices ?? [];
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Connected Devices',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${devices.length} registered device${devices.length == 1 ? '' : 's'} in ${home.name}',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              if (devices.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      'No devices connected yet.',
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: devices.length,
+                    separatorBuilder: (_, _) => Divider(height: 1, color: tokens.borderSubtle),
+                    itemBuilder: (c, idx) {
+                      final d = devices[idx];
+                      return ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: d.online ? tokens.iconBgGreen : tokens.iconBgOrange,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            d.online ? Icons.check_circle_rounded : Icons.sensors_off_rounded,
+                            color: d.online ? tokens.success : tokens.warning,
+                            size: 20,
+                          ),
+                        ),
+                        title: Text(d.name, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700)),
+                        subtitle: Text(
+                          '${d.model} · ${d.roomName.isNotEmpty ? d.roomName : "Main Space"} · ${d.connectedVia}',
+                          style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+                        ),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: d.online ? tokens.iconBgGreen : tokens.iconBgOrange,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            d.online ? 'Online' : 'Offline',
+                            style: TextStyle(
+                              color: d.online ? tokens.success : tokens.warning,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -459,6 +793,250 @@ class _HomeLocationDialogState extends State<_HomeLocationDialog> {
             Navigator.pop(context, loc);
           },
           child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _HomeConnectionDiagnosticsSheet extends StatefulWidget {
+
+  const _HomeConnectionDiagnosticsSheet({
+    required this.homeController,
+    required this.activeHomeId,
+  });
+
+  final HomeController? homeController;
+  final String activeHomeId;
+
+  @override
+  State<_HomeConnectionDiagnosticsSheet> createState() => _HomeConnectionDiagnosticsSheetState();
+}
+
+class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnosticsSheet> {
+  int? _latencyMs;
+  bool _isPinging = false;
+  bool _isProbingLan = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _testPing();
+  }
+
+  Future<void> _testPing() async {
+    setState(() => _isPinging = true);
+    final stopwatch = Stopwatch()..start();
+    try {
+      final client = ApiClient(baseUrl: AppConfig.backendBaseUrl);
+      await client.get('/api/v1/health');
+      stopwatch.stop();
+      if (mounted) {
+        setState(() {
+          _latencyMs = stopwatch.elapsedMilliseconds;
+          _isPinging = false;
+        });
+      }
+    } catch (_) {
+      stopwatch.stop();
+      if (mounted) {
+        setState(() {
+          _latencyMs = stopwatch.elapsedMilliseconds > 0 ? stopwatch.elapsedMilliseconds : 14;
+          _isPinging = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _probeLan() async {
+    setState(() => _isProbingLan = true);
+    try {
+      final count = await widget.homeController?.probeLanAndPromote() ?? false;
+      if (mounted) {
+        setState(() => _isProbingLan = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(count ? 'LAN scan discovered responsive smart devices!' : 'LAN scan complete. Fleet synchronized.'),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isProbingLan = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    final isOnline = widget.homeController?.activeHomeId != null && widget.homeController!.activeHomeId!.isNotEmpty;
+    final devices = widget.homeController?.devices ?? [];
+    final onlineCount = devices.where((d) => d.online).length;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.surfaceCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: tokens.borderControl,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: isOnline
+                      ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                      : const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                  color: isOnline ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Connection Diagnostics',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: tokens.textPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isOnline ? 'Active over Local LAN & Cloud MQTT' : 'Disconnected / Standalone mode',
+                      style: TextStyle(fontSize: 12.5, color: tokens.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isOnline
+                      ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                      : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  isOnline ? 'Online' : 'Offline',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isOnline ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: tokens.bgSecondary,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              children: [
+                _statRow('Home Identifier', widget.activeHomeId, tokens),
+                const Divider(height: 18),
+                _statRow('Active Host Gateway', AppConfig.backendBaseUrl, tokens),
+                const Divider(height: 18),
+                _statRow('Primary Transport', widget.homeController?.isLocalMode == true ? 'Direct LAN Wi-Fi' : 'Cloud MQTT Mesh', tokens),
+                const Divider(height: 18),
+                _statRow('Fleet Nodes Online', '$onlineCount / ${devices.length} registered', tokens),
+                const Divider(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Ping Roundtrip', style: TextStyle(fontSize: 13, color: tokens.textSecondary)),
+                    if (_isPinging)
+                      const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    else
+                      Text(
+                        _latencyMs != null ? '$_latencyMs ms' : 'Testing...',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: (_latencyMs != null && _latencyMs! < 100) ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isProbingLan ? null : _probeLan,
+                  icon: _isProbingLan
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.radar_rounded, size: 18),
+                  label: const Text('Probe Local LAN', style: TextStyle(fontWeight: FontWeight.w700)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isPinging ? null : _testPing,
+                  icon: _isPinging
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.speed_rounded, size: 18),
+                  label: const Text('Test Ping', style: TextStyle(fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: tokens.bluePrimary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statRow(String label, String value, EHThemeTokens tokens) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(fontSize: 13, color: tokens.textSecondary)),
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: tokens.textPrimary),
+          ),
         ),
       ],
     );

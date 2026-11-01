@@ -10,58 +10,24 @@ import '../../../core/models/health_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/models/update_models.dart';
-import '../../../core/repositories/cloud_device_trust_repository.dart';
-import '../../../core/repositories/cloud_fleet_firmware_repository.dart';
-import '../../../core/repositories/cloud_notification_repository.dart';
-import '../../../core/repositories/cloud_operational_readiness_repository.dart';
-import '../../../core/repositories/cloud_operations_repository.dart';
-import '../../../core/repositories/cloud_recovery_repository.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/device_health_repository.dart';
+import '../../../core/repositories/fake_home_repository.dart';
 import '../../../core/repositories/home_connection_repository.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../../core/repositories/update_repository.dart';
-import '../../../core/services/connectivity_service.dart';
-import '../../../core/services/context_presence_service.dart';
-import '../../../core/services/edge_control_service.dart';
-import '../../../core/services/energy_automation_service.dart';
-import '../../../core/services/energy_cost_service.dart';
-import '../../../core/services/energy_service.dart';
-import '../../../core/services/intelligence_service.dart';
-import '../../../core/services/matter_service.dart';
-import '../../../core/services/product_catalog_service.dart';
-import '../../../core/services/reliability_service.dart';
-import '../../../core/services/sync_service.dart';
+import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/auth_controller.dart';
+import '../../dashboard/presentation/cloud_sync_center_sheet.dart';
 import '../../connection/presentation/connection_page.dart';
-import '../../connectivity/presentation/device_connectivity_page.dart';
-import '../../context/presentation/home_context_page.dart';
-import '../../context/presentation/presence_dashboard_page.dart';
-import '../../device_trust/presentation/device_security_status_page.dart';
 import '../../diagnostics/presentation/device_health_page.dart';
-import '../../edge_control/presentation/edge_execution_dashboard_page.dart';
-import '../../energy/presentation/energy_optimization_page.dart';
-import '../../fleet/presentation/firmware_releases_page.dart';
-import '../../fleet/presentation/fleet_firmware_status_page.dart';
-import '../../fleet/presentation/ota_rollouts_page.dart';
-import '../../energy/presentation/home_energy_dashboard_page.dart';
-import '../../energy/presentation/tariff_management_page.dart';
-import '../../integrations/presentation/matter_integration_page.dart';
-import '../../intelligence/presentation/intelligence_center_page.dart';
-import '../../notifications/presentation/notification_center_page.dart';
-import '../../operations/presentation/operations_dashboard_page.dart';
-import '../../operations/presentation/system_operational_status_page.dart';
-import '../../product_discovery/presentation/product_discovery_page.dart';
-import '../../recovery/presentation/recovery_dashboard_page.dart';
-import '../../reliability/presentation/fleet_health_page.dart';
-import '../../sync/presentation/sync_center_page.dart';
 import '../../updates/presentation/system_update_page.dart';
 import 'add_room_device_page.dart';
+import 'advanced_fleet_operations_page.dart';
 import 'factory_reset/factory_reset_page.dart';
 import 'help/help_support_page.dart';
 import 'home_details_page.dart';
-import 'home_profile_page.dart';
 import 'notification_preferences_page.dart';
 import 'people_page.dart';
 import 'privacy/privacy_page.dart';
@@ -107,6 +73,36 @@ class _SettingsPageState extends State<SettingsPage> {
   late Future<HomeSettingsData> _home = widget.repository.getHome();
   late Future<_SystemSummary> _systemSummary = _loadSystemSummary();
 
+  @override
+  void initState() {
+    super.initState();
+    widget.homeController?.addListener(_onHomeStateChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.homeController?.removeListener(_onHomeStateChanged);
+    super.dispose();
+  }
+
+  void _onHomeStateChanged() {
+    if (mounted) _reload();
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeStateChanged);
+      widget.homeController?.addListener(_onHomeStateChanged);
+      _reload();
+    } else if (oldWidget.connectionState != widget.connectionState ||
+        oldWidget.homeId != widget.homeId ||
+        oldWidget.connectionMessage != widget.connectionMessage) {
+      _reload();
+    }
+  }
+
   void _reload() {
     setState(() {
       _home = widget.repository.getHome();
@@ -115,8 +111,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<_SystemSummary> _loadSystemSummary() async {
+    final effectiveState = (widget.homeController?.devices.isNotEmpty == true)
+        ? (widget.connectionState ?? HomeConnectionState.connected)
+        : widget.connectionState;
     final connection = await widget.connectionRepository.getOverview(
-      liveState: widget.connectionState,
+      liveState: effectiveState,
     );
     final update = await widget.updateRepository.getSummary();
     final health = await widget.healthRepository.getSummary();
@@ -154,6 +153,8 @@ class _SettingsPageState extends State<SettingsPage> {
               homeController: widget.homeController,
               repository: widget.repository,
               connectionRepository: widget.connectionRepository,
+              updateRepository: widget.updateRepository,
+              onReload: _reload,
               onConnectHome: widget.onConnectHome,
               connectionState: widget.connectionState,
               connectionMessage: widget.connectionMessage,
@@ -189,6 +190,8 @@ class _SettingsContent extends StatelessWidget {
     this.homeController,
     required this.repository,
     required this.connectionRepository,
+    required this.updateRepository,
+    required this.onReload,
     required this.onConnectHome,
     required this.connectionState,
     required this.connectionMessage,
@@ -204,6 +207,8 @@ class _SettingsContent extends StatelessWidget {
   final HomeController? homeController;
   final SettingsRepository repository;
   final HomeConnectionRepository connectionRepository;
+  final UpdateRepository updateRepository;
+  final VoidCallback onReload;
   final Future<ConnectionResult> Function()? onConnectHome;
   final HomeConnectionState? connectionState;
   final String? connectionMessage;
@@ -301,10 +306,25 @@ class _SettingsContent extends StatelessWidget {
       system.connection,
       tokens,
     );
-    final updateSubtitle = system.update.availableCount == 0
-        ? 'Your system is up to date'
-        : '${system.update.availableCount} update available';
-    final healthChip = system.health.attentionCount == 0
+    final isUpdateUnavailable = system.update.isUnavailable;
+    final hasUpdates = !isUpdateUnavailable && system.update.availableCount > 0;
+    final updateSubtitle = isUpdateUnavailable
+        ? system.update.title
+        : (hasUpdates
+            ? '${system.update.availableCount} update${system.update.availableCount == 1 ? '' : 's'} ready to install'
+            : 'Your system is up to date');
+    final firstUpdateTarget = system.update.targets.where(
+      (t) => t.status == UpdateTargetStatus.updateAvailable,
+    ).firstOrNull;
+    final updateChipLabel = isUpdateUnavailable
+        ? (system.update.errorType == UpdateErrorType.noInternet ? 'Offline' : 'Unreachable')
+        : (hasUpdates
+            ? (firstUpdateTarget?.availableVersion?.replaceAll('Version ', 'v') ?? 'Update Ready')
+            : 'Version ${system.update.appVersion}');
+    final realAttentionCount = homeController != null && homeController!.devices.isNotEmpty
+        ? homeController!.devices.where((d) => !d.online).length
+        : system.health.attentionCount;
+    final healthChip = realAttentionCount == 0
         ? SettingsStatusChip(
             label: 'Healthy',
             color: tokens.success,
@@ -312,7 +332,7 @@ class _SettingsContent extends StatelessWidget {
             leading: Icon(Icons.check_rounded, color: tokens.success, size: 14),
           )
         : SettingsStatusChip(
-            label: '${system.health.attentionCount} issue',
+            label: '$realAttentionCount issue${realAttentionCount == 1 ? '' : 's'}',
             color: tokens.warning,
             background: tokens.warningContainer,
             leading: Icon(
@@ -341,23 +361,23 @@ class _SettingsContent extends StatelessWidget {
 
     return ListView(
       key: const PageStorageKey<String>('settings-scroll'),
-      padding: const EdgeInsets.fromLTRB(20, 23, 20, 28),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
       children: [
         Text(
           'Settings',
           style: TextStyle(
             color: tokens.textPrimary,
-            fontSize: 29,
+            fontSize: 28,
             height: 1,
             fontWeight: FontWeight.w800,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
           'Manage your home, devices, and preferences.',
-          style: TextStyle(color: tokens.textSecondary, fontSize: 15),
+          style: TextStyle(color: tokens.textSecondary, fontSize: 14),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
         _HomeProfileCard(
           home: home,
           roomCount: roomCount,
@@ -366,17 +386,15 @@ class _SettingsContent extends StatelessWidget {
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => HomeProfilePage(
+              builder: (_) => HomeDetailsPage(
                 home: home,
                 repository: repository,
-                connectionState: connectionState,
-                onConnectHome: onConnectHome,
                 homeController: homeController,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 27),
+        const SizedBox(height: 18),
         const SettingsSectionTitle('Your system'),
         SettingsSurface(
           child: Column(
@@ -392,6 +410,7 @@ class _SettingsContent extends StatelessWidget {
                       repository: repository,
                       onStartSecureSetup: onConnectHome,
                       connectionState: connectionState,
+                      homeController: homeController,
                     ),
                   ),
                 ),
@@ -434,18 +453,45 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.system_update_alt_rounded,
                 title: 'System update',
                 subtitle: updateSubtitle,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SystemUpdatePage()),
-                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SystemUpdatePage(
+                        repository: updateRepository,
+                        homeController: homeController,
+                      ),
+                    ),
+                  );
+                  if (context.mounted) onReload();
+                },
                 trailing: SettingsStatusChip(
-                  label: 'Version ${system.update.appVersion}',
-                  color: tokens.isDark
-                      ? tokens.blueSelectedText
-                      : SettingsColors.purple,
-                  background: tokens.isDark
-                      ? tokens.blueSelectedBg
-                      : SettingsColors.paleLavender,
+                  label: updateChipLabel,
+                  color: isUpdateUnavailable
+                      ? tokens.warning
+                      : (hasUpdates
+                          ? const Color(0xFFD97706)
+                          : (tokens.isDark ? tokens.blueSelectedText : SettingsColors.purple)),
+                  background: isUpdateUnavailable
+                      ? tokens.warningContainer
+                      : (hasUpdates
+                          ? const Color(0xFFFEF3C7)
+                          : (tokens.isDark ? tokens.blueSelectedBg : SettingsColors.paleLavender)),
+                  leading: isUpdateUnavailable
+                      ? Icon(
+                          system.update.errorType == UpdateErrorType.noInternet
+                              ? Icons.wifi_off_rounded
+                              : Icons.dns_rounded,
+                          color: tokens.warning,
+                          size: 14,
+                        )
+                      : (hasUpdates
+                          ? const Icon(
+                              Icons.arrow_upward_rounded,
+                              color: Color(0xFFD97706),
+                              size: 14,
+                            )
+                          : null),
                 ),
                 showDivider: true,
               ),
@@ -455,15 +501,19 @@ class _SettingsContent extends StatelessWidget {
                 subtitle: 'Check connection and care tips',
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const DeviceHealthPage()),
+                  MaterialPageRoute(
+                    builder: (_) => DeviceHealthPage(
+                      homeController: homeController,
+                    ),
+                  ),
                 ),
                 trailing: healthChip,
               ),
             ],
           ),
         ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Home and people'),
+        const SizedBox(height: 18),
+        const SettingsSectionTitle('Home and members'),
         SettingsSurface(
           child: Column(
             children: [
@@ -478,19 +528,39 @@ class _SettingsContent extends StatelessWidget {
                         PeoplePage(repository: repository, home: home),
                   ),
                 ),
+                showDivider: false,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        const SettingsSectionTitle('Preferences & tools'),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.cloud_sync_rounded,
+                title: 'Cloud sync & backup center',
+                subtitle: 'Backup local setups, rooms, and devices or restore from cloud',
+                onTap: () {
+                  final effectiveCtrl = homeController ??
+                      HomeController.instance ??
+                      HomeController(repository: FakeHomeRepository());
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => CloudSyncCenterSheet(
+                      homeController: effectiveCtrl,
+                    ),
+                  );
+                },
                 showDivider: true,
               ),
               SettingsListItem(
-                icon: Icons.home_outlined,
-                title: 'Home details',
-                subtitle: 'Name, location, and preferences',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        HomeDetailsPage(home: home, repository: repository),
-                  ),
-                ),
+                icon: Icons.palette_outlined,
+                title: 'Appearance',
+                subtitle: currentThemeLabel,
+                onTap: () => _showAppearancePicker(context),
                 showDivider: true,
               ),
               SettingsListItem(
@@ -506,293 +576,22 @@ class _SettingsContent extends StatelessWidget {
                 showDivider: true,
               ),
               SettingsListItem(
-                icon: Icons.palette_outlined,
-                title: 'Appearance',
-                subtitle: currentThemeLabel,
-                onTap: () => _showAppearancePicker(context),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Energy and efficiency'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.bolt_rounded,
-                title: 'Energy dashboard',
-                subtitle: 'Live consumption, load trends, and analytics',
+                icon: Icons.tune_rounded,
+                title: 'System tools & diagnostics',
+                subtitle: 'Firmware updates, diagnostics, and system security',
+                trailing: SettingsStatusChip(
+                  label: isAdmin ? 'Admin' : 'Advanced',
+                  color: tokens.bluePrimary,
+                  background: tokens.blueSelectedBg,
+                ),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => HomeEnergyDashboardPage(
+                    builder: (_) => AdvancedFleetOperationsPage(
                       homeId: effectiveHomeId,
-                      energyService: EnergyService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.eco_rounded,
-                title: 'Energy optimization',
-                subtitle: 'Smart schedules and cost saving recommendations',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => EnergyOptimizationPage(
-                      homeId: effectiveHomeId,
-                      service: EnergyAutomationService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.price_change_outlined,
-                title: 'Electricity tariffs',
-                subtitle: 'Time-of-use rates and utility pricing',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => TariffManagementPage(
-                      homeId: effectiveHomeId,
-                      costService: EnergyCostService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Intelligence and context'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.auto_awesome_rounded,
-                title: 'Intelligence center',
-                subtitle: 'Autonomous decisions, routines, and confidence',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => IntelligenceCenterPage(
-                      homeId: effectiveHomeId,
-                      service: HomeIntelligenceService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.person_pin_circle_outlined,
-                title: 'Presence & occupancy',
-                subtitle: 'Real-time room occupancy and presence timeline',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PresenceDashboardPage(
-                      homeId: effectiveHomeId,
-                      service: ContextPresenceService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.timeline_rounded,
-                title: 'Context history',
-                subtitle: 'Environmental events and context shifts',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => HomeContextPage(
-                      homeId: effectiveHomeId,
-                      service: ContextPresenceService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Devices and ecosystem'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.storefront_outlined,
-                title: 'Product discovery',
-                subtitle: 'Browse compatible smart hardware and accessories',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ProductDiscoveryPage(
-                      homeId: effectiveHomeId,
-                      catalogService: ProductCatalogClientService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.health_and_safety_outlined,
-                title: 'Fleet reliability',
-                subtitle: 'Device health scores and incident diagnostics',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FleetHealthPage(
-                      homeId: effectiveHomeId,
-                      reliabilityService: ReliabilityService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.hub_outlined,
-                title: 'Multi-protocol connectivity',
-                subtitle: 'BLE, MQTT, Local HTTP, and fallback transports',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DeviceConnectivityPage(
-                      deviceId: 'primary-gateway',
-                      deviceName: 'Primary Home Gateway',
-                      connectivityService: ConnectivityService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.share_rounded,
-                title: 'Matter & Ecosystems',
-                subtitle: 'Apple Home, Google Home, Alexa & Matter fabrics',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => MatterIntegrationPage(
-                      homeId: effectiveHomeId,
-                      matterService: MatterService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.memory_rounded,
-                title: 'Edge control dashboard',
-                subtitle: 'Local-first LAN control with zero cloud latency',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => EdgeExecutionDashboardPage(
-                      homeId: effectiveHomeId,
-                      edgeService: EdgeControlService(baseUrl: effectiveClient.baseUrl),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Notifications and sync'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.notifications_active_outlined,
-                title: 'Notification center',
-                subtitle: 'Safety alerts, system events, and priority logs',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => NotificationCenterPage(
-                      homeId: effectiveHomeId,
-                      repository: CloudNotificationRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.sync_rounded,
-                title: 'Sync center',
-                subtitle: 'Offline queue, cache status, and conflict resolution',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SyncCenterPage(
-                      syncService: SyncService(
-                        baseUrl: effectiveClient.baseUrl,
-                        apiClient: effectiveClient,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Observability and operations'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.monitor_heart_outlined,
-                title: 'Operations dashboard',
-                subtitle: 'Subsystem metrics, event audit, and API health',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => OperationsDashboardPage(
-                      homeId: effectiveHomeId,
+                      apiClient: effectiveClient,
+                      homeController: homeController,
                       isAdmin: isAdmin,
-                      repository: CloudOperationsRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.verified_user_outlined,
-                title: 'System readiness',
-                subtitle: 'Platform operational status and subsystem health',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SystemOperationalStatusPage(
-                      repository: CloudOperationalReadinessRepository(effectiveClient),
                     ),
                   ),
                 ),
@@ -800,130 +599,7 @@ class _SettingsContent extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Fleet & OTA rollouts'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.developer_board_rounded,
-                title: 'Firmware releases',
-                subtitle: 'Manage signed artifacts, channels, and release notes',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FirmwareReleasesPage(
-                      repository: CloudFleetFirmwareRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.campaign_rounded,
-                title: 'OTA rollout campaigns',
-                subtitle: 'Controlled batched deployments, canary gates & rollbacks',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => OtaRolloutsPage(
-                      repository: CloudFleetFirmwareRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.devices_other_rounded,
-                title: 'Fleet firmware status',
-                subtitle: 'Per-device firmware versions, rollout states & health',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FleetFirmwareStatusPage(
-                      repository: CloudFleetFirmwareRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Security and resilience'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              SettingsListItem(
-                icon: Icons.security_rounded,
-                title: 'Device trust center',
-                subtitle: 'Certificate trust, secure boot, and anomaly detection',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DeviceSecurityStatusPage(
-                      deviceId: 'gateway-root',
-                      deviceName: 'Hardware Root of Trust',
-                      isAdmin: isAdmin,
-                      repository: CloudDeviceTrustRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.backup_rounded,
-                title: 'Disaster recovery',
-                subtitle: 'Configuration backups, checkpoints, and restore plans',
-                trailing: isAdmin
-                    ? null
-                    : SettingsStatusChip(
-                        label: 'Admin only',
-                        color: tokens.textSecondary,
-                        background: tokens.surfaceCard,
-                      ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => RecoveryDashboardPage(
-                      isAdmin: isAdmin,
-                      repository: CloudRecoveryRepository(effectiveClient),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 27),
+        const SizedBox(height: 18),
         const SettingsSectionTitle('Help and privacy'),
         SettingsSurface(
           child: Column(
@@ -958,58 +634,52 @@ class _SettingsContent extends StatelessWidget {
                 iconBackground: tokens.isDark
                     ? tokens.iconBgBlue
                     : SettingsColors.palePurple,
+                showDivider: true,
+              ),
+              if (onLogout != null) ...[
+                SettingsListItem(
+                  icon: Icons.logout_rounded,
+                  title: 'Sign out',
+                  subtitle: 'Disconnect this session and stop background sync',
+                  onTap: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Sign Out'),
+                        content: const Text(
+                          'Are you sure you want to sign out of EH Home? Your live connection will be closed.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Sign Out'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      onLogout!();
+                    }
+                  },
+                  destructive: true,
+                  showDivider: true,
+                ),
+              ],
+              SettingsListItem(
+                icon: Icons.restart_alt_rounded,
+                title: 'Factory reset',
+                subtitle: 'Remove this home from the device',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FactoryResetPage()),
+                ),
+                destructive: true,
               ),
             ],
-          ),
-        ),
-        if (onLogout != null) ...[
-          const SizedBox(height: 27),
-          const SettingsSectionTitle('Account session'),
-          SettingsSurface(
-            child: SettingsListItem(
-              icon: Icons.logout_rounded,
-              title: 'Sign out',
-              subtitle: 'Disconnect this session and stop background sync',
-              onTap: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Sign Out'),
-                    content: const Text(
-                      'Are you sure you want to sign out of EH Home? Your live connection will be closed.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancel'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Sign Out'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirm == true) {
-                  onLogout!();
-                }
-              },
-              destructive: true,
-            ),
-          ),
-        ],
-        const SizedBox(height: 27),
-        const SettingsSectionTitle('Danger zone'),
-        SettingsSurface(
-          child: SettingsListItem(
-            icon: Icons.restart_alt_rounded,
-            title: 'Factory reset',
-            subtitle: 'Remove this home from the device',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const FactoryResetPage()),
-            ),
-            destructive: true,
           ),
         ),
       ],
@@ -1124,8 +794,26 @@ class _HomeProfileCard extends StatelessWidget {
           padding: const EdgeInsets.all(18),
           child: Row(
             children: [
-              const SettingsIconBadge(icon: Icons.home_outlined, size: 66),
-              const SizedBox(width: 13),
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: tokens.isDark
+                        ? [tokens.bluePrimary, const Color(0xFF1D4ED8)]
+                        : [const Color(0xFF3B82F6), const Color(0xFF1D4ED8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.home_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1133,22 +821,22 @@ class _HomeProfileCard extends StatelessWidget {
                     Text(
                       home.name,
                       style: TextStyle(
-                        fontSize: 21,
+                        fontSize: 20,
                         fontWeight: FontWeight.w800,
                         color: tokens.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       'Home owner',
                       style: TextStyle(
                         color: tokens.textSecondary,
-                        fontSize: 15,
+                        fontSize: 14,
                       ),
                     ),
-                    const SizedBox(height: 13),
+                    const SizedBox(height: 10),
                     Wrap(
-                      spacing: 9,
+                      spacing: 8,
                       runSpacing: 6,
                       children: [
                         _Meta(
@@ -1237,10 +925,14 @@ class _RootConnectionStatus {
     dynamic overview,
     EHThemeTokens tokens,
   ) {
-    if (overview.isFullyConnected) {
+    final ctrl = HomeController.instance;
+    final hasDevices = (ctrl?.devices.isNotEmpty ?? false) || DeviceStorageService.cachedDevices.isNotEmpty;
+    if (overview.isFullyConnected || (hasDevices && (ctrl?.isLocalMode == true || ctrl?.isCloudReachable == true))) {
       return _RootConnectionStatus(
         shortLabel: 'Connected',
-        detail: 'Bluetooth, Wi-Fi, and hub connection',
+        detail: ctrl?.isLocalMode == true
+            ? 'Direct Local Wi-Fi (<10ms)'
+            : 'Bluetooth, Wi-Fi, and hub connection',
         icon: Icons.bluetooth_connected_rounded,
         color: tokens.success,
         background: tokens.successContainer,

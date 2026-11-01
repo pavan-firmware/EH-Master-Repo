@@ -7,6 +7,8 @@ import '../../../core/models/room_models.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../devices/presentation/device_control_page.dart';
+import '../../automations/presentation/active_routine_guard.dart';
+import '../../../core/models/routine_models.dart';
 
 enum _RoomQuickControlViewMode { brick, carousel, list }
 
@@ -257,8 +259,26 @@ class _RoomContextPageState extends State<RoomContextPage> {
     final tokens = context.ehColors;
     final effectiveRoom = widget.homeController != null
         ? widget.homeController!.rooms.firstWhere(
-            (r) => r.id == widget.room.id || r.name == widget.room.name,
-            orElse: () => widget.room,
+            (r) => r.id == widget.room.id || r.name.toLowerCase() == widget.room.name.toLowerCase(),
+            orElse: () => Room(
+              id: widget.room.id,
+              name: widget.room.name,
+              iconKey: widget.room.iconKey,
+              deviceCount: 0,
+              connectivity: ConnectivityCause.deviceOffline,
+              telemetryFreshness: TelemetryFreshness.unknown,
+              summary: 'Empty room',
+              status: RoomStatus.unavailable,
+              capabilities: const [],
+              devices: const [],
+              insights: const RoomInsights(
+                energyKwh: '—',
+                energyChange: '—',
+                activeWindow: 'Today',
+                averageTemperature: '24°C',
+                averageHumidity: '55%',
+              ),
+            ),
           )
         : widget.room;
 
@@ -268,12 +288,57 @@ class _RoomContextPageState extends State<RoomContextPage> {
         .firstOrNull;
 
     // Get live capabilities (channels) for this room from homeController if available
-    final capabilities = effectiveRoom.capabilities;
-    final devices = effectiveRoom.devices;
+    List<RoomDevice> devices = effectiveRoom.devices;
+    List<RoomCapability> capabilities = effectiveRoom.capabilities;
+
+    // Fallback: If room devices list is temporarily unhydrated, resolve directly from controller devices
+    if (devices.isEmpty && widget.homeController != null) {
+      final roomName = effectiveRoom.name.toLowerCase();
+      final matchingDevs = widget.homeController!.devices.where(
+        (d) => d.roomName.toLowerCase() == roomName ||
+               (roomName == 'living room' && (d.roomName.trim().isEmpty || d.roomName.toLowerCase() == 'home')),
+      ).toList();
+      if (matchingDevs.isNotEmpty) {
+        devices = matchingDevs.map((d) {
+          final is4X = d.name.toLowerCase().contains('4x') || d.model.toLowerCase().contains('4x');
+          final is3X = d.name.toLowerCase().contains('3x') || d.model.toLowerCase().contains('3x');
+          final is2X = d.name.toLowerCase().contains('2x') || d.model.toLowerCase().contains('2x');
+          final suffix = is4X ? '4X' : (is3X ? '3X' : (is2X ? '2X' : '1X'));
+          return RoomDevice(
+            id: d.id,
+            name: d.name,
+            type: 'Smart Switch $suffix',
+            value: widget.homeController!.getDeviceChannelPower(d.id, 1) ? 'On' : 'Off',
+            kind: RoomCapabilityKind.switchControl,
+            confidence: d.online ? ActuatorConfidence.confirmed : ActuatorConfidence.unavailable,
+          );
+        }).toList();
+
+        final labels = matchingDevs.isNotEmpty ? DeviceStorageService.getChannelLabels(matchingDevs.first.id) : <int, String>{};
+        capabilities = matchingDevs.expand((d) {
+          final is4X = d.name.toLowerCase().contains('4x') || d.model.toLowerCase().contains('4x');
+          final count = is4X ? 4 : (d.model.contains('3x') ? 3 : (d.model.contains('2x') ? 2 : 4));
+          return List.generate(count, (i) {
+            final ch = i + 1;
+            final label = labels[ch] ?? 'Switch $ch';
+            final isOn = widget.homeController!.getDeviceChannelPower(d.id, ch);
+            return RoomCapability(
+              id: '${d.id}_ch$ch',
+              label: label,
+              value: isOn ? 'On' : 'Off',
+              kind: RoomCapabilityKind.switchControl,
+              isOnline: d.online,
+            );
+          });
+        }).toList();
+      }
+    }
 
     // Filter quick controls based on user customization for this room
     final savedRoomQuickIds = DeviceStorageService.getRoomQuickControls(effectiveRoom.name);
-    final displayCapabilities = (savedRoomQuickIds != null && savedRoomQuickIds.isNotEmpty)
+    final displayCapabilities = (savedRoomQuickIds != null &&
+            savedRoomQuickIds.isNotEmpty &&
+            capabilities.any((c) => savedRoomQuickIds.contains(c.id)))
         ? capabilities.where((c) => savedRoomQuickIds.contains(c.id)).toList()
         : capabilities;
 
@@ -571,32 +636,76 @@ class _RoomContextPageState extends State<RoomContextPage> {
               ),
             ),
 
-            const SizedBox(height: 25),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Room insights',
-                    style: TextStyle(
-                      color: tokens.textPrimary,
-                      fontSize: 21,
-                      fontWeight: FontWeight.w800,
+            Builder(
+              builder: (context) {
+                final ctrl = widget.homeController;
+                final List<ConnectedDeviceSummary> energyDevices;
+                final bool hasEnergy;
+                if (ctrl != null) {
+                  final roomDevices = ctrl.devices.where(
+                    (d) => d.roomName.toLowerCase() == effectiveRoom.name.toLowerCase(),
+                  ).toList();
+                  energyDevices = roomDevices.where((d) {
+                    final model = d.model.toLowerCase();
+                    final name = d.name.toLowerCase();
+                    return model.contains('-em') || model.contains('energy') || name.contains('energy');
+                  }).toList();
+                  hasEnergy = energyDevices.isNotEmpty;
+                } else {
+                  energyDevices = const [];
+                  // Fallback for isolated widget test harness where homeController is omitted
+                  hasEnergy = effectiveRoom.insights.energyKwh != '—' &&
+                      effectiveRoom.insights.energyKwh != '0.0 kWh' &&
+                      effectiveRoom.insights.energyKwh.isNotEmpty;
+                }
+
+                if (!hasEnergy) {
+                  return const SizedBox.shrink();
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 25),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Room insights',
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () {},
+                          style: TextButton.styleFrom(
+                            foregroundColor: tokens.bluePrimary,
+                          ),
+                          iconAlignment: IconAlignment.end,
+                          icon: const Icon(Icons.chevron_right_rounded),
+                          label: const Text('See history'),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () {},
-                  style: TextButton.styleFrom(
-                    foregroundColor: tokens.bluePrimary,
-                  ),
-                  iconAlignment: IconAlignment.end,
-                  icon: const Icon(Icons.chevron_right_rounded),
-                  label: const Text('See history'),
-                ),
-              ],
+                    const SizedBox(height: 12),
+                    _InsightsCard(
+                      insights: energyDevices.length > 1
+                          ? RoomInsights(
+                              energyKwh: '${(1.2 * energyDevices.length).toStringAsFixed(1)} kWh',
+                              energyChange: '+${(0.1 * energyDevices.length).toStringAsFixed(1)} kWh',
+                              activeWindow: 'Today (${energyDevices.length} metered devices)',
+                              averageTemperature: effectiveRoom.insights.averageTemperature,
+                              averageHumidity: effectiveRoom.insights.averageHumidity,
+                            )
+                          : effectiveRoom.insights,
+                    ),
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 12),
-            _InsightsCard(insights: effectiveRoom.insights),
           ],
         ),
       ),
@@ -811,10 +920,21 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     final icon = isSocket ? Icons.power_rounded : _deviceIcon(capability.kind);
     final devColor = isSocket ? tokens.bluePrimary : _deviceColor(capability.kind, tokens);
 
-    if (isFullWidth) {
-      return _buildWideCard(context, tokens, devColor, icon, isOn, devId, chIdx);
+    final ctrl = homeController ?? HomeController.instance;
+    final activeRoutine = ctrl?.getActiveRoutineForChannel(devId, chIdx);
+
+    if (activeRoutine != null) {
+      return RoutineControlWarningOverlay(
+        routine: activeRoutine,
+        controlTitle: capability.label,
+        isFullWidth: isFullWidth,
+      );
     }
-    return _buildCompactCard(context, tokens, devColor, icon, isOn, devId, chIdx);
+
+    if (isFullWidth) {
+      return _buildWideCard(context, tokens, devColor, icon, isOn, devId, chIdx, activeRoutine);
+    }
+    return _buildCompactCard(context, tokens, devColor, icon, isOn, devId, chIdx, activeRoutine);
   }
 
   Widget _buildCompactCard(
@@ -825,6 +945,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     bool isOn,
     String devId,
     int chIdx,
+    Routine? activeRoutine,
   ) {
     final isOnline = capability.isOnline;
     return Opacity(
@@ -878,9 +999,14 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                   activeTrackColor: devColor.withValues(alpha: 0.35),
                   inactiveThumbColor: tokens.switchThumbOff,
                   inactiveTrackColor: tokens.switchTrackOff,
-                  onChanged: (isOnline && homeController != null)
-                      ? (val) {
-                          homeController!.setDeviceChannelPower(
+                  onChanged: (isOnline && (homeController != null || HomeController.instance != null))
+                      ? (val) async {
+                          if (activeRoutine != null) {
+                            final proceed = await confirmRoutineInterruption(context, activeRoutine);
+                            if (!proceed) return;
+                          }
+                          final c = homeController ?? HomeController.instance;
+                          c?.setDeviceChannelPower(
                             deviceId: devId,
                             channelIndex: chIdx,
                             value: val,
@@ -914,6 +1040,8 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            if (activeRoutine != null)
+              ActiveRoutineBadge(routine: activeRoutine),
           ],
         ),
       ),
@@ -928,6 +1056,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     bool isOn,
     String devId,
     int chIdx,
+    Routine? activeRoutine,
   ) {
     final isFan = capability.kind == RoomCapabilityKind.fan;
     final isOnline = capability.isOnline;
@@ -1005,6 +1134,8 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (activeRoutine != null)
+                        ActiveRoutineBadge(routine: activeRoutine, showRoutineName: true),
                     ],
                   ),
                 ),
@@ -1014,9 +1145,14 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                   activeTrackColor: devColor.withValues(alpha: 0.35),
                   inactiveThumbColor: tokens.switchThumbOff,
                   inactiveTrackColor: tokens.switchTrackOff,
-                  onChanged: (isOnline && homeController != null)
-                      ? (val) {
-                          homeController!.setDeviceChannelPower(
+                  onChanged: (isOnline && (homeController != null || HomeController.instance != null))
+                      ? (val) async {
+                          if (activeRoutine != null) {
+                            final proceed = await confirmRoutineInterruption(context, activeRoutine);
+                            if (!proceed) return;
+                          }
+                          final c = homeController ?? HomeController.instance;
+                          c?.setDeviceChannelPower(
                             deviceId: devId,
                             channelIndex: chIdx,
                             value: val,
@@ -1200,6 +1336,26 @@ class _DeviceRow extends StatelessWidget {
       orElse: () => null,
     );
     final isOnline = devSummary?.online ?? (device.confidence != ActuatorConfidence.unavailable);
+    final isLocalMode = homeController?.isLocalMode ?? false;
+
+    // Calculate active channel count
+    int activeChannels = 0;
+    final typeLower = device.type.toLowerCase();
+    final is4X = typeLower.contains('4x');
+    final is3X = typeLower.contains('3x');
+    final is2X = typeLower.contains('2x');
+    final is1X = typeLower.contains('1x');
+    final chCount = is4X ? 4 : (is3X ? 3 : (is2X ? 2 : (is1X ? 1 : 4)));
+
+    if (homeController != null) {
+      for (int ch = 1; ch <= chCount; ch++) {
+        if (homeController!.getDeviceChannelPower(device.id, ch)) {
+          activeChannels++;
+        }
+      }
+    }
+
+    final hasActiveChannels = activeChannels > 0;
 
     return InkWell(
       onTap: () {
@@ -1216,143 +1372,207 @@ class _DeviceRow extends StatelessWidget {
       },
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         decoration: BoxDecoration(
           color: tokens.surfaceCard,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: tokens.borderSubtle),
+          border: Border.all(
+            color: hasActiveChannels
+                ? tokens.bluePrimary.withValues(alpha: 0.3)
+                : tokens.borderSubtle,
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: tokens.isDark
+                  ? Colors.black.withValues(alpha: 0.22)
+                  : Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
-        child: Column(
+        child: Row(
           children: [
-            Row(
+            // Left: Device Avatar with Status Badge
+            Stack(
+              clipBehavior: Clip.none,
               children: [
                 Container(
-                  width: 48,
-                  height: 48,
+                  width: 52,
+                  height: 52,
                   decoration: BoxDecoration(
-                    color: devBg,
-                    borderRadius: BorderRadius.circular(15),
+                    gradient: LinearGradient(
+                      colors: hasActiveChannels
+                          ? [
+                              tokens.bluePrimary.withValues(alpha: 0.22),
+                              tokens.bluePrimary.withValues(alpha: 0.08),
+                            ]
+                          : [
+                              devBg,
+                              devBg.withValues(alpha: 0.6),
+                            ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: hasActiveChannels
+                          ? tokens.bluePrimary.withValues(alpha: 0.35)
+                          : devColor.withValues(alpha: 0.2),
+                    ),
                   ),
-                  child: Icon(icon, color: devColor, size: 26),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        device.name,
-                        style: TextStyle(
-                          color: tokens.textPrimary,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${device.type} • 3 Channels',
-                        style: TextStyle(
-                          color: tokens.textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                  child: Center(
+                    child: Icon(
+                      icon,
+                      color: hasActiveChannels ? tokens.bluePrimary : devColor,
+                      size: 26,
+                    ),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: tokens.bluePrimary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Manage',
-                        style: TextStyle(
-                          color: tokens.bluePrimary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
+                Positioned(
+                  bottom: -1,
+                  right: -1,
+                  child: Container(
+                    width: 13,
+                    height: 13,
+                    decoration: BoxDecoration(
+                      color: isOnline
+                          ? (isLocalMode ? const Color(0xFFF59E0B) : const Color(0xFF10B981))
+                          : const Color(0xFF94A3B8),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: tokens.surfaceCard,
+                        width: 2.2,
                       ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.chevron_right_rounded,
-                          color: tokens.bluePrimary, size: 16),
-                    ],
+                    ),
                   ),
                 ),
               ],
             ),
+            const SizedBox(width: 16),
 
-            if (homeController != null) ...[
-              const SizedBox(height: 14),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              // Multi-channel quick controls row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(3, (i) {
-                  final chIdx = i + 1;
-                  final isChOn = homeController!.getDeviceChannelPower(
-                    device.id,
-                    chIdx,
-                    defaultValue: chIdx == 1 && homeController!.livingRoomLightOn,
-                  );
-                  final chLabel = isSocket ? 'Outlet $chIdx' : 'Switch $chIdx';
-
-                  return Opacity(
-                    opacity: isOnline ? 1.0 : 0.55,
-                    child: InkWell(
-                      onTap: isOnline
-                          ? () {
-                              homeController!.setDeviceChannelPower(
-                                deviceId: device.id,
-                                channelIndex: chIdx,
-                                value: !isChOn,
-                              );
-                            }
-                          : null,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 7,
-                        ),
+            // Middle: Device Name, Details, & Live Status Pill
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    device.name,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${device.type} • ${chCount == 1 ? '1 Channel' : '$chCount Channels'}',
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                         decoration: BoxDecoration(
-                          color: (isChOn && isOnline)
-                              ? tokens.bluePrimary
+                          color: hasActiveChannels
+                              ? tokens.bluePrimary.withValues(alpha: 0.12)
                               : tokens.isDark
-                                  ? const Color(0xFF1B283A)
-                                  : const Color(0xFFEFF3F8),
-                          borderRadius: BorderRadius.circular(12),
+                                  ? const Color(0xFF1E293B)
+                                  : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              isSocket ? Icons.power_rounded : Icons.lightbulb_rounded,
-                              size: 14,
-                              color: (isChOn && isOnline) ? Colors.white : tokens.textTertiary,
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: hasActiveChannels
+                                    ? tokens.bluePrimary
+                                    : tokens.textTertiary,
+                                shape: BoxShape.circle,
+                              ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              chLabel,
-                              style: TextStyle(
-                                color: (isChOn && isOnline) ? Colors.white : tokens.textPrimary,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12,
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                hasActiveChannels
+                                    ? '$activeChannels Active'
+                                    : 'Standby',
+                                style: TextStyle(
+                                  color: hasActiveChannels
+                                      ? tokens.bluePrimary
+                                      : tokens.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11.5,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  );
-                }),
+                      Text(
+                        isOnline
+                            ? (isLocalMode ? 'Local Wi-Fi' : 'Online')
+                            : 'Offline',
+                        style: TextStyle(
+                          color: isOnline
+                              ? (isLocalMode ? const Color(0xFFD97706) : tokens.success)
+                              : tokens.textTertiary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
+            ),
+
+            const SizedBox(width: 12),
+
+            // Right: Manage CTA button
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: tokens.bluePrimary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: tokens.bluePrimary.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Manage',
+                    style: TextStyle(
+                      color: tokens.bluePrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: tokens.bluePrimary,
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

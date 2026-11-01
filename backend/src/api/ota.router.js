@@ -16,9 +16,58 @@
  * - POST /api/v1/ota/telemetry/failure
  */
 
+const fs = require('fs');
+const path = require('path');
+
+function resolveFirmwareDir(customDir) {
+  if (customDir) return customDir;
+  const candidates = [
+    path.resolve(process.cwd(), 'backend/var/firmware'),
+    path.resolve(process.cwd(), 'var/firmware'),
+    path.resolve(__dirname, '../../var/firmware'),
+    path.resolve(__dirname, '../var/firmware')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  const fallback = candidates[0];
+  try {
+    fs.mkdirSync(fallback, { recursive: true });
+  } catch (_) {}
+  return fallback;
+}
+
 class OtaApiRouter {
-  constructor({ otaService }) {
+  constructor({ otaService, firmwareDir = null }) {
     this.otaService = otaService;
+    this.firmwareDir = resolveFirmwareDir(firmwareDir);
+  }
+
+  handleBinaryDownload(req, res, pathname) {
+    const rawFilename = pathname.replace('/api/v1/ota/binaries/', '');
+    const filename = path.basename(decodeURIComponent(rawFilename));
+    if (!filename || filename === '.' || filename === '..') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Invalid filename' }));
+    }
+
+    const filePath = path.join(this.firmwareDir, filename);
+    if (!fs.existsSync(filePath)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: `Firmware binary '${filename}' not found` }));
+    }
+
+    const stat = fs.statSync(filePath);
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': stat.size,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Access-Control-Allow-Origin': '*'
+    });
+
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
   }
 
   async handle(method, pathname, body = {}, query = {}, user = null) {

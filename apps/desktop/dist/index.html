@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/branding/app_logo.png" />
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+    <title>EH Home — Engineering & Manufacturing Platform</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: #090D14;
+        color: #CCCCCC;
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+        overflow: hidden;
+      }
+      .app-loader-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100vw;
+        height: 100vh;
+        background-color: #090D14;
+      }
+      .eh-splash-ring-wrapper {
+        position: relative;
+        width: 80px;
+        height: 80px;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .eh-splash-svg {
+        width: 100%;
+        height: 100%;
+        animation: ringRotate 2.2s linear infinite;
+        filter: drop-shadow(0 0 8px rgba(247, 200, 82, 0.25));
+      }
+      @keyframes ringRotate {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .eh-splash-center-icon {
+        position: absolute;
+        width: 32px;
+        height: 32px;
+        color: #DCAE45;
+        animation: pulseIcon 2s ease-in-out infinite;
+        filter: drop-shadow(0 0 6px rgba(247, 200, 82, 0.4));
+      }
+      @keyframes pulseIcon {
+        0%, 100% { opacity: 0.85; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.06); filter: drop-shadow(0 0 10px rgba(247, 200, 82, 0.6)); }
+      }
+      .eh-splash-title {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: #F7C852;
+        margin-bottom: 6px;
+        text-shadow: 0 0 12px rgba(247, 200, 82, 0.3);
+      }
+      .eh-splash-subtitle {
+        font-size: 11px;
+        letter-spacing: 0.5px;
+        color: #38BDF8;
+        opacity: 0.9;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-D4HzUY7X.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-ChtK-kpW.css">
+  </head>
+  <body class="bg-[#090D14] text-slate-100 antialiased overflow-hidden select-none">
+    <div id="root">
+      <div class="app-loader-container">
+        <div class="eh-splash-ring-wrapper">
+          <svg class="eh-splash-svg" viewBox="0 0 100 100">
+            <defs>
+              <linearGradient id="goldArcGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+                <stop offset="0%" stop-color="#DCAE45" />
+                <stop offset="50%" stop-color="#F7C852" />
+                <stop offset="100%" stop-color="#DCAE45" />
+              </linearGradient>
+            </defs>
+            <!-- Left Solid Glowing Gold Arc -->
+            <path d="M 50 94 A 44 44 0 0 1 50 6" fill="none" stroke="url(#goldArcGrad)" stroke-width="3.5" stroke-linecap="round" />
+            <!-- Right Dashed Stepping Gold Ticks -->
+            <path d="M 50 6 A 44 44 0 0 1 50 94" fill="none" stroke="#DCAE45" stroke-width="2" stroke-dasharray="2.5 5.5" stroke-opacity="0.5" stroke-linecap="round" />
+            <!-- Orbiting Golden Dot Head with Glowing Halo -->
+            <circle cx="50" cy="6" r="4.5" fill="#F7C852" />
+            <circle cx="50" cy="6" r="7" fill="#F7C852" opacity="0.4" />
+          </svg>
+          <!-- Center Smart Home & Wi-Fi Icon Line-Art -->
+          <svg class="eh-splash-center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            <path d="M12 7.5a2.5 2.5 0 0 1 2.5 2.5" stroke-width="1.4"></path>
+            <path d="M12 5a5 5 0 0 1 5 5" stroke-width="1.4"></path>
+          </svg>
+        </div>
+        <div class="eh-splash-title">EH HOME</div>
+        <div class="eh-splash-subtitle">Engineering & Manufacturing Workbench</div>
+      </div>
+    </div>
+  </body>
+</html>

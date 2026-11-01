@@ -114,6 +114,95 @@ class _AccountProfilePageState extends State<AccountProfilePage> {
     }
   }
 
+  Future<void> _showAvatarPickerDialog() async {
+    final avatarOptions = [
+      {'name': 'Default Blue', 'val': 'https://api.dicebear.com/7.x/bottts/png?seed=HomeAdmin'},
+      {'name': 'Smart Tech', 'val': 'https://api.dicebear.com/7.x/identicon/png?seed=SmartTech'},
+      {'name': 'Home Eco', 'val': 'https://api.dicebear.com/7.x/bottts/png?seed=GreenEco'},
+      {'name': 'Minimalist', 'val': 'https://api.dicebear.com/7.x/shapes/png?seed=Minimalist'},
+    ];
+
+    final customUrlCtrl = TextEditingController(text: _profile?.avatarUrl ?? '');
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (bCtx) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(24, 8, 24, MediaQuery.of(bCtx).viewInsets.bottom + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Change Profile Picture / Avatar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              const Text('Choose an avatar preset:'),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: avatarOptions.map((opt) {
+                  return GestureDetector(
+                    onTap: () => Navigator.pop(bCtx, opt['val']),
+                    child: Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundImage: NetworkImage(opt['val']!),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(opt['name']!, style: const TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: customUrlCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Or enter custom Image / Avatar URL',
+                  hintText: 'https://...',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.image_outlined),
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(bCtx, customUrlCtrl.text.trim()),
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('Save Picture'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (selected != null && selected.isNotEmpty) {
+      try {
+        final updated = await widget.repository.updateAccountProfile(
+          avatarUrl: selected,
+        );
+        setState(() => _profile = updated);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile picture updated successfully.')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to update picture: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _showChangePasswordDialog() async {
     final oldCtrl = TextEditingController();
     final newCtrl = TextEditingController();
@@ -226,13 +315,37 @@ class _AccountProfilePageState extends State<AccountProfilePage> {
                         padding: const EdgeInsets.all(16),
                         child: Row(
                           children: [
-                            CircleAvatar(
-                              radius: 32,
-                              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                              child: Text(
-                                (_profile?.fullName ?? _profile?.email ?? 'U')[0].toUpperCase(),
-                                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                              ),
+                            Stack(
+                              children: [
+                                CircleAvatar(
+                                  radius: 32,
+                                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                                  backgroundImage: (_profile?.avatarUrl != null && _profile!.avatarUrl!.isNotEmpty)
+                                      ? NetworkImage(_profile!.avatarUrl!)
+                                      : null,
+                                  child: (_profile?.avatarUrl == null || _profile!.avatarUrl!.isEmpty)
+                                      ? Text(
+                                          (_profile?.fullName ?? _profile?.email ?? 'U')[0].toUpperCase(),
+                                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                                        )
+                                      : null,
+                                ),
+                                Positioned(
+                                  right: 0,
+                                  bottom: 0,
+                                  child: GestureDetector(
+                                    onTap: _showAvatarPickerDialog,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context).colorScheme.primary,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.camera_alt_rounded, size: 14, color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(width: 16),
                             Expanded(

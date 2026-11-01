@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/app/home_controller.dart';
 import 'package:smart_home_application_v1/core/api/api_client.dart';
 import 'package:smart_home_application_v1/core/models/home_dashboard_models.dart';
@@ -88,11 +89,15 @@ class _FakeSettingsRepository implements SettingsRepository {
 
   @override
   Future<SettingsOperationResult> removeMember(String memberId) async => SettingsOperationResult.success;
+
+  @override
+  Future<SettingsOperationResult> updateMemberRole(String memberId, String role) async => SettingsOperationResult.success;
 }
 
 void main() {
   setUp(() {
     FlutterSecureStorage.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({});
   });
 
   group('Phase 48 Account Profile, Username & Timezone Tests', () {
@@ -141,17 +146,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Full Name'), findsOneWidget);
-      expect(find.text('Email Address'), findsOneWidget);
-      expect(find.text('Password'), findsOneWidget);
-      expect(find.text('Confirm Password'), findsOneWidget);
+      expect(find.text('FULL NAME'), findsOneWidget);
+      expect(find.text('EMAIL ADDRESS'), findsOneWidget);
+      expect(find.text('PASSWORD'), findsOneWidget);
+      expect(find.text('CONFIRM PASSWORD'), findsOneWidget);
 
-      await tester.enterText(find.widgetWithText(TextFormField, 'Full Name'), 'Chandra Prakash');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Email Address'), 'chandra@example.com');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Password'), 'Password123!');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Confirm Password'), 'Password123!');
+      final textFields = find.byType(TextFormField);
+      await tester.enterText(textFields.at(0), 'Chandra Prakash');
+      await tester.enterText(textFields.at(1), 'chandra@example.com');
+      await tester.enterText(textFields.at(2), 'Password123!');
+      await tester.enterText(textFields.at(3), 'Password123!');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Create Account'));
+      final buttonFinder = find.widgetWithText(ElevatedButton, 'Create Account');
+      await tester.ensureVisible(buttonFinder);
+      await tester.tap(buttonFinder);
       await tester.pumpAndSettle();
 
       expect(sentFullName, 'Chandra Prakash');
@@ -185,12 +193,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.widgetWithText(TextFormField, 'Full Name'), 'Chandra Prakash');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Email Address'), 'chandra@example.com');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Password'), 'Password123!');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Confirm Password'), 'Password123!');
+      final textFields2 = find.byType(TextFormField);
+      await tester.enterText(textFields2.at(0), 'Chandra Prakash');
+      await tester.enterText(textFields2.at(1), 'chandra@example.com');
+      await tester.enterText(textFields2.at(2), 'Password123!');
+      await tester.enterText(textFields2.at(3), 'Password123!');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Create Account'));
+      final buttonFinder = find.widgetWithText(ElevatedButton, 'Create Account');
+      await tester.ensureVisible(buttonFinder);
+      await tester.tap(buttonFinder);
       await tester.pumpAndSettle();
 
       expect(authCtrl.state, AuthState.failure);
@@ -213,7 +224,7 @@ void main() {
               lightCommandPending: false,
               alertAcknowledged: true,
               onLightChanged: (_) {},
-              onAlertTap: () {},
+              onAlertTap: ([_]) {},
               onConnectHome: () {},
               onShowRooms: () {},
               onOpenRoom: (_) {},

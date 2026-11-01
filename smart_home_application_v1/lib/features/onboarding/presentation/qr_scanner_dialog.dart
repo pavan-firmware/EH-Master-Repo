@@ -4,7 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// Full-screen camera QR scanner dialog with permission checks and error guidance.
+/// Full-screen camera QR scanner dialog with permission checks, lifecycle recovery, and error guidance.
 class QrScannerDialog extends StatefulWidget {
   const QrScannerDialog({super.key});
 
@@ -21,48 +21,78 @@ class QrScannerDialog extends StatefulWidget {
   State<QrScannerDialog> createState() => _QrScannerDialogState();
 }
 
-class _QrScannerDialogState extends State<QrScannerDialog> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-    facing: CameraFacing.back,
-  );
+class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingObserver {
+  MobileScannerController? _controller;
 
+  bool _isChecking = true;
   bool _hasScanned = false;
-  bool _permissionDenied = false;
+  bool _permissionGranted = false;
   bool _permanentlyDenied = false;
 
   @override
   void initState() {
     super.initState();
-    _checkPermission();
+    WidgetsBinding.instance.addObserver(this);
+    _checkAndRequestPermission();
   }
 
-  Future<void> _checkPermission() async {
-    final status = await Permission.camera.request();
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_permissionGranted) {
+      _checkAndRequestPermission();
+    }
+  }
+
+  Future<void> _checkAndRequestPermission() async {
+    setState(() => _isChecking = true);
+    final currentStatus = await Permission.camera.status;
     if (!mounted) return;
 
-    if (status.isGranted) {
-      debugPrint('[QR] SCAN_STARTED');
+    if (currentStatus.isGranted) {
+      _startScanner();
+      return;
+    }
+
+    final requestedStatus = await Permission.camera.request();
+    if (!mounted) return;
+
+    if (requestedStatus.isGranted) {
+      _startScanner();
+    } else if (requestedStatus.isPermanentlyDenied) {
       setState(() {
-        _permissionDenied = false;
-        _permanentlyDenied = false;
-      });
-    } else if (status.isPermanentlyDenied) {
-      setState(() {
-        _permissionDenied = true;
+        _permissionGranted = false;
         _permanentlyDenied = true;
+        _isChecking = false;
       });
     } else {
       setState(() {
-        _permissionDenied = true;
+        _permissionGranted = false;
         _permanentlyDenied = false;
+        _isChecking = false;
       });
     }
   }
 
+  void _startScanner() {
+    _controller ??= MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      facing: CameraFacing.back,
+    );
+    try {
+      _controller?.start();
+    } catch (_) {}
+    setState(() {
+      _permissionGranted = true;
+      _permanentlyDenied = false;
+      _isChecking = false;
+    });
+    debugPrint('[QR] SCAN_STARTED');
+  }
+
   @override
   void dispose() {
-    _controller.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -74,7 +104,7 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
       final rawValue = barcode.rawValue;
       if (rawValue != null && rawValue.trim().isNotEmpty) {
         _hasScanned = true;
-        debugPrint('[QR] SCAN_DETECTED');
+        debugPrint('[QR] SCAN_DETECTED: ${rawValue.trim()}');
         Navigator.of(context).pop(rawValue.trim());
         break;
       }
@@ -89,9 +119,13 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          if (!_permissionDenied)
+          if (_isChecking)
+            Center(
+              child: CircularProgressIndicator(color: tokens.bluePrimary),
+            )
+          else if (_permissionGranted && _controller != null)
             MobileScanner(
-              controller: _controller,
+              controller: _controller!,
               onDetect: _onDetect,
               errorBuilder: (context, error) {
                 return Center(
@@ -101,7 +135,7 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
-                          Icons.error_outline,
+                          Icons.error_outline_rounded,
                           color: Colors.amber,
                           size: 48,
                         ),
@@ -111,6 +145,19 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: () {
+                            _controller?.start();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Retry Camera'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: tokens.bluePrimary,
                           ),
                         ),
                       ],
@@ -144,7 +191,7 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                     const SizedBox(height: 10),
                     Text(
                       _permanentlyDenied
-                          ? 'Camera access is permanently disabled. Please enable it in system settings to scan the device QR code.'
+                          ? 'Camera access is disabled. Please enable camera permission in App Settings to scan the device QR code.'
                           : 'Please grant camera permission to scan your EH Home device QR code.',
                       style: const TextStyle(
                         color: Colors.white70,
@@ -163,7 +210,7 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
                       )
                     else
                       FilledButton(
-                        onPressed: _checkPermission,
+                        onPressed: _checkAndRequestPermission,
                         style: FilledButton.styleFrom(
                           backgroundColor: tokens.bluePrimary,
                         ),
@@ -206,7 +253,7 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
           ),
 
           // Center Viewfinder target box
-          if (!_permissionDenied)
+          if (_permissionGranted && !_isChecking)
             Align(
               alignment: Alignment.center,
               child: Container(
@@ -220,33 +267,34 @@ class _QrScannerDialogState extends State<QrScannerDialog> {
             ),
 
           // Bottom instruction text
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 40, left: 24, right: 24),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.65),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Text(
-                    'Align the QR code on your EH Home device within the frame',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
+          if (_permissionGranted && !_isChecking)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 40, left: 24, right: 24),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
                     ),
-                    textAlign: TextAlign.center,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Text(
+                      'Align the QR code on your EH Home device within the frame',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );

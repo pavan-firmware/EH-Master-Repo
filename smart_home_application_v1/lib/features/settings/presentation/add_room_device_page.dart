@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/connection_repository.dart';
@@ -7,21 +8,22 @@ import '../../../core/repositories/settings_repository.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../connection/presentation/connection_page.dart';
 import 'settings_ui.dart';
+import 'help/help_support_page.dart';
 
-/// Consumer-facing entry point for commissioning. It uses preview discovery
-/// information only for layout validation; actual connection is always handed
-/// to [ConnectionPage], which performs the authenticated nearby flow.
+/// Consumer-facing entry point for commissioning.
 class AddRoomDevicePage extends StatefulWidget {
   const AddRoomDevicePage({
     super.key,
     required this.repository,
     this.onStartSecureSetup,
     this.connectionState,
+    this.homeController,
   });
 
   final SettingsRepository repository;
   final Future<ConnectionResult> Function()? onStartSecureSetup;
   final HomeConnectionState? connectionState;
+  final HomeController? homeController;
 
   @override
   State<AddRoomDevicePage> createState() => _AddRoomDevicePageState();
@@ -119,6 +121,70 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
         children: [
           const _SetupStepper(),
           const SizedBox(height: 22),
+          if (widget.onStartSecureSetup != null) ...[
+            SettingsSurface(
+              color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
+              borderColor: tokens.bluePrimary.withValues(alpha: 0.5),
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: tokens.bluePrimary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(Icons.bluetooth_searching_rounded, color: tokens.bluePrimary, size: 24),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Pair a New Device',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: tokens.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Connect via Bluetooth Low Energy (BLE) or Wi-Fi provisioning.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: tokens.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tokens.bluePrimary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: _openSecureSetup,
+                      icon: const Icon(Icons.add_rounded, size: 20),
+                      label: const Text('Start Setup & Pairing', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+          ],
           SettingsSurface(
             color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
             borderColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD9E5FF),
@@ -525,10 +591,11 @@ class _HelpRow extends StatelessWidget {
             Icons.chevron_right_rounded,
             color: SettingsColors.muted,
           ),
-          onTap: () => showSettingsUnavailable(
+          onTap: () => Navigator.push(
             context,
-            message:
-                'Troubleshooting guidance will be available with secure setup support.',
+            MaterialPageRoute(
+              builder: (_) => const HelpSupportPage(initialTopic: 'troubleshooting'),
+            ),
           ),
         ),
       ),

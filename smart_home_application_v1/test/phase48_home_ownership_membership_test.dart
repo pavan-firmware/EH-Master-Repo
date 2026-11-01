@@ -96,6 +96,9 @@ class FakeHomeRepository implements HomeRepository {
   Future<Map<String, dynamic>> createRoom({required String name, String? homeId, String? iconKey}) async => {'id': 'r-1', 'name': name};
 
   @override
+  Future<void> removeDevice({required String deviceId, String? homeId}) async {}
+
+  @override
   Future<FirmwareRelease?> getAvailableRelease() async => null;
 
   @override

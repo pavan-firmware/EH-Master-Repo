@@ -1,0 +1,7 @@
+{
+  "name": "@eh-home/config",
+  "version": "1.0.0",
+  "description": "EH Home Shared TypeScript, Linter, and Tooling Configurations",
+  "main": "index.js",
+  "private": true
+}
