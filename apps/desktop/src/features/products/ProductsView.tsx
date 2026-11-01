@@ -116,13 +116,15 @@ export const ProductsView: React.FC = () => {
 
       if (varRes.success && Array.isArray(varRes.data) && varRes.data.length > 0) {
         setProducts(varRes.data);
-        if (varRes.data[0]) {
-          setSelectedVariantId((prev) => prev || varRes.data[0].variantId || varRes.data[0].id);
+        const firstVar = varRes.data[0];
+        if (firstVar) {
+          setSelectedVariantId((prev) => prev || firstVar.variantId || firstVar.id);
         }
       } else if (prodRes.success && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
         setProducts(prodRes.data);
-        if (prodRes.data[0]) {
-          setSelectedVariantId((prev) => prev || prodRes.data[0].variantId || prodRes.data[0].id);
+        const firstProd = prodRes.data[0];
+        if (firstProd) {
+          setSelectedVariantId((prev) => prev || firstProd.variantId || firstProd.id);
         }
       } else {
         setProducts(CANONICAL_PRODUCT_DEFINITIONS as any[]);
