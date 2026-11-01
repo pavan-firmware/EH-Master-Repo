@@ -1009,10 +1009,11 @@ function createApp(options = {}) {
       res.setHeader('X-Correlation-ID', correlationId);
     }
 
-    const parsedUrl = url.parse(req.url, true);
-    const pathname = parsedUrl.pathname;
-    const method = req.method.toUpperCase();
-    const query = parsedUrl.query || {};
+    try {
+      const parsedUrl = new URL(req.url, 'http://127.0.0.1');
+      const pathname = parsedUrl.pathname;
+      const method = req.method.toUpperCase();
+      const query = Object.fromEntries(parsedUrl.searchParams.entries());
 
     // 0. Handle CORS Preflight (OPTIONS)
     if (method === 'OPTIONS') {
@@ -1466,6 +1467,20 @@ function createApp(options = {}) {
       error: { code: 'NOT_FOUND', message: `Route ${method} ${pathname} not found` },
       timestamp: new Date().toISOString()
     });
+    } catch (err) {
+      console.error(`[EH Home Backend] [${correlationId}] Internal Server Error:`, err);
+      if (!res.headersSent) {
+        sendJsonResponse(res, 500, {
+          success: false,
+          error: {
+            code: 'INTERNAL_SERVER_ERROR',
+            message: process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message || 'Unknown internal error')
+          },
+          correlationId,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
   }
 
   return {

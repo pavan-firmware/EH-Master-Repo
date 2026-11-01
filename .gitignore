@@ -184,4 +184,6 @@ env/
 !.vscode/extensions.json
 .history/
 scratch/
+prompt_images/
+prompt_image/
 

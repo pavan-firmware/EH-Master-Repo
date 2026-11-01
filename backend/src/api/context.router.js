@@ -18,16 +18,17 @@ class ContextApiRouter {
   }
 
   async handleRequest(req, actorContext) {
-    const method = req.method;
-    let path = req.path;
-    let query = req.query || {};
-    const body = req.body || {};
+    try {
+      const method = req.method;
+      let path = req.path;
+      let query = req.query || {};
+      const body = req.body || {};
 
-    if (req.url) {
-      const parsed = url.parse(req.url, true);
-      path = parsed.pathname;
-      query = { ...parsed.query, ...query };
-    }
+      if (req.url) {
+        const parsed = new URL(req.url, 'http://127.0.0.1');
+        path = parsed.pathname;
+        query = { ...Object.fromEntries(parsed.searchParams.entries()), ...query };
+      }
 
     const userId = (actorContext && actorContext.userId) || req.userId || (req.user && req.user.id) || null;
 
@@ -194,7 +195,16 @@ class ContextApiRouter {
       return { statusCode: 200, body: { success: true, data: result } };
     }
 
-    return { statusCode: 404, body: { success: false, error: 'Route not found' } };
+      return { statusCode: 404, body: { success: false, error: 'Route not found' } };
+    } catch (err) {
+      return {
+        statusCode: 500,
+        body: {
+          success: false,
+          error: process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message || 'Unknown internal context error')
+        }
+      };
+    }
   }
 }
 
