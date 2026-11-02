@@ -52,7 +52,7 @@ class FleetAdminApiRouter {
     }
     const role = (user.role || '').toUpperCase();
     const permissions = user.permissions || [];
-    const isAdmin = role === 'ADMIN' || role === 'SYSTEM_ADMIN' || permissions.includes('canManageFirmware') || permissions.includes('canManageDevices');
+    const isAdmin = role === 'ADMIN' || role === 'SYSTEM_ADMIN' || role === 'OWNER' || permissions.includes('canManageFirmware') || permissions.includes('canManageDevices');
 
     if (!isAdmin) {
       const err = new Error('Forbidden: Administrative privilege or canManageFirmware permission required');

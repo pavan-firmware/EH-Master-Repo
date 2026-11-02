@@ -348,6 +348,7 @@ class HomeController extends ChangeNotifier {
   ];
   String _activeSpaceId = 'home_default';
   String _activeSpaceName = 'My Home';
+  String _activeHomeRole = 'OWNER';
   String? _lanMatchedSpaceId;
 
   final Map<String, List<ConnectedDeviceSummary>> _spaceDevicesCache = {};
@@ -357,6 +358,11 @@ class HomeController extends ChangeNotifier {
   List<Map<String, dynamic>> get spaces => List.unmodifiable(_spaces);
   String get activeSpaceId => _activeSpaceId;
   String get activeSpaceName => _activeSpaceName;
+  String get activeHomeRole => _activeHomeRole;
+  bool get isHomeAdmin =>
+      _activeHomeRole.toUpperCase() == 'OWNER' ||
+      _activeHomeRole.toUpperCase() == 'ADMIN' ||
+      _activeHomeRole.toUpperCase() == 'SYSTEM_ADMIN';
   String? get lanMatchedSpaceId => _lanMatchedSpaceId;
   bool get isCurrentSpaceOnLocalLan =>
       _lanMatchedSpaceId == null || _lanMatchedSpaceId == _activeSpaceId;
@@ -1190,6 +1196,15 @@ class HomeController extends ChangeNotifier {
         .toString()
         .trim();
 
+    for (final bh in backendHomes) {
+      final bId = (bh is Map ? bh['id'] : bh.id).toString();
+      if (bId == _activeSpaceId || bId == primaryId) {
+        final r = (bh is Map ? (bh['role'] ?? bh['membership_role']) : bh.role)?.toString() ?? 'OWNER';
+        _activeHomeRole = r.toUpperCase();
+        break;
+      }
+    }
+
     // Link primary backend home ID and name to default space
     if (_spaces.isNotEmpty &&
         (_spaces.first['id'] == 'home_default' ||
@@ -1358,6 +1373,7 @@ class HomeController extends ChangeNotifier {
     _autoSyncTimer?.cancel();
     _cloudEnabled = false;
     _activeHomeId = null;
+    _activeHomeRole = 'OWNER';
     _cloudDeviceConnection = DeviceConnection.offline;
     _lightCommandPending = false;
     _mistingCommandPending = false;

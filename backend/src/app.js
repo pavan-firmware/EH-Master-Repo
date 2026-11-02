@@ -1315,6 +1315,22 @@ function createApp(options = {}) {
       }
     }
 
+    // 8.79. Resolve home ownership/admin authorization for user
+    if (req.user && req.user.id && homeRepo) {
+      const currentRole = (req.user.role || '').toUpperCase();
+      if (currentRole !== 'ADMIN' && currentRole !== 'SUPERADMIN' && currentRole !== 'OWNER') {
+        try {
+          const memberships = await homeRepo.getMembershipsForUser(req.user.id);
+          if (memberships && memberships.some(m => {
+            const r = (m.role || '').toUpperCase();
+            return r === 'OWNER' || r === 'ADMIN';
+          })) {
+            req.user.role = 'OWNER';
+          }
+        } catch (_) {}
+      }
+    }
+
     // 8.8. Route to Notifications Router
     if (
       pathname.startsWith('/api/v1/notifications') ||
