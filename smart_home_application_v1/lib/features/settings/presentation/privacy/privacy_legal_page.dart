@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../settings_ui.dart';
 
 class PrivacyLegalPage extends StatelessWidget {
@@ -9,18 +10,21 @@ class PrivacyLegalPage extends StatelessWidget {
   final String kind;
 
   @override
-  Widget build(BuildContext context) => NestedSettingsScaffold(
-    title: title,
-    child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-      children: [
-        Text(
-          _body(kind),
-          style: const TextStyle(height: 1.5, color: SettingsColors.ink),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return NestedSettingsScaffold(
+      title: title,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+        children: [
+          Text(
+            _body(kind),
+            style: TextStyle(height: 1.5, color: tokens.textPrimary),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _body(String kind) => switch (kind) {
     'security' =>

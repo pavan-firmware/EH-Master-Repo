@@ -1,13 +1,17 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../../app/home_controller.dart';
+import '../api/api_client.dart';
 import '../config/app_config.dart';
 import '../models/energy_cost_models.dart';
+import 'device_storage_service.dart';
 
 /// Client Service for Electricity Tariffs, Cost Analytics, Budgets & Optimizations
 class EnergyCostService extends ChangeNotifier {
   final String baseUrl;
   final http.Client _client;
+  final ApiClient? apiClient;
   String? authToken;
 
   List<ElectricityTariffModel> _tariffs = [];
@@ -23,6 +27,7 @@ class EnergyCostService extends ChangeNotifier {
   EnergyCostService({
     String? baseUrl,
     http.Client? client,
+    this.apiClient,
     this.authToken,
   })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
         _client = client ?? http.Client();
@@ -39,12 +44,56 @@ class EnergyCostService extends ChangeNotifier {
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
-        if (authToken != null) 'Authorization': 'Bearer $authToken',
+        if (authToken != null && authToken!.isNotEmpty) 'Authorization': 'Bearer $authToken',
       };
+
+  Future<Map<String, String>> _getHeaders() async {
+    if (authToken == null || authToken!.isEmpty) {
+      if (apiClient?.getAccessToken != null) {
+        authToken = await apiClient!.getAccessToken!();
+      }
+    }
+    return _headers;
+  }
 
   void updateAuthToken(String? token) {
     authToken = token;
     notifyListeners();
+  }
+
+  Future<String> _resolveHomeId(String homeId) async {
+    final ctrl = HomeController.instance;
+    if (ctrl?.activeHomeId != null &&
+        ctrl!.activeHomeId!.isNotEmpty &&
+        ctrl.activeHomeId != 'home_default') {
+      return ctrl.activeHomeId!;
+    }
+    final cached = DeviceStorageService.cachedActiveHomeId;
+    if (cached != null && cached.isNotEmpty && cached != 'home_default') {
+      return cached;
+    }
+    if (homeId.isNotEmpty &&
+        homeId != 'home_01' &&
+        homeId != 'HN-7A28F91C' &&
+        homeId != 'home_preview') {
+      return homeId;
+    }
+    if (apiClient != null) {
+      try {
+        final homes = await apiClient!.get('/api/v1/homes');
+        if (homes != null) {
+          final list = homes is List
+              ? homes
+              : (homes is Map && homes['data'] is List ? homes['data'] as List : []);
+          if (list.isNotEmpty && list[0]['id'] != null) {
+            final resolved = list[0]['id'].toString();
+            DeviceStorageService.cachedActiveHomeId = resolved;
+            return resolved;
+          }
+        }
+      } catch (_) {}
+    }
+    return homeId;
   }
 
   // ---------------------------------------------------------------------------
@@ -57,8 +106,10 @@ class EnergyCostService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/tariffs');
-      final response = await _client.get(uri, headers: _headers);
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final headers = await _getHeaders();
+      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs');
+      final response = await _client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -82,52 +133,76 @@ class EnergyCostService extends ChangeNotifier {
 
   Future<ElectricityTariffModel?> createTariff(ElectricityTariffModel tariff) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/${tariff.homeId}/tariffs');
+      final effectiveHomeId = await _resolveHomeId(tariff.homeId);
+      final headers = await _getHeaders();
+      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs');
+      final payload = tariff.copyWith(homeId: effectiveHomeId).toJson();
       final response = await _client.post(
         uri,
-        headers: _headers,
-        body: json.encode(tariff.toJson()),
+        headers: headers,
+        body: json.encode(payload),
       );
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         final data = json.decode(response.body);
         final created = ElectricityTariffModel.fromJson(data['data'] as Map<String, dynamic>);
         _tariffs = [created, ..._tariffs.where((t) => t.id != created.id)];
+        _errorMessage = null;
         notifyListeners();
         return created;
       }
+      try {
+        final body = json.decode(response.body);
+        _errorMessage = body['error']?.toString() ?? body['message']?.toString() ?? 'Server returned status ${response.statusCode}';
+      } catch (_) {
+        _errorMessage = 'Server returned status ${response.statusCode}';
+      }
       return null;
-    } catch (_) {
+    } catch (e) {
+      _errorMessage = 'Network connection error: $e';
       return null;
     }
   }
 
   Future<ElectricityTariffModel?> updateTariff(ElectricityTariffModel tariff) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/${tariff.homeId}/tariffs/${tariff.id}');
+      final effectiveHomeId = await _resolveHomeId(tariff.homeId);
+      final headers = await _getHeaders();
+      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs/${tariff.id}');
+      final payload = tariff.copyWith(homeId: effectiveHomeId).toJson();
       final response = await _client.put(
         uri,
-        headers: _headers,
-        body: json.encode(tariff.toJson()),
+        headers: headers,
+        body: json.encode(payload),
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final updated = ElectricityTariffModel.fromJson(data['data'] as Map<String, dynamic>);
         _tariffs = _tariffs.map((t) => t.id == updated.id ? updated : t).toList();
+        _errorMessage = null;
         notifyListeners();
         return updated;
       }
+      try {
+        final body = json.decode(response.body);
+        _errorMessage = body['error']?.toString() ?? body['message']?.toString() ?? 'Server returned status ${response.statusCode}';
+      } catch (_) {
+        _errorMessage = 'Server returned status ${response.statusCode}';
+      }
       return null;
-    } catch (_) {
+    } catch (e) {
+      _errorMessage = 'Network connection error: $e';
       return null;
     }
   }
 
   Future<bool> deleteTariff(String homeId, String tariffId) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/tariffs/$tariffId');
-      final response = await _client.delete(uri, headers: _headers);
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final headers = await _getHeaders();
+      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs/$tariffId');
+      final response = await _client.delete(uri, headers: headers);
 
       if (response.statusCode == 200) {
         _tariffs = _tariffs.where((t) => t.id != tariffId).toList();

@@ -38,8 +38,18 @@ class CloudSettingsRepository implements SettingsRepository {
         _activeHomeId != 'local-home') {
       return _activeHomeId;
     }
+    final cached = DeviceStorageService.cachedActiveHomeId;
+    if (cached != null && cached.isNotEmpty && cached != 'home_default' && cached != 'local-home') {
+      _activeHomeId = cached;
+      return cached;
+    }
+    final ctrl = HomeController.instance;
+    if (ctrl?.activeHomeId != null && ctrl!.activeHomeId!.isNotEmpty && ctrl.activeHomeId != 'home_default') {
+      _activeHomeId = ctrl.activeHomeId;
+      return ctrl.activeHomeId;
+    }
     try {
-      final res = await _apiClient.get('/api/v1/homes');
+      final res = await _apiClient.get('/api/v1/homes').timeout(const Duration(seconds: 2));
       final list = _extractList(res);
       if (list.isNotEmpty) {
         final first = list.first;
@@ -49,7 +59,7 @@ class CloudSettingsRepository implements SettingsRepository {
         }
       }
     } catch (_) {}
-    return null;
+    return _activeHomeId;
   }
 
   @override
@@ -79,7 +89,7 @@ class CloudSettingsRepository implements SettingsRepository {
     }
 
     try {
-      final res = await _apiClient.get('/api/v1/homes/$homeId');
+      final res = await _apiClient.get('/api/v1/homes/$homeId').timeout(const Duration(seconds: 2));
       final Map<String, dynamic> data = _extractMap(res);
 
       String ownerName = data['owner_name'] ?? data['ownerName'] ?? (DeviceStorageService.cachedUserName ?? 'Pavan');

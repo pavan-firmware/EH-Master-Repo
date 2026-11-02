@@ -132,13 +132,6 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                   icon: Icons.monitor_heart_outlined,
                   title: 'Operations dashboard',
                   subtitle: 'Subsystem metrics, event audit, and API health',
-                  trailing: isAdmin
-                      ? null
-                      : SettingsStatusChip(
-                          label: 'Admin only',
-                          color: tokens.textSecondary,
-                          background: tokens.surfaceCard,
-                        ),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -155,13 +148,6 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                   icon: Icons.verified_user_outlined,
                   title: 'System readiness',
                   subtitle: 'Platform operational status and subsystem health',
-                  trailing: isAdmin
-                      ? null
-                      : SettingsStatusChip(
-                          label: 'Admin only',
-                          color: tokens.textSecondary,
-                          background: tokens.surfaceCard,
-                        ),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -279,17 +265,24 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                           color: tokens.textSecondary,
                           background: tokens.surfaceCard,
                         ),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DeviceSecurityStatusPage(
-                        deviceId: 'gateway-root',
-                        deviceName: 'Hardware Root of Trust',
-                        isAdmin: isAdmin,
-                        repository: CloudDeviceTrustRepository(effectiveClient),
+                  onTap: () {
+                    final targetDevice = homeController?.devices.firstOrNull;
+                    final devId = targetDevice?.id ??
+                        homeController?.activeDeviceId ??
+                        'gateway-root';
+                    final devName = targetDevice?.name ?? 'Hardware Root of Trust';
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DeviceSecurityStatusPage(
+                          deviceId: devId,
+                          deviceName: devName,
+                          isAdmin: isAdmin,
+                          repository: CloudDeviceTrustRepository(effectiveClient),
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                   showDivider: true,
                 ),
                 SettingsListItem(
@@ -343,18 +336,25 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                   icon: Icons.hub_outlined,
                   title: 'Multi-protocol connectivity',
                   subtitle: 'BLE, MQTT, Local HTTP, and fallback transports',
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DeviceConnectivityPage(
-                        deviceId: homeController?.devices.firstOrNull?.id ??
-                            homeController?.activeDeviceId ??
-                            'ce196211-91cf-496a-9403-709d8589eb15',
-                        deviceName: homeController?.devices.firstOrNull?.name ?? 'EH Smart Switch',
-                        connectivityService: ConnectivityService(baseUrl: effectiveClient.baseUrl),
+                  onTap: () {
+                    final targetDev = homeController?.devices.firstOrNull;
+                    final connSvc = ConnectivityService(baseUrl: effectiveClient.baseUrl);
+                    if (effectiveClient.getAccessToken != null) {
+                      effectiveClient.getAccessToken!().then((t) {
+                        if (t != null) connSvc.updateToken(t);
+                      });
+                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DeviceConnectivityPage(
+                          deviceId: targetDev?.id ?? homeController?.activeDeviceId ?? '',
+                          deviceName: targetDev?.name ?? 'EH Smart Switch',
+                          connectivityService: connSvc,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                   showDivider: true,
                 ),
                 SettingsListItem(
@@ -377,8 +377,8 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                 ),
                 SettingsListItem(
                   icon: Icons.timeline_rounded,
-                  title: 'Context history',
-                  subtitle: 'Environmental events and context shifts',
+                  title: 'Home context & modes',
+                  subtitle: 'Set active home mode and view context transitions history',
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -417,7 +417,10 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => TariffManagementPage(
                         homeId: effectiveHomeId,
-                        costService: EnergyCostService(baseUrl: effectiveClient.baseUrl),
+                        costService: EnergyCostService(
+                          baseUrl: effectiveClient.baseUrl,
+                          apiClient: effectiveClient,
+                        ),
                       ),
                     ),
                   ),

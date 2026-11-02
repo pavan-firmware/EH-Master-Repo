@@ -23,6 +23,7 @@ import '../core/services/local_lan_device_service.dart';
 import '../core/services/edge_routine_sync_service.dart';
 
 import '../core/utils/device_name_formatter.dart';
+import '../core/utils/event_classification.dart';
 
 enum ConnectionRoutingMode {
   auto,
@@ -459,6 +460,9 @@ class HomeController extends ChangeNotifier {
   List<UpcomingRoutineItem> get upcomingRoutinesAcrossSpaces =>
       List.unmodifiable(_routines);
 
+  List<UpcomingRoutineItem> get upcomingRoutines =>
+      List.unmodifiable(_routines);
+
   Future<void> refreshUpcomingRoutines() async {
     try {
       final repo = const PreviewRoutineRepository();
@@ -762,6 +766,12 @@ class HomeController extends ChangeNotifier {
     }
 
     for (final act in _activityAlerts) {
+      if (EventClassification.isRoutineControlOperation(
+        title: act.title,
+        message: act.message,
+      )) {
+        continue;
+      }
       final notifId = 'alert_${act.id}';
       if (!_dismissedAlertIds.contains(act.id) &&
           !deleted.contains(act.id) &&

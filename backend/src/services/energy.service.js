@@ -801,8 +801,17 @@ class EnergyService {
 
     // Load active tariff
     let tariffPerKwh = 0.15;
-    let currency = 'USD';
-    if (this.thresholdRepo) {
+    let currency = 'INR';
+    if (this.tariffRepo) {
+      try {
+        const activeTariff = await this.tariffRepo.findActiveTariffForTime(homeId, new Date().toISOString());
+        if (activeTariff) {
+          if (activeTariff.currency) currency = activeTariff.currency;
+          if (activeTariff.flat_rate_per_kwh != null) tariffPerKwh = Number(activeTariff.flat_rate_per_kwh);
+        }
+      } catch (_) {}
+    }
+    if (this.thresholdRepo && currency === 'INR') {
       const homeThreshold = typeof this.thresholdRepo.getThresholdForHome === 'function'
         ? await this.thresholdRepo.getThresholdForHome(homeId)
         : await this.thresholdRepo.getThreshold(homeId);

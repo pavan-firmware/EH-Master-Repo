@@ -215,7 +215,7 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _buildStatItem('Total Energy', '${s.totalEnergyKwh.toStringAsFixed(2)} kWh', tokens),
-                _buildStatItem('Est. Cost', '${s.currency} \$${s.costEstimate?.toStringAsFixed(2) ?? "0.00"}', tokens),
+                _buildStatItem('Est. Cost', '${s.currency} ${s.costEstimate?.toStringAsFixed(2) ?? "0.00"}', tokens),
                 _buildStatItem('Peak Demand', '${s.peakPowerW.toStringAsFixed(0)} W', tokens),
               ],
             ),

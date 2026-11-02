@@ -62,6 +62,7 @@ class DeviceStorageService {
     'Living Room',
   ];
   static String? cachedUserName;
+  static String? cachedActiveHomeId;
 
   static String? get backendUrl => _cachedBackendUrl;
   static String? get savedLoginEmail => _cachedSavedEmail;

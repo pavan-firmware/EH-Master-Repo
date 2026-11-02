@@ -179,7 +179,11 @@ class _HomeContextPageState extends State<HomeContextPage> {
                         ),
                       ),
                       Text(
-                        isOverride ? 'Manual Override Active' : 'Automatic Reconciled State',
+                        isOverride
+                            ? 'Manual Override Active'
+                            : (contextModel?.precedenceTier == PrecedenceTier.defaultFallback
+                                ? 'Default Baseline State'
+                                : 'Automatic Reconciled State'),
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontSize: 14,
@@ -276,9 +280,8 @@ class _HomeContextPageState extends State<HomeContextPage> {
     final success = await widget.service.setQuickMode(widget.homeId, mode);
     if (!mounted) return;
     if (success) {
-      await _refresh();
+      widget.service.fetchTransitions(widget.homeId);
     }
-    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(success ? 'Context set to ${mode.toApiValue()}' : 'Failed to set mode'),
@@ -291,9 +294,8 @@ class _HomeContextPageState extends State<HomeContextPage> {
     final success = await widget.service.clearContextOverride(widget.homeId);
     if (!mounted) return;
     if (success) {
-      await _refresh();
+      widget.service.fetchTransitions(widget.homeId);
     }
-    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(success ? 'Override cleared' : 'Failed to clear override'),

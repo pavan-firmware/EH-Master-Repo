@@ -178,41 +178,59 @@ class HomeDetailsPage extends StatelessWidget {
           SettingsSurface(
             child: Column(
               children: [
-                SettingsListItem(
-                  icon: Icons.wifi_rounded,
-                  title: 'Home connection',
-                  subtitle: (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
-                      ? 'Connected'
-                      : 'No home selected',
-                  onTap: () {
-                    showModalBottomSheet<void>(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (ctx) => _HomeConnectionDiagnosticsSheet(
-                        homeController: homeController,
-                        activeHomeId: homeController?.activeHomeId ?? home.id,
+                Builder(
+                  builder: (context) {
+                    final effectiveHomeId = (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
+                        ? homeController!.activeHomeId
+                        : ((home.id.isNotEmpty && home.id != 'home_default')
+                            ? home.id
+                            : (DeviceStorageService.cachedActiveHomeId ?? homeController?.activeSpaceId));
+                    final hasResolvedHome = effectiveHomeId != null && effectiveHomeId.isNotEmpty && effectiveHomeId != 'home_default';
+                    final hasConnectedDevices = homeController?.devices.any((d) => d.online) ?? false;
+                    final isLocalActive = homeController?.isLocalMode == true;
+                    final isConnected = hasResolvedHome || hasConnectedDevices || isLocalActive;
+
+                    final String statusSubtitle = isLocalActive
+                        ? 'Connected (Local Mode)'
+                        : (isConnected ? 'Connected' : 'No home selected');
+
+                    final String statusTrailing = isLocalActive
+                        ? 'Local'
+                        : (isConnected ? 'Online' : 'Set up');
+
+                    final Color statusColor = isConnected ? tokens.success : tokens.warning;
+
+                    return SettingsListItem(
+                      icon: Icons.wifi_rounded,
+                      title: 'Home connection',
+                      subtitle: statusSubtitle,
+                      onTap: () {
+                        showModalBottomSheet<void>(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (ctx) => _HomeConnectionDiagnosticsSheet(
+                            homeController: homeController,
+                            activeHomeId: effectiveHomeId ?? home.id,
+                          ),
+                        );
+                      },
+                      iconColor: tokens.isDark
+                          ? tokens.success
+                          : SettingsColors.green,
+                      iconBackground: tokens.isDark
+                          ? tokens.iconBgGreen
+                          : SettingsColors.paleGreen,
+                      trailing: Text(
+                        statusTrailing,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
+                      showDivider: true,
                     );
                   },
-                  iconColor: tokens.isDark
-                      ? tokens.success
-                      : SettingsColors.green,
-                  iconBackground: tokens.isDark
-                      ? tokens.iconBgGreen
-                      : SettingsColors.paleGreen,
-                  trailing: Text(
-                    (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
-                        ? 'Online'
-                        : 'Set up',
-                    style: TextStyle(
-                      color: (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
-                          ? tokens.success
-                          : tokens.warning,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  showDivider: true,
                 ),
                 SettingsListItem(
                   icon: Icons.meeting_room_outlined,
@@ -815,6 +833,7 @@ class _HomeConnectionDiagnosticsSheet extends StatefulWidget {
 
 class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnosticsSheet> {
   int? _latencyMs;
+  bool _pingTimedOut = false;
   bool _isPinging = false;
   bool _isProbingLan = false;
 
@@ -825,15 +844,19 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
   }
 
   Future<void> _testPing() async {
-    setState(() => _isPinging = true);
+    setState(() {
+      _isPinging = true;
+      _pingTimedOut = false;
+    });
     final stopwatch = Stopwatch()..start();
     try {
       final client = ApiClient(baseUrl: AppConfig.backendBaseUrl);
-      await client.get('/api/v1/health');
+      await client.get('/api/v1/health').timeout(const Duration(seconds: 3));
       stopwatch.stop();
       if (mounted) {
         setState(() {
           _latencyMs = stopwatch.elapsedMilliseconds;
+          _pingTimedOut = false;
           _isPinging = false;
         });
       }
@@ -841,7 +864,8 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
       stopwatch.stop();
       if (mounted) {
         setState(() {
-          _latencyMs = stopwatch.elapsedMilliseconds > 0 ? stopwatch.elapsedMilliseconds : 14;
+          _latencyMs = null;
+          _pingTimedOut = true;
           _isPinging = false;
         });
       }
@@ -870,9 +894,35 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final isOnline = widget.homeController?.activeHomeId != null && widget.homeController!.activeHomeId!.isNotEmpty;
     final devices = widget.homeController?.devices ?? [];
     final onlineCount = devices.where((d) => d.online).length;
+    final isCloudReachable = widget.homeController?.isCloudReachable ?? false;
+    final isLocalMode = widget.homeController?.isLocalMode ?? false;
+    final hasOnlineDevices = onlineCount > 0;
+
+    final bool isConnected = isCloudReachable || isLocalMode || hasOnlineDevices;
+
+    final String statusBadge;
+    final Color statusColor;
+    final String statusSubtitle;
+
+    if (isCloudReachable && (isLocalMode || hasOnlineDevices)) {
+      statusBadge = 'Online';
+      statusColor = const Color(0xFF10B981);
+      statusSubtitle = 'Active over Local LAN & Cloud MQTT';
+    } else if (isLocalMode || hasOnlineDevices) {
+      statusBadge = 'Local Mode';
+      statusColor = tokens.bluePrimary;
+      statusSubtitle = 'Local Wi-Fi Mode Active (Direct Device Control)';
+    } else if (isCloudReachable) {
+      statusBadge = 'Cloud Only';
+      statusColor = const Color(0xFF10B981);
+      statusSubtitle = 'Connected to Cloud (Scanning for Devices)';
+    } else {
+      statusBadge = 'Offline';
+      statusColor = const Color(0xFFF59E0B);
+      statusSubtitle = 'Disconnected / Standalone mode';
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -901,14 +951,14 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: isOnline
-                      ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                  color: isConnected
+                      ? statusColor.withValues(alpha: 0.12)
                       : const Color(0xFFF59E0B).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(
-                  isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                  color: isOnline ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                  isConnected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                  color: isConnected ? statusColor : const Color(0xFFF59E0B),
                   size: 24,
                 ),
               ),
@@ -923,7 +973,7 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isOnline ? 'Active over Local LAN & Cloud MQTT' : 'Disconnected / Standalone mode',
+                      statusSubtitle,
                       style: TextStyle(fontSize: 12.5, color: tokens.textSecondary),
                     ),
                   ],
@@ -932,17 +982,15 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: isOnline
-                      ? const Color(0xFF10B981).withValues(alpha: 0.15)
-                      : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                  color: statusColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  isOnline ? 'Online' : 'Offline',
+                  statusBadge,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: isOnline ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                    color: statusColor,
                   ),
                 ),
               ),
@@ -974,11 +1022,13 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
                       const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
                     else
                       Text(
-                        _latencyMs != null ? '$_latencyMs ms' : 'Testing...',
+                        _latencyMs != null
+                            ? '$_latencyMs ms'
+                            : (_pingTimedOut ? 'Timed out' : 'Unreachable'),
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: (_latencyMs != null && _latencyMs! < 100) ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                          color: _latencyMs != null ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
                         ),
                       ),
                   ],

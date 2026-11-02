@@ -70,12 +70,13 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late Future<HomeSettingsData> _home = widget.repository.getHome();
-  late Future<_SystemSummary> _systemSummary = _loadSystemSummary();
+  (HomeSettingsData, _SystemSummary)? _cachedData;
+  late Future<(HomeSettingsData, _SystemSummary)> _future;
 
   @override
   void initState() {
     super.initState();
+    _future = _fetchData();
     widget.homeController?.addListener(_onHomeStateChanged);
   }
 
@@ -105,20 +106,43 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _reload() {
     setState(() {
-      _home = widget.repository.getHome();
-      _systemSummary = _loadSystemSummary();
+      _future = _fetchData();
     });
+  }
+
+  Future<(HomeSettingsData, _SystemSummary)> _fetchData() async {
+    try {
+      final homeFuture = widget.repository
+          .getHome()
+          .timeout(const Duration(seconds: 3));
+      final systemFuture =
+          _loadSystemSummary().timeout(const Duration(seconds: 3));
+      final results = await Future.wait([homeFuture, systemFuture]);
+      final home = results[0] as HomeSettingsData;
+      final system = results[1] as _SystemSummary;
+      _cachedData = (home, system);
+      return (home, system);
+    } catch (_) {
+      if (_cachedData != null) return _cachedData!;
+      rethrow;
+    }
   }
 
   Future<_SystemSummary> _loadSystemSummary() async {
     final effectiveState = (widget.homeController?.devices.isNotEmpty == true)
         ? (widget.connectionState ?? HomeConnectionState.connected)
         : widget.connectionState;
-    final connection = await widget.connectionRepository.getOverview(
-      liveState: effectiveState,
-    );
-    final update = await widget.updateRepository.getSummary();
-    final health = await widget.healthRepository.getSummary();
+    final connection = await widget.connectionRepository
+        .getOverview(
+          liveState: effectiveState,
+        )
+        .timeout(const Duration(seconds: 3));
+    final update = await widget.updateRepository
+        .getSummary()
+        .timeout(const Duration(seconds: 3));
+    final health = await widget.healthRepository
+        .getSummary()
+        .timeout(const Duration(seconds: 3));
     return _SystemSummary(
       connection: connection,
       update: update,
@@ -129,41 +153,42 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+
     return SafeArea(
       bottom: false,
       child: Scaffold(
         backgroundColor: tokens.bgApp,
         body: FutureBuilder<(HomeSettingsData, _SystemSummary)>(
-          future: Future.wait([_home, _systemSummary]).then(
-            (results) =>
-                (results[0] as HomeSettingsData, results[1] as _SystemSummary),
-          ),
+          future: _future,
+          initialData: _cachedData,
           builder: (context, snapshot) {
+            final data = snapshot.data ?? _cachedData;
+            if (data != null) {
+              return _SettingsContent(
+                home: data.$1,
+                system: data.$2,
+                homeController: widget.homeController,
+                repository: widget.repository,
+                connectionRepository: widget.connectionRepository,
+                updateRepository: widget.updateRepository,
+                onReload: _reload,
+                onConnectHome: widget.onConnectHome,
+                connectionState: widget.connectionState,
+                connectionMessage: widget.connectionMessage,
+                apiClient: widget.apiClient,
+                authController: widget.authController,
+                homeId: widget.homeId,
+                isAdmin: widget.isAdmin,
+                onLogout: widget.onLogout,
+              );
+            }
             if (snapshot.connectionState != ConnectionState.done) {
               return const _SettingsLoading();
             }
-            if (snapshot.hasError || !snapshot.hasData) {
+            if (snapshot.hasError) {
               return _SettingsError(onRetry: _reload);
             }
-            final home = snapshot.data!.$1;
-            final system = snapshot.data!.$2;
-            return _SettingsContent(
-              home: home,
-              system: system,
-              homeController: widget.homeController,
-              repository: widget.repository,
-              connectionRepository: widget.connectionRepository,
-              updateRepository: widget.updateRepository,
-              onReload: _reload,
-              onConnectHome: widget.onConnectHome,
-              connectionState: widget.connectionState,
-              connectionMessage: widget.connectionMessage,
-              apiClient: widget.apiClient,
-              authController: widget.authController,
-              homeId: widget.homeId,
-              isAdmin: widget.isAdmin,
-              onLogout: widget.onLogout,
-            );
+            return const _SettingsLoading();
           },
         ),
       ),

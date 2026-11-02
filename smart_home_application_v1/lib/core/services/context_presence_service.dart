@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../../app/home_controller.dart';
 import '../api/api_client.dart';
 import '../config/app_config.dart';
 import '../models/context_presence_models.dart';
+import 'device_storage_service.dart';
 
 /// Client Service for EH Home Presence and Context Intelligence (Phase 23)
 class ContextPresenceService extends ChangeNotifier {
@@ -55,7 +57,20 @@ class ContextPresenceService extends ChangeNotifier {
   }
 
   Future<String> _resolveHomeId(String homeId) async {
-    if ((homeId.isEmpty || homeId == 'HN-7A28F91C' || homeId == 'home_preview') && apiClient != null) {
+    final ctrl = HomeController.instance;
+    if (ctrl?.activeHomeId != null &&
+        ctrl!.activeHomeId!.isNotEmpty &&
+        ctrl.activeHomeId != 'home_default') {
+      return ctrl.activeHomeId!;
+    }
+    final cached = DeviceStorageService.cachedActiveHomeId;
+    if (cached != null && cached.isNotEmpty && cached != 'home_default') {
+      return cached;
+    }
+    if (homeId.isNotEmpty && homeId != 'HN-7A28F91C' && homeId != 'home_preview') {
+      return homeId;
+    }
+    if (apiClient != null) {
       try {
         final homes = await apiClient!.get('/api/v1/homes');
         if (homes != null) {
@@ -63,7 +78,9 @@ class ContextPresenceService extends ChangeNotifier {
               ? homes
               : (homes is Map && homes['data'] is List ? homes['data'] as List : []);
           if (list.isNotEmpty && list[0]['id'] != null) {
-            return list[0]['id'].toString();
+            final resolved = list[0]['id'].toString();
+            DeviceStorageService.cachedActiveHomeId = resolved;
+            return resolved;
           }
         }
       } catch (_) {}
@@ -176,9 +193,10 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
       final headers = await _getHeaders();
       final response = await _client.get(
-        Uri.parse('$baseUrl/api/v1/context/homes/$homeId/context'),
+        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/context'),
         headers: headers,
       );
 
@@ -212,6 +230,7 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
       final payload = {
         'mode': mode.toApiValue(),
         'reason': reason,
@@ -220,7 +239,7 @@ class ContextPresenceService extends ChangeNotifier {
 
       final headers = await _getHeaders();
       final response = await _client.post(
-        Uri.parse('$baseUrl/api/v1/context/homes/$homeId/override'),
+        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/override'),
         headers: headers,
         body: json.encode(payload),
       );
@@ -250,9 +269,10 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
       final headers = await _getHeaders();
       final response = await _client.delete(
-        Uri.parse('$baseUrl/api/v1/context/homes/$homeId/override'),
+        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/override'),
         headers: headers,
       );
 
@@ -289,6 +309,7 @@ class ContextPresenceService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
       final payload = {
         'durationDays': durationDays,
         'reason': reason,
@@ -296,7 +317,7 @@ class ContextPresenceService extends ChangeNotifier {
 
       final headers = await _getHeaders();
       final response = await _client.post(
-        Uri.parse('$baseUrl/api/v1/context/homes/$homeId/vacation'),
+        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/vacation'),
         headers: headers,
         body: json.encode(payload),
       );
@@ -326,9 +347,10 @@ class ContextPresenceService extends ChangeNotifier {
 
   Future<List<ContextTransitionModel>> fetchTransitions(String homeId, {int limit = 50}) async {
     try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
       final headers = await _getHeaders();
       final response = await _client.get(
-        Uri.parse('$baseUrl/api/v1/context/homes/$homeId/transitions?limit=$limit'),
+        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/transitions?limit=$limit'),
         headers: headers,
       );
 
@@ -350,7 +372,8 @@ class ContextPresenceService extends ChangeNotifier {
 
   Future<List<PresenceSignalModel>> fetchSignals(String homeId, {int limit = 50, String? userId}) async {
     try {
-      var url = '$baseUrl/api/v1/context/homes/$homeId/signals?limit=$limit';
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      var url = '$baseUrl/api/v1/context/homes/$effectiveHomeId/signals?limit=$limit';
       if (userId != null) url += '&userId=$userId';
 
       final headers = await _getHeaders();
