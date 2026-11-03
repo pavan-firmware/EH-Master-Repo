@@ -1,4 +1,31 @@
-enum PrivacyPermissionStatus { allowed, denied, notRequested, unavailable }
+enum PrivacyPermissionStatus {
+  allowed,
+  whileUsing,
+  denied,
+  notRequested,
+  permanentlyDenied,
+  unavailable;
+
+  String get label => switch (this) {
+    PrivacyPermissionStatus.allowed => 'Allowed',
+    PrivacyPermissionStatus.whileUsing => 'While using the app',
+    PrivacyPermissionStatus.denied => 'Denied',
+    PrivacyPermissionStatus.notRequested => 'Not requested',
+    PrivacyPermissionStatus.permanentlyDenied => 'Permanently denied',
+    PrivacyPermissionStatus.unavailable => 'Unavailable',
+  };
+
+  bool get isGranted =>
+      this == PrivacyPermissionStatus.allowed ||
+      this == PrivacyPermissionStatus.whileUsing;
+
+  bool get isDenied =>
+      this == PrivacyPermissionStatus.denied ||
+      this == PrivacyPermissionStatus.permanentlyDenied;
+
+  bool get isPermanentlyDenied =>
+      this == PrivacyPermissionStatus.permanentlyDenied;
+}
 
 enum PrivacyDataCategoryKind {
   homeDevice,
@@ -20,12 +47,33 @@ class PrivacyPermission {
   final String description;
   final PrivacyPermissionStatus status;
 
-  String get statusLabel => switch (status) {
-    PrivacyPermissionStatus.allowed => 'Allowed',
-    PrivacyPermissionStatus.denied => 'Denied',
-    PrivacyPermissionStatus.notRequested => 'Not requested',
-    PrivacyPermissionStatus.unavailable => 'Unavailable',
-  };
+  String get statusLabel => status.label;
+
+  PrivacyPermission copyWith({
+    String? id,
+    String? title,
+    String? description,
+    PrivacyPermissionStatus? status,
+  }) =>
+      PrivacyPermission(
+        id: id ?? this.id,
+        title: title ?? this.title,
+        description: description ?? this.description,
+        status: status ?? this.status,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PrivacyPermission &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          title == other.title &&
+          description == other.description &&
+          status == other.status;
+
+  @override
+  int get hashCode => Object.hash(id, title, description, status);
 }
 
 class PrivacyDataCategory {
@@ -72,4 +120,27 @@ class PrivacySummary {
   final bool usageAnalytics;
   final bool diagnosticSupported;
   final bool analyticsSupported;
+
+  PrivacySummary copyWith({
+    String? title,
+    String? subtitle,
+    String? statusLabel,
+    List<PrivacyDataCategory>? dataCategories,
+    List<PrivacyPermission>? permissions,
+    bool? diagnosticSharing,
+    bool? usageAnalytics,
+    bool? diagnosticSupported,
+    bool? analyticsSupported,
+  }) =>
+      PrivacySummary(
+        title: title ?? this.title,
+        subtitle: subtitle ?? this.subtitle,
+        statusLabel: statusLabel ?? this.statusLabel,
+        dataCategories: dataCategories ?? this.dataCategories,
+        permissions: permissions ?? this.permissions,
+        diagnosticSharing: diagnosticSharing ?? this.diagnosticSharing,
+        usageAnalytics: usageAnalytics ?? this.usageAnalytics,
+        diagnosticSupported: diagnosticSupported ?? this.diagnosticSupported,
+        analyticsSupported: analyticsSupported ?? this.analyticsSupported,
+      );
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/home_controller.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/models/authoritative_home_connection_state.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../../core/services/device_storage_service.dart';
@@ -186,19 +187,18 @@ class HomeDetailsPage extends StatelessWidget {
                             ? home.id
                             : (DeviceStorageService.cachedActiveHomeId ?? homeController?.activeSpaceId));
                     final hasResolvedHome = effectiveHomeId != null && effectiveHomeId.isNotEmpty && effectiveHomeId != 'home_default';
-                    final hasConnectedDevices = homeController?.devices.any((d) => d.online) ?? false;
-                    final isLocalActive = homeController?.isLocalMode == true;
-                    final isConnected = hasResolvedHome || hasConnectedDevices || isLocalActive;
+                    final authoritativeState = homeController?.authoritativeConnectionState ??
+                        AuthoritativeHomeConnectionState.resolve(
+                          isCloudReachable: false,
+                          isLocalMode: false,
+                          onlineDeviceCount: 0,
+                          totalDeviceCount: 0,
+                          hasHome: hasResolvedHome,
+                        );
 
-                    final String statusSubtitle = isLocalActive
-                        ? 'Connected (Local Mode)'
-                        : (isConnected ? 'Connected' : 'No home selected');
-
-                    final String statusTrailing = isLocalActive
-                        ? 'Local'
-                        : (isConnected ? 'Online' : 'Set up');
-
-                    final Color statusColor = isConnected ? tokens.success : tokens.warning;
+                    final String statusSubtitle = authoritativeState.homeDetailsRowSubtitle;
+                    final String statusTrailing = authoritativeState.homeDetailsTrailingLabel;
+                    final Color statusColor = authoritativeState.statusColor(isDark: tokens.isDark);
 
                     return SettingsListItem(
                       icon: Icons.wifi_rounded,
@@ -894,35 +894,23 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final devices = widget.homeController?.devices ?? [];
-    final onlineCount = devices.where((d) => d.online).length;
-    final isCloudReachable = widget.homeController?.isCloudReachable ?? false;
-    final isLocalMode = widget.homeController?.isLocalMode ?? false;
-    final hasOnlineDevices = onlineCount > 0;
+    final effectiveHomeId = widget.activeHomeId;
+    final hasHome = effectiveHomeId.isNotEmpty && effectiveHomeId != 'home_default';
+    final authoritativeState = widget.homeController?.authoritativeConnectionState ??
+        AuthoritativeHomeConnectionState.resolve(
+          isCloudReachable: false,
+          isLocalMode: false,
+          onlineDeviceCount: 0,
+          totalDeviceCount: 0,
+          hasHome: hasHome,
+        );
 
-    final bool isConnected = isCloudReachable || isLocalMode || hasOnlineDevices;
-
-    final String statusBadge;
-    final Color statusColor;
-    final String statusSubtitle;
-
-    if (isCloudReachable && (isLocalMode || hasOnlineDevices)) {
-      statusBadge = 'Online';
-      statusColor = const Color(0xFF10B981);
-      statusSubtitle = 'Active over Local LAN & Cloud MQTT';
-    } else if (isLocalMode || hasOnlineDevices) {
-      statusBadge = 'Local Mode';
-      statusColor = tokens.bluePrimary;
-      statusSubtitle = 'Local Wi-Fi Mode Active (Direct Device Control)';
-    } else if (isCloudReachable) {
-      statusBadge = 'Cloud Only';
-      statusColor = const Color(0xFF10B981);
-      statusSubtitle = 'Connected to Cloud (Scanning for Devices)';
-    } else {
-      statusBadge = 'Offline';
-      statusColor = const Color(0xFFF59E0B);
-      statusSubtitle = 'Disconnected / Standalone mode';
-    }
+    final bool isConnected = authoritativeState.isOnline;
+    final String statusBadge = authoritativeState.statusBadgeLabel;
+    final Color statusColor = authoritativeState.statusColor(isDark: tokens.isDark);
+    final String statusSubtitle = authoritativeState.statusSubtitle;
+    final onlineCount = authoritativeState.onlineDeviceCount;
+    final totalDevices = authoritativeState.totalDeviceCount;
 
     return Container(
       decoration: BoxDecoration(
@@ -1012,7 +1000,7 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
                 const Divider(height: 18),
                 _statRow('Primary Transport', widget.homeController?.isLocalMode == true ? 'Direct LAN Wi-Fi' : 'Cloud MQTT Mesh', tokens),
                 const Divider(height: 18),
-                _statRow('Fleet Nodes Online', '$onlineCount / ${devices.length} registered', tokens),
+                _statRow('Fleet Nodes Online', '$onlineCount / $totalDevices registered', tokens),
                 const Divider(height: 18),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

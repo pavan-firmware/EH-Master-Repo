@@ -23,6 +23,12 @@
 - **Phases 47–48:** Hardware ESP32 target verification, multi-switch pinouts, home ownership & membership RBAC (`OWNER`, `ADMIN`, `MEMBER`, `GUEST`), and profile timezone management.
 - **Phase 49:** FreeRTOS edge routine engine, zero-touch UDP LAN switchover, migrations 036–037, desktop manufacturing suite (Tauri bench provisioner, thermal label printer, dual-scan packing station), and Windows PDF printing subsystem.
 - **Phase 50:** Cross-layer master flows, backend resilience, truthful standby telemetry, dark-theme contrast tokens, routine notification filtering, offline stale-while-revalidate UX, and home owner administrative access alignment.
+- **Truthful App State (Prompt 1 of 5 Implementation):**
+  - **Live Home Screen Truth:** Dynamic derivation of overview pills, subtitles, and device counts. Eliminated hardcoded "All systems normal" and "Everything looks good at home" when devices are offline or unconfirmed.
+  - **Accessible Switch Toggle UI:** Restored standard high-contrast circular white thumb and themed track outlines for the Activity Notifications switch in both light and dark themes.
+  - **Authoritative Unified Home Connection State:** Implemented `AuthoritativeHomeConnectionState` model providing single source of truth across Cloud and LAN. Eliminated false "Online" inference in `HomeDetailsPage` and reconciled it with `_HomeConnectionDiagnosticsSheet`.
+  - **Persistent & Dynamic Timestamps:** Built `CheckTimestampService` persisting UTC check times via `SharedPreferences` with dynamic relative tickers, tap debouncing, and failure preservation in `DeviceHealthPage` and `SystemUpdatePage`.
+  - **Centralized OS Permissions:** Built `AppPermissionService` covering Android 11/12/13+ (`POST_NOTIFICATIONS`, BLE scan/connect, Fine/Coarse location), auto-refresh on lifecycle resume, and responsive layout across narrow screens (320px) and extreme 1.5x/2.0x font scaling without RenderFlex overflow.
 
 ---
 
@@ -59,7 +65,7 @@
 |:---|:---|:---:|
 | **Monorepo Test Suites** | `node scripts/validate-repo.js` | **80/80 PASSED (100%)** |
 | **Flutter Static Analysis** | `flutter analyze` | **0 issues found** |
-| **Flutter Unit & Widget Tests** | `flutter test --no-pub` | **70+ test suites PASSED** |
+| **Flutter Unit & Widget Tests** | `flutter test --no-pub` | **729/729 tests PASSED (100%)** |
 | **EMQX Integration & mTLS** | `backend/tests/phase6-emqx-integration.test.js` | **22/22 PASSED** |
 | **PostgreSQL Migration Symmetry** | `node backend/tests/phase37-real-pg-migration.test.js` | **100% UP/DOWN verified** |
 | **Git Tracking Cleanliness** | `git status` | **`prompt_images/` ignored** |

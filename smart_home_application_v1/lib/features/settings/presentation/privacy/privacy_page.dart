@@ -2,29 +2,61 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/models/privacy_models.dart';
 import '../../../../core/repositories/privacy_repository.dart';
+import '../../../../core/services/app_permission_service.dart';
 import '../settings_ui.dart';
 import 'privacy_data_detail_page.dart';
 import 'privacy_legal_page.dart';
 import 'privacy_permission_detail_page.dart';
 
 class PrivacyPage extends StatefulWidget {
-  const PrivacyPage({super.key, this.repository});
+  const PrivacyPage({
+    super.key,
+    this.repository,
+    this.permissionService,
+  });
 
   final PrivacyRepository? repository;
+  final AppPermissionService? permissionService;
 
   @override
   State<PrivacyPage> createState() => _PrivacyPageState();
 }
 
-class _PrivacyPageState extends State<PrivacyPage> {
+class _PrivacyPageState extends State<PrivacyPage> with WidgetsBindingObserver {
   late PrivacyRepository _repository;
   late Future<PrivacySummary> _summary;
 
   @override
   void initState() {
     super.initState();
-    _repository = widget.repository ?? PreviewPrivacyRepository();
+    WidgetsBinding.instance.addObserver(this);
+    _repository = widget.repository ??
+        PreviewPrivacyRepository(permissionService: widget.permissionService);
     _load();
+  }
+
+  @override
+  void didUpdateWidget(PrivacyPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.repository != oldWidget.repository ||
+        widget.permissionService != oldWidget.permissionService) {
+      _repository = widget.repository ??
+          PreviewPrivacyRepository(permissionService: widget.permissionService);
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _load();
+    }
   }
 
   void _load() {
@@ -80,15 +112,16 @@ class _PrivacyPageState extends State<PrivacyPage> {
               ),
               title: data.title,
               subtitle: data.subtitle,
-              statusChip: Row(
-                mainAxisSize: MainAxisSize.min,
+              statusChip: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 6,
+                runSpacing: 4,
                 children: [
                   const Icon(
                     Icons.lock_outline_rounded,
                     color: SettingsColors.green,
                     size: 16,
                   ),
-                  const SizedBox(width: 6),
                   SettingsStatusChip(
                     label: data.statusLabel,
                     color: SettingsColors.green,
@@ -134,14 +167,21 @@ class _PrivacyPageState extends State<PrivacyPage> {
                     _PermissionRow(
                       permission: data.permissions[i],
                       showDivider: i < data.permissions.length - 1,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => PrivacyPermissionDetailPage(
-                            permission: data.permissions[i],
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PrivacyPermissionDetailPage(
+                              permission: data.permissions[i],
+                              repository: _repository,
+                              permissionService: widget.permissionService,
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                        if (mounted) {
+                          _load();
+                        }
+                      },
                     ),
                 ],
               ),
@@ -349,9 +389,15 @@ class _PermissionRow extends StatelessWidget {
   final bool showDivider;
 
   Color get _statusColor => switch (permission.status) {
-    PrivacyPermissionStatus.allowed => SettingsColors.green,
-    PrivacyPermissionStatus.denied => SettingsColors.red,
-    _ => SettingsColors.muted,
+    PrivacyPermissionStatus.allowed ||
+    PrivacyPermissionStatus.whileUsing =>
+      SettingsColors.green,
+    PrivacyPermissionStatus.denied ||
+    PrivacyPermissionStatus.permanentlyDenied =>
+      SettingsColors.red,
+    PrivacyPermissionStatus.notRequested ||
+    PrivacyPermissionStatus.unavailable =>
+      SettingsColors.muted,
   };
 
   @override
@@ -363,44 +409,119 @@ class _PermissionRow extends StatelessWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-            child: Row(
-              children: [
-                SettingsIconBadge(icon: _icon(permission.id), size: 46),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // When width is constrained (e.g. 320px screen where inner width is 246-248px),
+                // stack status below description so title and status labels remain fully readable.
+                final isCompact = constraints.maxWidth < 300;
+
+                if (isCompact) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Text(
-                        permission.title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 17,
+                      SettingsIconBadge(icon: _icon(permission.id), size: 46),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              permission.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 17,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              permission.description,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: SettingsColors.muted,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              permission.statusLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _statusColor,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Text(
-                        permission.description,
-                        style: const TextStyle(
-                          color: SettingsColors.muted,
-                          fontSize: 14,
-                        ),
+                      const SizedBox(width: 8),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: SettingsColors.muted,
                       ),
                     ],
-                  ),
-                ),
-                Text(
-                  permission.statusLabel,
-                  style: TextStyle(
-                    color: _statusColor,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: SettingsColors.muted,
-                ),
-              ],
+                  );
+                }
+
+                // Standard / wide layout: status placed trailing before chevron
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SettingsIconBadge(icon: _icon(permission.id), size: 46),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            permission.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            permission.description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: SettingsColors.muted,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        permission.statusLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          color: _statusColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: SettingsColors.muted,
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),

@@ -7,6 +7,7 @@ import '../core/repositories/cloud_routine_repository.dart';
 
 import '../core/models/connection_models.dart';
 import '../core/models/device_models.dart';
+import '../core/models/authoritative_home_connection_state.dart';
 import '../core/models/home_dashboard_models.dart';
 import '../core/models/room_models.dart';
 import '../core/repositories/home_repository.dart';
@@ -412,6 +413,22 @@ class HomeController extends ChangeNotifier {
     return _isLocalMode && isCurrentSpaceOnLocalLan;
   }
   bool get isCloudReachable => _isCloudReachable;
+  AuthoritativeHomeConnectionState get authoritativeConnectionState {
+    final effectiveHomeId = (_activeHomeId != null && _activeHomeId!.isNotEmpty)
+        ? _activeHomeId
+        : (_activeSpaceId.isNotEmpty ? _activeSpaceId : DeviceStorageService.cachedActiveHomeId);
+    final hasHome = effectiveHomeId != null && effectiveHomeId.isNotEmpty && effectiveHomeId != 'home_default';
+    final effectiveDevices = _devices.isNotEmpty ? _devices : DeviceStorageService.cachedDevices;
+    final onlineCount = effectiveDevices.where((d) => d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)).length;
+
+    return AuthoritativeHomeConnectionState.resolve(
+      isCloudReachable: _isCloudReachable,
+      isLocalMode: isLocalMode,
+      onlineDeviceCount: onlineCount,
+      totalDeviceCount: effectiveDevices.length,
+      hasHome: hasHome,
+    );
+  }
   bool get hasPendingCloudUpload => _hasPendingCloudUpload;
   SyncMode get syncMode => _syncMode;
   ConnectionRoutingMode get routingMode => _routingMode;
@@ -2793,6 +2810,8 @@ class HomeController extends ChangeNotifier {
         selectedControlIds: _selectedQuickControlIds,
         channelStates: _channelStates,
         channelLabels: allChannelLabels,
+        isCloudReachable: _isCloudReachable,
+        isLocalMode: isLocalMode,
       );
     }
 
