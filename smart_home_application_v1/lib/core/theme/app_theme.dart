@@ -499,18 +499,44 @@ class EHAppTheme {
       ),
       switchTheme: SwitchThemeData(
         trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            if (states.contains(WidgetState.selected)) {
+              return EHColors.lightSwitchTrackOn.withValues(alpha: 0.38);
+            }
+            return EHColors.lightSwitchTrackOff.withValues(alpha: 0.38);
+          }
           if (states.contains(WidgetState.selected)) {
             return EHColors.lightSwitchTrackOn;
           }
           return EHColors.lightSwitchTrackOff;
         }),
         thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            if (states.contains(WidgetState.selected)) {
+              return EHColors.lightSwitchThumbOn.withValues(alpha: 0.65);
+            }
+            return EHColors.lightSwitchThumbOff.withValues(alpha: 0.65);
+          }
           if (states.contains(WidgetState.selected)) {
             return EHColors.lightSwitchThumbOn;
           }
           return EHColors.lightSwitchThumbOff;
         }),
-        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return Colors.transparent;
+          }
+          if (states.contains(WidgetState.disabled)) {
+            return EHColors.lightBorderControl.withValues(alpha: 0.38);
+          }
+          return EHColors.lightBorderControl;
+        }),
+        trackOutlineWidth: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return 0.0;
+          }
+          return 1.0;
+        }),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: EHColors.lightSurfaceElevated,
@@ -605,18 +631,44 @@ class EHAppTheme {
       ),
       switchTheme: SwitchThemeData(
         trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            if (states.contains(WidgetState.selected)) {
+              return EHColors.darkSwitchTrackOn.withValues(alpha: 0.38);
+            }
+            return EHColors.darkSwitchTrackOff.withValues(alpha: 0.38);
+          }
           if (states.contains(WidgetState.selected)) {
             return EHColors.darkSwitchTrackOn;
           }
           return EHColors.darkSwitchTrackOff;
         }),
         thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            if (states.contains(WidgetState.selected)) {
+              return EHColors.darkSwitchThumbOn.withValues(alpha: 0.65);
+            }
+            return EHColors.darkSwitchThumbOff.withValues(alpha: 0.65);
+          }
           if (states.contains(WidgetState.selected)) {
             return EHColors.darkSwitchThumbOn;
           }
           return EHColors.darkSwitchThumbOff;
         }),
-        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return Colors.transparent;
+          }
+          if (states.contains(WidgetState.disabled)) {
+            return EHColors.darkBorderControl.withValues(alpha: 0.38);
+          }
+          return EHColors.darkBorderControl;
+        }),
+        trackOutlineWidth: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return 0.0;
+          }
+          return 1.0;
+        }),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: EHColors.darkSurfaceElevated,

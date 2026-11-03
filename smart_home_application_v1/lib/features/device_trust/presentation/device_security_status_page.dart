@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/device_trust_models.dart';
 import '../../../core/repositories/device_trust_repository.dart';
+import '../../settings/presentation/settings_ui.dart';
 
 class DeviceSecurityStatusPage extends StatefulWidget {
   const DeviceSecurityStatusPage({
@@ -8,7 +9,7 @@ class DeviceSecurityStatusPage extends StatefulWidget {
     required this.repository,
     required this.deviceId,
     this.deviceName = 'Device Security',
-    this.isAdmin = false,
+    this.isAdmin = true,
   });
 
   final DeviceTrustRepository repository;
@@ -29,7 +30,11 @@ class _DeviceSecurityStatusPageState extends State<DeviceSecurityStatusPage> {
   @override
   void initState() {
     super.initState();
-    _loadSecurityData();
+    if (widget.isAdmin) {
+      _loadSecurityData();
+    } else {
+      _isLoading = false;
+    }
   }
 
   Future<void> _loadSecurityData() async {
@@ -168,25 +173,17 @@ class _DeviceSecurityStatusPageState extends State<DeviceSecurityStatusPage> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                      const SizedBox(height: 12),
-                      Text('Error loading security state: $_errorMessage'),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadSecurityData,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
+      body: !widget.isAdmin
+          ? const AdminAccessRequiredView(
+              title: 'Device Trust Center',
+              message:
+                  'Device cryptographic identity verification, hardware root of trust, and certificate rotation are restricted to platform administrators.',
+            )
+          : _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
+                  ? _buildErrorView()
+                  : RefreshIndicator(
                   onRefresh: _loadSecurityData,
                   child: ListView(
                     padding: const EdgeInsets.all(16),
@@ -498,6 +495,85 @@ class _DeviceSecurityStatusPageState extends State<DeviceSecurityStatusPage> {
                   );
                 },
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorView() {
+    final is404 = _errorMessage != null &&
+        (_errorMessage!.contains('404') ||
+            _errorMessage!.toLowerCase().contains('not found'));
+    final is403 = _errorMessage != null &&
+        (_errorMessage!.contains('403') ||
+            _errorMessage!.toLowerCase().contains('forbidden'));
+
+    if (is403) {
+      return const AdminAccessRequiredView(
+        title: 'Device Trust Center',
+        message:
+            'Device cryptographic identity verification, hardware root of trust, and certificate rotation are restricted to platform administrators.',
+      );
+    }
+
+    if (is404) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.search_off_rounded, size: 48, color: Colors.orange),
+              const SizedBox(height: 16),
+              const Text(
+                'Device Not Found',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Device identifier "${widget.deviceId}" is not registered or assigned to this home. Please select an active device from your fleet.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(height: 1.4, color: Colors.grey),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back to Fleet'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.cloud_off_rounded, size: 48, color: Colors.orange),
+            const SizedBox(height: 16),
+            const Text(
+              'Unable to Load Device Security',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage != null && _errorMessage!.isNotEmpty
+                  ? 'Error loading security state: $_errorMessage'
+                  : 'Error loading security state: Could not connect to device trust service. Please check your network and retry.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: _loadSecurityData,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
           ],
         ),
       ),

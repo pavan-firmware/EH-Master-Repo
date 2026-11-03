@@ -42,7 +42,7 @@ class ObservabilityApiRouter {
     }
     if (!user) return false;
     const role = (user.role || '').toUpperCase();
-    return role === 'ADMIN' || role === 'SUPERADMIN' || role === 'OPERATOR';
+    return role === 'ADMIN' || role === 'SUPERADMIN' || role === 'OPERATOR' || role === 'OWNER';
   }
 
   async handleRequest(req = {}) {

@@ -348,36 +348,40 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: alertEnabled
-                                      ? tokens.bluePrimary.withValues(alpha: 0.18)
-                                      : tokens.textTertiary.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(8),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: alertEnabled
+                                        ? tokens.bluePrimary.withValues(alpha: 0.18)
+                                        : tokens.textTertiary.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    Icons.notifications_active_rounded,
+                                    color: alertEnabled ? tokens.bluePrimary : tokens.textTertiary,
+                                    size: 18,
+                                  ),
                                 ),
-                                child: Icon(
-                                  Icons.notifications_active_rounded,
-                                  color: alertEnabled ? tokens.bluePrimary : tokens.textTertiary,
-                                  size: 18,
+                                const SizedBox(width: 10),
+                                Flexible(
+                                  child: Text(
+                                    'Activity Notifications',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      color: tokens.textPrimary,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Activity Notifications',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 14,
-                                  color: tokens.textPrimary,
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           Switch.adaptive(
                             value: alertEnabled,
-                            activeThumbColor: tokens.bluePrimary,
                             onChanged: (val) {
                               setSheetState(() {
                                 alertEnabled = val;
@@ -1702,12 +1706,14 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    isSocket ? 'Socket Outlets' : 'Switch Controls',
-                    style: TextStyle(
-                      color: tokens.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
+                  Expanded(
+                    child: Text(
+                      isSocket ? 'Socket Outlets' : 'Switch Controls',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                   Text(

@@ -44,19 +44,28 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
         final isLoading = widget.service.isLoading;
 
         return Scaffold(
+          backgroundColor: tokens.bgApp,
           appBar: AppBar(
-            title: const Text('Presence & Occupancy'),
+            backgroundColor: tokens.bgApp,
+            elevation: 0,
+            iconTheme: IconThemeData(color: tokens.headerAction),
+            title: Text(
+              'Presence & Occupancy',
+              style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+            ),
             actions: [
               IconButton(
-                icon: const Icon(Icons.refresh),
+                icon: Icon(Icons.refresh, color: tokens.headerAction),
                 onPressed: _refreshData,
               ),
             ],
           ),
           body: RefreshIndicator(
+            color: tokens.bluePrimary,
+            backgroundColor: tokens.surfaceElevated,
             onRefresh: _refreshData,
             child: isLoading && snapshot == null
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(child: CircularProgressIndicator(color: tokens.bluePrimary))
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [

@@ -19,9 +19,13 @@ class AutomationsPage extends StatefulWidget {
     super.key,
     this.repository = const PreviewRoutineRepository(),
     this.onConnectHome,
+    this.homeController,
+    this.autoOpenBuilder = false,
   });
   final RoutineRepository repository;
   final VoidCallback? onConnectHome;
+  final HomeController? homeController;
+  final bool autoOpenBuilder;
 
   @override
   State<AutomationsPage> createState() => _AutomationsPageState();
@@ -42,6 +46,11 @@ class _AutomationsPageState extends State<AutomationsPage> {
   void initState() {
     super.initState();
     _load();
+    if (widget.autoOpenBuilder) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openBuilder();
+      });
+    }
   }
 
   Future<void> _load() async {

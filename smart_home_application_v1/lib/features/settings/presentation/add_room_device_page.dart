@@ -30,9 +30,34 @@ class AddRoomDevicePage extends StatefulWidget {
 }
 
 class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
-  late Future<List<DiscoveredRoomDevice>> _devices = widget.repository
-      .getNearbyDevices();
+  late Future<List<DiscoveredRoomDevice>> _devices;
   bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _devices = widget.repository.getNearbyDevices();
+    widget.homeController?.addListener(_onHomeStateChanged);
+  }
+
+  void _onHomeStateChanged() {
+    if (mounted) _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant AddRoomDevicePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeStateChanged);
+      widget.homeController?.addListener(_onHomeStateChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.homeController?.removeListener(_onHomeStateChanged);
+    super.dispose();
+  }
 
   void _refresh() {
     setState(() {
@@ -43,8 +68,8 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
     });
   }
 
-  void _openSecureSetup() {
-    Navigator.push(
+  Future<void> _openSecureSetup() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ConnectionPage(
@@ -53,6 +78,7 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
         ),
       ),
     );
+    if (mounted) _refresh();
   }
 
   void _selectPreviewDevice(DiscoveredRoomDevice device) {
@@ -121,70 +147,68 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
         children: [
           const _SetupStepper(),
           const SizedBox(height: 22),
-          if (widget.onStartSecureSetup != null) ...[
-            SettingsSurface(
-              color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
-              borderColor: tokens.bluePrimary.withValues(alpha: 0.5),
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: tokens.bluePrimary.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(Icons.bluetooth_searching_rounded, color: tokens.bluePrimary, size: 24),
+          SettingsSurface(
+            color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
+            borderColor: tokens.bluePrimary.withValues(alpha: 0.5),
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: tokens.bluePrimary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Pair a New Device',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: tokens.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              'Connect via Bluetooth Low Energy (BLE) or Wi-Fi provisioning.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: tokens.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 46,
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: tokens.bluePrimary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _openSecureSetup,
-                      icon: const Icon(Icons.add_rounded, size: 20),
-                      label: const Text('Start Setup & Pairing', style: TextStyle(fontWeight: FontWeight.w700)),
+                      child: Icon(Icons.bluetooth_searching_rounded, color: tokens.bluePrimary, size: 24),
                     ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pair a New Device',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: tokens.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Connect via Bluetooth Low Energy (BLE) or Wi-Fi provisioning.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: tokens.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: tokens.bluePrimary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _openSecureSetup,
+                    icon: const Icon(Icons.add_rounded, size: 20),
+                    label: const Text('Start Setup & Pairing', style: TextStyle(fontWeight: FontWeight.w700)),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const SizedBox(height: 22),
-          ],
+          ),
+          const SizedBox(height: 22),
           SettingsSurface(
             color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
             borderColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD9E5FF),
@@ -288,40 +312,37 @@ class _AddRoomDevicePageState extends State<AddRoomDevicePage> {
             );
           },
         ),
-        const SizedBox(height: 16),
-        SettingsSurface(
-          color: tokens.isDark ? tokens.surfaceCard : const Color(0xFFF3F7FF),
-          borderColor: tokens.isDark ? tokens.borderControl : const Color(0xFFD9E5FF),
-          child: SettingsListItem(
-            icon: Icons.qr_code_scanner_rounded,
-            title: 'Other ways to add',
-            subtitle: 'Scan a QR code or enter a setup code',
-            onTap: _openSecureSetup,
-          ),
-        ),
         const SizedBox(height: 24),
         const SettingsSectionTitle('Need help?'),
-        const SettingsSurface(
+        SettingsSurface(
           child: Column(
             children: [
               _HelpRow(
                 icon: Icons.bluetooth_rounded,
                 text: 'Make sure Bluetooth is on',
                 divider: true,
+                settingsRepository: widget.repository,
+                homeController: widget.homeController,
               ),
               _HelpRow(
                 icon: Icons.power_settings_new_rounded,
                 text: 'Power on your device',
                 divider: true,
+                settingsRepository: widget.repository,
+                homeController: widget.homeController,
               ),
               _HelpRow(
                 icon: Icons.location_on_outlined,
                 text: 'Keep your device and phone close',
                 divider: true,
+                settingsRepository: widget.repository,
+                homeController: widget.homeController,
               ),
               _HelpRow(
                 icon: Icons.info_outline_rounded,
                 text: 'View troubleshooting guide',
+                settingsRepository: widget.repository,
+                homeController: widget.homeController,
               ),
             ],
           ),
@@ -477,7 +498,9 @@ class _NearbyDeviceRow extends StatelessWidget {
     final icon = switch (device.icon) {
       'mist' => Icons.water_drop_outlined,
       'light' => Icons.lightbulb_outline_rounded,
-      _ => Icons.power_outlined,
+      'switch' => Icons.toggle_on_rounded,
+      'socket' || 'plug' => Icons.power_outlined,
+      _ => Icons.devices_other_rounded,
     };
     final strong = device.signal == DeviceConnection.online;
     return Column(
@@ -524,13 +547,25 @@ class _NearbyDeviceRow extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: SettingsStatusChip(
-                          label: 'New device',
-                          color: SettingsColors.green,
-                          background: SettingsColors.paleGreen,
-                        ),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        children: [
+                          SettingsStatusChip(
+                            label: 'New device',
+                            color: SettingsColors.green,
+                            background: SettingsColors.paleGreen,
+                          ),
+                          if (device.signalLabel.isNotEmpty)
+                            Text(
+                              device.signalLabel,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: SettingsColors.muted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
@@ -571,10 +606,15 @@ class _HelpRow extends StatelessWidget {
     required this.icon,
     required this.text,
     this.divider = false,
+    this.settingsRepository,
+    this.homeController,
   });
   final IconData icon;
   final String text;
   final bool divider;
+  final SettingsRepository? settingsRepository;
+  final HomeController? homeController;
+
   @override
   Widget build(BuildContext context) => Column(
     children: [
@@ -594,7 +634,11 @@ class _HelpRow extends StatelessWidget {
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => const HelpSupportPage(initialTopic: 'troubleshooting'),
+              builder: (_) => HelpSupportPage(
+                initialTopic: 'troubleshooting',
+                settingsRepository: settingsRepository,
+                homeController: homeController,
+              ),
             ),
           ),
         ),
@@ -626,11 +670,11 @@ class _NoDevices extends StatelessWidget {
           'No nearby devices found',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 8),
         const Text(
-          'Make sure your device is powered on and nearby.',
+          'Make sure Bluetooth is turned on and granted. Power on your device and put it in pairing mode. Keep your device close to your phone.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: SettingsColors.muted),
+          style: TextStyle(color: SettingsColors.muted, height: 1.4),
         ),
         const SizedBox(height: 14),
         OutlinedButton(

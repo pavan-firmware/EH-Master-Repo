@@ -228,6 +228,38 @@ class ElectricityTariffModel {
     );
   }
 
+  ElectricityTariffModel copyWith({
+    String? id,
+    String? homeId,
+    String? name,
+    TariffType? tariffType,
+    String? currency,
+    double? flatRatePerKwh,
+    double? fixedDailyCharge,
+    DateTime? effectiveFrom,
+    DateTime? effectiveTo,
+    double? carbonIntensityGPerKwh,
+    bool? isActive,
+    List<TariffPeriodModel>? periods,
+    Map<String, dynamic>? metadata,
+  }) {
+    return ElectricityTariffModel(
+      id: id ?? this.id,
+      homeId: homeId ?? this.homeId,
+      name: name ?? this.name,
+      tariffType: tariffType ?? this.tariffType,
+      currency: currency ?? this.currency,
+      flatRatePerKwh: flatRatePerKwh ?? this.flatRatePerKwh,
+      fixedDailyCharge: fixedDailyCharge ?? this.fixedDailyCharge,
+      effectiveFrom: effectiveFrom ?? this.effectiveFrom,
+      effectiveTo: effectiveTo ?? this.effectiveTo,
+      carbonIntensityGPerKwh: carbonIntensityGPerKwh ?? this.carbonIntensityGPerKwh,
+      isActive: isActive ?? this.isActive,
+      periods: periods ?? this.periods,
+      metadata: metadata ?? this.metadata,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       if (id.isNotEmpty) 'id': id,

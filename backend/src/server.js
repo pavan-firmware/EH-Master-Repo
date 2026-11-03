@@ -70,7 +70,19 @@ function createServer(appInstance = null, options = {}) {
     app.services.operationalReadinessService.setLifecycleState('READY', 'Server initialized and ready to serve traffic');
   }
 
-  const server = http.createServer((req, res) => app.handleRequest(req, res));
+  const server = http.createServer((req, res) => {
+    app.handleRequest(req, res).catch((err) => {
+      console.error('[EH Home Server] Unhandled error in request handler:', err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: false,
+          error: { code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error' },
+          timestamp: new Date().toISOString()
+        }));
+      }
+    });
+  });
   server.appInstance = app;
   server.runtimeConfig = validation.config;
   return server;

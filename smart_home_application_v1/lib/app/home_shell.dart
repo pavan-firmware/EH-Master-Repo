@@ -944,7 +944,8 @@ class _HomeShellState extends State<HomeShell> {
                                 apiClient: widget.apiClient,
                                 authController: widget.authController,
                                 homeId: _homeController.activeHomeId ?? widget.homeId,
-                                isAdmin: widget.authController?.currentUser?.isAdmin ?? false,
+                                isAdmin: (widget.authController?.currentUser?.isAdmin ?? false) ||
+                                    _homeController.isHomeAdmin,
                                 onLogout: widget.authController != null
                                     ? () => widget.authController!.logout()
                                     : null,

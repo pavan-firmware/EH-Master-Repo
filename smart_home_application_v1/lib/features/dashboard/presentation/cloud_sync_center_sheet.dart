@@ -401,7 +401,16 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
                         ),
                         Switch(
                           value: _promptAtStartup,
-                          activeThumbColor: tokens.bluePrimary,
+                          activeThumbColor: Colors.white,
+                          activeTrackColor: tokens.bluePrimary,
+                          inactiveThumbColor: tokens.isDark ? tokens.textSecondary : const Color(0xFF757575),
+                          inactiveTrackColor: tokens.isDark ? tokens.bgSecondary : const Color(0xFFE0E0E0),
+                          trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+                            if (states.contains(WidgetState.selected)) {
+                              return Colors.transparent;
+                            }
+                            return tokens.borderSubtle;
+                          }),
                           onChanged: _setStartupReminderPref,
                         ),
                       ],
@@ -410,12 +419,43 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
 
                   const SizedBox(height: 24),
 
+                  if (!widget.homeController.isCloudReachable)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: tokens.isDark ? const Color(0xFF261D15) : const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: tokens.warning.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.cloud_off_rounded, size: 18, color: tokens.warning),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Cloud is offline. Connect to internet to sync or restore.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: tokens.warning,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   // 4. Primary Upload Action Button
                   SizedBox(
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton.icon(
-                      onPressed: _isUploading ? null : _handleUpload,
+                      onPressed: (_isUploading || !widget.homeController.isCloudReachable) ? null : _handleUpload,
                       icon: _isUploading
                           ? const SizedBox(
                               width: 18,
@@ -427,6 +467,8 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: tokens.bluePrimary,
                         foregroundColor: Colors.white,
+                        disabledBackgroundColor: tokens.isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                        disabledForegroundColor: tokens.isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
                         elevation: 0,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
@@ -441,20 +483,34 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
                     width: double.infinity,
                     height: 48,
                     child: OutlinedButton.icon(
-                      onPressed: _isDownloading ? null : _handleDownload,
+                      onPressed: (_isDownloading || !widget.homeController.isCloudReachable) ? null : _handleDownload,
                       icon: _isDownloading
                           ? SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2, color: tokens.textPrimary),
                             )
-                          : Icon(Icons.cloud_download_rounded, color: tokens.textPrimary),
+                          : Icon(
+                              Icons.cloud_download_rounded,
+                              color: widget.homeController.isCloudReachable
+                                  ? tokens.textPrimary
+                                  : (tokens.isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8)),
+                            ),
                       label: Text(
                         _isDownloading ? 'Restoring from Cloud...' : 'Restore Setup from Cloud',
-                        style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: widget.homeController.isCloudReachable
+                              ? tokens.textPrimary
+                              : (tokens.isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8)),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: tokens.borderSubtle),
+                        side: BorderSide(
+                          color: widget.homeController.isCloudReachable
+                              ? tokens.borderSubtle
+                              : (tokens.isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+                        ),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                     ),

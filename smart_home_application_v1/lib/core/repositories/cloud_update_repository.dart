@@ -2,24 +2,50 @@ import 'package:flutter/foundation.dart';
 import '../api/api_client.dart';
 import '../models/connection_models.dart';
 import '../models/update_models.dart';
+import '../services/check_timestamp_service.dart';
 import 'update_repository.dart';
 
 class CloudUpdateRepository implements UpdateRepository {
   final ApiClient apiClient;
   final String? Function()? getActiveHomeId;
   final List<ConnectedDeviceSummary> Function()? getLocalDevices;
+  final CheckTimestampService? timestampService;
 
   CloudUpdateRepository({
     required this.apiClient,
     this.getActiveHomeId,
     this.getLocalDevices,
+    this.timestampService,
   });
 
   @override
   Future<UpdateSummary> getSummary() => _fetchUpdates();
 
   @override
-  Future<UpdateSummary> checkForUpdates() => _fetchUpdates();
+  Future<UpdateSummary> checkForUpdates() async {
+    final summary = await _fetchUpdates();
+    if (!summary.isUnavailable) {
+      final completionTime = DateTime.now();
+      final timeService = timestampService ?? CheckTimestampService.instance;
+      await timeService.recordSuccessfulCheck(
+        CheckTimestampService.systemUpdateKey,
+        completionTime,
+      );
+      return UpdateSummary(
+        overallStatus: summary.overallStatus,
+        title: summary.title,
+        subtitle: summary.subtitle,
+        statusLabel: summary.statusLabel,
+        lastChecked: completionTime,
+        targets: summary.targets,
+        history: summary.history,
+        appVersion: summary.appVersion,
+        errorType: summary.errorType,
+        errorMessage: summary.errorMessage,
+      );
+    }
+    return summary;
+  }
 
   String _resolveCanonicalVariantId(String raw) {
     final s = raw.toLowerCase().replaceAll('_', '-');
@@ -78,6 +104,11 @@ class CloudUpdateRepository implements UpdateRepository {
   Future<UpdateSummary> _fetchUpdates() async {
     final homeId = getActiveHomeId?.call();
     final localDevices = getLocalDevices?.call() ?? [];
+    final timeService = timestampService ?? CheckTimestampService.instance;
+    final storedLastChecked = await timeService.getLastSuccessfulCheck(
+      CheckTimestampService.systemUpdateKey,
+    );
+    final effectiveLastChecked = storedLastChecked ?? DateTime(2026, 8, 15, 9, 40);
 
     List<UpdateTarget> targets = [
       const UpdateTarget(
@@ -294,7 +325,7 @@ class CloudUpdateRepository implements UpdateRepository {
         title: errTitle,
         subtitle: errSubtitle,
         statusLabel: errStatusLabel,
-        lastChecked: DateTime.now(),
+        lastChecked: effectiveLastChecked,
         targets: targets,
         history: history,
         appVersion: '1.0.0',
@@ -323,7 +354,7 @@ class CloudUpdateRepository implements UpdateRepository {
       title: title,
       subtitle: subtitle,
       statusLabel: updateAvailableCount > 0 ? 'Update available' : 'Up to date',
-      lastChecked: DateTime.now(),
+      lastChecked: effectiveLastChecked,
       targets: targets,
       history: history,
       appVersion: '1.0.0',

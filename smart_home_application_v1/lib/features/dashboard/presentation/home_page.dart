@@ -395,8 +395,16 @@ class HomePage extends StatelessWidget {
 }
 
 String _contextualSubtitle(HomeDashboardData data) {
+  if (data.devicesOnline == 0 && data.deviceCount > 0) {
+    return 'Your devices are currently offline.';
+  }
   return switch (data.state) {
-    HomeDashboardState.ready => 'Everything looks good at home.',
+    HomeDashboardState.ready =>
+      data.deviceCount == 0
+          ? 'Get started by adding your first device.'
+          : (data.devicesOnline == 0
+              ? 'Your devices are currently offline.'
+              : 'Everything looks good at home.'),
     HomeDashboardState.warning => 'One device needs your attention.',
     HomeDashboardState.critical => 'Immediate attention is required.',
     HomeDashboardState.partial => 'Some home information needs attention.',
@@ -2114,6 +2122,44 @@ class _HomeOverviewCard extends StatelessWidget {
   }
 }
 
+/// Returns a live-derived status label for the overview pill.
+/// Never returns the hardcoded "All systems normal" when data indicates
+/// devices are offline, stale, or experiencing errors.
+String _systemStatusLabel(HomeDashboardData data) {
+  if (data.devicesOnline == 0 && data.deviceCount > 0) return 'Devices offline';
+  if (data.telemetryFreshness == TelemetryFreshness.stale) return 'Data may be stale';
+  if (data.state == HomeDashboardState.warning) return 'Needs attention';
+  if (data.state == HomeDashboardState.critical) return 'Critical alert';
+  if (data.state == HomeDashboardState.offline) return 'Home offline';
+  if (data.state == HomeDashboardState.noInternet) return 'No internet';
+  if (data.connectivity != ConnectivityCause.online &&
+      data.connectivity != ConnectivityCause.unknown &&
+      data.devicesOnline == 0) {
+    return 'Connection issue';
+  }
+  // Only show "All systems normal" when live data confirms it.
+  if (data.source == DashboardDataSource.live &&
+      data.telemetryFreshness == TelemetryFreshness.current &&
+      data.devicesOnline == data.deviceCount &&
+      data.deviceCount > 0) {
+    return 'All systems normal';
+  }
+  if (data.devicesOnline > 0) return 'Systems online';
+  return 'No devices';
+}
+
+/// Returns the color for the status pill dot, reflecting actual system state.
+Color _systemStatusColor(HomeDashboardData data, EHThemeTokens tokens) {
+  if (data.state == HomeDashboardState.critical) return const Color(0xFFEF4444);
+  if (data.state == HomeDashboardState.warning) return const Color(0xFFF59E0B);
+  if (data.state == HomeDashboardState.offline ||
+      data.state == HomeDashboardState.noInternet ||
+      (data.devicesOnline == 0 && data.deviceCount > 0)) {
+    return const Color(0xFFF59E0B);
+  }
+  return tokens.isDark ? tokens.success : const Color(0xFF36D878);
+}
+
 class _ReadyOverview extends StatelessWidget {
   const _ReadyOverview({required this.data, this.spaceName = 'Home'});
   final HomeDashboardData data;
@@ -2155,8 +2201,8 @@ class _ReadyOverview extends StatelessWidget {
               ),
             ),
             _OverviewPill(
-              label: 'All systems normal',
-              color: tokens.isDark ? tokens.success : const Color(0xFF36D878),
+              label: _systemStatusLabel(data),
+              color: _systemStatusColor(data, tokens),
             ),
           ],
         ),
@@ -2214,7 +2260,7 @@ class _ReadyOverview extends StatelessWidget {
                     icon: Icons.shield_outlined,
                     value: 'Security',
                     label: 'All sensors',
-                    detail: 'normal',
+                    detail: data.securityDetail,
                     accent: tokens.isDark
                         ? tokens.success
                         : const Color(0xFF85F0DD),
@@ -2314,7 +2360,7 @@ class _CompactOverviewMetrics extends StatelessWidget {
               child: _CompactMetric(
                 icon: Icons.shield_outlined,
                 value: 'Security',
-                detail: 'All sensors normal',
+                detail: data.securityDetail,
                 accent: tokens.isDark
                     ? tokens.success
                     : const Color(0xFF85F0DD),

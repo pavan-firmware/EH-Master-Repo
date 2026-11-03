@@ -69,24 +69,34 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
-  late Future<HomeSettingsData> _home = widget.repository.getHome();
-  late Future<_SystemSummary> _systemSummary = _loadSystemSummary();
+class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver {
+  (HomeSettingsData, _SystemSummary)? _cachedData;
+  late Future<(HomeSettingsData, _SystemSummary)> _future;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _future = _fetchData();
     widget.homeController?.addListener(_onHomeStateChanged);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.homeController?.removeListener(_onHomeStateChanged);
     super.dispose();
   }
 
   void _onHomeStateChanged() {
     if (mounted) _reload();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _reload();
+    }
   }
 
   @override
@@ -105,20 +115,48 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _reload() {
     setState(() {
-      _home = widget.repository.getHome();
-      _systemSummary = _loadSystemSummary();
+      _future = _fetchData();
     });
   }
 
+  Future<(HomeSettingsData, _SystemSummary)> _fetchData() async {
+    try {
+      final homeFuture = widget.repository
+          .getHome()
+          .timeout(const Duration(seconds: 3));
+      final systemFuture =
+          _loadSystemSummary().timeout(const Duration(seconds: 3));
+      final results = await Future.wait([homeFuture, systemFuture]);
+      var home = results[0] as HomeSettingsData;
+      if (widget.homeController?.activeSpaceName != null &&
+          widget.homeController!.activeSpaceName.isNotEmpty) {
+        home = home.copyWith(name: widget.homeController!.activeSpaceName);
+      }
+      final system = results[1] as _SystemSummary;
+      _cachedData = (home, system);
+      return (home, system);
+    } catch (_) {
+      if (_cachedData != null) return _cachedData!;
+      rethrow;
+    }
+  }
+
   Future<_SystemSummary> _loadSystemSummary() async {
-    final effectiveState = (widget.homeController?.devices.isNotEmpty == true)
-        ? (widget.connectionState ?? HomeConnectionState.connected)
-        : widget.connectionState;
-    final connection = await widget.connectionRepository.getOverview(
-      liveState: effectiveState,
-    );
-    final update = await widget.updateRepository.getSummary();
-    final health = await widget.healthRepository.getSummary();
+    final authoritative = widget.homeController?.authoritativeConnectionState;
+    final effectiveState = authoritative != null
+        ? (authoritative.isOnline ? HomeConnectionState.connected : HomeConnectionState.offline)
+        : (widget.homeController?.connectionState ?? widget.connectionState);
+    final connection = await widget.connectionRepository
+        .getOverview(
+          liveState: effectiveState,
+        )
+        .timeout(const Duration(seconds: 3));
+    final update = await widget.updateRepository
+        .getSummary()
+        .timeout(const Duration(seconds: 3));
+    final health = await widget.healthRepository
+        .getSummary()
+        .timeout(const Duration(seconds: 3));
     return _SystemSummary(
       connection: connection,
       update: update,
@@ -129,41 +167,42 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+
     return SafeArea(
       bottom: false,
       child: Scaffold(
         backgroundColor: tokens.bgApp,
         body: FutureBuilder<(HomeSettingsData, _SystemSummary)>(
-          future: Future.wait([_home, _systemSummary]).then(
-            (results) =>
-                (results[0] as HomeSettingsData, results[1] as _SystemSummary),
-          ),
+          future: _future,
+          initialData: _cachedData,
           builder: (context, snapshot) {
+            final data = snapshot.data ?? _cachedData;
+            if (data != null) {
+              return _SettingsContent(
+                home: data.$1,
+                system: data.$2,
+                homeController: widget.homeController,
+                repository: widget.repository,
+                connectionRepository: widget.connectionRepository,
+                updateRepository: widget.updateRepository,
+                onReload: _reload,
+                onConnectHome: widget.onConnectHome,
+                connectionState: widget.connectionState,
+                connectionMessage: widget.connectionMessage,
+                apiClient: widget.apiClient,
+                authController: widget.authController,
+                homeId: widget.homeId,
+                isAdmin: widget.isAdmin,
+                onLogout: widget.onLogout,
+              );
+            }
             if (snapshot.connectionState != ConnectionState.done) {
               return const _SettingsLoading();
             }
-            if (snapshot.hasError || !snapshot.hasData) {
+            if (snapshot.hasError) {
               return _SettingsError(onRetry: _reload);
             }
-            final home = snapshot.data!.$1;
-            final system = snapshot.data!.$2;
-            return _SettingsContent(
-              home: home,
-              system: system,
-              homeController: widget.homeController,
-              repository: widget.repository,
-              connectionRepository: widget.connectionRepository,
-              updateRepository: widget.updateRepository,
-              onReload: _reload,
-              onConnectHome: widget.onConnectHome,
-              connectionState: widget.connectionState,
-              connectionMessage: widget.connectionMessage,
-              apiClient: widget.apiClient,
-              authController: widget.authController,
-              homeId: widget.homeId,
-              isAdmin: widget.isAdmin,
-              onLogout: widget.onLogout,
-            );
+            return const _SettingsLoading();
           },
         ),
       ),
@@ -305,6 +344,7 @@ class _SettingsContent extends StatelessWidget {
     final connection = _RootConnectionStatus.fromOverview(
       system.connection,
       tokens,
+      homeController: homeController,
     );
     final isUpdateUnavailable = system.update.isUnavailable;
     final hasUpdates = !isUpdateUnavailable && system.update.availableCount > 0;
@@ -383,16 +423,20 @@ class _SettingsContent extends StatelessWidget {
           roomCount: roomCount,
           deviceCount: deviceCount,
           connection: connection,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => HomeDetailsPage(
-                home: home,
-                repository: repository,
-                homeController: homeController,
+          homeController: homeController,
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => HomeDetailsPage(
+                  home: home,
+                  repository: repository,
+                  homeController: homeController,
+                ),
               ),
-            ),
-          ),
+            );
+            if (context.mounted) onReload();
+          },
         ),
         const SizedBox(height: 18),
         const SettingsSectionTitle('Your system'),
@@ -403,34 +447,42 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.add_to_queue_rounded,
                 title: 'Add a room device',
                 subtitle: 'Set up a nearby device',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AddRoomDevicePage(
-                      repository: repository,
-                      onStartSecureSetup: onConnectHome,
-                      connectionState: connectionState,
-                      homeController: homeController,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AddRoomDevicePage(
+                        repository: repository,
+                        onStartSecureSetup: onConnectHome,
+                        connectionState: connectionState,
+                        homeController: homeController,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  if (context.mounted) onReload();
+                },
                 showDivider: true,
               ),
               SettingsListItem(
                 icon: Icons.bluetooth_connected_rounded,
                 title: 'Connect your home',
                 subtitle: connection.detail,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ConnectionPage(
-                      onStart: onConnectHome,
-                      connectionState: connectionState,
-                      connectionMessage: connectionMessage,
-                      repository: connectionRepository,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ConnectionPage(
+                        onStart: onConnectHome,
+                        connectionState: homeController?.authoritativeConnectionState.isOnline == false
+                            ? HomeConnectionState.offline
+                            : (connectionState ?? homeController?.connectionState),
+                        connectionMessage: connectionMessage ?? homeController?.connectionMessage,
+                        repository: connectionRepository,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  if (context.mounted) onReload();
+                },
                 iconColor: tokens.isDark
                     ? tokens.bluePrimary
                     : SettingsColors.purple,
@@ -499,14 +551,17 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.health_and_safety_outlined,
                 title: 'Device health',
                 subtitle: 'Check connection and care tips',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DeviceHealthPage(
-                      homeController: homeController,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DeviceHealthPage(
+                        homeController: homeController,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  if (context.mounted) onReload();
+                },
                 trailing: healthChip,
               ),
             ],
@@ -521,13 +576,16 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.groups_rounded,
                 title: 'People at home',
                 subtitle: 'Manage access and invitations',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        PeoplePage(repository: repository, home: home),
-                  ),
-                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          PeoplePage(repository: repository, home: home),
+                    ),
+                  );
+                  if (context.mounted) onReload();
+                },
                 showDivider: false,
               ),
             ],
@@ -542,17 +600,18 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.cloud_sync_rounded,
                 title: 'Cloud sync & backup center',
                 subtitle: 'Backup local setups, rooms, and devices or restore from cloud',
-                onTap: () {
+                onTap: () async {
                   final effectiveCtrl = homeController ??
                       HomeController.instance ??
                       HomeController(repository: FakeHomeRepository());
-                  showModalBottomSheet(
+                  await showModalBottomSheet(
                     context: context,
                     isScrollControlled: true,
                     builder: (_) => CloudSyncCenterSheet(
                       homeController: effectiveCtrl,
                     ),
                   );
+                  if (context.mounted) onReload();
                 },
                 showDivider: true,
               ),
@@ -567,12 +626,15 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.notifications_none_rounded,
                 title: 'Notification preferences',
                 subtitle: 'Safety, offline, and update alerts',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const NotificationPreferencesPage(),
-                  ),
-                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationPreferencesPage(),
+                    ),
+                  );
+                  if (context.mounted) onReload();
+                },
                 showDivider: true,
               ),
               SettingsListItem(
@@ -584,17 +646,20 @@ class _SettingsContent extends StatelessWidget {
                   color: tokens.bluePrimary,
                   background: tokens.blueSelectedBg,
                 ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AdvancedFleetOperationsPage(
-                      homeId: effectiveHomeId,
-                      apiClient: effectiveClient,
-                      homeController: homeController,
-                      isAdmin: isAdmin,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AdvancedFleetOperationsPage(
+                        homeId: effectiveHomeId,
+                        apiClient: effectiveClient,
+                        homeController: homeController,
+                        isAdmin: isAdmin,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  if (context.mounted) onReload();
+                },
               ),
             ],
           ),
@@ -608,10 +673,19 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.help_outline_rounded,
                 title: 'Help and support',
                 subtitle: 'Get help and find answers',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HelpSupportPage()),
-                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => HelpSupportPage(
+                        settingsRepository: repository,
+                        homeController: homeController,
+                        homeConnectionRepository: connectionRepository,
+                      ),
+                    ),
+                  );
+                  if (context.mounted) onReload();
+                },
                 iconColor: tokens.isDark
                     ? tokens.bluePrimary
                     : SettingsColors.purple,
@@ -624,10 +698,13 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.privacy_tip_outlined,
                 title: 'Privacy',
                 subtitle: 'Manage your data and permissions',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PrivacyPage()),
-                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PrivacyPage()),
+                  );
+                  if (context.mounted) onReload();
+                },
                 iconColor: tokens.isDark
                     ? tokens.bluePrimary
                     : SettingsColors.purple,
@@ -673,10 +750,13 @@ class _SettingsContent extends StatelessWidget {
                 icon: Icons.restart_alt_rounded,
                 title: 'Factory reset',
                 subtitle: 'Remove this home from the device',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FactoryResetPage()),
-                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FactoryResetPage()),
+                  );
+                  if (context.mounted) onReload();
+                },
                 destructive: true,
               ),
             ],
@@ -776,16 +856,22 @@ class _HomeProfileCard extends StatelessWidget {
     required this.deviceCount,
     required this.connection,
     required this.onTap,
+    this.homeController,
   });
   final HomeSettingsData home;
   final int roomCount;
   final int deviceCount;
   final _RootConnectionStatus connection;
   final VoidCallback onTap;
+  final HomeController? homeController;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+    final effectiveName = (homeController?.activeSpaceName != null &&
+            homeController!.activeSpaceName.isNotEmpty)
+        ? homeController!.activeSpaceName
+        : home.name;
     return SettingsSurface(
       child: InkWell(
         onTap: onTap,
@@ -819,7 +905,7 @@ class _HomeProfileCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      home.name,
+                      effectiveName,
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
@@ -923,9 +1009,38 @@ class _RootConnectionStatus {
 
   factory _RootConnectionStatus.fromOverview(
     dynamic overview,
-    EHThemeTokens tokens,
-  ) {
-    final ctrl = HomeController.instance;
+    EHThemeTokens tokens, {
+    HomeController? homeController,
+  }) {
+    final ctrl = homeController ?? HomeController.instance;
+    final authoritative = ctrl?.authoritativeConnectionState;
+
+    if (authoritative != null) {
+      if (!authoritative.isOnline) {
+        return _RootConnectionStatus(
+          shortLabel: 'Unavailable',
+          detail: 'Your home device is currently unavailable',
+          icon: Icons.wifi_off_rounded,
+          color: tokens.warning,
+          background: tokens.warningContainer,
+          chipIcon: Icons.error_outline_rounded,
+          profileLabel: 'Disconnected',
+        );
+      }
+      final isLocal = authoritative.isLocalMode;
+      return _RootConnectionStatus(
+        shortLabel: isLocal ? 'Local' : 'Connected',
+        detail: isLocal
+            ? 'Direct Local Wi-Fi (<10ms)'
+            : 'Bluetooth, Wi-Fi, and hub connection',
+        icon: isLocal ? Icons.wifi_rounded : Icons.bluetooth_connected_rounded,
+        color: tokens.success,
+        background: tokens.successContainer,
+        chipIcon: Icons.check_rounded,
+        profileLabel: isLocal ? 'Local mode' : 'Home connected',
+      );
+    }
+
     final hasDevices = (ctrl?.devices.isNotEmpty ?? false) || DeviceStorageService.cachedDevices.isNotEmpty;
     if (overview.isFullyConnected || (hasDevices && (ctrl?.isLocalMode == true || ctrl?.isCloudReachable == true))) {
       return _RootConnectionStatus(

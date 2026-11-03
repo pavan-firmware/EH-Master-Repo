@@ -270,8 +270,11 @@ void main() {
       expect(invitations.first.recipientName, 'guest@example.com');
 
       final devices = await settingsRepo.getNearbyDevices();
-      expect(devices.length, 1);
-      expect(devices.first.name, 'Living Switch');
+      expect(devices, isEmpty);
+
+      final registeredDevices = await settingsRepo.getRegisteredDevices();
+      expect(registeredDevices.length, 1);
+      expect(registeredDevices.first.name, 'Living Switch');
 
       final inviteRes = await settingsRepo.invitePerson('new@example.com');
       expect(inviteRes, SettingsOperationResult.success);

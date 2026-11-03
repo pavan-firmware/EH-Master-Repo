@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../app/home_controller.dart';
 import '../../../core/models/edge_control_models.dart';
 import '../../../core/services/edge_control_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -23,9 +24,9 @@ class EdgeExecutionDashboardPage extends StatefulWidget {
 }
 
 class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage> {
-  bool _mockSwitchState = true;
+  bool? _switchState;
   EdgeDeviceControlStatus _controlStatus = EdgeDeviceControlStatus.idle;
-  double _lastLatency = 14.5;
+  double? _lastLatency;
 
   @override
   void initState() {
@@ -39,13 +40,13 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
     await widget.edgeService.fetchEdgeMetrics(widget.homeId);
   }
 
-  Future<void> _handleToggle(bool nextVal) async {
+  Future<void> _handleToggle(String devId, bool nextVal) async {
     setState(() {
       _controlStatus = EdgeDeviceControlStatus.pending;
     });
 
     final res = await widget.edgeService.executeCommand(
-      deviceId: 'dev_test_01',
+      deviceId: devId,
       homeId: widget.homeId,
       channelIndex: 1,
       action: 'setPower',
@@ -55,7 +56,7 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
     if (mounted) {
       if (res != null && (res.status == 'CONFIRMED' || res.isConfirmedByDevice)) {
         setState(() {
-          _mockSwitchState = nextVal;
+          _switchState = nextVal;
           _controlStatus = EdgeDeviceControlStatus.confirmed;
           _lastLatency = res.latencyMs;
         });
@@ -129,7 +130,7 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
                 routeMode: status?.isLocalNetworkActive == false
                     ? ExecutionRouteMode.cloud
                     : ExecutionRouteMode.local,
-                avgLatencyMs: status?.avgLocalLatencyMs ?? 14.5,
+                avgLatencyMs: _lastLatency ?? status?.avgLocalLatencyMs ?? 0.0,
               ),
             ),
           ),
@@ -148,7 +149,7 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
             _buildMetricsOverview(context, tokens, status, metrics),
             const SizedBox(height: 20),
 
-            // 3. Interactive Sample Control Card
+            // 3. Interactive Real Control Card
             Text(
               'Interactive Local Control',
               style: TextStyle(
@@ -158,16 +159,31 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
               ),
             ),
             const SizedBox(height: 10),
-            EdgeDeviceControlCard(
-              deviceId: 'dev_test_01',
-              deviceName: 'Living Room Main Light',
-              roomName: 'Living Room',
-              isOn: _mockSwitchState,
-              controlStatus: _controlStatus,
-              routeMode: ExecutionRouteMode.local,
-              lastLatencyMs: _lastLatency,
-              onToggle: _handleToggle,
-              onRetry: () => _handleToggle(!_mockSwitchState),
+            Builder(
+              builder: (context) {
+                final ctrl = HomeController.instance;
+                final realDevices = ctrl?.devices ?? [];
+                final targetDevice = realDevices.isNotEmpty ? realDevices.first : null;
+
+                final devId = targetDevice?.id ?? 'dev_test_01';
+                final devName = targetDevice?.name ?? 'Living Room Main Light';
+                final room = targetDevice != null && targetDevice.roomName.isNotEmpty
+                    ? targetDevice.roomName
+                    : 'Living Room';
+                final isDeviceOn = _switchState ?? (targetDevice?.online ?? true);
+
+                return EdgeDeviceControlCard(
+                  deviceId: devId,
+                  deviceName: devName,
+                  roomName: room,
+                  isOn: isDeviceOn,
+                  controlStatus: _controlStatus,
+                  routeMode: ExecutionRouteMode.local,
+                  lastLatencyMs: _lastLatency ?? 14.5,
+                  onToggle: (val) => _handleToggle(devId, val),
+                  onRetry: () => _handleToggle(devId, !isDeviceOn),
+                );
+              },
             ),
             const SizedBox(height: 24),
 
@@ -254,8 +270,10 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
     LocalConnectivityStatus? status,
     EdgeMetricsSummary? metrics,
   ) {
-    final localRate = (metrics?.localSuccessRate ?? 0.98) * 100;
-    final localLatency = status?.avgLocalLatencyMs ?? 14.5;
+    final localRate = metrics != null
+        ? (metrics.localSuccessRate * 100)
+        : (status?.isLocalNetworkActive == true ? 100.0 : 0.0);
+    final localLatency = _lastLatency ?? status?.avgLocalLatencyMs;
 
     return Row(
       children: [
@@ -274,8 +292,8 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
           child: _buildMetricCard(
             tokens: tokens,
             title: 'Avg Latency',
-            value: '${localLatency.toStringAsFixed(0)} ms',
-            subtitle: '10x Faster than Cloud',
+            value: localLatency != null ? '${localLatency.toStringAsFixed(0)} ms' : '—',
+            subtitle: 'Direct LAN Wi-Fi',
             valueColor: tokens.bluePrimary,
             icon: Icons.speed_rounded,
           ),
@@ -332,27 +350,33 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
   }
 
   Widget _buildEdgeScenesSection(BuildContext context, EHThemeTokens tokens) {
+    final ctrl = HomeController.instance;
+    final routines = ctrl?.upcomingRoutinesAcrossSpaces ?? [];
+
+    final List<(String, String)> scenesToDisplay;
+    if (routines.isNotEmpty) {
+      scenesToDisplay = routines.take(2).map((r) => (r.id, r.title)).toList();
+    } else {
+      scenesToDisplay = const [
+        ('scene_all_off', 'All Lights Off'),
+        ('scene_welcome', 'Welcome Home'),
+      ];
+    }
+
     return Row(
       children: [
-        Expanded(
-          child: _buildSceneButton(
-            title: 'All Lights Off',
-            icon: Icons.nightlight_round,
-            color: tokens.bluePrimary,
-            tokens: tokens,
-            onTap: () => _triggerEdgeScene('scene_all_off', 'All Lights Off'),
+        for (int i = 0; i < scenesToDisplay.length; i++) ...[
+          if (i > 0) const SizedBox(width: 12),
+          Expanded(
+            child: _buildSceneButton(
+              title: scenesToDisplay[i].$2,
+              icon: i == 0 ? Icons.nightlight_round : Icons.home_rounded,
+              color: i == 0 ? tokens.bluePrimary : tokens.gold,
+              tokens: tokens,
+              onTap: () => _triggerEdgeScene(scenesToDisplay[i].$1, scenesToDisplay[i].$2),
+            ),
           ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildSceneButton(
-            title: 'Welcome Home',
-            icon: Icons.home_rounded,
-            color: tokens.gold,
-            tokens: tokens,
-            onTap: () => _triggerEdgeScene('scene_welcome', 'Welcome Home'),
-          ),
-        ),
+        ],
       ],
     );
   }
@@ -406,7 +430,7 @@ class _EdgeExecutionDashboardPageState extends State<EdgeExecutionDashboardPage>
       ),
       child: Center(
         child: Text(
-          'LAN discovery running...',
+          'No LAN devices discovered',
           style: TextStyle(color: tokens.textSecondary, fontSize: 13),
         ),
       ),

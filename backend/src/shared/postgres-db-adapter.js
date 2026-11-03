@@ -32,9 +32,11 @@ const TABLE_PRIMARY_KEYS = {
   device_credentials: 'device_id',
   device_state: 'device_id',
   device_trust_states: 'device_id',
-  device_connection_states: 'device_id',
+  network_identity: 'device_id',
+  capabilities: 'capability_id',
+  home_contexts: 'home_id',
+  backup_records: 'backup_id',
   fleet_device_firmware_state: 'device_id',
-  reliability_diagnostics: 'device_id',
 };
 
 const TABLES_WITH_UPDATED_AT = new Set([
@@ -95,8 +97,9 @@ class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
         statement_timeout: this.opts.statementTimeoutMillis || 10000
       };
 
-      if (this.opts.connectionString) {
-        poolConfig.connectionString = this.opts.connectionString;
+      const connStr = this.opts.connectionString || this.opts.databaseUrl || process.env.DATABASE_URL;
+      if (connStr) {
+        poolConfig.connectionString = connStr;
       } else {
         if (this.opts.host) poolConfig.host = this.opts.host;
         if (this.opts.port) poolConfig.port = this.opts.port;
@@ -339,7 +342,8 @@ class PostgreSQLDatabaseAdapter extends DatabaseAdapter {
     const updateColumns = columns.filter(c => c !== pk);
     let updateClause = '';
     if (updateColumns.length > 0) {
-      const updatedAtClause = TABLES_WITH_UPDATED_AT.has(validTable) ? ', updated_at = NOW()' : '';
+      const hasUpdatedAt = updateColumns.some(c => c === 'updated_at' || c === 'updatedAt');
+      const updatedAtClause = (TABLES_WITH_UPDATED_AT.has(validTable) && !hasUpdatedAt) ? ', updated_at = NOW()' : '';
       updateClause = `DO UPDATE SET ${updateColumns.map(c => `${c} = EXCLUDED.${c}`).join(', ')}${updatedAtClause}`;
     } else {
       updateClause = `DO NOTHING`;
@@ -437,9 +441,10 @@ class PostgreSQLTransactionAdapter extends DatabaseAdapter {
 
   async insert(table, id, data = {}) {
     const validTable = validateIdentifier(table);
+    const pk = getPrimaryKeyColumn(table);
     const record = { ...data };
     if (id !== undefined && id !== null) {
-      record.id = id;
+      record[pk] = id;
     }
 
     const keys = Object.keys(record);
@@ -454,7 +459,8 @@ class PostgreSQLTransactionAdapter extends DatabaseAdapter {
 
   async findById(table, id) {
     const validTable = validateIdentifier(table);
-    const sql = `SELECT * FROM ${validTable} WHERE id = $1 LIMIT 1`;
+    const pk = getPrimaryKeyColumn(table);
+    const sql = `SELECT * FROM ${validTable} WHERE ${pk} = $1 LIMIT 1`;
     const res = await this.query(sql, [id]);
     return res.rows[0] || null;
   }
@@ -510,7 +516,8 @@ class PostgreSQLTransactionAdapter extends DatabaseAdapter {
 
   async update(table, id, updates = {}) {
     const validTable = validateIdentifier(table);
-    const keys = Object.keys(updates);
+    const pk = getPrimaryKeyColumn(table);
+    const keys = Object.keys(updates).filter(k => k !== pk);
 
     if (keys.length === 0) {
       return this.findById(table, id);
@@ -526,10 +533,12 @@ class PostgreSQLTransactionAdapter extends DatabaseAdapter {
       values.push(sanitizeValue(updates[key]));
     }
 
-    setClauses.push(`updated_at = NOW()`);
+    if (TABLES_WITH_UPDATED_AT.has(validTable) && !Object.keys(updates).some(k => k === 'updated_at' || k === 'updatedAt')) {
+      setClauses.push(`updated_at = NOW()`);
+    }
     values.push(id);
 
-    const sql = `UPDATE ${validTable} SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`;
+    const sql = `UPDATE ${validTable} SET ${setClauses.join(', ')} WHERE ${pk} = $${idx} RETURNING *`;
     const res = await this.query(sql, values);
     if (res.rows.length === 0) {
       throw new Error(`Record ${id} not found in ${table}`);
@@ -539,17 +548,18 @@ class PostgreSQLTransactionAdapter extends DatabaseAdapter {
 
   async delete(table, id) {
     const validTable = validateIdentifier(table);
-    const sql = `DELETE FROM ${validTable} WHERE id = $1`;
+    const pk = getPrimaryKeyColumn(table);
+    const sql = `DELETE FROM ${validTable} WHERE ${pk} = $1`;
     const res = await this.query(sql, [id]);
     return res.rowCount > 0;
   }
 
-  async upsert(table, id, data = {}, conflictTarget = 'id') {
+  async upsert(table, id, data = {}, conflictTarget = null) {
     const validTable = validateIdentifier(table);
-    const validConflict = validateIdentifier(conflictTarget);
+    const pk = conflictTarget ? validateIdentifier(conflictTarget) : getPrimaryKeyColumn(table);
     const record = { ...data };
     if (id !== undefined && id !== null) {
-      record.id = id;
+      record[pk] = id;
     }
 
     const keys = Object.keys(record);
@@ -557,15 +567,17 @@ class PostgreSQLTransactionAdapter extends DatabaseAdapter {
     const placeholders = keys.map((_, i) => `$${i + 1}`);
     const values = keys.map(k => sanitizeValue(record[k]));
 
-    const updateColumns = columns.filter(c => c !== validConflict);
+    const updateColumns = columns.filter(c => c !== pk);
     let updateClause = '';
     if (updateColumns.length > 0) {
-      updateClause = `DO UPDATE SET ${updateColumns.map(c => `${c} = EXCLUDED.${c}`).join(', ')}, updated_at = NOW()`;
+      const hasUpdatedAt = updateColumns.some(c => c === 'updated_at' || c === 'updatedAt');
+      const updatedAtClause = (TABLES_WITH_UPDATED_AT.has(validTable) && !hasUpdatedAt) ? ', updated_at = NOW()' : '';
+      updateClause = `DO UPDATE SET ${updateColumns.map(c => `${c} = EXCLUDED.${c}`).join(', ')}${updatedAtClause}`;
     } else {
       updateClause = `DO NOTHING`;
     }
 
-    const sql = `INSERT INTO ${validTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON CONFLICT (${validConflict}) ${updateClause} RETURNING *`;
+    const sql = `INSERT INTO ${validTable} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON CONFLICT (${pk}) ${updateClause} RETURNING *`;
     const res = await this.query(sql, values);
     if (res.rows.length === 0) {
       return this.findById(validTable, id);

@@ -3,6 +3,7 @@ import '../models/routine_models.dart';
 import '../../app/home_controller.dart';
 import '../models/home_dashboard_models.dart';
 import '../services/device_storage_service.dart';
+import '../utils/event_classification.dart';
 import 'notification_repository.dart';
 
 class LocalNotificationRepository implements NotificationRepository {
@@ -19,6 +20,12 @@ class LocalNotificationRepository implements NotificationRepository {
     // 1. Pull real alerts active in HomeController
     if (ctrl != null) {
       for (final a in ctrl.allSpacesAlerts) {
+        if (EventClassification.isRoutineControlOperation(
+          title: a.title,
+          message: a.message,
+        )) {
+          continue;
+        }
         final notifId = 'alert_${a.id}';
         if (deletedIds.contains(notifId) || deletedIds.contains(a.id)) {
           continue;
@@ -101,6 +108,12 @@ class LocalNotificationRepository implements NotificationRepository {
 
     for (final it in _storedItems) {
       if (deletedIds.contains(it.id)) continue;
+      if (EventClassification.isRoutineControlOperation(
+        title: it.title,
+        message: it.body,
+      )) {
+        continue;
+      }
       if (readIds.contains(it.id)) {
         list.add(it.copyWith(readAt: DateTime.now()));
       } else {
