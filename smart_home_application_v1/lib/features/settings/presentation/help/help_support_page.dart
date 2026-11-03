@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../../../../app/home_controller.dart';
 import '../../../../core/models/help_models.dart';
+import '../../../../core/repositories/connection_repository.dart';
 import '../../../../core/repositories/help_repository.dart';
+import '../../../../core/repositories/home_connection_repository.dart';
 import '../../../../core/repositories/settings_repository.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../automations/presentation/automations_page.dart';
 import '../../../connection/presentation/home_connection_page.dart';
 import '../../../diagnostics/presentation/device_health_page.dart';
+import '../../../rooms/presentation/rooms_page.dart';
 import '../../../updates/presentation/system_update_page.dart';
 import '../add_room_device_page.dart';
 import '../people_page.dart';
@@ -19,10 +24,18 @@ class HelpSupportPage extends StatefulWidget {
     super.key,
     this.initialTopic,
     this.repository = const PreviewHelpRepository(),
+    this.settingsRepository,
+    this.homeController,
+    this.connectionRepository,
+    this.homeConnectionRepository,
   });
 
   final String? initialTopic;
   final HelpRepository repository;
+  final SettingsRepository? settingsRepository;
+  final HomeController? homeController;
+  final ConnectionRepository? connectionRepository;
+  final HomeConnectionRepository? homeConnectionRepository;
 
   @override
   State<HelpSupportPage> createState() => _HelpSupportPageState();
@@ -221,18 +234,55 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
   }
 
   void _handleArticleAction(BuildContext context, HelpArticle article) async {
+    final effectiveSettings =
+        widget.settingsRepository ?? const PreviewSettingsRepository();
     switch (article.actionRoute) {
       case 'connect':
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const HomeConnectionPage()),
+          MaterialPageRoute(
+            builder: (_) => HomeConnectionPage(
+              repository: widget.homeConnectionRepository ??
+                  (widget.homeController != null
+                      ? RealHomeConnectionRepository(
+                          primaryDevice:
+                              widget.homeController!.connectedDeviceSummary,
+                          onRefresh:
+                              widget.homeController!.startConnectionSetup,
+                        )
+                      : const RealHomeConnectionRepository()),
+              connectionState: widget.homeController?.connectionState,
+              connectionMessage: widget.homeController?.connectionMessage,
+            ),
+          ),
         );
       case 'add-device':
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => AddRoomDevicePage(
-              repository: const PreviewSettingsRepository(),
+              repository: effectiveSettings,
+              homeController: widget.homeController,
+            ),
+          ),
+        );
+      case 'rooms':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RoomsPage(
+              homeController: widget.homeController,
+              autoOpenCreateRoom: true,
+            ),
+          ),
+        );
+      case 'routines':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AutomationsPage(
+              homeController: widget.homeController,
+              autoOpenBuilder: true,
             ),
           ),
         );
@@ -247,14 +297,15 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
           MaterialPageRoute(builder: (_) => const SystemUpdatePage()),
         );
       case 'people':
-        final home = await const PreviewSettingsRepository().getHome();
+        final home = await effectiveSettings.getHome();
         if (!context.mounted) return;
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => PeoplePage(
-              repository: const PreviewSettingsRepository(),
+              repository: effectiveSettings,
               home: home,
+              autoOpenInvite: true,
             ),
           ),
         );

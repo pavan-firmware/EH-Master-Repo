@@ -42,13 +42,29 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
     super.initState();
     _loadLastChecked();
     _load();
+    widget.homeController?.addListener(_onHomeControllerChanged);
     _ticker = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) setState(() {});
     });
   }
 
+  void _onHomeControllerChanged() {
+    if (mounted) _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant DeviceHealthPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeControllerChanged);
+      widget.homeController?.addListener(_onHomeControllerChanged);
+      _load();
+    }
+  }
+
   @override
   void dispose() {
+    widget.homeController?.removeListener(_onHomeControllerChanged);
     _ticker?.cancel();
     super.dispose();
   }

@@ -543,8 +543,10 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) =>
-                        const HelpSupportPage(initialTopic: 'connection'),
+                    builder: (_) => HelpSupportPage(
+                      initialTopic: 'connection',
+                      homeConnectionRepository: widget.repository,
+                    ),
                   ),
                 ),
               ),

@@ -78,14 +78,30 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
     }
 
     _load();
+    widget.homeController?.addListener(_onHomeStateChanged);
 
     _ticker = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) setState(() {});
     });
   }
 
+  void _onHomeStateChanged() {
+    if (mounted) _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant SystemUpdatePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeStateChanged);
+      widget.homeController?.addListener(_onHomeStateChanged);
+      _load();
+    }
+  }
+
   @override
   void dispose() {
+    widget.homeController?.removeListener(_onHomeStateChanged);
     _ticker?.cancel();
     _animController.dispose();
     super.dispose();

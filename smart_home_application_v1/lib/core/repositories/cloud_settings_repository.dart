@@ -241,6 +241,15 @@ class CloudSettingsRepository implements SettingsRepository {
 
   @override
   Future<List<DiscoveredRoomDevice>> getNearbyDevices() async {
+    // Cloud repository represents backend cloud state. Uncommissioned nearby
+    // devices must be discovered over the air (BLE radio), not inferred from
+    // account-registered assets. To avoid conflating registered cloud devices
+    // with local physical beacons per R2, this returns an empty list.
+    return const [];
+  }
+
+  /// Fetches cloud-registered devices for the active home.
+  Future<List<DiscoveredRoomDevice>> getRegisteredDevices() async {
     final homeId = await _resolveHomeId();
     if (homeId == null || homeId.isEmpty) return [];
 

@@ -14,7 +14,7 @@ import 'people_page.dart';
 import 'settings_ui.dart';
 
 
-class HomeDetailsPage extends StatelessWidget {
+class HomeDetailsPage extends StatefulWidget {
   const HomeDetailsPage({
     super.key,
     required this.home,
@@ -27,10 +27,60 @@ class HomeDetailsPage extends StatelessWidget {
   final HomeController? homeController;
 
   @override
+  State<HomeDetailsPage> createState() => _HomeDetailsPageState();
+}
+
+class _HomeDetailsPageState extends State<HomeDetailsPage> {
+  late HomeSettingsData _home;
+
+  @override
+  void initState() {
+    super.initState();
+    _home = widget.home;
+    widget.homeController?.addListener(_onControllerChanged);
+    _refreshHome();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeDetailsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onControllerChanged);
+      widget.homeController?.addListener(_onControllerChanged);
+    }
+    if (oldWidget.home != widget.home) {
+      _home = widget.home;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.homeController?.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _refreshHome() async {
+    try {
+      final updated = await widget.repository.getHome();
+      if (mounted) {
+        setState(() {
+          _home = updated;
+        });
+      }
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final roomCount = homeController?.rooms.length ?? 0;
-    final deviceCount = homeController?.devices.length ?? 0;
+    final roomCount = widget.homeController?.rooms.length ?? 0;
+    final deviceCount = widget.homeController?.devices.length ?? 0;
     return NestedSettingsScaffold(
       title: 'Home details',
       subtitle: "Manage your home's basic information and preferences.",
@@ -48,7 +98,7 @@ class HomeDetailsPage extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          home.name,
+                          _home.name,
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
@@ -100,14 +150,14 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.home_outlined,
                   title: 'Home name',
-                  subtitle: '${home.name} · Created ${_date(home.createdAt)}',
+                  subtitle: '${_home.name} · Created ${_date(_home.createdAt)}',
                   onTap: () => _editHomeName(context),
                   showDivider: true,
                 ),
                 SettingsListItem(
                   icon: Icons.location_on_outlined,
                   title: 'Location',
-                  subtitle: home.location ?? 'Not set',
+                  subtitle: _home.location ?? 'Not set',
                   onTap: () => _editLocation(context),
                   iconColor: tokens.isDark
                       ? tokens.success
@@ -120,7 +170,7 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.public_rounded,
                   title: 'Time zone',
-                  subtitle: home.timezone,
+                  subtitle: _home.timezone,
                   onTap: () => _editTimezone(context),
                   iconColor: tokens.isDark
                       ? tokens.iconFgPurple
@@ -140,7 +190,7 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.thermostat_rounded,
                   title: 'Temperature unit',
-                  subtitle: home.preferences.temperatureUnit,
+                  subtitle: _home.preferences.temperatureUnit,
                   onTap: () => _editTemperatureUnit(context),
                   iconColor: tokens.isDark
                       ? tokens.warning
@@ -153,7 +203,7 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.notifications_none_rounded,
                   title: 'Home notifications',
-                  subtitle: home.preferences.notificationsEnabled
+                  subtitle: _home.preferences.notificationsEnabled
                       ? 'Enabled'
                       : 'Disabled',
                   onTap: () => _editNotifications(context),
@@ -162,7 +212,7 @@ class HomeDetailsPage extends StatelessWidget {
                 SettingsListItem(
                   icon: Icons.schedule_rounded,
                   title: 'Time format',
-                  subtitle: home.preferences.timeFormat,
+                  subtitle: _home.preferences.timeFormat,
                   onTap: () => _editTimeFormat(context),
                   iconColor: tokens.isDark
                       ? tokens.iconFgPurple
@@ -181,13 +231,13 @@ class HomeDetailsPage extends StatelessWidget {
               children: [
                 Builder(
                   builder: (context) {
-                    final effectiveHomeId = (homeController?.activeHomeId != null && homeController!.activeHomeId!.isNotEmpty)
-                        ? homeController!.activeHomeId
-                        : ((home.id.isNotEmpty && home.id != 'home_default')
-                            ? home.id
-                            : (DeviceStorageService.cachedActiveHomeId ?? homeController?.activeSpaceId));
+                    final effectiveHomeId = (widget.homeController?.activeHomeId != null && widget.homeController!.activeHomeId!.isNotEmpty)
+                        ? widget.homeController!.activeHomeId
+                        : ((_home.id.isNotEmpty && _home.id != 'home_default')
+                            ? _home.id
+                            : (DeviceStorageService.cachedActiveHomeId ?? widget.homeController?.activeSpaceId));
                     final hasResolvedHome = effectiveHomeId != null && effectiveHomeId.isNotEmpty && effectiveHomeId != 'home_default';
-                    final authoritativeState = homeController?.authoritativeConnectionState ??
+                    final authoritativeState = widget.homeController?.authoritativeConnectionState ??
                         AuthoritativeHomeConnectionState.resolve(
                           isCloudReachable: false,
                           isLocalMode: false,
@@ -210,8 +260,8 @@ class HomeDetailsPage extends StatelessWidget {
                           isScrollControlled: true,
                           backgroundColor: Colors.transparent,
                           builder: (ctx) => _HomeConnectionDiagnosticsSheet(
-                            homeController: homeController,
-                            activeHomeId: effectiveHomeId ?? home.id,
+                            homeController: widget.homeController,
+                            activeHomeId: effectiveHomeId ?? _home.id,
                           ),
                         );
                       },
@@ -272,12 +322,17 @@ class HomeDetailsPage extends StatelessWidget {
                   icon: Icons.groups_outlined,
                   title: 'People',
                   subtitle: 'People with access',
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PeoplePage(repository: repository, home: home),
-                    ),
-                  ),
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PeoplePage(repository: widget.repository, home: _home),
+                      ),
+                    );
+                    if (mounted) {
+                      _refreshHome();
+                    }
+                  },
                   iconColor: tokens.isDark
                       ? tokens.iconFgPurple
                       : const Color(0xFF7A3DD5),
@@ -298,7 +353,7 @@ class HomeDetailsPage extends StatelessWidget {
             child: SettingsListItem(
               icon: Icons.badge_outlined,
               title: 'Home ID',
-              subtitle: home.id,
+              subtitle: _home.id,
               onTap: () => _copyHomeId(context),
               iconColor: tokens.textSecondary,
               iconBackground: tokens.surfaceElevated,
@@ -334,15 +389,26 @@ class HomeDetailsPage extends StatelessWidget {
   Future<void> _editHomeName(BuildContext context) async {
     final draftName = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => _HomeNameDialog(initialName: home.name),
+      builder: (dialogContext) => _HomeNameDialog(initialName: _home.name),
     );
     if (draftName == null || !context.mounted) return;
-    final result = await repository.updateHome(
+
+    // Optimistically update UI immediately
+    setState(() {
+      _home = _home.copyWith(name: draftName);
+    });
+
+    final spaceId = widget.homeController?.activeSpaceId ?? _home.id;
+    if (widget.homeController != null && spaceId.isNotEmpty) {
+      await widget.homeController?.updateSpace(spaceId, draftName);
+    }
+
+    final result = await widget.repository.updateHome(
       HomeSettingsDraft(
         name: draftName,
-        location: home.location,
-        timezone: home.timezone,
-        preferences: home.preferences,
+        location: _home.location,
+        timezone: _home.timezone,
+        preferences: _home.preferences,
       ),
     );
     if (!context.mounted) return;
@@ -353,23 +419,30 @@ class HomeDetailsPage extends StatelessWidget {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      await _refreshHome();
     } else {
       showSettingsUnavailable(context, message: 'Could not update home name. Please retry.');
+      await _refreshHome();
     }
   }
 
   Future<void> _editLocation(BuildContext context) async {
     final draftLocation = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => _HomeLocationDialog(initialLocation: home.location ?? ''),
+      builder: (dialogContext) => _HomeLocationDialog(initialLocation: _home.location ?? ''),
     );
     if (draftLocation == null || !context.mounted) return;
-    final result = await repository.updateHome(
+
+    setState(() {
+      _home = _home.copyWith(location: draftLocation);
+    });
+
+    final result = await widget.repository.updateHome(
       HomeSettingsDraft(
-        name: home.name,
+        name: _home.name,
         location: draftLocation,
-        timezone: home.timezone,
-        preferences: home.preferences,
+        timezone: _home.timezone,
+        preferences: _home.preferences,
       ),
     );
     if (!context.mounted) return;
@@ -380,21 +453,29 @@ class HomeDetailsPage extends StatelessWidget {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      await _refreshHome();
+    } else {
+      await _refreshHome();
     }
   }
 
   Future<void> _editTimezone(BuildContext context) async {
     final selected = await showIanaTimezonePicker(
       context,
-      initialValue: home.timezone,
+      initialValue: _home.timezone,
     );
     if (selected == null || !context.mounted) return;
-    final result = await repository.updateHome(
+
+    setState(() {
+      _home = _home.copyWith(timezone: selected);
+    });
+
+    final result = await widget.repository.updateHome(
       HomeSettingsDraft(
-        name: home.name,
-        location: home.location,
+        name: _home.name,
+        location: _home.location,
         timezone: selected,
-        preferences: home.preferences,
+        preferences: _home.preferences,
       ),
     );
     if (!context.mounted) return;
@@ -405,6 +486,9 @@ class HomeDetailsPage extends StatelessWidget {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      await _refreshHome();
+    } else {
+      await _refreshHome();
     }
   }
 
@@ -432,21 +516,20 @@ class HomeDetailsPage extends StatelessWidget {
       ),
     );
     if (selected == null || !context.mounted) return;
-    final newPrefs = HomePreferences(
-      temperatureUnit: selected,
-      notificationsEnabled: home.preferences.notificationsEnabled,
-      timeFormat: home.preferences.timeFormat,
-    );
+    final newPrefs = _home.preferences.copyWith(temperatureUnit: selected);
+    setState(() {
+      _home = _home.copyWith(preferences: newPrefs);
+    });
     await DeviceStorageService.saveHomePreferencesJson({
       'temperatureUnit': selected,
-      'notificationsEnabled': home.preferences.notificationsEnabled,
-      'timeFormat': home.preferences.timeFormat,
+      'notificationsEnabled': _home.preferences.notificationsEnabled,
+      'timeFormat': _home.preferences.timeFormat,
     });
-    await repository.updateHome(
+    await widget.repository.updateHome(
       HomeSettingsDraft(
-        name: home.name,
-        location: home.location,
-        timezone: home.timezone,
+        name: _home.name,
+        location: _home.location,
+        timezone: _home.timezone,
         preferences: newPrefs,
       ),
     );
@@ -457,6 +540,7 @@ class HomeDetailsPage extends StatelessWidget {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      await _refreshHome();
     }
   }
 
@@ -467,8 +551,15 @@ class HomeDetailsPage extends StatelessWidget {
         builder: (_) => const NotificationPreferencesPage(),
       ),
     );
+    if (!mounted) return;
+    final prefs = await DeviceStorageService().loadNotificationPrefs();
+    final bool push = prefs['pushEnabled'] ?? true;
+    final newPrefs = _home.preferences.copyWith(notificationsEnabled: push);
+    setState(() {
+      _home = _home.copyWith(preferences: newPrefs);
+    });
+    await _refreshHome();
   }
-
 
   Future<void> _editTimeFormat(BuildContext context) async {
     final selected = await showDialog<String>(
@@ -494,21 +585,20 @@ class HomeDetailsPage extends StatelessWidget {
       ),
     );
     if (selected == null || !context.mounted) return;
-    final newPrefs = HomePreferences(
-      temperatureUnit: home.preferences.temperatureUnit,
-      notificationsEnabled: home.preferences.notificationsEnabled,
-      timeFormat: selected,
-    );
+    final newPrefs = _home.preferences.copyWith(timeFormat: selected);
+    setState(() {
+      _home = _home.copyWith(preferences: newPrefs);
+    });
     await DeviceStorageService.saveHomePreferencesJson({
-      'temperatureUnit': home.preferences.temperatureUnit,
-      'notificationsEnabled': home.preferences.notificationsEnabled,
+      'temperatureUnit': _home.preferences.temperatureUnit,
+      'notificationsEnabled': _home.preferences.notificationsEnabled,
       'timeFormat': selected,
     });
-    await repository.updateHome(
+    await widget.repository.updateHome(
       HomeSettingsDraft(
-        name: home.name,
-        location: home.location,
-        timezone: home.timezone,
+        name: _home.name,
+        location: _home.location,
+        timezone: _home.timezone,
         preferences: newPrefs,
       ),
     );
@@ -519,13 +609,14 @@ class HomeDetailsPage extends StatelessWidget {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      await _refreshHome();
     }
   }
 
   void _copyHomeId(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Home ID ${home.id} copied.'),
+        content: Text('Home ID ${_home.id} copied.'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -533,7 +624,7 @@ class HomeDetailsPage extends StatelessWidget {
 
   void _showRoomsSheet(BuildContext context) {
     final tokens = context.ehColors;
-    final rooms = homeController?.rooms ?? [];
+    final rooms = widget.homeController?.rooms ?? [];
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -549,7 +640,7 @@ class HomeDetailsPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Rooms in ${home.name}',
+                'Rooms in ${_home.name}',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
@@ -604,7 +695,7 @@ class HomeDetailsPage extends StatelessWidget {
 
   void _showDevicesSheet(BuildContext context) {
     final tokens = context.ehColors;
-    final devices = homeController?.devices ?? [];
+    final devices = widget.homeController?.devices ?? [];
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -629,7 +720,7 @@ class HomeDetailsPage extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                '${devices.length} registered device${devices.length == 1 ? '' : 's'} in ${home.name}',
+                '${devices.length} registered device${devices.length == 1 ? '' : 's'} in ${_home.name}',
                 style: TextStyle(color: tokens.textSecondary, fontSize: 14),
               ),
               const SizedBox(height: 16),

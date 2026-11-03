@@ -48,6 +48,19 @@ class HomePreferences {
   final String temperatureUnit;
   final bool notificationsEnabled;
   final String timeFormat;
+
+  HomePreferences copyWith({
+    String? temperatureUnit,
+    bool? notificationsEnabled,
+    String? timeFormat,
+  }) {
+    return HomePreferences(
+      temperatureUnit: temperatureUnit ?? this.temperatureUnit,
+      notificationsEnabled:
+          notificationsEnabled ?? this.notificationsEnabled,
+      timeFormat: timeFormat ?? this.timeFormat,
+    );
+  }
 }
 
 class HomeSettingsData {
@@ -74,6 +87,33 @@ class HomeSettingsData {
   final HomeConnectionAvailability connectionAvailability;
   final String connectionTransport;
   final DateTime? lastChecked;
+
+  HomeSettingsData copyWith({
+    String? id,
+    String? name,
+    String? ownerName,
+    String? location,
+    String? timezone,
+    DateTime? createdAt,
+    HomePreferences? preferences,
+    HomeConnectionAvailability? connectionAvailability,
+    String? connectionTransport,
+    DateTime? lastChecked,
+  }) {
+    return HomeSettingsData(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      ownerName: ownerName ?? this.ownerName,
+      location: location ?? this.location,
+      timezone: timezone ?? this.timezone,
+      createdAt: createdAt ?? this.createdAt,
+      preferences: preferences ?? this.preferences,
+      connectionAvailability:
+          connectionAvailability ?? this.connectionAvailability,
+      connectionTransport: connectionTransport ?? this.connectionTransport,
+      lastChecked: lastChecked ?? this.lastChecked,
+    );
+  }
 }
 
 class HomeSettingsDraft {

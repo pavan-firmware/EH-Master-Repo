@@ -74,7 +74,7 @@ class PreviewHelpRepository implements HelpRepository {
     const HelpArticle(
       id: 'connect-home',
       title: 'Connect your home',
-      subtitle: 'Set up EH Home and your network',
+      subtitle: 'Connect EH Home to your network and supported devices.',
       category: HelpCategoryKind.gettingStarted,
       keywords: ['connect', 'home', 'setup'],
       steps: [
@@ -88,7 +88,7 @@ class PreviewHelpRepository implements HelpRepository {
     const HelpArticle(
       id: 'first-device',
       title: 'Add your first device',
-      subtitle: 'Step-by-step guide to add a device',
+      subtitle: 'Discover and securely set up a supported EH device.',
       category: HelpCategoryKind.gettingStarted,
       keywords: ['first', 'device'],
       steps: [
@@ -101,7 +101,7 @@ class PreviewHelpRepository implements HelpRepository {
     const HelpArticle(
       id: 'create-room',
       title: 'Create a room',
-      subtitle: 'Organize your devices by room',
+      subtitle: 'Organize your home devices by room.',
       category: HelpCategoryKind.gettingStarted,
       keywords: ['room', 'organize'],
       steps: [
@@ -114,7 +114,7 @@ class PreviewHelpRepository implements HelpRepository {
     const HelpArticle(
       id: 'create-routine',
       title: 'Create a routine',
-      subtitle: 'Make your home smarter with routines',
+      subtitle: 'Automate supported device actions using triggers and schedules.',
       category: HelpCategoryKind.gettingStarted,
       keywords: ['routine', 'automation'],
       steps: [
@@ -127,7 +127,7 @@ class PreviewHelpRepository implements HelpRepository {
     const HelpArticle(
       id: 'invite-someone',
       title: 'Invite someone',
-      subtitle: 'Share access to your home',
+      subtitle: 'Share home access with authorized household members.',
       category: HelpCategoryKind.gettingStarted,
       keywords: ['invite', 'member', 'share'],
       steps: [

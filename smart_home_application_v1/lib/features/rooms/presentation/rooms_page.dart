@@ -7,10 +7,16 @@ import '../../../core/widgets/carousel_page_indicator.dart';
 import 'room_context_page.dart';
 
 class RoomsPage extends StatefulWidget {
-  const RoomsPage({super.key, this.homeController, this.onAddDevice});
+  const RoomsPage({
+    super.key,
+    this.homeController,
+    this.onAddDevice,
+    this.autoOpenCreateRoom = false,
+  });
 
   final HomeController? homeController;
   final VoidCallback? onAddDevice;
+  final bool autoOpenCreateRoom;
 
   @override
   State<RoomsPage> createState() => _RoomsPageState();
@@ -47,6 +53,11 @@ class _RoomsPageState extends State<RoomsPage> {
   void initState() {
     super.initState();
     widget.homeController?.addListener(_onHomeControllerChanged);
+    if (widget.autoOpenCreateRoom) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _addRoom();
+      });
+    }
   }
 
   @override

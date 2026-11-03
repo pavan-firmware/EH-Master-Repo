@@ -6,10 +6,16 @@ import '../../../core/theme/app_theme.dart';
 import 'settings_ui.dart';
 
 class PeoplePage extends StatefulWidget {
-  const PeoplePage({super.key, required this.repository, required this.home});
+  const PeoplePage({
+    super.key,
+    required this.repository,
+    required this.home,
+    this.autoOpenInvite = false,
+  });
 
   final SettingsRepository repository;
   final HomeSettingsData home;
+  final bool autoOpenInvite;
 
   @override
   State<PeoplePage> createState() => _PeoplePageState();
@@ -17,6 +23,16 @@ class PeoplePage extends StatefulWidget {
 
 class _PeoplePageState extends State<PeoplePage> {
   late Future<_PeopleData> _data = _load();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoOpenInvite) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _invite();
+      });
+    }
+  }
 
   void _reload() {
     setState(() {
@@ -138,6 +154,14 @@ class _PeoplePageState extends State<PeoplePage> {
         SnackBar(content: Text('Invitation sent to ${result.email}')),
       );
       _reload();
+    } else if (op == SettingsOperationResult.unsupported) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Home invitations are not supported by this server.')),
+      );
+    } else if (op == SettingsOperationResult.unauthorized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You do not have permission to invite members.')),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to send invitation. Please try again.')),
@@ -381,15 +405,26 @@ class _PeopleContent extends StatelessWidget {
         SettingsSurface(
           child: Column(
             children: [
-              for (var index = 0; index < data.members.length; index++)
-                _MemberRow(
-                  member: data.members[index],
-                  showDivider: index != data.members.length - 1,
-                  onTap: () => onMemberTap(data.members[index]),
-                  onRemove: data.members[index].role != HomeMemberRole.owner
-                      ? () => onRemoveMember(data.members[index])
-                      : null,
-                ),
+              if (data.members.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Center(
+                    child: Text(
+                      'No members found for this home.',
+                      style: TextStyle(color: tokens.textSecondary),
+                    ),
+                  ),
+                )
+              else
+                for (var index = 0; index < data.members.length; index++)
+                  _MemberRow(
+                    member: data.members[index],
+                    showDivider: index != data.members.length - 1,
+                    onTap: () => onMemberTap(data.members[index]),
+                    onRemove: data.members[index].role != HomeMemberRole.owner
+                        ? () => onRemoveMember(data.members[index])
+                        : null,
+                  ),
             ],
           ),
         ),
@@ -761,6 +796,7 @@ class _InviteDialog extends StatefulWidget {
 class _InviteDialogState extends State<_InviteDialog> {
   late final TextEditingController _emailCtrl;
   String _selectedRole = 'MEMBER';
+  String? _errorText;
 
   @override
   void initState() {
@@ -790,11 +826,17 @@ class _InviteDialogState extends State<_InviteDialog> {
             controller: _emailCtrl,
             keyboardType: TextInputType.emailAddress,
             autofocus: true,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Email address',
               hintText: 'member@example.com',
-              prefixIcon: Icon(Icons.email_outlined),
+              prefixIcon: const Icon(Icons.email_outlined),
+              errorText: _errorText,
             ),
+            onChanged: (_) {
+              if (_errorText != null) {
+                setState(() => _errorText = null);
+              }
+            },
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
@@ -831,9 +873,12 @@ class _InviteDialogState extends State<_InviteDialog> {
         FilledButton(
           onPressed: () {
             final text = _emailCtrl.text.trim();
-            if (text.isNotEmpty) {
-              Navigator.pop(context, (email: text, role: _selectedRole));
+            final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+            if (text.isEmpty || !emailRegex.hasMatch(text)) {
+              setState(() => _errorText = 'Please enter a valid email address');
+              return;
             }
+            Navigator.pop(context, (email: text, role: _selectedRole));
           },
           child: const Text('Send Invite'),
         ),
