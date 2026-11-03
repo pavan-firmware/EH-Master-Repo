@@ -317,5 +317,87 @@ void main() {
 
       expect(find.text('Smart Lamp'), findsOneWidget);
     });
+
+    testWidgets('SettingsPage live badges update to Unavailable and Disconnected instantly when network drops',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final controller = HomeController(
+        connectionRepository: const UnavailableConnectionRepository(),
+      );
+
+      final repo = _MutableSettingsRepository();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsPage(
+            repository: repo,
+            homeController: controller,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Controller with no devices and unavailable repo evaluates to offline
+      expect(controller.authoritativeConnectionState.isOnline, isFalse);
+      expect(find.text('Disconnected'), findsOneWidget);
+      expect(find.text('Unavailable'), findsOneWidget);
+
+      // Now resume app lifecycle to test lifecycle re-probe
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Disconnected'), findsOneWidget);
+      expect(find.text('Unavailable'), findsOneWidget);
+    });
+
+    testWidgets('HomeDetailsPage live badges update dynamically when connection changes',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final controller = HomeController(
+        connectionRepository: const UnavailableConnectionRepository(),
+      );
+
+      final repo = _MutableSettingsRepository();
+      final home = await repo.getHome();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeDetailsPage(
+            home: home,
+            repository: repo,
+            homeController: controller,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // With controller offline, both the overview badge and row show Offline
+      expect(find.text('Offline'), findsNWidgets(2));
+      expect(find.text('Disconnected'), findsOneWidget);
+
+      // Notify controller to simulate live update without exiting screen
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Offline'), findsNWidgets(2));
+
+      // Resume lifecycle
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Offline'), findsNWidgets(2));
+    });
   });
 }

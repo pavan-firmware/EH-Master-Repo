@@ -29,10 +29,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Home Connection row must say 'Disconnected' and 'Offline'
+      // Overview card and Home Connection row both say 'Offline'
       expect(find.text('Home connection'), findsOneWidget);
       expect(find.text('Disconnected'), findsOneWidget);
-      expect(find.text('Offline'), findsOneWidget);
+      expect(find.text('Offline'), findsNWidgets(2));
 
       // Never show fake 'Online' or 'Connected'
       expect(find.text('Connected'), findsNothing);

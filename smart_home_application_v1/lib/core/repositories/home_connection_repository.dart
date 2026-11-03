@@ -29,10 +29,16 @@ class RealHomeConnectionRepository implements HomeConnectionRepository {
         ? null
         : (primaryDevice ?? HomeController.instance?.connectedDeviceSummary ?? DeviceStorageService.primaryDevice);
     final ctrl = HomeController.instance;
-    final isOnline = !forceCommissioningMode && ((ctrl?.devices.any((d) => d.online) ?? false) || (effectiveDevice?.online ?? false));
-    final state = (effectiveDevice != null && isOnline)
+    final bool isOnline;
+    if (ctrl != null) {
+      isOnline = ctrl.authoritativeConnectionState.isOnline;
+    } else {
+      isOnline = !forceCommissioningMode &&
+          (effectiveDevice?.online ?? false);
+    }
+    final state = liveState ?? ((effectiveDevice != null && isOnline)
         ? HomeConnectionState.connected
-        : (liveState ?? (effectiveDevice != null ? HomeConnectionState.offline : HomeConnectionState.notConfigured));
+        : (effectiveDevice != null ? HomeConnectionState.offline : HomeConnectionState.notConfigured));
 
     if (state == HomeConnectionState.connected && effectiveDevice != null) {
       return HomeConnectionOverview(

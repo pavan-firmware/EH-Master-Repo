@@ -42,6 +42,7 @@ class AuthoritativeHomeConnectionState {
 
   bool get isCloudOnline => cloudHealth == TransportHealth.verifiedConnected;
   bool get isLanOnline => lanHealth == TransportHealth.verifiedConnected;
+  bool get isLocalMode => isLanOnline;
 
   /// True ONLY if Cloud OR LAN is genuinely connected with verified transport health.
   bool get isOnline => hasHome && (isCloudOnline || isLanOnline);
@@ -120,15 +121,11 @@ class AuthoritativeHomeConnectionState {
         ? TransportHealth.verifiedConnected
         : TransportHealth.disconnected;
 
-    // LAN transport is verified if explicitly running in local mode with reachable devices,
-    // or if local devices are active and reachable on the subnet.
+    // LAN transport is verified if and only if the app is explicitly running in verified Local LAN Mode with responsive devices.
+    // It is NEVER inferred from stale cached device lists when cloud is offline.
     final TransportHealth lan = (isLocalMode && (onlineDeviceCount > 0 || totalDeviceCount == 0))
         ? TransportHealth.verifiedConnected
-        : (isLocalMode
-            ? TransportHealth.disconnected
-            : (onlineDeviceCount > 0 && !isCloudReachable
-                ? TransportHealth.verifiedConnected
-                : TransportHealth.disconnected));
+        : TransportHealth.disconnected;
 
     return AuthoritativeHomeConnectionState(
       cloudHealth: cloud,

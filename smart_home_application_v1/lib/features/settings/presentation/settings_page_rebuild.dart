@@ -69,25 +69,34 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
+class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver {
   (HomeSettingsData, _SystemSummary)? _cachedData;
   late Future<(HomeSettingsData, _SystemSummary)> _future;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _future = _fetchData();
     widget.homeController?.addListener(_onHomeStateChanged);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.homeController?.removeListener(_onHomeStateChanged);
     super.dispose();
   }
 
   void _onHomeStateChanged() {
     if (mounted) _reload();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _reload();
+    }
   }
 
   @override
@@ -133,9 +142,10 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<_SystemSummary> _loadSystemSummary() async {
-    final effectiveState = (widget.homeController?.devices.isNotEmpty == true)
-        ? (widget.connectionState ?? HomeConnectionState.connected)
-        : widget.connectionState;
+    final authoritative = widget.homeController?.authoritativeConnectionState;
+    final effectiveState = authoritative != null
+        ? (authoritative.isOnline ? HomeConnectionState.connected : HomeConnectionState.offline)
+        : (widget.homeController?.connectionState ?? widget.connectionState);
     final connection = await widget.connectionRepository
         .getOverview(
           liveState: effectiveState,
@@ -334,6 +344,7 @@ class _SettingsContent extends StatelessWidget {
     final connection = _RootConnectionStatus.fromOverview(
       system.connection,
       tokens,
+      homeController: homeController,
     );
     final isUpdateUnavailable = system.update.isUnavailable;
     final hasUpdates = !isUpdateUnavailable && system.update.availableCount > 0;
@@ -462,8 +473,10 @@ class _SettingsContent extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => ConnectionPage(
                         onStart: onConnectHome,
-                        connectionState: connectionState,
-                        connectionMessage: connectionMessage,
+                        connectionState: homeController?.authoritativeConnectionState.isOnline == false
+                            ? HomeConnectionState.offline
+                            : (connectionState ?? homeController?.connectionState),
+                        connectionMessage: connectionMessage ?? homeController?.connectionMessage,
                         repository: connectionRepository,
                       ),
                     ),
@@ -996,9 +1009,38 @@ class _RootConnectionStatus {
 
   factory _RootConnectionStatus.fromOverview(
     dynamic overview,
-    EHThemeTokens tokens,
-  ) {
-    final ctrl = HomeController.instance;
+    EHThemeTokens tokens, {
+    HomeController? homeController,
+  }) {
+    final ctrl = homeController ?? HomeController.instance;
+    final authoritative = ctrl?.authoritativeConnectionState;
+
+    if (authoritative != null) {
+      if (!authoritative.isOnline) {
+        return _RootConnectionStatus(
+          shortLabel: 'Unavailable',
+          detail: 'Your home device is currently unavailable',
+          icon: Icons.wifi_off_rounded,
+          color: tokens.warning,
+          background: tokens.warningContainer,
+          chipIcon: Icons.error_outline_rounded,
+          profileLabel: 'Disconnected',
+        );
+      }
+      final isLocal = authoritative.isLocalMode;
+      return _RootConnectionStatus(
+        shortLabel: isLocal ? 'Local' : 'Connected',
+        detail: isLocal
+            ? 'Direct Local Wi-Fi (<10ms)'
+            : 'Bluetooth, Wi-Fi, and hub connection',
+        icon: isLocal ? Icons.wifi_rounded : Icons.bluetooth_connected_rounded,
+        color: tokens.success,
+        background: tokens.successContainer,
+        chipIcon: Icons.check_rounded,
+        profileLabel: isLocal ? 'Local mode' : 'Home connected',
+      );
+    }
+
     final hasDevices = (ctrl?.devices.isNotEmpty ?? false) || DeviceStorageService.cachedDevices.isNotEmpty;
     if (overview.isFullyConnected || (hasDevices && (ctrl?.isLocalMode == true || ctrl?.isCloudReachable == true))) {
       return _RootConnectionStatus(

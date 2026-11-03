@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import '../core/api/api_client.dart';
 import '../core/models/routine_models.dart';
 import '../core/repositories/cloud_routine_repository.dart';
@@ -48,7 +49,7 @@ enum UpcomingRoutineSortMode {
 /// In production (Phase 7C), pass [repository] = CloudHomeRepository
 /// and [realtimeEventService] = RealtimeEventService. The FakeHomeRepository
 /// is retained as the default so all pre-existing tests continue to pass.
-class HomeController extends ChangeNotifier {
+class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   static HomeController? instance;
   RealtimeEventService? _realtimeService;
   final _channelAlertStreamController = StreamController<SpaceAlertItem>.broadcast();
@@ -94,6 +95,9 @@ class HomeController extends ChangeNotifier {
       _startRoutineScheduler();
       _startAutoModeLanPromotionTimer();
     }
+    try {
+      WidgetsBinding.instance.addObserver(this);
+    } catch (_) {}
   }
 
   void _subscribeToLocalUdpBroadcasts() {
@@ -417,12 +421,16 @@ class HomeController extends ChangeNotifier {
     final effectiveHomeId = (_activeHomeId != null && _activeHomeId!.isNotEmpty)
         ? _activeHomeId
         : (_activeSpaceId.isNotEmpty ? _activeSpaceId : DeviceStorageService.cachedActiveHomeId);
-    final hasHome = effectiveHomeId != null && effectiveHomeId.isNotEmpty && effectiveHomeId != 'home_default';
+    final hasHome = (effectiveHomeId != null && effectiveHomeId.isNotEmpty) || _spaces.isNotEmpty;
     final effectiveDevices = _devices.isNotEmpty ? _devices : DeviceStorageService.cachedDevices;
     final onlineCount = effectiveDevices.where((d) => d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)).length;
 
+    final isCloudActive = _isCloudReachable &&
+        _connectionState != HomeConnectionState.offline &&
+        _connectionState != HomeConnectionState.notConfigured;
+
     return AuthoritativeHomeConnectionState.resolve(
-      isCloudReachable: _isCloudReachable,
+      isCloudReachable: isCloudActive,
       isLocalMode: isLocalMode,
       onlineDeviceCount: onlineCount,
       totalDeviceCount: effectiveDevices.length,
@@ -2252,19 +2260,20 @@ class HomeController extends ChangeNotifier {
       _connectionMessage = 'Local Wi-Fi Mode (Direct LAN)';
     } else {
       _lanMissedPollCount++;
-      if (_lanMissedPollCount >= 5) {
-        if (_isLocalMode && _routingMode != ConnectionRoutingMode.localOnly) {
-          _isLocalMode = false;
-          localStateChanged = true;
-        }
-        if (_isCloudReachable) {
-          _connectionState = HomeConnectionState.connected;
-          _connectionMessage = 'Cloud Mode (Remote)';
-        } else {
+      if (_lanMissedPollCount >= 1 && _isLocalMode && _routingMode != ConnectionRoutingMode.localOnly) {
+        _isLocalMode = false;
+        localStateChanged = true;
+      }
+      if (_isCloudReachable) {
+        _connectionState = HomeConnectionState.connected;
+        _connectionMessage = 'Cloud Mode (Remote)';
+      } else {
+        if (_connectionState != HomeConnectionState.offline) {
           _connectionState = HomeConnectionState.offline;
           _connectionMessage = _routingMode == ConnectionRoutingMode.localOnly
               ? 'Local LAN Devices Offline'
               : 'Cloud unreachable • Devices offline';
+          localStateChanged = true;
         }
       }
     }
@@ -2285,7 +2294,7 @@ class HomeController extends ChangeNotifier {
       }
 
       bool stateChanged = false;
-      final rawDevices = await _repository.getDevices(homeId: _activeHomeId).timeout(const Duration(milliseconds: 6000));
+      final rawDevices = await _repository.getDevices(homeId: _activeHomeId).timeout(const Duration(milliseconds: 3000));
       _consecutiveCloudFailures = 0;
       if (_activeHomeId == null && _repository is CloudHomeRepository) {
         final repoHomeId = _repository.activeHomeId;
@@ -2295,9 +2304,13 @@ class HomeController extends ChangeNotifier {
       }
       if (!_isCloudReachable && _routingMode != ConnectionRoutingMode.localOnly) {
         _isCloudReachable = true;
+        _connectionState = HomeConnectionState.connected;
         stateChanged = true;
       }
-      if (rawDevices.isEmpty) return;
+      if (rawDevices.isEmpty) {
+        if (stateChanged) notifyListeners();
+        return;
+      }
 
       for (final d in rawDevices) {
         final isOnline = d.connection == DeviceConnection.online;
@@ -2355,21 +2368,43 @@ class HomeController extends ChangeNotifier {
       }
     } catch (e) {
       _consecutiveCloudFailures++;
+      bool connectivityChanged = false;
       if (_routingMode == ConnectionRoutingMode.cloudOnly) {
         // Explicitly locked to cloud mode: hold cloud connection active
         _isCloudReachable = true;
         _isLocalMode = false;
       } else {
         if (e is ApiException && e.statusCode != 0) {
+          if (!_isCloudReachable) connectivityChanged = true;
           _isCloudReachable = true;
           _consecutiveCloudFailures = 0;
         } else if (_consecutiveCloudFailures >= 1) {
           if (_isCloudReachable) {
             _isCloudReachable = false;
+            connectivityChanged = true;
           }
         }
       }
       await _pollLanStateQuietly();
+      if (!_isCloudReachable && !_isLocalMode) {
+        if (_connectionState != HomeConnectionState.offline) {
+          _connectionState = HomeConnectionState.offline;
+          _connectionMessage = 'Cloud unreachable • Devices offline';
+          connectivityChanged = true;
+        }
+        for (int i = 0; i < _devices.length; i++) {
+          if (_devices[i].online) {
+            _devices[i] = _devices[i].copyWith(
+              online: false,
+              signalLabel: 'Offline',
+            );
+            connectivityChanged = true;
+          }
+        }
+      }
+      if (connectivityChanged) {
+        notifyListeners();
+      }
     } finally {
       _isQuietSyncing = false;
     }
@@ -4581,8 +4616,23 @@ class HomeController extends ChangeNotifier {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_disposed) return;
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('[HOME] App resumed: triggering instant quiet sync');
+      unawaited(_quietSyncDeviceStates());
+      if (_routingMode == ConnectionRoutingMode.auto || _routingMode == ConnectionRoutingMode.localOnly) {
+        unawaited(probeLanAndPromote());
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _disposed = true;
+    try {
+      WidgetsBinding.instance.removeObserver(this);
+    } catch (_) {}
     _routineSchedulerTimer?.cancel();
     _autoSyncTimer?.cancel();
     _autoModeLanPromotionTimer?.cancel();

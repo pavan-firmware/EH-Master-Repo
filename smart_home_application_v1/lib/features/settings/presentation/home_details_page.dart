@@ -30,12 +30,13 @@ class HomeDetailsPage extends StatefulWidget {
   State<HomeDetailsPage> createState() => _HomeDetailsPageState();
 }
 
-class _HomeDetailsPageState extends State<HomeDetailsPage> {
+class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingObserver {
   late HomeSettingsData _home;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _home = widget.home;
     widget.homeController?.addListener(_onControllerChanged);
     _refreshHome();
@@ -55,8 +56,17 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.homeController?.removeListener(_onControllerChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _refreshHome();
+      setState(() {});
+    }
   }
 
   void _onControllerChanged() {
@@ -116,27 +126,46 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> {
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: tokens.successContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check_circle_rounded, color: tokens.success, size: 14),
-                        const SizedBox(width: 5),
-                        Text(
-                          'Active',
-                          style: TextStyle(
-                            color: tokens.success,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
+                  Builder(
+                    builder: (context) {
+                      final authoritativeState = widget.homeController?.authoritativeConnectionState ??
+                          AuthoritativeHomeConnectionState.resolve(
+                            isCloudReachable: false,
+                            isLocalMode: false,
+                            onlineDeviceCount: 0,
+                            totalDeviceCount: 0,
+                            hasHome: _home.id.isNotEmpty && _home.id != 'home_default',
+                          );
+                      final bool isOnline = authoritativeState.isOnline;
+                      final bool isLocal = authoritativeState.isLocalMode;
+                      final Color badgeColor = isOnline ? tokens.success : tokens.warning;
+                      final Color badgeBg = isOnline ? tokens.successContainer : tokens.warningContainer;
+                      final IconData badgeIcon = isOnline ? Icons.check_circle_rounded : Icons.cloud_off_rounded;
+                      final String badgeLabel = isOnline ? (isLocal ? 'Local' : 'Active') : 'Offline';
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: badgeBg,
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                      ],
-                    ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(badgeIcon, color: badgeColor, size: 14),
+                            const SizedBox(width: 5),
+                            Text(
+                              badgeLabel,
+                              style: TextStyle(
+                                color: badgeColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -249,9 +278,17 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> {
                     final String statusSubtitle = authoritativeState.homeDetailsRowSubtitle;
                     final String statusTrailing = authoritativeState.homeDetailsTrailingLabel;
                     final Color statusColor = authoritativeState.statusColor(isDark: tokens.isDark);
+                    final bool isOnline = authoritativeState.isOnline;
+                    final Color iconFg = isOnline
+                        ? (tokens.isDark ? tokens.success : SettingsColors.green)
+                        : tokens.warning;
+                    final Color iconBg = isOnline
+                        ? (tokens.isDark ? tokens.iconBgGreen : SettingsColors.paleGreen)
+                        : tokens.warningContainer;
+                    final IconData iconData = isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded;
 
                     return SettingsListItem(
-                      icon: Icons.wifi_rounded,
+                      icon: iconData,
                       title: 'Home connection',
                       subtitle: statusSubtitle,
                       onTap: () {
@@ -265,12 +302,8 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> {
                           ),
                         );
                       },
-                      iconColor: tokens.isDark
-                          ? tokens.success
-                          : SettingsColors.green,
-                      iconBackground: tokens.isDark
-                          ? tokens.iconBgGreen
-                          : SettingsColors.paleGreen,
+                      iconColor: iconFg,
+                      iconBackground: iconBg,
                       trailing: Text(
                         statusTrailing,
                         style: TextStyle(
@@ -931,7 +964,18 @@ class _HomeConnectionDiagnosticsSheetState extends State<_HomeConnectionDiagnost
   @override
   void initState() {
     super.initState();
+    widget.homeController?.addListener(_onHomeChanged);
     _testPing();
+  }
+
+  @override
+  void dispose() {
+    widget.homeController?.removeListener(_onHomeChanged);
+    super.dispose();
+  }
+
+  void _onHomeChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _testPing() async {
