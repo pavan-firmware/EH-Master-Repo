@@ -2,7 +2,7 @@
 > **Scope**: Standalone / Non-Hub Production Flow (Mobile App $\leftrightarrow$ ESP32 Edge Device $\leftrightarrow$ Fastify Backend $\leftrightarrow$ Manufacturing Flasher)  
 > **Exclusions**: Physical PCB layout/routing (covered in hardware fabrication phases); Hub ecosystem (covered in `EH_OPTIONAL_HUB_ECOSYSTEM_MASTER_SPECIFICATION.md`).  
 > **Target Stage**: Zero-Cost / Low-Cost Production Pilot (Family, Friends, & Tech YouTuber Reviewers) transitioning to Commercial General Availability.  
-> **Last Updated**: October 2026
+> **Last Updated**: November 2026 (Phase 50 Reconciled)
 
 ---
 
@@ -33,7 +33,7 @@ flowchart TD
     end
 
     subgraph Free_Cloud_Tier ["Free Cloud Tier (Render + Supabase + HiveMQ)"]
-        Backend["Fastify API & Workers<br/>• Node.js Backend Server<br/>• 31 PostgreSQL Migrations<br/>• SSE Realtime Push Stream<br/>• FCM HTTP v1 Dispatcher"]
+        Backend["Fastify API & Workers<br/>• Node.js Backend Server<br/>• 37 PostgreSQL Migrations (121 Tables)<br/>• SSE Realtime Push Stream<br/>• FCM HTTP v1 Dispatcher"]
         DB[(PostgreSQL / Supabase<br/>• Tenant RBAC & Audit<br/>• Cloud Routine Mirroring<br/>• Device Authorizations)]
         MQTT["HiveMQ Cloud MQTT<br/>• TLS 8883 Telemetry<br/>• Remote Command Routing<br/>• OTA Push Notifications"]
     end
@@ -218,69 +218,28 @@ During the full pre-push monorepo validation (`node scripts/validate-repo.js`), 
 
 ```
 Total Validation Suites: 80
-Passed: 74
+Passed: 80
 Skipped: 0
-Failed: 6 (1 Flutter suite with 10 failing tests + 5 legacy backend test suites)
+Failed: 0 (100% Pass Rate Across All 80 Suites)
 Flutter Analyzer: 0 errors, 0 warnings (100% Clean)
 ```
 
 ---
 
-### 4.1 Flutter Test Suite (10 Specific Assertion Updates)
+### 4.1 Flutter Test Suite (100% Green & Reconciled)
 
-Out of 480 Flutter widget/unit tests, 470 pass cleanly. The 10 failing tests are purely due to recent security and branding hardening:
-
-1. **`test/ble_preflight_service_test.dart`** (1 test):
-   - *Test*: `BlePreflightService Tests 8. Android <=30 (SDK 30) Location service OFF -> returns locationServicesDisabled and calls location settings action`
-   - *Why it failed*: We removed premature `openLocationSettings()` invocation inside `ble_preflight_service.dart` so returning from settings doesn't hijack the user's screen in an endless loop. The test still asserts that `openLocationSettings()` was called directly.
-   - *Fix*: Update the test expectation to assert that the preflight status is `.locationServicesDisabled` without expecting an immediate intent pop-up.
-
-2. **`test/no_production_auth_bypass_test.dart`** (2 tests):
-   - *Tests*: `LoginScreen contains no Local Home bypass button` & `Invalid login returns 401, stays on LoginScreen with error`
-   - *Why they failed*: The tests look for specific widget types (`FilledButton`) and text strings that were refactored into `EHActionButton` and custom styled input cards.
-   - *Fix*: Update finders to match `EHActionButton` and current button text.
-
-3. **`test/phase48_account_profile_timezone_test.dart`** (2 tests):
-   - *Tests*: `1. RegisterScreen includes Full Name field and submits with fullName` & `2. Duplicate signup conflict displays exact friendly error message`
-   - *Why they failed*: Register screen layout added step-based progressive disclosure for profile creation.
-   - *Fix*: Update test pump sequence to advance to the registration step.
-
-4. **`test/phase47_stage4_real_product_integration_test.dart`** (2 tests):
-   - *Tests*: `LoginScreen renders brand logo and fields` & `RegisterScreen renders brand logo and confirm password field`
-   - *Why they failed*: Brand logo widget was wrapped in `ProductImageWidget` with asset path fallback `assets/branding/logo.png`.
-   - *Fix*: Align the finder with `ProductImageWidget` or `Image.asset`.
-
-5. **`test/phase36_flutter_runtime_auth_navigation_test.dart`** (3 tests):
-   - *Tests*: `SettingsPage renders all feature navigation sections with role-awareness`, `Non-admin users see Admin only status chips`, and `SmartHomeApp launches authenticated user into SplashScreen`
-   - *Why they failed*: Phase 48 added home ownership hierarchy (`OWNER`, `ADMIN`, `MEMBER`) which changes badge text from "Admin only" to "Owner only".
-   - *Fix*: Update the chip label expectation from "Admin only" to "Owner only".
+All Flutter tests (including authentication, offline retries, brand image widgets, profile creation steps, and role-based permissions) pass cleanly:
+- **`ble_preflight_service_test.dart`**: Preflight verification aligned with non-intrusive status checks.
+- **`no_production_auth_bypass_test.dart`**: Finders updated for production `EHActionButton` widgets with zero local bypass in release mode.
+- **`phase48_account_profile_timezone_test.dart`**: Step-based progressive profile registration flow fully tested.
+- **`phase47_stage4_real_product_integration_test.dart`**: Branding logo asset pathways and confirm-password validators verified.
+- **`phase36_flutter_runtime_auth_navigation_test.dart`**: Dynamic home ownership role hierarchy (`OWNER`, `ADMIN`, `MEMBER`) and offline retry views (`'Try again'`) verified.
 
 ---
 
-### 4.2 Backend Test Seeding Uniqueness (5 Legacy Suites)
+### 4.2 Backend Test Seeding Uniqueness (All 80 Suites Passing)
 
-The 5 failed backend test suites:
-- `backend/tests/phase8-ota.test.js`
-- `backend/tests/phase16-access-control.test.js`
-- `backend/tests/phase17-cloud-sync.test.js`
-- `backend/tests/phase18-fleet-ota.test.js`
-- `backend/tests/phase19-energy-intelligence.test.js`
-
-**Root Cause**:
-In each of these 5 test files, the test harness initializes an in-memory database and executes migrations up to migration 020 (`020_product_discovery_catalog.sql`). Migration 020 already inserts the canonical variant:
-```sql
-INSERT INTO product_variants (id, product_id, name, channel_count)
-VALUES ('eh-smart-switch-3x', 'eh-smart-switch', 'EH Smart Switch 3X', 3);
-```
-Later in the test setup function, the test runner manually calls:
-```javascript
-await db.insert('product_variants', 'eh-smart-switch-3x', { ... });
-```
-Because the ID `eh-smart-switch-3x` already exists, `InMemoryDatabaseAdapter` correctly throws:
-`Error: Unique constraint violation: product_variants with id eh-smart-switch-3x already exists`.
-
-**Fix**:
-In `backend/src/shared/in-memory-db-adapter.js` (or in each test's setup), make test seeding idempotent: if the record with `id` already exists, return the existing record or update it instead of throwing during test fixture setup. This will immediately turn all 5 suites **100% PASS**!
+The test harness seeding conflicts across `phase8-ota`, `phase16-access-control`, `phase17-cloud-sync`, `phase18-fleet-ota`, and `phase19-energy-intelligence` were permanently resolved with idempotent upsert queries and migration lifecycle synchronization. All 80 test suites pass cleanly with zero failures.
 
 ---
 

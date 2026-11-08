@@ -87,7 +87,7 @@ enum EnergyMetric {
       case EnergyMetric.monthlyEnergy:
         return 'kWh';
       case EnergyMetric.costThreshold:
-        return 'USD';
+        return 'INR';
     }
   }
 }
@@ -486,7 +486,7 @@ class EstimatedSavingsModel {
     this.monthlyKwh = 0.0,
     this.dailyCost = 0.0,
     this.monthlyCost = 0.0,
-    this.currency = 'USD',
+    this.currency = 'INR',
     this.tariffPerKwh = 0.15,
     this.isEstimate = true,
   });
@@ -497,7 +497,7 @@ class EstimatedSavingsModel {
       monthlyKwh: (json['monthlyKwh'] ?? json['monthly_kwh'] as num?)?.toDouble() ?? 0.0,
       dailyCost: (json['dailyCost'] ?? json['daily_cost'] as num?)?.toDouble() ?? 0.0,
       monthlyCost: (json['monthlyCost'] ?? json['monthly_cost'] as num?)?.toDouble() ?? 0.0,
-      currency: json['currency'] ?? 'USD',
+      currency: json['currency'] ?? 'INR',
       tariffPerKwh: (json['tariffPerKwh'] ?? json['tariff_per_kwh'] as num?)?.toDouble() ?? 0.15,
       isEstimate: json['isEstimate'] ?? json['is_estimate'] ?? true,
     );
@@ -589,7 +589,7 @@ class EnergyOptimizationSummaryModel {
   const EnergyOptimizationSummaryModel({
     this.totalMonthlyKwhSavings = 0.0,
     this.totalMonthlyCostSavings = 0.0,
-    this.currency = 'USD',
+    this.currency = 'INR',
     this.activeCount = 0,
     this.dismissedCount = 0,
     this.tariffPerKwh = 0.15,
@@ -600,7 +600,7 @@ class EnergyOptimizationSummaryModel {
     return EnergyOptimizationSummaryModel(
       totalMonthlyKwhSavings: (json['totalMonthlyKwhSavings'] ?? json['total_monthly_kwh_savings'] as num?)?.toDouble() ?? 0.0,
       totalMonthlyCostSavings: (json['totalMonthlyCostSavings'] ?? json['total_monthly_cost_savings'] as num?)?.toDouble() ?? 0.0,
-      currency: json['currency'] ?? 'USD',
+      currency: json['currency'] ?? 'INR',
       activeCount: json['activeCount'] ?? json['active_count'] ?? 0,
       dismissedCount: json['dismissedCount'] ?? json['dismissed_count'] ?? 0,
       tariffPerKwh: (json['tariffPerKwh'] ?? json['tariff_per_kwh'] as num?)?.toDouble() ?? 0.15,

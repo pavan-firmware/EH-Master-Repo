@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
+
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/repositories/connection_repository.dart';
@@ -66,6 +68,7 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    HomeController.instance?.addListener(_onHomeControllerChanged);
     _systemActions = widget.systemBleActions ?? const DefaultSystemBleActions();
     _load();
   }
@@ -73,7 +76,12 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    HomeController.instance?.removeListener(_onHomeControllerChanged);
     super.dispose();
+  }
+
+  void _onHomeControllerChanged() {
+    if (mounted) _load();
   }
 
   @override
@@ -85,6 +93,8 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
           _failureKind == ConnectionFailureKind.locationPermissionRequired) {
         _pendingBleRecovery = false;
         _handleConnect();
+      } else {
+        _load();
       }
     }
   }
@@ -99,9 +109,12 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
   }
 
   void _load() {
+    final effectiveState = HomeController.instance?.authoritativeConnectionState.isOnline == false
+        ? HomeConnectionState.offline
+        : (widget.connectionState ?? HomeController.instance?.connectionState);
     setState(() {
       _overview = widget.repository.getOverview(
-        liveState: widget.connectionState,
+        liveState: effectiveState,
       );
     });
   }
@@ -543,8 +556,10 @@ class _HomeConnectionPageState extends State<HomeConnectionPage>
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) =>
-                        const HelpSupportPage(initialTopic: 'connection'),
+                    builder: (_) => HelpSupportPage(
+                      initialTopic: 'connection',
+                      homeConnectionRepository: widget.repository,
+                    ),
                   ),
                 ),
               ),

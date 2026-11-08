@@ -615,6 +615,8 @@ class HomeDashboardData {
     List<String>? selectedControlIds,
     Map<String, Map<int, bool>>? channelStates,
     Map<String, Map<int, String>>? channelLabels,
+    bool isCloudReachable = true,
+    bool isLocalMode = false,
   }) {
     if (devices.isEmpty) {
       return HomeDashboardData.setup(
@@ -771,20 +773,39 @@ class HomeDashboardData {
     }
 
     final onlineCount = devices.where((d) => d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)).length;
+    final isAnyOnline = onlineCount > 0;
+    final isTransportOnline = isCloudReachable || isLocalMode || isAnyOnline;
+
+    final HomeDashboardState effectiveState = (!isTransportOnline || (!isAnyOnline && devices.isNotEmpty))
+        ? HomeDashboardState.offline
+        : HomeDashboardState.ready;
+
+    final String networkLabel = isLocalMode ? 'LAN' : 'Wi-Fi';
+    final String networkDetail = (isTransportOnline && isAnyOnline) ? 'Connected' : 'Offline';
+
+    final String securityDetail = devices.isEmpty
+        ? 'No devices'
+        : (onlineCount == 0
+            ? 'All devices offline'
+            : (onlineCount == devices.length
+                ? 'All devices online'
+                : '$onlineCount of ${devices.length} online'));
+
+    final activeRooms = rooms.where((r) => r.status == 'Online' || r.devicesOnCount > 0).length;
 
     return HomeDashboardData(
-      state: HomeDashboardState.ready,
+      state: effectiveState,
       source: DashboardDataSource.live,
-      connectivity: onlineCount > 0 ? ConnectivityCause.online : ConnectivityCause.deviceOffline,
-      telemetryFreshness: onlineCount > 0 ? TelemetryFreshness.current : TelemetryFreshness.stale,
+      connectivity: isAnyOnline ? ConnectivityCause.online : ConnectivityCause.deviceOffline,
+      telemetryFreshness: isAnyOnline ? TelemetryFreshness.current : TelemetryFreshness.stale,
       devicesOnline: onlineCount,
       deviceCount: devices.length,
       roomCount: roomMap.length,
-      activeRoomCount: roomMap.length,
-      networkLabel: 'Wi-Fi',
-      networkDetail: onlineCount > 0 ? 'Connected' : 'Offline',
+      activeRoomCount: activeRooms,
+      networkLabel: networkLabel,
+      networkDetail: networkDetail,
       securityLabel: 'Security',
-      securityDetail: onlineCount == devices.length ? 'All devices online' : '$onlineCount of ${devices.length} online',
+      securityDetail: securityDetail,
       rooms: rooms,
       controls: controls,
       allControls: allControls,

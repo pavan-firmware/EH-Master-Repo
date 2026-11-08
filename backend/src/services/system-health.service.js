@@ -73,10 +73,10 @@ class SystemHealthService {
     const start = Date.now();
     try {
       if (!mqttClient || !mqttClient.connected) {
-        // If client is not connected or mock is present
+        // If client is not connected or mock is present, reflect honest STANDBY status
         return {
-          status: 'HEALTHY', // In testing environment default to healthy if mock
-          latencyMs: Date.now() - start,
+          status: 'STANDBY',
+          latencyMs: null,
           lastCheckedAt: new Date().toISOString()
         };
       }

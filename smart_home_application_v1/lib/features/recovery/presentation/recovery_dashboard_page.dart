@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/recovery_models.dart';
 import '../../../core/repositories/recovery_repository.dart';
+import '../../settings/presentation/settings_ui.dart';
 
 class RecoveryDashboardPage extends StatefulWidget {
   const RecoveryDashboardPage({
@@ -33,7 +34,11 @@ class _RecoveryDashboardPageState extends State<RecoveryDashboardPage> with Sing
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadRecoveryData();
+    if (widget.isAdmin) {
+      _loadRecoveryData();
+    } else {
+      _isLoading = false;
+    }
   }
 
   @override
@@ -195,6 +200,16 @@ class _RecoveryDashboardPageState extends State<RecoveryDashboardPage> with Sing
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.isAdmin) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Disaster Recovery')),
+        body: const AdminAccessRequiredView(
+          message:
+              'Disaster recovery snapshots, automated checkpoints, and rollback restoration require platform administrative privileges.',
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Disaster Recovery & Resilience'),
@@ -230,24 +245,39 @@ class _RecoveryDashboardPageState extends State<RecoveryDashboardPage> with Sing
   }
 
   Widget _buildErrorView() {
+    final isForbidden = _errorMessage != null &&
+        (_errorMessage!.contains('403') ||
+            _errorMessage!.toLowerCase().contains('forbidden'));
+    if (isForbidden) {
+      return const AdminAccessRequiredView(
+        message:
+            'Disaster recovery snapshots, automated checkpoints, and rollback restoration require platform administrative privileges.',
+      );
+    }
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const Icon(Icons.cloud_off_rounded, color: Colors.orange, size: 48),
             const SizedBox(height: 16),
             Text(
               'Failed to load recovery platform data',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text(_errorMessage ?? '', style: const TextStyle(color: Colors.grey)),
+            const Text(
+              'Could not connect to the recovery service. Please check your network and retry.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
             const SizedBox(height: 16),
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: _loadRecoveryData,
-              child: const Text('Retry'),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
             ),
           ],
         ),

@@ -35,8 +35,8 @@ class OperationsApiRouter {
 
   async handle(method, rawPath, body = {}, headers = {}, params = {}) {
     const userId = params.userId || headers['x-user-id'] || null;
-    const userRole = headers['x-user-role'] || params.userRole || null;
-    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPERADMIN' || headers['x-admin-role'] === 'true' || headers['x-diagnostic-role'] === 'true';
+    const userRole = (headers['x-user-role'] || params.userRole || '').toUpperCase();
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPERADMIN' || userRole === 'OWNER' || headers['x-admin-role'] === 'true' || headers['x-diagnostic-role'] === 'true';
 
     // Normalize path
     const path = (rawPath.length > 1 && rawPath.endsWith('/')) ? rawPath.slice(0, -1) : rawPath;

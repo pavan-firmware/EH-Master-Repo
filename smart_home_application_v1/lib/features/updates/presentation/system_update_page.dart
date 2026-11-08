@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
@@ -7,6 +8,7 @@ import '../../../core/models/update_models.dart';
 import '../../../core/repositories/cloud_home_repository.dart';
 import '../../../core/repositories/cloud_update_repository.dart';
 import '../../../core/repositories/update_repository.dart';
+import '../../../core/services/check_timestamp_service.dart';
 import '../../../core/theme/app_theme.dart';
 import 'update_history_page.dart';
 import 'update_preferences_page.dart';
@@ -17,10 +19,12 @@ class SystemUpdatePage extends StatefulWidget {
     super.key,
     this.repository = const PreviewUpdateRepository(),
     this.homeController,
+    this.timestampService,
   });
 
   final UpdateRepository repository;
   final HomeController? homeController;
+  final CheckTimestampService? timestampService;
 
   @override
   State<SystemUpdatePage> createState() => _SystemUpdatePageState();
@@ -31,6 +35,11 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
   late UpdateRepository _effectiveRepository;
   bool _checking = false;
   late AnimationController _animController;
+  DateTime? _lastCheckedTime;
+  Timer? _ticker;
+
+  CheckTimestampService get _timeService =>
+      widget.timestampService ?? CheckTimestampService.instance;
 
   @override
   void initState() {
@@ -39,6 +48,8 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
+
+    _loadLastChecked();
 
     if (widget.repository is! PreviewUpdateRepository) {
       _effectiveRepository = widget.repository;
@@ -50,6 +61,7 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
 
       _effectiveRepository = CloudUpdateRepository(
         apiClient: client,
+        timestampService: _timeService,
         getActiveHomeId: () => (ctrl?.repository is CloudHomeRepository)
             ? (ctrl!.repository as CloudHomeRepository).activeHomeId ?? ctrl.activeHomeId
             : ctrl?.activeHomeId,
@@ -66,12 +78,44 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
     }
 
     _load();
+    widget.homeController?.addListener(_onHomeStateChanged);
+
+    _ticker = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _onHomeStateChanged() {
+    if (mounted) _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant SystemUpdatePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeStateChanged);
+      widget.homeController?.addListener(_onHomeStateChanged);
+      _load();
+    }
   }
 
   @override
   void dispose() {
+    widget.homeController?.removeListener(_onHomeStateChanged);
+    _ticker?.cancel();
     _animController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadLastChecked() async {
+    final ts = await _timeService.getLastSuccessfulCheck(
+      CheckTimestampService.systemUpdateKey,
+    );
+    if (mounted) {
+      setState(() {
+        _lastCheckedTime = ts;
+      });
+    }
   }
 
   void _load() {
@@ -81,6 +125,7 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
   }
 
   Future<void> _checkUpdates() async {
+    if (_checking) return;
     setState(() => _checking = true);
     _animController.repeat();
 
@@ -96,12 +141,13 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
       if (mounted) {
         _animController.stop();
         _animController.reset();
-        setState(() {
-          _summary = Future.value(result);
-          _checking = false;
-        });
 
         if (result.isUnavailable) {
+          setState(() {
+            _summary = Future.value(result);
+            _checking = false;
+          });
+
           final isNoNet = result.errorType == UpdateErrorType.noInternet;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -128,6 +174,20 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
           );
           return;
         }
+
+        final completionTime = _timeService.now;
+        await _timeService.recordSuccessfulCheck(
+          CheckTimestampService.systemUpdateKey,
+          completionTime,
+        );
+
+        if (!mounted) return;
+
+        setState(() {
+          _lastCheckedTime = completionTime;
+          _summary = Future.value(result);
+          _checking = false;
+        });
 
         final updateCount = result.availableCount;
         final hasUpdates = updateCount > 0;
@@ -167,15 +227,9 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
     }
   }
 
-  String _formatLastChecked(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inSeconds < 45) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    final hour = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
-    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-    final min = dt.minute.toString().padLeft(2, '0');
-    return 'Today, $hour:$min $ampm';
+  String _formatLastChecked(DateTime? dt) {
+    if (dt == null) return 'Never';
+    return _timeService.formatRelativeTime(dt);
   }
 
   @override
@@ -467,7 +521,7 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Checked: ${_formatLastChecked(summary.lastChecked)}',
+                        'Checked: ${_formatLastChecked(_lastCheckedTime ?? (widget.repository is! PreviewUpdateRepository ? summary.lastChecked : null))}',
                         style: TextStyle(fontSize: 12, color: tokens.textTertiary, fontWeight: FontWeight.w500),
                         overflow: TextOverflow.ellipsis,
                       ),

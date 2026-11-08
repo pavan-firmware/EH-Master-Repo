@@ -264,16 +264,24 @@ class _OperationsDashboardPageState extends State<OperationsDashboardPage> with 
         ..._healthSnapshot!.subsystems.entries.map((entry) {
           final subName = entry.key;
           final details = entry.value;
-          final statusStr = (details['status'] as String?) ?? 'UNKNOWN';
+          final statusStr = (details['status'] as String?)?.toUpperCase() ?? 'UNKNOWN';
           final latency = details['latencyMs'];
 
           final isSubHealthy = statusStr == 'HEALTHY';
+          final isSubStandby = statusStr == 'STANDBY';
           final isSubDegraded = statusStr == 'DEGRADED';
           final subColor = isSubHealthy
               ? tokens.success
-              : isSubDegraded
-                  ? tokens.warning
-                  : tokens.error;
+              : (isSubStandby
+                  ? tokens.bluePrimary
+                  : (isSubDegraded ? tokens.warning : tokens.error));
+
+          String latencyInfo = '';
+          if (isSubStandby) {
+            latencyInfo = '• Standby (Optional cluster transport)';
+          } else if (latency != null && latency is num && latency > 0) {
+            latencyInfo = '• Latency: ${latency}ms';
+          }
 
           return Card(
             color: tokens.surfaceCard,
@@ -283,7 +291,7 @@ class _OperationsDashboardPageState extends State<OperationsDashboardPage> with 
               leading: Icon(Icons.circle, color: subColor, size: 14),
               title: Text(subName, style: TextStyle(fontWeight: FontWeight.w600, color: tokens.textPrimary)),
               subtitle: Text(
-                'Status: $statusStr ${latency != null ? '• Latency: ${latency}ms' : ''}',
+                'Status: $statusStr $latencyInfo'.trim(),
                 style: TextStyle(color: tokens.textSecondary, fontSize: 13),
               ),
               trailing: Chip(

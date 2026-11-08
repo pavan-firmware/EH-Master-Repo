@@ -1,8 +1,20 @@
 import 'package:flutter/material.dart';
+import '../../../app/home_controller.dart';
+import '../../../core/models/connection_models.dart';
 import '../../../core/models/connectivity_models.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import 'transport_health_card.dart';
 import 'transport_selector.dart';
+
+extension on Iterable<ConnectedDeviceSummary> {
+  ConnectedDeviceSummary? findDevice(String id) {
+    for (final d in this) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
+}
 
 /// Phase 26 — Device Connectivity Dashboard
 ///
@@ -25,13 +37,41 @@ class DeviceConnectivityPage extends StatefulWidget {
 }
 
 class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
+  late String _currentDeviceId;
+  late String _currentDeviceName;
+
   @override
   void initState() {
     super.initState();
+    _currentDeviceId = widget.deviceId;
+    _currentDeviceName = widget.deviceName;
+
+    if (_currentDeviceId.isEmpty) {
+      final first = HomeController.instance?.devices.firstOrNull;
+      if (first != null) {
+        _currentDeviceId = first.id;
+        _currentDeviceName = first.name;
+      }
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.connectivityService.loadDeviceConnection(widget.deviceId);
-      widget.connectivityService.loadDeviceTransports(widget.deviceId);
+      _loadCurrentDevice();
     });
+  }
+
+  void _loadCurrentDevice() {
+    if (_currentDeviceId.isNotEmpty) {
+      widget.connectivityService.loadDeviceConnection(_currentDeviceId);
+      widget.connectivityService.loadDeviceTransports(_currentDeviceId);
+    }
+  }
+
+  void _onDeviceChanged(String newId, String newName) {
+    setState(() {
+      _currentDeviceId = newId;
+      _currentDeviceName = newName;
+    });
+    _loadCurrentDevice();
   }
 
   Color _stateColor(DeviceConnectionState state) => switch (state) {
@@ -51,7 +91,7 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
   };
 
   Future<void> _handleReconnect() async {
-    final success = await widget.connectivityService.triggerReconnect(widget.deviceId);
+    final success = await widget.connectivityService.triggerReconnect(_currentDeviceId);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -63,7 +103,7 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
   }
 
   Future<void> _handleSelectTransport(DeviceTransportType transport) async {
-    final success = await widget.connectivityService.selectTransport(widget.deviceId, transport);
+    final success = await widget.connectivityService.selectTransport(_currentDeviceId, transport);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -76,32 +116,33 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final tokens = context.ehColors;
+    final ctrl = HomeController.instance;
+    final allDevices = ctrl?.devices ?? [];
 
     return Scaffold(
-      backgroundColor: colorScheme.surface,
+      backgroundColor: tokens.bgApp,
       appBar: AppBar(
-        backgroundColor: colorScheme.surface,
+        backgroundColor: tokens.bgApp,
         elevation: 0,
-        leading: const BackButton(),
+        leading: BackButton(color: tokens.headerAction),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              widget.deviceName,
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              _currentDeviceName,
+              style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary, fontSize: 16),
             ),
             Text(
               'Connectivity',
-              style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: () => widget.connectivityService.loadDeviceConnection(widget.deviceId),
+            icon: Icon(Icons.refresh_rounded, color: tokens.headerAction),
+            onPressed: _loadCurrentDevice,
           ),
         ],
       ),
@@ -110,24 +151,88 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
         builder: (context, _) {
           final svc = widget.connectivityService;
           if (svc.loading && svc.deviceConnection == null) {
-            return const Center(child: CircularProgressIndicator.adaptive());
+            return Center(child: CircularProgressIndicator.adaptive(valueColor: AlwaysStoppedAnimation(tokens.bluePrimary)));
           }
 
           final conn = svc.deviceConnection;
           if (conn == null) {
+            final activeDev = allDevices.findDevice(_currentDeviceId);
+            final isLan = activeDev != null && activeDev.online;
             return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.wifi_off_rounded, size: 48, color: colorScheme.onSurfaceVariant),
-                  const SizedBox(height: 12),
-                  Text('No connection data found', style: TextStyle(color: colorScheme.onSurfaceVariant)),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: () => svc.loadDeviceConnection(widget.deviceId),
-                    child: const Text('Retry'),
-                  ),
-                ],
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (allDevices.length > 1) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: tokens.surfaceCard,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: tokens.borderSubtle),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _currentDeviceId.isNotEmpty && allDevices.any((d) => d.id == _currentDeviceId)
+                                ? _currentDeviceId
+                                : allDevices.first.id,
+                            dropdownColor: tokens.surfaceElevated,
+                            isExpanded: true,
+                            icon: Icon(Icons.keyboard_arrow_down_rounded, color: tokens.headerAction),
+                            items: allDevices.map((d) {
+                              return DropdownMenuItem<String>(
+                                value: d.id,
+                                child: Text(
+                                  '${d.name} (${d.roomName.isNotEmpty ? d.roomName : "Home"})',
+                                  style: TextStyle(color: tokens.textPrimary, fontSize: 14),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                final match = allDevices.findDevice(val);
+                                if (match != null) {
+                                  _onDeviceChanged(match.id, match.name);
+                                }
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                    Icon(
+                      isLan ? Icons.wifi_tethering_rounded : Icons.wifi_off_rounded,
+                      size: 56,
+                      color: isLan ? tokens.bluePrimary : tokens.textTertiary,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      isLan ? 'Local Direct Wi-Fi Active' : 'No Telemetry Found',
+                      style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isLan
+                          ? '$_currentDeviceName is operating via Direct LAN Wi-Fi. Multi-protocol gateway telemetry will be synchronized when cloud broker is connected.'
+                          : 'No protocol telemetry reported for $_currentDeviceName. Ensure the device is powered on and connected to your local network.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: tokens.textSecondary, fontSize: 13, height: 1.4),
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: _loadCurrentDevice,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Probe Device Protocols'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tokens.bluePrimary,
+                        foregroundColor: tokens.buttonText,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           }
@@ -136,17 +241,57 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
 
           return RefreshIndicator(
             onRefresh: () async {
-              await svc.loadDeviceConnection(widget.deviceId);
-              await svc.loadDeviceTransports(widget.deviceId);
+              await svc.loadDeviceConnection(_currentDeviceId);
+              await svc.loadDeviceTransports(_currentDeviceId);
             },
             child: ListView(
               padding: const EdgeInsets.all(20),
               children: [
+                if (allDevices.length > 1) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: tokens.surfaceCard,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: tokens.borderSubtle),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _currentDeviceId.isNotEmpty && allDevices.any((d) => d.id == _currentDeviceId)
+                            ? _currentDeviceId
+                            : allDevices.first.id,
+                        dropdownColor: tokens.surfaceElevated,
+                        isExpanded: true,
+                        icon: Icon(Icons.keyboard_arrow_down_rounded, color: tokens.headerAction),
+                        items: allDevices.map((d) {
+                          return DropdownMenuItem<String>(
+                            value: d.id,
+                            child: Text(
+                              '${d.name} (${d.roomName.isNotEmpty ? d.roomName : "Home"})',
+                              style: TextStyle(color: tokens.textPrimary, fontSize: 14),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            final match = allDevices.findDevice(val);
+                            if (match != null) {
+                              _onDeviceChanged(match.id, match.name);
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // ── Active Connection Hero ────────────────────────────
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+                    color: tokens.surfaceCard,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: stateColor.withValues(alpha: 0.35), width: 1.5),
                   ),
@@ -168,7 +313,7 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
                                 const SizedBox(height: 2),
                                 Text(
                                   'Active Transport: ${conn.activeTransport.toDisplayLabel()}',
-                                  style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
                                 ),
                               ],
                             ),
@@ -181,8 +326,11 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: _handleReconnect,
-                              icon: const Icon(Icons.sync_rounded, size: 16),
-                              label: const Text('Reconnect'),
+                              icon: Icon(Icons.sync_rounded, size: 16, color: tokens.bluePrimary),
+                              label: Text('Reconnect', style: TextStyle(color: tokens.bluePrimary)),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: tokens.borderControl),
+                              ),
                             ),
                           ),
                         ],
@@ -195,12 +343,12 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
                 // ── Switch Active Transport ───────────────────────────
                 Text(
                   'Active Transport Selection',
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary, fontSize: 16),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   'Select the primary transport protocol for command dispatch.',
-                  style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12),
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 12),
                 TransportSelector(
@@ -213,7 +361,7 @@ class _DeviceConnectivityPageState extends State<DeviceConnectivityPage> {
                 // ── Transport Health Snapshots ────────────────────────
                 Text(
                   'Protocol Health Breakdown',
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary, fontSize: 16),
                 ),
                 const SizedBox(height: 12),
                 ...conn.transportHealth.values.map(

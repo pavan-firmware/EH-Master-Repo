@@ -576,14 +576,21 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             onPressed: _handleBackNavigation,
             icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
           ),
-        title: Text(
-          'Set up device',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            color: tokens.textPrimary,
+          title: Text(
+            'Set up device',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: tokens.textPrimary,
+            ),
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              tooltip: 'Scan QR Code',
+              onPressed: _isProvisioningInProgress ? null : _openQrScanner,
+            ),
+          ],
         ),
-      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [

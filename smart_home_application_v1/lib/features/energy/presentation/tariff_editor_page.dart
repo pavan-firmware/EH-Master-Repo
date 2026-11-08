@@ -39,10 +39,14 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
     super.initState();
     final t = widget.tariff;
     _nameCtrl = TextEditingController(text: t?.name ?? '');
-    _currencyCtrl = TextEditingController(text: t?.currency ?? 'USD');
-    _flatRateCtrl = TextEditingController(text: t?.flatRatePerKwh?.toString() ?? '0.15');
-    _fixedDailyChargeCtrl = TextEditingController(text: t?.fixedDailyCharge.toString() ?? '0.0');
-    _carbonIntensityCtrl = TextEditingController(text: t?.carbonIntensityGPerKwh?.toString() ?? '420.0');
+    _currencyCtrl = TextEditingController(text: t?.currency ?? 'INR');
+    _flatRateCtrl = TextEditingController(text: t?.flatRatePerKwh?.toString() ?? '');
+    _fixedDailyChargeCtrl = TextEditingController(text: (t?.fixedDailyCharge != null && t!.fixedDailyCharge > 0) ? t.fixedDailyCharge.toString() : '');
+    _carbonIntensityCtrl = TextEditingController(text: t?.carbonIntensityGPerKwh?.toString() ?? '');
+
+    _currencyCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
 
     _selectedType = t?.tariffType ?? TariffType.flat;
     _isActive = t?.isActive ?? true;
@@ -195,8 +199,10 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                     controller: _currencyCtrl,
                     style: TextStyle(color: tokens.textPrimary),
                     decoration: InputDecoration(
-                      labelText: 'Currency (e.g. USD)',
+                      labelText: 'Currency (e.g. INR)',
+                      hintText: 'INR',
                       labelStyle: TextStyle(color: tokens.textSecondary),
+                      hintStyle: TextStyle(color: tokens.textTertiary),
                       filled: true,
                       fillColor: tokens.bgApp,
                       border: OutlineInputBorder(
@@ -220,7 +226,9 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                     style: TextStyle(color: tokens.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Fixed Daily Charge',
+                      hintText: 'e.g. 0.0',
                       labelStyle: TextStyle(color: tokens.textSecondary),
+                      hintStyle: TextStyle(color: tokens.textTertiary),
                       filled: true,
                       fillColor: tokens.bgApp,
                       border: OutlineInputBorder(
@@ -281,8 +289,10 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               style: TextStyle(color: tokens.textPrimary),
               decoration: InputDecoration(
-                labelText: 'Price per kWh (${_currencyCtrl.text})',
+                labelText: 'Price per kWh (${_currencyCtrl.text.isEmpty ? "INR" : _currencyCtrl.text})',
+                hintText: 'e.g. 7.50',
                 labelStyle: TextStyle(color: tokens.textSecondary),
+                hintStyle: TextStyle(color: tokens.textTertiary),
                 filled: true,
                 fillColor: tokens.bgApp,
                 border: OutlineInputBorder(
@@ -554,7 +564,9 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
               style: TextStyle(color: tokens.textPrimary),
               decoration: InputDecoration(
                 labelText: 'Intensity (grams CO₂ per kWh)',
+                hintText: 'e.g. 420.0',
                 labelStyle: TextStyle(color: tokens.textSecondary),
+                hintStyle: TextStyle(color: tokens.textTertiary),
                 filled: true,
                 fillColor: tokens.bgApp,
                 border: OutlineInputBorder(
@@ -608,12 +620,17 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
     }
 
     if (mounted) {
+      final tokens = context.ehColors;
       setState(() => _isSaving = false);
       if (success) {
         Navigator.pop(context, true);
       } else {
+        final err = widget.costService.errorMessage ?? 'Failed to save tariff. Please check your connection and values.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save tariff. Please try again.')),
+          SnackBar(
+            content: Text(err),
+            backgroundColor: tokens.error,
+          ),
         );
       }
     }

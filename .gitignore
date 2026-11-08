@@ -14,6 +14,7 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+.agents/
 
 # ------------------------------------------------------------------------------
 # 2. LOGS, CACHES & TEMPORARY FILES
@@ -184,4 +185,6 @@ env/
 !.vscode/extensions.json
 .history/
 scratch/
+prompt_images/
+prompt_image/
 

@@ -49,9 +49,9 @@ class EnergyApiRouter {
     const body = req.body || {};
 
     if (req.url) {
-      const parsed = url.parse(req.url, true);
+      const parsed = new URL(req.url, 'http://127.0.0.1');
       path = parsed.pathname;
-      query = { ...parsed.query, ...query };
+      query = { ...Object.fromEntries(parsed.searchParams.entries()), ...query };
     }
 
     const userId = (actorContext && actorContext.userId) || req.userId || (req.user && req.user.id) || null;

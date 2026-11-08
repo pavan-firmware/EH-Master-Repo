@@ -1,14 +1,21 @@
 import '../models/privacy_models.dart';
+import '../services/app_permission_service.dart';
 
 abstract interface class PrivacyRepository {
   Future<PrivacySummary> getSummary();
   Future<bool> setDiagnosticSharing(bool enabled);
   Future<bool> setUsageAnalytics(bool enabled);
+  Future<PrivacyPermissionStatus> queryPermission(String permissionId);
+  Future<PrivacyPermissionStatus> requestPermission(String permissionId);
+  Future<bool> openSettings();
 }
 
 class PreviewPrivacyRepository implements PrivacyRepository {
-  PreviewPrivacyRepository();
+  PreviewPrivacyRepository({
+    AppPermissionService? permissionService,
+  }) : _permissionService = permissionService ?? AppPermissionService.instance;
 
+  final AppPermissionService _permissionService;
   bool _diagnosticSharing = false;
   bool _usageAnalytics = false;
 
@@ -72,36 +79,56 @@ class PreviewPrivacyRepository implements PrivacyRepository {
   ];
 
   @override
-  Future<PrivacySummary> getSummary() async => PrivacySummary(
-    title: 'Your privacy is in your control.',
-    subtitle: 'EH Home collects only the data needed to run your home.',
-    statusLabel: 'All good.',
-    dataCategories: _dataCategories,
-    permissions: const [
+  Future<PrivacySummary> getSummary() async {
+    final permissionsMap = await _permissionService.queryAllPermissions();
+
+    final permissionsList = [
       PrivacyPermission(
         id: 'bluetooth',
         title: 'Bluetooth',
         description: 'Used to discover and connect devices.',
-        status: PrivacyPermissionStatus.allowed,
+        status: permissionsMap['bluetooth'] ??
+            PrivacyPermissionStatus.notRequested,
       ),
       PrivacyPermission(
         id: 'notifications',
         title: 'Notifications',
         description: 'Used for alerts and important updates.',
-        status: PrivacyPermissionStatus.allowed,
+        status: permissionsMap['notifications'] ??
+            PrivacyPermissionStatus.notRequested,
       ),
       PrivacyPermission(
         id: 'location',
         title: 'Location',
         description: 'Used for location-based features.',
-        status: PrivacyPermissionStatus.notRequested,
+        status: permissionsMap['location'] ??
+            PrivacyPermissionStatus.notRequested,
       ),
-    ],
-    diagnosticSharing: _diagnosticSharing,
-    usageAnalytics: _usageAnalytics,
-    diagnosticSupported: false,
-    analyticsSupported: false,
-  );
+    ];
+
+    return PrivacySummary(
+      title: 'Your privacy is in your control.',
+      subtitle: 'EH Home collects only the data needed to run your home.',
+      statusLabel: 'All good.',
+      dataCategories: _dataCategories,
+      permissions: permissionsList,
+      diagnosticSharing: _diagnosticSharing,
+      usageAnalytics: _usageAnalytics,
+      diagnosticSupported: false,
+      analyticsSupported: false,
+    );
+  }
+
+  @override
+  Future<PrivacyPermissionStatus> queryPermission(String permissionId) =>
+      _permissionService.queryPermission(permissionId);
+
+  @override
+  Future<PrivacyPermissionStatus> requestPermission(String permissionId) =>
+      _permissionService.requestPermission(permissionId);
+
+  @override
+  Future<bool> openSettings() => _permissionService.openSettings();
 
   @override
   Future<bool> setDiagnosticSharing(bool enabled) async {

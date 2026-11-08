@@ -26,7 +26,10 @@ class UserProfile {
   }
 
   bool get isAdmin =>
-      role.toUpperCase() == 'ADMIN' || role.toUpperCase() == 'SYSTEM_ADMIN';
+      role.toUpperCase() == 'ADMIN' ||
+      role.toUpperCase() == 'SYSTEM_ADMIN' ||
+      role.toUpperCase() == 'OWNER' ||
+      role.toUpperCase() == 'SUPERADMIN';
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(

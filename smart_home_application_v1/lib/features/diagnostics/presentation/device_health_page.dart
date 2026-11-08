@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
@@ -6,6 +7,7 @@ import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/health_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/repositories/device_health_repository.dart';
+import '../../../core/services/check_timestamp_service.dart';
 import '../../activity/presentation/activity_page.dart';
 import '../../rooms/presentation/room_context_page.dart';
 import '../../settings/presentation/settings_ui.dart';
@@ -15,10 +17,12 @@ class DeviceHealthPage extends StatefulWidget {
     super.key,
     this.repository = const PreviewDeviceHealthRepository(),
     this.homeController,
+    this.timestampService,
   });
 
   final DeviceHealthRepository repository;
   final HomeController? homeController;
+  final CheckTimestampService? timestampService;
 
   @override
   State<DeviceHealthPage> createState() => _DeviceHealthPageState();
@@ -27,14 +31,56 @@ class DeviceHealthPage extends StatefulWidget {
 class _DeviceHealthPageState extends State<DeviceHealthPage> {
   late Future<HomeHealthSummary> _summary;
   bool _checking = false;
+  DateTime? _lastCheckedTime;
+  Timer? _ticker;
+
+  CheckTimestampService get _timeService =>
+      widget.timestampService ?? CheckTimestampService.instance;
 
   @override
   void initState() {
     super.initState();
+    _loadLastChecked();
     _load();
+    widget.homeController?.addListener(_onHomeControllerChanged);
+    _ticker = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
-  HomeHealthSummary _buildRealSummary(HomeController controller) {
+  void _onHomeControllerChanged() {
+    if (mounted) _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant DeviceHealthPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.homeController != widget.homeController) {
+      oldWidget.homeController?.removeListener(_onHomeControllerChanged);
+      widget.homeController?.addListener(_onHomeControllerChanged);
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.homeController?.removeListener(_onHomeControllerChanged);
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadLastChecked() async {
+    final ts = await _timeService.getLastSuccessfulCheck(
+      CheckTimestampService.deviceHealthKey,
+    );
+    if (mounted) {
+      setState(() {
+        _lastCheckedTime = ts;
+      });
+    }
+  }
+
+  HomeHealthSummary _buildRealSummary(HomeController controller, {DateTime? lastChecked}) {
     final devices = controller.devices;
     final onlineList = devices.where((d) => d.online).toList();
     final offlineList = devices.where((d) => !d.online).toList();
@@ -78,7 +124,7 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
       onlineCount: onlineList.length,
       attentionCount: offlineList.length,
       offlineCount: offlineList.length,
-      lastChecked: DateTime.now(),
+      lastChecked: lastChecked ?? _lastCheckedTime ?? DateTime.now(),
       devices: deviceEntries,
       rooms: rooms.isNotEmpty
           ? rooms
@@ -105,25 +151,56 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
   }
 
   Future<void> _checkAgain() async {
+    if (_checking) return;
     setState(() => _checking = true);
-    if (widget.homeController != null && widget.homeController!.devices.isNotEmpty) {
-      try {
-        await widget.homeController!.probeLanAndPromote();
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 600));
-      if (mounted) {
-        setState(() {
-          _summary = Future.value(_buildRealSummary(widget.homeController!));
-          _checking = false;
-        });
+
+    try {
+      final ctrl = widget.homeController ?? HomeController.instance;
+      if (ctrl != null && ctrl.devices.isNotEmpty) {
+        await ctrl.probeLanAndPromote();
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+
+        final completionTime = _timeService.now;
+        await _timeService.recordSuccessfulCheck(
+          CheckTimestampService.deviceHealthKey,
+          completionTime,
+        );
+
+        if (mounted) {
+          setState(() {
+            _lastCheckedTime = completionTime;
+            _summary = Future.value(_buildRealSummary(ctrl, lastChecked: completionTime));
+            _checking = false;
+          });
+        }
+      } else {
+        final result = await widget.repository.runFullCheck();
+
+        final completionTime = _timeService.now;
+        await _timeService.recordSuccessfulCheck(
+          CheckTimestampService.deviceHealthKey,
+          completionTime,
+        );
+
+        if (mounted) {
+          setState(() {
+            _lastCheckedTime = completionTime;
+            _summary = Future.value(result);
+            _checking = false;
+          });
+        }
       }
-    } else {
-      final result = await widget.repository.runFullCheck();
+    } catch (e) {
       if (mounted) {
         setState(() {
-          _summary = Future.value(result);
           _checking = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Device health check failed: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     }
   }
@@ -156,6 +233,7 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
               summary: data,
               checking: _checking,
               onCheckAgain: _checkAgain,
+              lastCheckedLabel: _timeService.formatDeviceHealthChecked(_lastCheckedTime),
             ),
             const SizedBox(height: 24),
             Row(
@@ -246,7 +324,7 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
                 icon: Icons.monitor_heart_outlined,
                 title: 'Run full health check',
                 subtitle: 'Scan all devices and network',
-                onTap: _checkAgain,
+                onTap: _checking ? null : _checkAgain,
               ),
             ),
           ],
@@ -261,11 +339,13 @@ class _HealthHeroCard extends StatelessWidget {
     required this.summary,
     required this.checking,
     required this.onCheckAgain,
+    required this.lastCheckedLabel,
   });
 
   final HomeHealthSummary summary;
   final bool checking;
   final VoidCallback onCheckAgain;
+  final String lastCheckedLabel;
 
   @override
   Widget build(BuildContext context) => SettingsHeroCard(
@@ -332,7 +412,7 @@ class _HealthHeroCard extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         SettingsHeroActionFooter(
-          lastCheckedLabel: 'Last checked: Today, 9:40 AM',
+          lastCheckedLabel: lastCheckedLabel,
           actionLabel: 'Check again',
           onAction: onCheckAgain,
           checking: checking,
@@ -442,7 +522,7 @@ class _RoomHealthCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.center,
