@@ -3,12 +3,23 @@
  * EH Home API Server Process Entrypoint
  * Handles process lifecycle, network listening, and graceful termination.
  */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.main = main;
+const dotenv_1 = __importDefault(require("dotenv"));
+const node_path_1 = __importDefault(require("node:path"));
+// The workspace .env lives at the repository root, while pnpm may execute
+// this package with apps/api as the current directory.
+dotenv_1.default.config({ path: node_path_1.default.resolve(__dirname, '../../../.env') });
+dotenv_1.default.config();
 const app_1 = require("./app");
 const config_1 = require("./config");
 async function main() {
-    const config = (0, config_1.loadConfig)();
+    // The legacy backend owns PORT (3000). Keep this modular API isolated on
+    // API_PORT so both services can run together without EADDRINUSE.
+    const config = (0, config_1.loadConfig)({ PORT: process.env.API_PORT });
     const app = await (0, app_1.buildApp)({ config });
     // Graceful Shutdown
     const signals = ['SIGINT', 'SIGTERM'];

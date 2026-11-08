@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/connection_models.dart';
 import '../models/home_dashboard_models.dart';
+import 'change_tracking_service.dart';
 
 /// Persistent storage service for multiple commissioned EH Home devices and rooms.
 class DeviceStorageService {
@@ -247,7 +248,10 @@ class DeviceStorageService {
           }
         }
       } catch (_) {}
-      _cachedPendingCloudUpload = prefs.getBool(_keyPendingCloudUpload) ?? false;
+      try {
+        await ChangeTrackingService.instance.init();
+      } catch (_) {}
+      _cachedPendingCloudUpload = ChangeTrackingService.instance.hasPendingChanges || (prefs.getBool(_keyPendingCloudUpload) ?? false);
       _cachedSyncMode = prefs.getString(_keySyncMode) ?? 'manual';
       _cachedConnectionRoutingMode = prefs.getString(_keyConnectionRoutingMode) ?? 'auto';
       _cachedLastCloudSyncTime = prefs.getInt(_keyLastCloudSyncTime);
@@ -1350,7 +1354,7 @@ class DeviceStorageService {
   }
 
   // --- Cloud Sync & Connection Routing State Methods ---
-  static bool get hasPendingCloudUpload => _cachedPendingCloudUpload;
+  static bool get hasPendingCloudUpload => _cachedPendingCloudUpload || ChangeTrackingService.instance.hasPendingChanges;
 
   static Future<void> setPendingCloudUpload(bool pending) async {
     _cachedPendingCloudUpload = pending;

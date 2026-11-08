@@ -8,11 +8,10 @@ import '../../../../core/repositories/home_connection_repository.dart';
 import '../../../../core/repositories/settings_repository.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../automations/presentation/automations_page.dart';
-import '../../../connection/presentation/home_connection_page.dart';
 import '../../../diagnostics/presentation/device_health_page.dart';
 import '../../../rooms/presentation/rooms_page.dart';
 import '../../../updates/presentation/system_update_page.dart';
-import '../add_room_device_page.dart';
+import '../add_device_page.dart';
 import '../people_page.dart';
 import '../settings_ui.dart';
 import 'help_article_page.dart';
@@ -79,7 +78,6 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
   Widget build(BuildContext context) => NestedSettingsScaffold(
     title: 'Help & support',
     subtitle: 'We\'re here to help you with EH Home.',
-    actions: [settingsHelpAction(context)],
     child: FutureBuilder<_HelpData>(
       future: _data,
       builder: (context, snapshot) {
@@ -238,29 +236,11 @@ class _HelpSupportPageState extends State<HelpSupportPage> {
         widget.settingsRepository ?? const PreviewSettingsRepository();
     switch (article.actionRoute) {
       case 'connect':
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => HomeConnectionPage(
-              repository: widget.homeConnectionRepository ??
-                  (widget.homeController != null
-                      ? RealHomeConnectionRepository(
-                          primaryDevice:
-                              widget.homeController!.connectedDeviceSummary,
-                          onRefresh:
-                              widget.homeController!.startConnectionSetup,
-                        )
-                      : const RealHomeConnectionRepository()),
-              connectionState: widget.homeController?.connectionState,
-              connectionMessage: widget.homeController?.connectionMessage,
-            ),
-          ),
-        );
       case 'add-device':
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => AddRoomDevicePage(
+            builder: (_) => AddDevicePage(
               repository: effectiveSettings,
               homeController: widget.homeController,
             ),

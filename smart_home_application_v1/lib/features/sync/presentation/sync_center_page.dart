@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/sync_service.dart';
+import '../../settings/presentation/settings_ui.dart';
 
 /// EH Home — Cloud Sync & Offline Recovery Management Center (Phase 17)
 class SyncCenterPage extends StatefulWidget {
@@ -108,6 +109,7 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
             title: const Text('Cloud Sync & Recovery'),
             elevation: 0,
             actions: [
+              settingsHelpAction(context, screenId: 'cloud_sync'),
               IconButton(
                 icon: const Icon(Icons.refresh_rounded),
                 tooltip: 'Sync Now',
@@ -121,7 +123,9 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
               // Status Card
               Card(
                 elevation: 2,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
@@ -137,8 +141,12 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
-                              isOnline ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                              color: isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                              isOnline
+                                  ? Icons.cloud_done_rounded
+                                  : Icons.cloud_off_rounded,
+                              color: isOnline
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFFEF4444),
                               size: 32,
                             ),
                           ),
@@ -148,7 +156,9 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  isOnline ? 'Online & Synchronized' : 'Offline Mode',
+                                  isOnline
+                                      ? 'Online & Synchronized'
+                                      : 'Offline Mode',
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
@@ -172,19 +182,29 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                       if (_statusMessage != null) ...[
                         const SizedBox(height: 16),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.blue.withAlpha(25),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                              const Icon(
+                                Icons.info_outline,
+                                size: 18,
+                                color: Colors.blue,
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   _statusMessage!,
-                                  style: const TextStyle(fontSize: 13, color: Colors.blue),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.blue,
+                                  ),
                                 ),
                               ),
                             ],
@@ -207,13 +227,18 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                           ? const SizedBox(
                               width: 16,
                               height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
                             )
                           : const Icon(Icons.sync_rounded),
                       label: const Text('Sync Now'),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                   ),
@@ -225,7 +250,9 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                       label: const Text('Export Data'),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                   ),
@@ -246,8 +273,12 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                   ),
                   if (pendingMutations.isNotEmpty)
                     TextButton(
-                      onPressed: () => widget.syncService.clearPendingMutations(),
-                      child: const Text('Clear All', style: TextStyle(color: Colors.red)),
+                      onPressed: () =>
+                          widget.syncService.clearPendingMutations(),
+                      child: const Text(
+                        'Clear All',
+                        style: TextStyle(color: Colors.red),
+                      ),
                     ),
                 ],
               ),
@@ -255,17 +286,26 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
 
               if (pendingMutations.isEmpty)
                 Card(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: const Padding(
                     padding: EdgeInsets.symmetric(vertical: 24, horizontal: 16),
                     child: Center(
                       child: Column(
                         children: [
-                          Icon(Icons.check_circle_outline, size: 36, color: Colors.green),
+                          Icon(
+                            Icons.check_circle_outline,
+                            size: 36,
+                            color: Colors.green,
+                          ),
                           SizedBox(height: 8),
                           Text(
                             'No pending offline changes',
-                            style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey,
+                            ),
                           ),
                         ],
                       ),
@@ -276,7 +316,9 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                 ...pendingMutations.map((m) {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.amber.withAlpha(40),
@@ -291,7 +333,10 @@ class _SyncCenterPageState extends State<SyncCenterPage> {
                         style: const TextStyle(fontSize: 12),
                       ),
                       trailing: const Chip(
-                        label: Text('Pending', style: TextStyle(fontSize: 11, color: Colors.amber)),
+                        label: Text(
+                          'Pending',
+                          style: TextStyle(fontSize: 11, color: Colors.amber),
+                        ),
                         backgroundColor: Color(0xFFFEF3C7),
                       ),
                     ),

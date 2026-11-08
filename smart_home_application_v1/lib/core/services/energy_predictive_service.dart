@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_client.dart';
 import '../config/app_config.dart';
 import '../models/energy_predictive_models.dart';
 
@@ -8,6 +10,7 @@ import '../models/energy_predictive_models.dart';
 class EnergyPredictiveService extends ChangeNotifier {
   final String baseUrl;
   final http.Client _client;
+  final ApiClient? apiClient;
   String? authToken;
 
   EnergyForecast? _currentForecast;
@@ -24,6 +27,7 @@ class EnergyPredictiveService extends ChangeNotifier {
   EnergyPredictiveService({
     String? baseUrl,
     http.Client? client,
+    this.apiClient,
     this.authToken,
   })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
         _client = client ?? http.Client();
@@ -39,10 +43,26 @@ class EnergyPredictiveService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (authToken != null) 'Authorization': 'Bearer $authToken',
-      };
+  Future<Map<String, String>> _getHeaders() async {
+    String? token = authToken;
+    if (token == null || token.isEmpty) {
+      if (apiClient?.getAccessToken != null) {
+        token = await apiClient!.getAccessToken!();
+      } else if (ApiClient.defaultTokenProvider != null) {
+        token = await ApiClient.defaultTokenProvider!();
+      } else {
+        try {
+          final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
+          token = prefs.getString('auth_access_token');
+        } catch (_) {}
+      }
+      if (token != null) authToken = token;
+    }
+    return {
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
 
   void updateAuthToken(String? token) {
     authToken = token;
@@ -63,7 +83,7 @@ class EnergyPredictiveService extends ChangeNotifier {
 
     try {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/forecast?horizon=${horizon.toApiValue()}');
-      final response = await _client.get(uri, headers: _headers);
+      final response = await _client.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -90,7 +110,7 @@ class EnergyPredictiveService extends ChangeNotifier {
   Future<EnergyBaseline?> fetchHomeBaseline(String homeId) async {
     try {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/baseline');
-      final response = await _client.get(uri, headers: _headers);
+      final response = await _client.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -109,7 +129,7 @@ class EnergyPredictiveService extends ChangeNotifier {
   Future<EnergyBaseline?> fetchDeviceBaseline(String deviceId) async {
     try {
       final uri = Uri.parse('$baseUrl/api/v1/energy/devices/$deviceId/baseline');
-      final response = await _client.get(uri, headers: _headers);
+      final response = await _client.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -136,7 +156,7 @@ class EnergyPredictiveService extends ChangeNotifier {
 
     try {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/anomalies');
-      final response = await _client.get(uri, headers: _headers);
+      final response = await _client.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -169,7 +189,7 @@ class EnergyPredictiveService extends ChangeNotifier {
 
     try {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/efficiency-score');
-      final response = await _client.get(uri, headers: _headers);
+      final response = await _client.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -199,7 +219,7 @@ class EnergyPredictiveService extends ChangeNotifier {
 
     try {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/predictive-optimization');
-      final response = await _client.get(uri, headers: _headers);
+      final response = await _client.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -228,7 +248,7 @@ class EnergyPredictiveService extends ChangeNotifier {
   Future<ForecastAccuracy?> fetchForecastAccuracy(String homeId, {String horizon = 'next_24_hours'}) async {
     try {
       final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/forecast/accuracy?horizon=$horizon');
-      final response = await _client.get(uri, headers: _headers);
+      final response = await _client.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;

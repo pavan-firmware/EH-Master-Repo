@@ -17,6 +17,7 @@ import { securityRoutes } from '../modules/security/security.routes';
 import { auditRoutes } from '../modules/audit/audit.routes';
 import { storageRoutes } from '../modules/storage/storage.routes';
 import { backupRoutes } from '../modules/backup/backup.routes';
+import { authRoutes } from '../modules/auth/auth.routes';
 
 export const registerRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // 1. Root Operational Endpoints (/health, /ready)
@@ -60,6 +61,9 @@ export const registerRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
 
       // Database Backup, Verification & Recovery (Part 16)
       await v1.register(backupRoutes, { prefix: '/backups' });
+
+      // Account authentication used by the Flutter client.
+      await v1.register(authRoutes, { prefix: '/auth' });
     },
     { prefix: '/api/v1' }
   );

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../connection/presentation/home_connection_page.dart';
 import '../settings_ui.dart';
-import '../add_room_device_page.dart';
+import '../add_device_page.dart';
 import '../../../../core/repositories/settings_repository.dart';
 
 class FactoryResetResultPage extends StatelessWidget {
@@ -51,25 +50,13 @@ class FactoryResetResultPage extends StatelessWidget {
               onPressed: () => Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => AddRoomDevicePage(
-                    repository: const PreviewSettingsRepository(),
+                  builder: (_) => const AddDevicePage(
+                    repository: PreviewSettingsRepository(),
                   ),
                 ),
                 (route) => route.isFirst,
               ),
-              child: const Text('Set up device again'),
-            ),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const HomeConnectionPage()),
-                (route) => route.isFirst,
-              ),
-              child: const Text('Connect your home'),
+              child: const Text('Add a device'),
             ),
           ),
         ] else

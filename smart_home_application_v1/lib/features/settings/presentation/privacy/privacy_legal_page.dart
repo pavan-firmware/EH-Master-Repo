@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/models/legal_document_models.dart';
+import '../../../../core/repositories/legal_document_repository.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../settings_ui.dart';
 
@@ -11,29 +13,119 @@ class PrivacyLegalPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final document = LegalDocumentRepository.get(switch (kind) {
+      'security' => 'security_document',
+      'privacy' => 'privacy_policy',
+      'terms' => 'terms_of_service',
+      _ => 'data_practices',
+    });
     final tokens = context.ehColors;
     return NestedSettingsScaffold(
       title: title,
+      screenId: document.id,
+      subtitle: 'Draft – Pending Legal Review',
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
         children: [
-          Text(
-            _body(kind),
-            style: TextStyle(height: 1.5, color: tokens.textPrimary),
+          SettingsSurface(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                children: [
+                  Text(
+                    'Version ${document.version}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: tokens.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    'Last updated ${document.lastUpdated}',
+                    style: TextStyle(color: tokens.textSecondary),
+                  ),
+                  SettingsStatusChip(
+                    label: 'Draft – Pending Legal Review',
+                    color: tokens.warning,
+                    background: tokens.warningContainer,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SettingsSurface(
+            child: ExpansionTile(
+              title: const Text(
+                'Contents',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              children: [
+                for (final section in document.sections)
+                  ListTile(dense: true, title: Text(section.heading)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          for (final section in document.sections)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: _LegalSectionView(section: section, tokens: tokens),
+            ),
+          SettingsSurface(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Legal review checklist: confirm company identity and address, privacy and grievance contacts, retention periods, hosting location, processors, rights workflows, consent, deletion, and children’s policy.',
+                style: TextStyle(color: tokens.textSecondary, height: 1.4),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
+}
 
-  String _body(String kind) => switch (kind) {
-    'security' =>
-      'EH Home employs hardware-backed cryptographic identity verification (fact_v2), secure mTLS-encrypted transport on MQTT port 8883, and end-to-end tokenized authentication for all cloud and local operations. Device credentials and cryptographic secrets are protected within isolated hardware partitions, and all firmware images are cryptographically signed with anti-rollback verification.',
-    'privacy' =>
-      'Your privacy is fundamental to EH Home. Personal information, device telemetry, and occupancy states are stored securely and never sold or shared with third parties. Telemetry data from energy sensors (BL0942) and switch relays is processed strictly to deliver real-time monitoring and automation schedules for your home.',
-    'terms' =>
-      'By using EH Home services and hardware, you agree to operate connected electrical devices in accordance with rated electrical specifications and safety guidelines. EH Home provides local-first reliability, ensuring essential switch operations continue even when internet connectivity is interrupted. Users are responsible for maintaining secure Wi-Fi networks and authorized access to their home credentials.',
-    _ =>
-      'EH Home collects only the telemetry and configuration data necessary to provide reliable smart home automation. All communication adheres to least-privilege access models and industry-standard security protocols.',
-  };
+class _LegalSectionView extends StatelessWidget {
+  const _LegalSectionView({required this.section, required this.tokens});
+  final LegalSection section;
+  final EHThemeTokens tokens;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        section.heading,
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          color: tokens.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 7),
+      Text(
+        section.body,
+        style: TextStyle(height: 1.5, color: tokens.textPrimary),
+      ),
+      for (final bullet in section.bullets)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('•  ', style: TextStyle(color: tokens.bluePrimary)),
+              Expanded(
+                child: Text(
+                  bullet,
+                  style: TextStyle(height: 1.4, color: tokens.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
 }

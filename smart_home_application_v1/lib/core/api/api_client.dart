@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 
 class ApiException implements Exception {
@@ -27,7 +28,19 @@ class ApiClient {
   String get baseUrl => (_baseUrl != null && _baseUrl!.isNotEmpty) ? _baseUrl! : AppConfig.backendBaseUrl;
   set baseUrl(String url) => _baseUrl = url;
 
-  final http.Client _client = http.Client();
+  final http.Client _client;
+
+  /// Global token provider fallback for any unconfigured ApiClient instances
+  static Future<String?> Function()? defaultTokenProvider;
+
+  /// Global refresh callback fallback
+  static Future<bool> Function()? defaultRefreshTokenProvider;
+
+  /// Global session expired fallback
+  static void Function()? defaultSessionExpiredHandler;
+
+  /// Global shared client instance
+  static ApiClient? sharedClient;
 
   /// Callback to get the current access token
   Future<String?> Function()? getAccessToken;
@@ -38,7 +51,8 @@ class ApiClient {
   /// Callback if refresh fails (should trigger logout)
   void Function()? onSessionExpired;
 
-  ApiClient({String? baseUrl}) {
+  ApiClient({String? baseUrl, http.Client? client})
+      : _client = client ?? http.Client() {
     _baseUrl = baseUrl;
   }
 
@@ -69,7 +83,17 @@ class ApiClient {
     bool isRetry = false,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
-    final token = getAccessToken != null ? await getAccessToken!() : null;
+    String? token;
+    if (getAccessToken != null) {
+      token = await getAccessToken!();
+    } else if (defaultTokenProvider != null) {
+      token = await defaultTokenProvider!();
+    } else {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        token = prefs.getString('auth_access_token');
+      } catch (_) {}
+    }
 
     final headers = {
       'Content-Type': 'application/json',
@@ -120,18 +144,19 @@ class ApiClient {
     }
 
     final isAuthEndpoint = path.startsWith('/api/v1/auth/');
+    final refreshFn = onRefreshToken ?? defaultRefreshTokenProvider;
     if (response.statusCode == 401 &&
         !isRetry &&
         !isAuthEndpoint &&
-        onRefreshToken != null) {
+        refreshFn != null) {
       // Attempt to refresh for expired access token on authenticated endpoints
-      final refreshSuccess = await onRefreshToken!();
+      final refreshSuccess = await refreshFn();
       if (refreshSuccess) {
         // Retry the original request exactly once
         return _request(method, path, body: body, isRetry: true);
       } else {
         // Refresh failed
-        onSessionExpired?.call();
+        (onSessionExpired ?? defaultSessionExpiredHandler)?.call();
         throw ApiException(statusCode: 401, message: 'Session expired');
       }
     }

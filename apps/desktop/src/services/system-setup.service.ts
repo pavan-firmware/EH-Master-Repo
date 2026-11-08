@@ -317,7 +317,7 @@ export class SystemSetupService {
     return {
       station_id: 'STATION_BENCH_01',
       operator_id: 'BENCH_OPERATOR',
-      api_url: 'http://localhost:3100',
+      api_url: 'http://localhost:3000',
       baud_rate: 921600,
       default_printer_id: 'Microsoft Print to PDF',
       setup_completed: false,

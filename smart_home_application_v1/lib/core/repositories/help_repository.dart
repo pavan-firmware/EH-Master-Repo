@@ -21,10 +21,10 @@ class PreviewHelpRepository implements HelpRepository {
       steps: [
         'Make sure Bluetooth is turned on.',
         'Keep your phone close to the powered-on device.',
-        'Open Connect your home in Settings.',
-        'Try Add a room device if the device is new.',
+        'Open Settings → Add a device.',
+        'Select your device from Nearby devices.',
       ],
-      actionRoute: 'connect',
+      actionRoute: 'add-device',
       iconKey: 'bluetooth',
     ),
     const HelpArticle(
@@ -34,12 +34,12 @@ class PreviewHelpRepository implements HelpRepository {
       category: HelpCategoryKind.quickHelp,
       keywords: ['wifi', 'network', 'internet'],
       steps: [
-        'Open Connect your home in Settings.',
-        'Tap Change Wi-Fi network.',
-        'Choose your home network and enter the password.',
-        'Wait for the device to confirm connection.',
+        'Open Settings → Add a device.',
+        'Select your device and tap Connect.',
+        'Enter your Wi-Fi details or scan a Wi-Fi QR code.',
+        'Tap Connect & Provision.',
       ],
-      actionRoute: 'connect',
+      actionRoute: 'add-device',
       iconKey: 'wifi',
     ),
     const HelpArticle(
@@ -50,7 +50,7 @@ class PreviewHelpRepository implements HelpRepository {
       keywords: ['offline', 'unreachable', 'disconnected'],
       steps: [
         'Make sure the device is powered on.',
-        'Check that your home is connected.',
+        'Check that your Wi-Fi network is online.',
         'Open Device health and review the device status.',
         'Restart the device if needed.',
       ],
@@ -65,7 +65,7 @@ class PreviewHelpRepository implements HelpRepository {
       keywords: ['add', 'setup', 'new device'],
       steps: [
         'Power on your EH Home device.',
-        'Open Settings → Add a room device.',
+        'Open Settings → Add a device.',
         'Follow the nearby setup steps.',
       ],
       actionRoute: 'add-device',
@@ -73,16 +73,16 @@ class PreviewHelpRepository implements HelpRepository {
     ),
     const HelpArticle(
       id: 'connect-home',
-      title: 'Connect your home',
-      subtitle: 'Connect EH Home to your network and supported devices.',
+      title: 'Set up devices',
+      subtitle: 'Connect EH Home devices to your network.',
       category: HelpCategoryKind.gettingStarted,
-      keywords: ['connect', 'home', 'setup'],
+      keywords: ['connect', 'setup', 'device'],
       steps: [
-        'Open Settings → Connect your home.',
+        'Open Settings → Add a device.',
         'Allow Bluetooth when prompted.',
         'Select your device and connect to Wi-Fi.',
       ],
-      actionRoute: 'connect',
+      actionRoute: 'add-device',
       iconKey: 'home',
     ),
     const HelpArticle(
@@ -92,7 +92,7 @@ class PreviewHelpRepository implements HelpRepository {
       category: HelpCategoryKind.gettingStarted,
       keywords: ['first', 'device'],
       steps: [
-        'Open Settings → Add a room device.',
+        'Open Settings → Add a device.',
         'Select the nearby device.',
         'Complete secure verification and Wi-Fi setup.',
       ],

@@ -236,29 +236,15 @@ class TestHelpRepository implements HelpRepository {
 
   static const canonicalGettingStarted = <HelpArticle>[
     HelpArticle(
-      id: 'connect-home',
-      title: 'Connect your home',
-      subtitle: 'Connect EH Home to your network and supported devices.',
-      category: HelpCategoryKind.gettingStarted,
-      keywords: ['connect', 'network', 'home', 'wifi'],
-      steps: [
-        'Open Settings -> Connect your home.',
-        'Allow Bluetooth when prompted.',
-        'Select your device and connect to Wi-Fi.',
-      ],
-      actionRoute: 'connect',
-      iconKey: 'home',
-    ),
-    HelpArticle(
       id: 'first-device',
-      title: 'Add your first device',
+      title: 'Add a device',
       subtitle: 'Discover and securely set up a supported EH device.',
       category: HelpCategoryKind.gettingStarted,
-      keywords: ['first', 'device', 'add', 'pair'],
+      keywords: ['device', 'add', 'pair', 'setup'],
       steps: [
-        'Open Settings -> Add a room device.',
-        'Select the nearby device.',
-        'Complete secure verification and Wi-Fi setup.',
+        'Open Settings -> Add a device.',
+        'Wait for nearby devices to be discovered.',
+        'Select your device and connect to Wi-Fi.',
       ],
       actionRoute: 'add-device',
       iconKey: 'add',

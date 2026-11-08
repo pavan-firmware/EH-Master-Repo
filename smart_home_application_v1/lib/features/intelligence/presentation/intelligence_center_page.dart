@@ -229,7 +229,13 @@ class _IntelligenceCenterPageState extends State<IntelligenceCenterPage> {
               children: [
                 _buildStatMetric('Total Load', '${snapshot.totalPowerW.toStringAsFixed(0)} W', Icons.bolt),
                 _buildStatMetric('Active Devices', '${snapshot.activeDevicesCount} / ${snapshot.deviceCount}', Icons.devices),
-                _buildStatMetric('Tariff Rate', '\$${snapshot.tariffPrice.toStringAsFixed(2)}/kWh', Icons.payments_outlined),
+                _buildStatMetric(
+                  'Tariff Rate',
+                  snapshot.tariffPrice > 0
+                      ? '\$${snapshot.tariffPrice.toStringAsFixed(2)}/kWh'
+                      : 'Not set',
+                  Icons.payments_outlined,
+                ),
                 _buildStatMetric('Anomalies', '${snapshot.activeAnomalyCount}', Icons.warning_amber, isAlert: snapshot.activeAnomalyCount > 0),
               ],
             ),

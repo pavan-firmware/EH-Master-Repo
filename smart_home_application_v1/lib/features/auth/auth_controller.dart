@@ -45,6 +45,7 @@ class AuthController extends ChangeNotifier {
   AuthState get state => _state;
   String? get errorMessage => _errorMessage;
   UserProfile? get currentUser => _authRepository.currentUser;
+  ApiClient get apiClient => _authRepository.apiClient;
 
   void updateBaseUrl(String url) {
     _authRepository.apiClient.baseUrl = url;
@@ -68,30 +69,6 @@ class AuthController extends ChangeNotifier {
       if (opId == _currentOperationId) {
         _state = AuthState.failure;
         _errorMessage = _mapLoginError(e);
-        notifyListeners();
-      }
-      return false;
-    }
-  }
-
-  Future<bool> loginOffline({String? email, String? displayName}) async {
-    final opId = ++_currentOperationId;
-    _state = AuthState.authenticating;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      await _authRepository.loginLocalGuest(email: email, displayName: displayName);
-      if (opId == _currentOperationId) {
-        _state = AuthState.authenticated;
-        notifyListeners();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      if (opId == _currentOperationId) {
-        _state = AuthState.failure;
-        _errorMessage = e.toString();
         notifyListeners();
       }
       return false;
@@ -171,7 +148,7 @@ class AuthController extends ChangeNotifier {
             : 'Incorrect email or password.';
       }
       if (error.statusCode == 404 || error.code == 'USER_NOT_FOUND') {
-        return 'Account not found. Please check your email or create an account.';
+        return 'No account exists on this server for that email. Check the server URL or create an account.';
       }
       if (error.statusCode == 429 || error.code == 'TOO_MANY_REQUESTS') {
         return 'Too many login attempts. Please try again later.';

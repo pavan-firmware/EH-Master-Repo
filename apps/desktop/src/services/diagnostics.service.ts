@@ -105,7 +105,7 @@ export class DiagnosticsService {
           category: 'NETWORK',
           name: 'Backend REST API',
           status: 'PASS',
-          message: 'Connected to http://localhost:3100 (Latency: 4ms)',
+          message: 'Connected to http://localhost:3000 (Latency: 4ms)',
           latency_ms: 4,
         },
       ],

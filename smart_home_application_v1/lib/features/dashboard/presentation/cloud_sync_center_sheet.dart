@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../app/home_controller.dart';
+import '../../../core/services/change_tracking_service.dart';
 import '../../../core/theme/app_theme.dart';
 
 class CloudSyncCenterSheet extends StatefulWidget {
@@ -127,14 +128,12 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
     final tokens = context.ehColors;
 
     return AnimatedBuilder(
-      animation: widget.homeController,
+      animation: Listenable.merge([widget.homeController, ChangeTrackingService.instance]),
       builder: (context, _) {
-        final hasPending = widget.homeController.hasPendingCloudUpload;
+        final pendingChanges = ChangeTrackingService.instance.pendingChanges;
+        final changesByArea = ChangeTrackingService.instance.changesByArea;
+        final hasPending = widget.homeController.hasPendingCloudUpload || pendingChanges.isNotEmpty;
         final lastSync = widget.homeController.lastCloudSyncTime;
-        final devices = widget.homeController.devices;
-        final rooms = widget.homeController.rooms;
-        final favouritesCount = widget.homeController.favouriteControlIds.length;
-        final quickControlsCount = widget.homeController.selectedQuickControlIds.length;
 
         return Container(
           decoration: BoxDecoration(
@@ -306,7 +305,9 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        'Inspect rooms, devices, and labels to be uploaded',
+                                        pendingChanges.isNotEmpty
+                                            ? '${pendingChanges.length} pending change(s) across ${changesByArea.keys.length} categories'
+                                            : 'Inspect pending changes or verify cloud sync status',
                                         style: TextStyle(fontSize: 11, color: tokens.textSecondary),
                                       ),
                                     ],
@@ -325,33 +326,72 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
                           const Divider(height: 1),
                           Padding(
                             padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildChangeRow(
-                                  icon: Icons.meeting_room_outlined,
-                                  title: 'Spaces & Rooms',
-                                  detail: rooms.isEmpty
-                                      ? 'Default space'
-                                      : '${rooms.length} space(s) defined (${rooms.map((r) => r.name).take(3).join(', ')})',
-                                  tokens: tokens,
-                                ),
-                                const SizedBox(height: 12),
-                                _buildChangeRow(
-                                  icon: Icons.memory_rounded,
-                                  title: 'Connected Hardware Nodes',
-                                  detail: '${devices.length} commissioned devices (${devices.map((d) => d.name).take(3).join(', ')})',
-                                  tokens: tokens,
-                                ),
-                                const SizedBox(height: 12),
-                                _buildChangeRow(
-                                  icon: Icons.star_border_rounded,
-                                  title: 'Dashboard Favourites & Tiles',
-                                  detail: '$favouritesCount favourite items, $quickControlsCount quick actions',
-                                  tokens: tokens,
-                                ),
-                              ],
-                            ),
+                            child: changesByArea.isEmpty
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                                    alignment: Alignment.center,
+                                    child: Column(
+                                      children: [
+                                        Icon(Icons.check_circle_outline_rounded, color: tokens.success, size: 28),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'No pending offline changes',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: tokens.textPrimary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'All spaces, devices, controls, and routines are in sync with your cloud backup.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      for (final entry in changesByArea.entries) ...[
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 6, bottom: 4),
+                                          child: Row(
+                                            children: [
+                                              Text(
+                                                entry.key,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: tokens.bluePrimary,
+                                                  letterSpacing: 0.2,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: tokens.bluePrimary.withValues(alpha: 0.12),
+                                                  borderRadius: BorderRadius.circular(10),
+                                                ),
+                                                child: Text(
+                                                  '${entry.value.length}',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: tokens.bluePrimary,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        ...entry.value.map((c) => _buildTrackedChangeItem(c, tokens)),
+                                        const SizedBox(height: 8),
+                                      ],
+                                    ],
+                                  ),
                           ),
                         ],
                       ],
@@ -524,34 +564,92 @@ class _CloudSyncCenterSheetState extends State<CloudSyncCenterSheet> {
     );
   }
 
-  Widget _buildChangeRow({
-    required IconData icon,
-    required String title,
-    required String detail,
-    required EHThemeTokens tokens,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 16, color: tokens.bluePrimary),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                detail,
-                style: TextStyle(fontSize: 11, color: tokens.textSecondary, height: 1.3),
-              ),
-            ],
+  Widget _buildTrackedChangeItem(TrackedChange change, EHThemeTokens tokens) {
+    final Color badgeBg;
+    final Color badgeFg;
+    switch (change.changeType) {
+      case ChangeType.created:
+        badgeBg = tokens.successContainer;
+        badgeFg = tokens.success;
+        break;
+      case ChangeType.modified:
+        badgeBg = tokens.warningContainer;
+        badgeFg = tokens.warning;
+        break;
+      case ChangeType.deleted:
+        badgeBg = tokens.errorContainer;
+        badgeFg = tokens.error;
+        break;
+    }
+
+    final IconData icon = switch (change.entityType.toLowerCase()) {
+      'room' => Icons.meeting_room_outlined,
+      'device' => Icons.memory_rounded,
+      'control' || 'channel' || 'channel_alert' => Icons.toggle_on_outlined,
+      'quick_controls' || 'favourites' => Icons.star_border_rounded,
+      'routine' || 'automation' => Icons.auto_awesome_rounded,
+      'home' || 'space' => Icons.home_work_outlined,
+      'notification_preference' => Icons.notifications_none_rounded,
+      _ => Icons.tune_rounded,
+    };
+
+    final timeStr = '${change.timestamp.hour.toString().padLeft(2, '0')}:${change.timestamp.minute.toString().padLeft(2, '0')}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: tokens.bluePrimary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: tokens.bluePrimary),
           ),
-        ),
-      ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  change.displaySummary,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: tokens.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${change.entityType.toUpperCase()} · $timeStr',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: tokens.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: badgeBg,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              change.changeType.label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: badgeFg,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

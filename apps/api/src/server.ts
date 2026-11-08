@@ -3,11 +3,20 @@
  * Handles process lifecycle, network listening, and graceful termination.
  */
 
+import dotenv from 'dotenv';
+import path from 'node:path';
+
+// The workspace .env lives at the repository root, while pnpm may execute
+// this package with apps/api as the current directory.
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config();
 import { buildApp } from './app';
 import { loadConfig } from './config';
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  // The legacy backend owns PORT (3000). Keep this modular API isolated on
+  // API_PORT so both services can run together without EADDRINUSE.
+  const config = loadConfig({ PORT: process.env.API_PORT });
 
   const app = await buildApp({ config });
 

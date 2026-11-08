@@ -54,6 +54,7 @@ class BleCommissioningChannel {
   StreamSubscription<DiscoveredDevice>? _activeScanSub;
   DateTime? _lastScanTime;
   Future<DiscoveredDevice>? _inFlightScan;
+  int _discoveryScanId = 0;
 
   final StreamController<Uint8List> _responseController =
       StreamController<Uint8List>.broadcast();
@@ -154,6 +155,83 @@ class BleCommissioningChannel {
     } finally {
       _inFlightScan = null;
     }
+  }
+
+  /// Discovers every matching EH peripheral seen during [timeout]. This is
+  /// intentionally separate from [scanForSingleDevice]: the Add Device page
+  /// must show the actual radio results, while commissioning still selects a
+  /// single peripheral and performs the authoritative GATT handshake.
+  Future<List<DiscoveredDevice>> scanForDevices({
+    String namePrefix = 'EH-',
+    Duration timeout = const Duration(seconds: 10),
+    void Function(DiscoveredDevice device)? onDeviceFound,
+  }) async {
+    final scanId = ++_discoveryScanId;
+    await _cancelActiveScan();
+
+    if (_lastScanTime != null) {
+      final elapsed = DateTime.now().difference(_lastScanTime!);
+      if (elapsed < const Duration(seconds: 2)) {
+        await Future<void>.delayed(const Duration(seconds: 2) - elapsed);
+      }
+    }
+    _lastScanTime = DateTime.now();
+
+    final found = <String, DiscoveredDevice>{};
+    final lastReportedRssi = <String, int>{};
+    final lastReportedAt = <String, DateTime>{};
+    final done = Completer<void>();
+    _activeScanSub = _ble.scanForDevices(
+      withServices: [],
+      scanMode: ScanMode.lowLatency,
+    ).listen((device) {
+      final name = device.name.trim();
+      final matchingService = device.serviceUuids.contains(infoServiceUuid) ||
+          device.serviceUuids.contains(provServiceUuid);
+      final matchingName = name.isNotEmpty &&
+          (name.toUpperCase().startsWith(namePrefix.toUpperCase()) ||
+              name.toUpperCase().startsWith('EH') ||
+              name.toLowerCase().contains('smart switch') ||
+              name.toLowerCase().contains('smart socket'));
+      if (matchingService || matchingName) {
+        found[device.id] = device;
+        final now = DateTime.now();
+        final previousRssi = lastReportedRssi[device.id];
+        final previousAt = lastReportedAt[device.id];
+        final shouldReport = previousRssi == null ||
+            (device.rssi - previousRssi).abs() >= 2 ||
+            previousAt == null ||
+            now.difference(previousAt) >= const Duration(milliseconds: 500);
+        if (shouldReport) {
+          lastReportedRssi[device.id] = device.rssi;
+          lastReportedAt[device.id] = now;
+          onDeviceFound?.call(device);
+        }
+      }
+    }, onError: (Object error) {
+      if (!done.isCompleted) done.completeError(error);
+    });
+
+    try {
+      await Future<void>.delayed(timeout);
+      if (!done.isCompleted) done.complete();
+      await done.future;
+      return found.values.toList(growable: false);
+    } finally {
+      // An older cancelled scan must never tear down a newer scan that was
+      // started after the user pressed Refresh.
+      if (scanId == _discoveryScanId) {
+        await _cancelActiveScan();
+      }
+    }
+  }
+
+  /// Stops any scan/connection left by a previous setup attempt. A BLE
+  /// peripheral remains connected after the setup page is popped unless the
+  /// owner explicitly releases it, which otherwise prevents the next scan.
+  Future<void> resetForDiscovery() async {
+    _discoveryScanId++;
+    await disconnect();
   }
 
   Future<DiscoveredDevice> _executeScan({

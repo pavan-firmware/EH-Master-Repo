@@ -33,12 +33,12 @@ export declare const SendCommandResponseSchema: z.ZodObject<{
     isIdempotentReplay: z.ZodBoolean;
     message: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    status: "CREATED" | "APPLIED" | "FAILED" | "EXPIRED" | "OVERRIDDEN";
+    status: "FAILED" | "CREATED" | "APPLIED" | "EXPIRED" | "OVERRIDDEN";
     commandId: string;
     isIdempotentReplay: boolean;
     message?: string | undefined;
 }, {
-    status: "CREATED" | "APPLIED" | "FAILED" | "EXPIRED" | "OVERRIDDEN";
+    status: "FAILED" | "CREATED" | "APPLIED" | "EXPIRED" | "OVERRIDDEN";
     commandId: string;
     isIdempotentReplay: boolean;
     message?: string | undefined;

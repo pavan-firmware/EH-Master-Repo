@@ -9,4 +9,5 @@ abstract class RecoveryRepository {
   Future<RestoreOperationModel> executeRestore(String backupId, {String targetScope = 'FULL', bool dryRun = false});
   Future<RestoreOperationModel> getRestoreOperation(String operationId);
   Future<List<RecoveryCheckpointModel>> listCheckpoints();
+  Future<List<RecoveryIntegrityModel>> listIntegrityResults({int limit = 50, int offset = 0, String? backupId});
 }

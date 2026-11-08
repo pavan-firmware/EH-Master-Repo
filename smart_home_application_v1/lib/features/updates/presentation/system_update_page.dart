@@ -10,6 +10,9 @@ import '../../../core/repositories/cloud_update_repository.dart';
 import '../../../core/repositories/update_repository.dart';
 import '../../../core/services/check_timestamp_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
+import '../../../core/services/product_asset_resolver.dart';
+import '../../settings/presentation/settings_ui.dart';
 import 'update_history_page.dart';
 import 'update_preferences_page.dart';
 import 'update_target_detail_page.dart';
@@ -30,7 +33,8 @@ class SystemUpdatePage extends StatefulWidget {
   State<SystemUpdatePage> createState() => _SystemUpdatePageState();
 }
 
-class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerProviderStateMixin {
+class _SystemUpdatePageState extends State<SystemUpdatePage>
+    with SingleTickerProviderStateMixin {
   late Future<UpdateSummary> _summary;
   late UpdateRepository _effectiveRepository;
   bool _checking = false;
@@ -63,7 +67,8 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
         apiClient: client,
         timestampService: _timeService,
         getActiveHomeId: () => (ctrl?.repository is CloudHomeRepository)
-            ? (ctrl!.repository as CloudHomeRepository).activeHomeId ?? ctrl.activeHomeId
+            ? (ctrl!.repository as CloudHomeRepository).activeHomeId ??
+                  ctrl.activeHomeId
             : ctrl?.activeHomeId,
         getLocalDevices: () {
           final devs = ctrl?.devices ?? [];
@@ -162,12 +167,17 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                   Expanded(
                     child: Text(
                       result.subtitle,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],
               ),
-              backgroundColor: isNoNet ? const Color(0xFFD97706) : const Color(0xFFDC2626),
+              backgroundColor: isNoNet
+                  ? const Color(0xFFD97706)
+                  : const Color(0xFFDC2626),
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 4),
             ),
@@ -198,7 +208,9 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                   ? '$updateCount firmware update ready to install!'
                   : 'Check complete: All devices running latest firmware.',
             ),
-            backgroundColor: hasUpdates ? const Color(0xFFD97706) : const Color(0xFF059669),
+            backgroundColor: hasUpdates
+                ? const Color(0xFFD97706)
+                : const Color(0xFF059669),
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 3),
           ),
@@ -210,7 +222,9 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
         _animController.reset();
         setState(() => _checking = false);
         final lower = e.toString().toLowerCase();
-        final isNet = lower.contains('failed host lookup') || lower.contains('network is unreachable');
+        final isNet =
+            lower.contains('failed host lookup') ||
+            lower.contains('network is unreachable');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -218,7 +232,9 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                   ? 'Internet connection required. Please verify your Wi-Fi or data.'
                   : 'Unable to reach update server: $e',
             ),
-            backgroundColor: isNet ? const Color(0xFFD97706) : const Color(0xFFDC2626),
+            backgroundColor: isNet
+                ? const Color(0xFFD97706)
+                : const Color(0xFFDC2626),
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 4),
           ),
@@ -262,6 +278,7 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
           ],
         ),
         actions: [
+          settingsHelpAction(context, screenId: 'system_update'),
           IconButton(
             icon: Icon(Icons.history_rounded, color: tokens.textSecondary),
             tooltip: 'Update History',
@@ -297,17 +314,28 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.wifi_off_rounded, size: 48, color: tokens.warning),
+                    Icon(
+                      Icons.wifi_off_rounded,
+                      size: 48,
+                      color: tokens.warning,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Connection Required',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: tokens.textPrimary),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textPrimary,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Unable to check for updates: ${snapshot.error}',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 18),
                     FilledButton.icon(
@@ -329,8 +357,13 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
 
           final summary = snapshot.data!;
           final isUnavailable = summary.isUnavailable;
-          final hasUpdate = !isUnavailable && (summary.overallStatus == UpdateOverallStatus.updateAvailable || summary.availableCount > 0);
-          final deviceTargets = summary.targets.where((t) => t.kind == UpdateTargetKind.device).toList();
+          final hasUpdate =
+              !isUnavailable &&
+              (summary.overallStatus == UpdateOverallStatus.updateAvailable ||
+                  summary.availableCount > 0);
+          final deviceTargets = summary.targets
+              .where((t) => t.kind == UpdateTargetKind.device)
+              .toList();
           final appTarget = summary.targets.firstWhere(
             (t) => t.kind == UpdateTargetKind.app,
             orElse: () => const UpdateTarget(
@@ -405,45 +438,68 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
     );
   }
 
-  Widget _buildHeroStatusCard(EHThemeTokens tokens, UpdateSummary summary, bool hasUpdate) {
+  Widget _buildHeroStatusCard(
+    EHThemeTokens tokens,
+    UpdateSummary summary,
+    bool hasUpdate,
+  ) {
     final isUnavailable = summary.isUnavailable;
     final isNoInternet = summary.errorType == UpdateErrorType.noInternet;
-    final isServerIssue = summary.errorType == UpdateErrorType.serverUnreachable || summary.errorType == UpdateErrorType.serverError;
+    final isServerIssue =
+        summary.errorType == UpdateErrorType.serverUnreachable ||
+        summary.errorType == UpdateErrorType.serverError;
 
     final statusColor = isUnavailable
         ? (isNoInternet ? const Color(0xFFF59E0B) : const Color(0xFFEF4444))
         : (hasUpdate ? const Color(0xFFF59E0B) : const Color(0xFF10B981));
 
     final gradientColors = isUnavailable
-        ? [statusColor.withValues(alpha: 0.16), statusColor.withValues(alpha: 0.04)]
+        ? [
+            statusColor.withValues(alpha: 0.16),
+            statusColor.withValues(alpha: 0.04),
+          ]
         : (hasUpdate
-            ? [const Color(0xFFF59E0B).withValues(alpha: 0.16), const Color(0xFFD97706).withValues(alpha: 0.05)]
-            : [const Color(0xFF10B981).withValues(alpha: 0.16), const Color(0xFF059669).withValues(alpha: 0.04)]);
+              ? [
+                  const Color(0xFFF59E0B).withValues(alpha: 0.16),
+                  const Color(0xFFD97706).withValues(alpha: 0.05),
+                ]
+              : [
+                  const Color(0xFF10B981).withValues(alpha: 0.16),
+                  const Color(0xFF059669).withValues(alpha: 0.04),
+                ]);
 
     final heroIcon = isUnavailable
         ? (isNoInternet
-            ? Icons.wifi_off_rounded
-            : (isServerIssue ? Icons.dns_rounded : Icons.error_outline_rounded))
-        : (hasUpdate ? Icons.system_update_rounded : Icons.check_circle_rounded);
+              ? Icons.wifi_off_rounded
+              : (isServerIssue
+                    ? Icons.dns_rounded
+                    : Icons.error_outline_rounded))
+        : (hasUpdate
+              ? Icons.system_update_rounded
+              : Icons.check_circle_rounded);
 
     final heroTitle = isUnavailable
         ? summary.title
         : (hasUpdate
-            ? 'Firmware Update Ready'
-            : (summary.title.isNotEmpty ? summary.title : 'Everything is up to date'));
+              ? 'Firmware Update Ready'
+              : (summary.title.isNotEmpty
+                    ? summary.title
+                    : 'Everything is up to date'));
 
     final heroSubtitle = isUnavailable
         ? summary.subtitle
         : (hasUpdate
-            ? 'A new validated firmware image is available on your local PC backend.'
-            : 'All connected switches and nodes are running verified production firmware.');
+              ? 'A new validated firmware image is available on your local PC backend.'
+              : 'All connected switches and nodes are running verified production firmware.');
 
     return Container(
       decoration: BoxDecoration(
         color: tokens.surfaceCard,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: (isUnavailable || hasUpdate) ? statusColor.withValues(alpha: 0.4) : tokens.borderSubtle,
+          color: (isUnavailable || hasUpdate)
+              ? statusColor.withValues(alpha: 0.4)
+              : tokens.borderSubtle,
           width: (isUnavailable || hasUpdate) ? 1.5 : 1,
         ),
         gradient: LinearGradient(
@@ -453,7 +509,9 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
         ),
         boxShadow: [
           BoxShadow(
-            color: (isUnavailable || hasUpdate) ? statusColor.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
+            color: (isUnavailable || hasUpdate)
+                ? statusColor.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.06),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -472,13 +530,12 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.18),
                   shape: BoxShape.circle,
-                  border: Border.all(color: statusColor.withValues(alpha: 0.4), width: 1.5),
+                  border: Border.all(
+                    color: statusColor.withValues(alpha: 0.4),
+                    width: 1.5,
+                  ),
                 ),
-                child: Icon(
-                  heroIcon,
-                  color: statusColor,
-                  size: 26,
-                ),
+                child: Icon(heroIcon, color: statusColor, size: 26),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -517,12 +574,20 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
               Expanded(
                 child: Row(
                   children: [
-                    Icon(Icons.schedule_rounded, size: 14, color: tokens.textTertiary),
+                    Icon(
+                      Icons.schedule_rounded,
+                      size: 14,
+                      color: tokens.textTertiary,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         'Checked: ${_formatLastChecked(_lastCheckedTime ?? (widget.repository is! PreviewUpdateRepository ? summary.lastChecked : null))}',
-                        style: TextStyle(fontSize: 12, color: tokens.textTertiary, fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: tokens.textTertiary,
+                          fontWeight: FontWeight.w500,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -546,8 +611,13 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                     foregroundColor: Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -559,7 +629,8 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
   }
 
   Widget _buildDeviceUpdateTile(EHThemeTokens tokens, UpdateTarget target) {
-    final isUpdateAvailable = target.status == UpdateTargetStatus.updateAvailable;
+    final isUpdateAvailable =
+        target.status == UpdateTargetStatus.updateAvailable;
     final isUpdating = target.status == UpdateTargetStatus.updating;
 
     return Material(
@@ -582,7 +653,9 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isUpdateAvailable ? const Color(0xFFF59E0B).withValues(alpha: 0.5) : tokens.borderSubtle,
+              color: isUpdateAvailable
+                  ? const Color(0xFFF59E0B).withValues(alpha: 0.5)
+                  : tokens.borderSubtle,
               width: isUpdateAvailable ? 1.5 : 1,
             ),
           ),
@@ -600,10 +673,14 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                           : tokens.bluePrimary.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Icon(
-                      Icons.memory_rounded,
-                      color: isUpdateAvailable ? const Color(0xFFF59E0B) : tokens.bluePrimary,
-                      size: 22,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: ProductImageWidget(
+                        imageUrl: resolveBundledProductAsset(target.name),
+                        size: 44,
+                        fallbackIcon: Icons.memory_rounded,
+                        placeholderColor: Colors.transparent,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -629,19 +706,31 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                                 target.currentVersion,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: tokens.textSecondary,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1.5,
+                              ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                color: const Color(
+                                  0xFF10B981,
+                                ).withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: const Text(
                                 'Active',
-                                style: TextStyle(fontSize: 10, color: Color(0xFF10B981), fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Color(0xFF10B981),
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                           ],
@@ -651,13 +740,18 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                   ),
                   if (isUpdateAvailable)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF59E0B),
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                            color: const Color(
+                              0xFFF59E0B,
+                            ).withValues(alpha: 0.3),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -666,11 +760,23 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.arrow_upward_rounded, size: 14, color: Colors.white),
+                          const Icon(
+                            Icons.arrow_upward_rounded,
+                            size: 14,
+                            color: Colors.white,
+                          ),
                           const SizedBox(width: 4),
                           Text(
-                            target.availableVersion?.replaceAll('Version ', 'v') ?? 'Update',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
+                            target.availableVersion?.replaceAll(
+                                  'Version ',
+                                  'v',
+                                ) ??
+                                'Update',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
                           ),
                         ],
                       ),
@@ -696,10 +802,18 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                         const SizedBox(width: 6),
                         Text(
                           'Latest',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: tokens.textSecondary),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: tokens.textSecondary,
+                          ),
                         ),
                         const SizedBox(width: 4),
-                        Icon(Icons.chevron_right_rounded, size: 18, color: tokens.textTertiary),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: tokens.textTertiary,
+                        ),
                       ],
                     ),
                 ],
@@ -719,15 +833,24 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+                              color: const Color(
+                                0xFF2563EB,
+                              ).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.flash_on_rounded, size: 12, color: Color(0xFF2563EB)),
+                                const Icon(
+                                  Icons.flash_on_rounded,
+                                  size: 12,
+                                  color: Color(0xFF2563EB),
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   target.isDirectUpgrade
@@ -746,14 +869,19 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                             const SizedBox(width: 8),
                             Text(
                               target.formattedSize,
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: tokens.textTertiary),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: tokens.textTertiary,
+                              ),
                             ),
                           ],
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        target.releaseNotes != null && target.releaseNotes!.isNotEmpty
+                        target.releaseNotes != null &&
+                                target.releaseNotes!.isNotEmpty
                             ? target.releaseNotes!
                             : target.effectiveWhyUpdate,
                         style: TextStyle(
@@ -778,13 +906,21 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.verified_user_outlined, size: 13, color: tokens.textTertiary),
+                              Icon(
+                                Icons.verified_user_outlined,
+                                size: 13,
+                                color: tokens.textTertiary,
+                              ),
                               const SizedBox(width: 4),
                               Text(
                                 target.sha256 != null
                                     ? 'SHA256: ${target.sha256!.substring(0, 10)}...'
                                     : 'Verified Binary',
-                                style: TextStyle(fontSize: 10.5, color: tokens.textTertiary, fontFamily: 'monospace'),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: tokens.textTertiary,
+                                  fontFamily: 'monospace',
+                                ),
                               ),
                             ],
                           ),
@@ -826,7 +962,11 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
               color: const Color(0xFF8B5CF6).withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.phone_android_rounded, color: Color(0xFF8B5CF6), size: 22),
+            child: const Icon(
+              Icons.phone_android_rounded,
+              color: Color(0xFF8B5CF6),
+              size: 22,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -835,7 +975,11 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
               children: [
                 Text(
                   'EH Home App',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: tokens.textPrimary),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: tokens.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -855,7 +999,11 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
             ),
             child: const Text(
               'Up to date',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF10B981),
+              ),
             ),
           ),
         ],
@@ -878,7 +1026,11 @@ class _SystemUpdatePageState extends State<SystemUpdatePage> with SingleTickerPr
           Expanded(
             child: Text(
               'No smart devices registered in active space. Connect or commission a device to manage firmware.',
-              style: TextStyle(fontSize: 13, color: tokens.textSecondary, height: 1.3),
+              style: TextStyle(
+                fontSize: 13,
+                color: tokens.textSecondary,
+                height: 1.3,
+              ),
             ),
           ),
         ],

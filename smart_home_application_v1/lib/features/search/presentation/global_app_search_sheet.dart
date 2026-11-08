@@ -4,10 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/home_controller.dart';
 import '../../../app/theme_controller.dart';
+import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
+import '../../../core/services/product_asset_resolver.dart';
 import '../../devices/presentation/device_control_page.dart';
 
 enum SearchItemKind {
@@ -29,6 +32,7 @@ class SearchResultItem {
     this.iconColor,
     this.keywords = const [],
     this.actionPayload,
+    this.imageUrl,
   });
 
   final String id;
@@ -39,6 +43,8 @@ class SearchResultItem {
   final Color? iconColor;
   final List<String> keywords;
   final dynamic actionPayload;
+  /// Pre-resolved bundled product image path (for device/channel items).
+  final String? imageUrl;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -230,6 +236,14 @@ class _GlobalAppSearchSheetState extends State<GlobalAppSearchSheet> {
 
     // 1. Devices and Individual Channels
     for (final dev in ctrl.devices) {
+      // Resolve product image once for this device (used for both device tile and channel tiles)
+      final devImg = resolveBundledProductAsset(
+        MockProductCatalogRepository.resolveCanonicalProductVariant(
+          variantId: dev.model,
+          deviceName: dev.name,
+        ),
+      ) ?? resolveBundledProductAsset(dev.name);
+
       list.add(
         SearchResultItem(
           id: 'dev_${dev.id}',
@@ -252,6 +266,7 @@ class _GlobalAppSearchSheetState extends State<GlobalAppSearchSheet> {
             'control',
           ],
           actionPayload: dev,
+          imageUrl: devImg,
         ),
       );
 
@@ -282,6 +297,7 @@ class _GlobalAppSearchSheetState extends State<GlobalAppSearchSheet> {
               'power',
             ],
             actionPayload: {'device': dev, 'channel': i},
+            imageUrl: devImg,
           ),
         );
       }
@@ -975,16 +991,26 @@ class _GlobalAppSearchSheetState extends State<GlobalAppSearchSheet> {
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: EdgeInsets.all(item.kind == SearchItemKind.device || item.kind == SearchItemKind.channel ? 4 : 10),
               decoration: BoxDecoration(
                 color: (item.iconColor ?? tokens.bluePrimary).withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                item.icon,
-                color: item.iconColor ?? tokens.bluePrimary,
-                size: 20,
-              ),
+              child: (item.kind == SearchItemKind.device || item.kind == SearchItemKind.channel)
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: ProductImageWidget(
+                        imageUrl: item.imageUrl,
+                        size: 28,
+                        fallbackIcon: item.icon,
+                        placeholderColor: Colors.transparent,
+                      ),
+                    )
+                  : Icon(
+                      item.icon,
+                      color: item.iconColor ?? tokens.bluePrimary,
+                      size: 20,
+                    ),
             ),
             const SizedBox(width: 12),
             Expanded(

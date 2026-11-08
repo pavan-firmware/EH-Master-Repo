@@ -46,6 +46,7 @@ class ContextService {
     homeRepo = null,
     deviceRepo = null,
     roomRepo = null,
+    userRepo = null,
     energyService = null,
     automationService = null,
     notificationService = null,
@@ -59,6 +60,7 @@ class ContextService {
     this.homeRepo = homeRepo;
     this.deviceRepo = deviceRepo;
     this.roomRepo = roomRepo;
+    this.userRepo = userRepo;
     this.energyService = energyService;
     this.automationService = automationService;
     this.notificationService = notificationService;
@@ -162,13 +164,32 @@ class ContextService {
       const obs = u.last_observed_at ? new Date(u.last_observed_at) : null;
       const isStale = (exp && exp < now) || (obs && (now.getTime() - obs.getTime() > DEFAULT_SIGNAL_TTL_MS));
 
+      let userName = u.user_name || u.userName || null;
+      if (!userName && this.userRepo) {
+        try {
+          if (this.userRepo.db && typeof this.userRepo.db.findById === 'function') {
+            const profile = await this.userRepo.db.findById('user_profiles', u.user_id);
+            if (profile && (profile.full_name || profile.displayName || profile.name)) {
+              userName = profile.full_name || profile.displayName || profile.name;
+            }
+          }
+          if (!userName && typeof this.userRepo.findById === 'function') {
+            const userObj = await this.userRepo.findById(u.user_id);
+            if (userObj) {
+              userName = userObj.full_name || userObj.fullName || userObj.name || (userObj.email ? userObj.email.split('@')[0] : null);
+            }
+          }
+        } catch (_) {}
+      }
+
       const effectiveState = isStale ? 'UNKNOWN' : u.state;
       stateMap[u.user_id] = {
         state: effectiveState,
         confidence: isStale ? 0.2 : u.confidence,
         source: u.source,
         observedAt: u.last_observed_at,
-        isStale
+        isStale,
+        userName
       };
 
       if (!isStale) {
@@ -243,6 +264,7 @@ class ContextService {
 
         inferred.push({
           roomId,
+          roomName: r.name || null,
           isOccupied: hasRecentActivity,
           confidence: hasRecentActivity ? 0.75 : 0.40,
           isInferred: true,

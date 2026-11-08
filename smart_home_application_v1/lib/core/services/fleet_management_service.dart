@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_client.dart';
 import '../config/app_config.dart';
 import '../models/fleet_models.dart';
 
@@ -8,6 +10,7 @@ import '../models/fleet_models.dart';
 class FleetManagementService extends ChangeNotifier {
   final String baseUrl;
   final http.Client? httpClient;
+  final ApiClient? apiClient;
   final String? Function()? getAuthToken;
 
   FleetStatus? _cachedFleetStatus;
@@ -22,10 +25,31 @@ class FleetManagementService extends ChangeNotifier {
   FleetManagementService({
     String? baseUrl,
     this.httpClient,
+    this.apiClient,
     this.getAuthToken,
     FleetStatus? initialStatus,
   })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
         _cachedFleetStatus = initialStatus;
+
+  Future<String?> _resolveToken() async {
+    if (getAuthToken != null) {
+      final token = getAuthToken!();
+      if (token != null && token.isNotEmpty) return token;
+    }
+    if (apiClient?.getAccessToken != null) {
+      final token = await apiClient!.getAccessToken!();
+      if (token != null && token.isNotEmpty) return token;
+    }
+    if (ApiClient.defaultTokenProvider != null) {
+      final token = await ApiClient.defaultTokenProvider!();
+      if (token != null && token.isNotEmpty) return token;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
+      return prefs.getString('auth_access_token');
+    } catch (_) {}
+    return null;
+  }
 
   Future<FleetStatus> fetchFleetStatus({String? homeId}) async {
     _isLoading = true;
@@ -34,7 +58,7 @@ class FleetManagementService extends ChangeNotifier {
 
     try {
       final client = httpClient ?? http.Client();
-      final token = getAuthToken != null ? getAuthToken!() : null;
+      final token = await _resolveToken();
 
       final queryParams = <String, String>{};
       if (homeId != null) {
@@ -78,7 +102,7 @@ class FleetManagementService extends ChangeNotifier {
     String? hardwareRevision,
   }) async {
     final client = httpClient ?? http.Client();
-    final token = getAuthToken != null ? getAuthToken!() : null;
+    final token = await _resolveToken();
 
     final queryParams = <String, String>{
       'productVariantId': productVariantId,
@@ -113,7 +137,7 @@ class FleetManagementService extends ChangeNotifier {
     required String homeId,
   }) async {
     final client = httpClient ?? http.Client();
-    final token = getAuthToken != null ? getAuthToken!() : null;
+    final token = await _resolveToken();
 
     final uri = Uri.parse('$baseUrl/api/v1/ota/operations');
     final headers = <String, String>{
@@ -156,7 +180,7 @@ class FleetManagementService extends ChangeNotifier {
     String? deviceId,
   }) async {
     final client = httpClient ?? http.Client();
-    final token = getAuthToken != null ? getAuthToken!() : null;
+    final token = await _resolveToken();
 
     final queryParams = <String, String>{};
     if (homeId != null) queryParams['homeId'] = homeId;
@@ -186,7 +210,7 @@ class FleetManagementService extends ChangeNotifier {
 
   Future<List<FirmwareRelease>> listReleases({String? productVariantId}) async {
     final client = httpClient ?? http.Client();
-    final token = getAuthToken != null ? getAuthToken!() : null;
+    final token = await _resolveToken();
 
     final queryParams = <String, String>{};
     if (productVariantId != null) queryParams['productVariantId'] = productVariantId;

@@ -68,12 +68,13 @@ class LocalConnectivityStatus {
   });
 
   factory LocalConnectivityStatus.fromJson(Map<String, dynamic> json) {
+    final reachableList = json['reachableDevices'] as List? ?? json['reachable_devices'] as List?;
     return LocalConnectivityStatus(
       homeId: json['homeId'] as String? ?? json['home_id'] as String? ?? '',
       isLocalNetworkActive: json['isLocalNetworkActive'] as bool? ?? json['is_local_network_active'] as bool? ?? false,
-      localDevicesCount: json['localDevicesCount'] as int? ?? json['local_devices_count'] as int? ?? 0,
-      reachableDevicesCount: json['reachableDevicesCount'] as int? ?? json['reachable_devices_count'] as int? ?? 0,
-      avgLocalLatencyMs: (json['avgLocalLatencyMs'] as num? ?? json['avg_local_latency_ms'] as num? ?? 0.0).toDouble(),
+      localDevicesCount: json['totalLocalDevices'] as int? ?? json['localDevicesCount'] as int? ?? json['local_devices_count'] as int? ?? 0,
+      reachableDevicesCount: json['reachableDevicesCount'] as int? ?? json['reachable_devices_count'] as int? ?? (reachableList?.length ?? 0),
+      avgLocalLatencyMs: (json['avgLocalLatencyMs'] as num? ?? json['averageLatencyMs'] as num? ?? json['avg_local_latency_ms'] as num? ?? 0.0).toDouble(),
       activeTransportSummary: (json['activeTransportSummary'] as Map<String, dynamic>? ?? json['active_transport_summary'] as Map<String, dynamic>?)?.map(
         (key, value) => MapEntry(key, (value as num).toInt()),
       ) ?? {},
@@ -301,10 +302,10 @@ class EdgeMetricsSummary {
     return EdgeMetricsSummary(
       homeId: json['homeId'] as String? ?? json['home_id'] as String? ?? '',
       totalExecutions: json['totalExecutions'] as int? ?? json['total_executions'] as int? ?? 0,
-      localExecutions: json['localExecutions'] as int? ?? json['local_executions'] as int? ?? 0,
-      cloudExecutions: json['cloudExecutions'] as int? ?? json['cloud_executions'] as int? ?? 0,
+      localExecutions: json['localExecutions'] as int? ?? json['localCount'] as int? ?? json['local_executions'] as int? ?? 0,
+      cloudExecutions: json['cloudExecutions'] as int? ?? json['cloudCount'] as int? ?? json['cloud_executions'] as int? ?? 0,
       localSuccessRate: (json['localSuccessRate'] as num? ?? json['local_success_rate'] as num? ?? 1.0).toDouble(),
-      avgLocalLatencyMs: (json['avgLocalLatencyMs'] as num? ?? json['avg_local_latency_ms'] as num? ?? 0.0).toDouble(),
+      avgLocalLatencyMs: (json['avgLocalLatencyMs'] as num? ?? json['averageLatencyMs'] as num? ?? json['avg_local_latency_ms'] as num? ?? 0.0).toDouble(),
       avgCloudLatencyMs: (json['avgCloudLatencyMs'] as num? ?? json['avg_cloud_latency_ms'] as num? ?? 0.0).toDouble(),
     );
   }

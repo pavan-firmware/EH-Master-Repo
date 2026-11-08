@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
-import '../core/models/device_models.dart';
 import '../core/models/home_dashboard_models.dart';
 import '../core/models/room_models.dart';
 import '../core/repositories/home_connection_repository.dart';
@@ -9,11 +8,11 @@ import '../core/theme/app_theme.dart';
 import '../features/activity/presentation/activity_page.dart';
 import '../features/alerts/presentation/safety_alert_page.dart';
 import '../features/automations/presentation/automations_page.dart';
-import '../features/connection/presentation/connection_page.dart';
 import '../features/dashboard/presentation/home_insights_page.dart';
 import '../features/dashboard/presentation/home_page.dart';
 import '../features/rooms/presentation/rooms_page.dart';
 import '../features/rooms/presentation/room_context_page.dart';
+import '../features/settings/presentation/add_device_page.dart';
 import '../core/api/api_client.dart';
 import '../core/models/routine_models.dart';
 import '../core/models/activity_models.dart';
@@ -363,34 +362,15 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  void _openConnection() {
-    _pushInCurrentTab(ConnectionPage(
-      onStart: _homeController.startConnectionSetup,
-      connectionState: _homeController.connectionState,
-      connectionMessage: _homeController.connectionMessage,
-      availableRooms: _homeController.rooms.map((r) => r.name).toList(),
-      spaceId: _homeController.activeSpaceId,
-      repository: RealHomeConnectionRepository(
-        primaryDevice: _homeController.connectedDeviceSummary,
-        onRefresh: _homeController.startConnectionSetup,
-      ),
-      onDeviceProvisioned: _homeController.markDeviceProvisioned,
-    ));
-  }
-
   void _openAddDevice({String? targetRoomName}) {
     _pushInCurrentTab(
-      HomeConnectionPage(
-        connectionState: HomeConnectionState.notConfigured,
-        onStart: _homeController.startConnectionSetup,
+      AddDevicePage(
+        repository: BleDiscoverySettingsRepository(),
+        onStartSecureSetup: _homeController.startConnectionSetup,
         initialRoomName: targetRoomName,
         availableRooms: _homeController.rooms.map((r) => r.name).toList(),
         spaceId: _homeController.activeSpaceId,
-        repository: RealHomeConnectionRepository(
-          forceCommissioningMode: true,
-          primaryDevice: null,
-          onRefresh: _homeController.startConnectionSetup,
-        ),
+        homeController: _homeController,
         onDeviceProvisioned: ({
           required String deviceId,
           required String displayName,
@@ -408,6 +388,10 @@ class _HomeShellState extends State<HomeShell> {
         },
       ),
     );
+  }
+
+  void _openConnection() {
+    _openAddDevice();
   }
 
   void _openInsights() {

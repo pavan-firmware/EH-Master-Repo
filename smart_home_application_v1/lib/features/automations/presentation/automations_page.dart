@@ -251,7 +251,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Connect your home to enable and manage routines.',
+                'Add a device to enable and manage routines.',
                 style: TextStyle(color: tokens.textSecondary),
               ),
               const SizedBox(height: 18),
@@ -263,8 +263,8 @@ class _AutomationsPageState extends State<AutomationsPage> {
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.blueDarker,
                 ),
-                icon: const Icon(Icons.bluetooth_rounded),
-                label: const Text('Connect home'),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add a device'),
               ),
             ],
           ),

@@ -4,11 +4,14 @@ import '../../../app/home_controller.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/room_models.dart';
+import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../devices/presentation/device_control_page.dart';
 import '../../automations/presentation/active_routine_guard.dart';
 import '../../../core/models/routine_models.dart';
+import '../../../core/widgets/product_image_widget.dart';
+import '../../../core/services/product_asset_resolver.dart';
 
 enum _RoomQuickControlViewMode { brick, carousel, list }
 
@@ -923,6 +926,14 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     final ctrl = homeController ?? HomeController.instance;
     final activeRoutine = ctrl?.getActiveRoutineForChannel(devId, chIdx);
 
+    final matchedDev = ctrl?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
+      (d) => d?.id == devId,
+      orElse: () => null,
+    );
+    final resolvedImg = resolveBundledProductAsset(matchedDev?.model) ??
+        resolveBundledProductAsset(matchedDev?.name) ??
+        resolveBundledProductAsset(capability.label);
+
     if (activeRoutine != null) {
       return RoutineControlWarningOverlay(
         routine: activeRoutine,
@@ -932,9 +943,9 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     }
 
     if (isFullWidth) {
-      return _buildWideCard(context, tokens, devColor, icon, isOn, devId, chIdx, activeRoutine);
+      return _buildWideCard(context, tokens, devColor, icon, isOn, devId, chIdx, activeRoutine, resolvedImg);
     }
-    return _buildCompactCard(context, tokens, devColor, icon, isOn, devId, chIdx, activeRoutine);
+    return _buildCompactCard(context, tokens, devColor, icon, isOn, devId, chIdx, activeRoutine, resolvedImg);
   }
 
   Widget _buildCompactCard(
@@ -946,6 +957,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     String devId,
     int chIdx,
     Routine? activeRoutine,
+    String? resolvedImg,
   ) {
     final isOnline = capability.isOnline;
     return Opacity(
@@ -981,7 +993,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                   height: 40,
                   decoration: BoxDecoration(
                     color: (isOn && isOnline)
-                        ? devColor
+                        ? devColor.withValues(alpha: 0.18)
                         : tokens.isDark
                             ? const Color(0xFF253347)
                             : const Color(0xFFEFF2F7),
@@ -989,7 +1001,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                   ),
                   child: Icon(
                     icon,
-                    color: (isOn && isOnline) ? Colors.white : tokens.textTertiary,
+                    color: (isOn && isOnline) ? devColor : tokens.textTertiary,
                     size: 22,
                   ),
                 ),
@@ -1057,6 +1069,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     String devId,
     int chIdx,
     Routine? activeRoutine,
+    String? resolvedImg,
   ) {
     final isFan = capability.kind == RoomCapabilityKind.fan;
     final isOnline = capability.isOnline;
@@ -1092,7 +1105,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                   height: 44,
                   decoration: BoxDecoration(
                     color: (isOn && isOnline)
-                        ? devColor
+                        ? devColor.withValues(alpha: 0.18)
                         : tokens.isDark
                             ? const Color(0xFF253347)
                             : const Color(0xFFEFF2F7),
@@ -1100,7 +1113,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
                   ),
                   child: Icon(
                     icon,
-                    color: (isOn && isOnline) ? Colors.white : tokens.textTertiary,
+                    color: (isOn && isOnline) ? devColor : tokens.textTertiary,
                     size: 24,
                   ),
                 ),
@@ -1251,16 +1264,23 @@ class _QuickDeviceCard extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: (isOn && isOnline)
-                      ? devColor
+                      ? devColor.withValues(alpha: 0.18)
                       : tokens.isDark
                           ? const Color(0xFF253347)
                           : const Color(0xFFEFF2F7),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(
-                  icon,
-                  color: (isOn && isOnline) ? Colors.white : tokens.textTertiary,
-                  size: 24,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: ProductImageWidget(
+                    imageUrl: resolveBundledProductAsset(liveDev?.model) ??
+                        resolveBundledProductAsset(liveDev?.name) ??
+                        resolveBundledProductAsset(device.name) ??
+                        resolveBundledProductAsset(device.type),
+                    size: 44,
+                    fallbackIcon: icon,
+                    placeholderColor: Colors.transparent,
+                  ),
                 ),
               ),
               const Spacer(),
@@ -1356,6 +1376,17 @@ class _DeviceRow extends StatelessWidget {
     }
 
     final hasActiveChannels = activeChannels > 0;
+    final modelOrType = devSummary?.model ?? device.type;
+    final canonicalVariant = MockProductCatalogRepository
+        .resolveCanonicalProductVariant(
+      variantId: modelOrType,
+      deviceName: devSummary?.name ?? device.name,
+    );
+    final String productImg = resolveBundledProductAsset(canonicalVariant) ?? (canonicalVariant.toLowerCase().contains('socket')
+        ? 'assets/products/catalog/eh-smart-socket-2x/hero.webp'
+        : (canonicalVariant.toLowerCase().contains('fan')
+            ? 'assets/products/catalog/eh-smart-fan-1x/hero.webp'
+            : 'assets/products/catalog/eh-smart-switch-3x/hero.webp'));
 
     return InkWell(
       onTap: () {
@@ -1402,19 +1433,7 @@ class _DeviceRow extends StatelessWidget {
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: hasActiveChannels
-                          ? [
-                              tokens.bluePrimary.withValues(alpha: 0.22),
-                              tokens.bluePrimary.withValues(alpha: 0.08),
-                            ]
-                          : [
-                              devBg,
-                              devBg.withValues(alpha: 0.6),
-                            ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    color: devBg,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: hasActiveChannels
@@ -1422,11 +1441,13 @@ class _DeviceRow extends StatelessWidget {
                           : devColor.withValues(alpha: 0.2),
                     ),
                   ),
-                  child: Center(
-                    child: Icon(
-                      icon,
-                      color: hasActiveChannels ? tokens.bluePrimary : devColor,
-                      size: 26,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(15),
+                    child: ProductImageWidget(
+                      imageUrl: productImg,
+                      size: 52,
+                      fallbackIcon: icon,
+                      placeholderColor: devBg,
                     ),
                   ),
                 ),

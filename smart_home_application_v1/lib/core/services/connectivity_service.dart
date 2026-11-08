@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_client.dart';
 import '../config/app_config.dart';
 import '../models/connectivity_models.dart';
 
@@ -11,22 +13,44 @@ import '../models/connectivity_models.dart';
 class ConnectivityService extends ChangeNotifier {
   final String baseUrl;
   final http.Client _client;
+  final ApiClient? apiClient;
   String? _authToken;
 
   ConnectivityService({
     String? baseUrl,
     http.Client? client,
+    this.apiClient,
+    String? authToken,
   })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
-        _client = client ?? http.Client();
+        _client = client ?? http.Client() {
+    _authToken = authToken;
+  }
 
   void updateToken(String? token) {
     _authToken = token;
+    notifyListeners();
   }
 
-  Map<String, String> get _headers => {
-    'Content-Type': 'application/json',
-    if (_authToken != null) 'Authorization': 'Bearer $_authToken',
-  };
+  Future<Map<String, String>> _getHeaders() async {
+    String? token = _authToken;
+    if (token == null || token.isEmpty) {
+      if (apiClient?.getAccessToken != null) {
+        token = await apiClient!.getAccessToken!();
+      } else if (ApiClient.defaultTokenProvider != null) {
+        token = await ApiClient.defaultTokenProvider!();
+      } else {
+        try {
+          final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
+          token = prefs.getString('auth_access_token');
+        } catch (_) {}
+      }
+      if (token != null) _authToken = token;
+    }
+    return {
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
 
   bool _loading = false;
   bool get loading => _loading;
@@ -59,7 +83,7 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final res = await _client.get(
         Uri.parse('$baseUrl/api/v1/connectivity/devices/$deviceId'),
-        headers: _headers,
+        headers: await _getHeaders(),
       );
 
       if (res.statusCode == 200) {
@@ -87,7 +111,7 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final res = await _client.get(
         Uri.parse('$baseUrl/api/v1/connectivity/devices/$deviceId/transports'),
-        headers: _headers,
+        headers: await _getHeaders(),
       );
 
       if (res.statusCode == 200) {
@@ -111,7 +135,7 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final res = await _client.get(
         Uri.parse('$baseUrl/api/v1/connectivity/homes/$homeId/devices'),
-        headers: _headers,
+        headers: await _getHeaders(),
       );
 
       if (res.statusCode == 200) {
@@ -133,7 +157,7 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final res = await _client.post(
         Uri.parse('$baseUrl/api/v1/connectivity/devices/$deviceId/reconnect'),
-        headers: _headers,
+        headers: await _getHeaders(),
         body: jsonEncode({
           if (transportType != null) 'transportType': transportType.toApiValue(),
         }),
@@ -153,7 +177,7 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final res = await _client.post(
         Uri.parse('$baseUrl/api/v1/connectivity/devices/$deviceId/select-transport'),
-        headers: _headers,
+        headers: await _getHeaders(),
         body: jsonEncode({'transportType': transportType.toApiValue()}),
       );
 
@@ -177,7 +201,7 @@ class ConnectivityService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/connectivity/discovery').replace(
         queryParameters: protocol != null ? {'protocol': protocol.toApiValue()} : null,
       );
-      final res = await _client.get(uri, headers: _headers);
+      final res = await _client.get(uri, headers: await _getHeaders());
 
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
@@ -207,7 +231,7 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final res = await _client.post(
         Uri.parse('$baseUrl/api/v1/connectivity/commissioning/start'),
-        headers: _headers,
+        headers: await _getHeaders(),
         body: jsonEncode({
           'homeId': homeId,
           'deviceId': deviceId,
@@ -231,7 +255,7 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final res = await _client.post(
         Uri.parse('$baseUrl/api/v1/connectivity/commissioning/cancel'),
-        headers: _headers,
+        headers: await _getHeaders(),
         body: jsonEncode({
           'sessionId': sessionId,
           'errorDetails': errorDetails ?? 'Cancelled by user',

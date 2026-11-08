@@ -4,17 +4,118 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/theme/app_theme.dart';
 
+enum QrScannerMode {
+  all,
+  deviceVerification,
+  wifiCredentials,
+}
+
+/// Parsed standard Wi-Fi QR code (`WIFI:T:...;S:...;P:...;;`).
+class WifiQrPayload {
+  final String ssid;
+  final String password;
+  final String security;
+  final bool hidden;
+
+  const WifiQrPayload({
+    required this.ssid,
+    required this.password,
+    this.security = 'WPA',
+    this.hidden = false,
+  });
+
+  static WifiQrPayload? tryParse(String raw) {
+    final text = raw.trim();
+    if (!text.toUpperCase().startsWith('WIFI:')) return null;
+
+    String ssid = '';
+    String password = '';
+    String security = 'WPA';
+    bool hidden = false;
+
+    final content = text.substring(5);
+    final buffer = StringBuffer();
+    String? currentKey;
+    bool escaped = false;
+
+    for (int i = 0; i < content.length; i++) {
+      final ch = content[i];
+      if (escaped) {
+        buffer.write(ch);
+        escaped = false;
+        continue;
+      }
+      if (ch == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (ch == ':' && currentKey == null) {
+        currentKey = buffer.toString().toUpperCase();
+        buffer.clear();
+      } else if (ch == ';') {
+        if (currentKey != null) {
+          final val = buffer.toString();
+          switch (currentKey) {
+            case 'S':
+              ssid = val;
+              break;
+            case 'P':
+              password = val;
+              break;
+            case 'T':
+              security = val;
+              break;
+            case 'H':
+              hidden = val.toLowerCase() == 'true';
+              break;
+          }
+          currentKey = null;
+          buffer.clear();
+        }
+      } else {
+        buffer.write(ch);
+      }
+    }
+
+    if (ssid.isEmpty) return null;
+    return WifiQrPayload(
+      ssid: ssid,
+      password: password,
+      security: security,
+      hidden: hidden,
+    );
+  }
+}
+
 /// Full-screen camera QR scanner dialog with permission checks, lifecycle recovery, and error guidance.
 class QrScannerDialog extends StatefulWidget {
-  const QrScannerDialog({super.key});
+  const QrScannerDialog({
+    super.key,
+    this.mode = QrScannerMode.all,
+  });
 
-  static Future<String?> show(BuildContext context) {
+  final QrScannerMode mode;
+
+  static Future<String?> show(
+    BuildContext context, {
+    QrScannerMode mode = QrScannerMode.all,
+  }) {
     return showDialog<String>(
       context: context,
       barrierDismissible: true,
       useSafeArea: false,
-      builder: (context) => const QrScannerDialog(),
+      builder: (context) => QrScannerDialog(mode: mode),
     );
+  }
+
+  static Future<WifiQrPayload?> showWifiScanner(BuildContext context) async {
+    final raw = await show(context, mode: QrScannerMode.wifiCredentials);
+    if (raw == null || raw.isEmpty) return null;
+    return WifiQrPayload.tryParse(raw);
+  }
+
+  static Future<String?> showDeviceScanner(BuildContext context) {
+    return show(context, mode: QrScannerMode.deviceVerification);
   }
 
   @override
@@ -28,6 +129,7 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
   bool _hasScanned = false;
   bool _permissionGranted = false;
   bool _permanentlyDenied = false;
+  String? _scanError;
 
   @override
   void initState() {
@@ -86,7 +188,7 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
       _permanentlyDenied = false;
       _isChecking = false;
     });
-    debugPrint('[QR] SCAN_STARTED');
+    debugPrint('[QR] SCAN_STARTED mode=${widget.mode}');
   }
 
   @override
@@ -103,9 +205,30 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
     for (final barcode in barcodes) {
       final rawValue = barcode.rawValue;
       if (rawValue != null && rawValue.trim().isNotEmpty) {
+        final code = rawValue.trim();
+        final isWifi = code.toUpperCase().startsWith('WIFI:');
+
+        if (widget.mode == QrScannerMode.wifiCredentials) {
+          if (!isWifi) {
+            setState(() {
+              _scanError = 'Invalid Wi-Fi QR code. Please scan a standard Wi-Fi network QR code.';
+            });
+            return;
+          }
+        }
+
+        if (widget.mode == QrScannerMode.deviceVerification) {
+          if (isWifi) {
+            setState(() {
+              _scanError = 'This is a Wi-Fi QR code. Please scan the device setup QR code.';
+            });
+            return;
+          }
+        }
+
         _hasScanned = true;
-        debugPrint('[QR] SCAN_DETECTED: ${rawValue.trim()}');
-        Navigator.of(context).pop(rawValue.trim());
+        debugPrint('[QR] SCAN_DETECTED: $code');
+        Navigator.of(context).pop(code);
         break;
       }
     }
@@ -114,6 +237,16 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+
+    final title = widget.mode == QrScannerMode.wifiCredentials
+        ? 'Scan Wi-Fi QR Code'
+        : (widget.mode == QrScannerMode.deviceVerification
+            ? 'Scan Device QR Code'
+            : 'Scan QR Code');
+
+    final subtitle = widget.mode == QrScannerMode.wifiCredentials
+        ? 'Align your Wi-Fi network QR code within the frame'
+        : 'Align the QR code on your EH Home device within the frame';
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -139,26 +272,33 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
                           color: Colors.amber,
                           size: 48,
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Camera Error: ${error.errorCode.name}',
-                          style: const TextStyle(
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Camera initialization error',
+                          style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        Text(
+                          error.errorDetails?.message ?? 'Please restart the app or retry.',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
                         const SizedBox(height: 16),
-                        FilledButton.icon(
+                        FilledButton(
                           onPressed: () {
                             _controller?.start();
-                            setState(() {});
                           },
-                          icon: const Icon(Icons.refresh_rounded, size: 18),
-                          label: const Text('Retry Camera'),
                           style: FilledButton.styleFrom(
                             backgroundColor: tokens.bluePrimary,
                           ),
+                          child: const Text('Retry'),
                         ),
                       ],
                     ),
@@ -173,29 +313,34 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.videocam_off_rounded,
-                      color: Colors.white70,
-                      size: 56,
+                    Icon(
+                      _permanentlyDenied
+                          ? Icons.no_photography_rounded
+                          : Icons.camera_alt_outlined,
+                      size: 64,
+                      color: tokens.bluePrimary,
                     ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Camera Permission Required',
-                      style: TextStyle(
+                    const SizedBox(height: 16),
+                    Text(
+                      _permanentlyDenied
+                          ? 'Camera Permission Blocked'
+                          : 'Camera Access Needed',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     Text(
                       _permanentlyDenied
-                          ? 'Camera access is disabled. Please enable camera permission in App Settings to scan the device QR code.'
-                          : 'Please grant camera permission to scan your EH Home device QR code.',
+                          ? 'Camera permission is permanently denied. Please grant permission in device settings to scan QR codes.'
+                          : 'To scan QR codes for quick device provisioning, please allow camera access.',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
+                        height: 1.4,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -235,10 +380,10 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
                       size: 28,
                     ),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Scan Device QR Code',
-                      style: TextStyle(
+                      title,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -260,8 +405,46 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
                 width: 260,
                 height: 260,
                 decoration: BoxDecoration(
-                  border: Border.all(color: tokens.bluePrimary, width: 2.5),
+                  border: Border.all(
+                    color: _scanError != null ? Colors.redAccent : tokens.bluePrimary,
+                    width: 2.5,
+                  ),
                   borderRadius: BorderRadius.circular(24),
+                ),
+              ),
+            ),
+
+          // In-scanner Error notice if wrong QR mode scanned
+          if (_scanError != null)
+            Align(
+              alignment: Alignment.topCenter,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 70, left: 24, right: 24),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade900.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.redAccent),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline_rounded, color: Colors.white, size: 20),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            _scanError!,
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -282,9 +465,9 @@ class _QrScannerDialogState extends State<QrScannerDialog> with WidgetsBindingOb
                       color: Colors.black.withValues(alpha: 0.65),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Text(
-                      'Align the QR code on your EH Home device within the frame',
-                      style: TextStyle(
+                    child: Text(
+                      subtitle,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,

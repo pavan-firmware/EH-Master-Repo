@@ -1,4 +1,5 @@
 import '../services/local_lan_device_service.dart';
+import '../services/product_asset_resolver.dart';
 import '../capabilities/repositories/product_catalog_repository.dart';
 
 /// Dashboard domain types deliberately stay independent from BLE, Wi-Fi, or
@@ -316,6 +317,7 @@ class QuickControlPreview {
     required this.confidence,
     required this.isEnabled,
     this.roomName,
+    this.imageUrl,
   });
 
   final String id;
@@ -325,6 +327,7 @@ class QuickControlPreview {
   final ActuatorConfidence confidence;
   final bool isEnabled;
   final String? roomName;
+  final String? imageUrl;
 
   String get label => title;
   bool get isOn => value.toLowerCase() == 'on';
@@ -751,6 +754,12 @@ class HomeDashboardData {
             confidence: isDevOnline ? lightConfidence : ActuatorConfidence.unavailable,
             isEnabled: isDevOnline,
             roomName: d.roomName,
+            imageUrl: resolveBundledProductAsset(
+              MockProductCatalogRepository.resolveCanonicalProductVariant(
+                variantId: d.model as String?,
+                deviceName: d.name as String?,
+              ),
+            ) ?? resolveBundledProductAsset(d.name as String?) ?? resolveBundledProductAsset(d.model as String?),
           ),
         );
       }

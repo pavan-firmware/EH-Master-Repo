@@ -10,6 +10,7 @@ import '../../../core/repositories/cloud_operations_repository.dart';
 import '../../../core/repositories/cloud_recovery_repository.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/context_presence_service.dart';
+import '../../../core/services/device_storage_service.dart';
 import '../../../core/services/edge_control_service.dart';
 import '../../../core/services/energy_automation_service.dart';
 import '../../../core/services/energy_cost_service.dart';
@@ -51,12 +52,25 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final effectiveClient = apiClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
-    final effectiveHomeId = homeId.isNotEmpty
-        ? homeId
-        : (homeController?.activeHomeId?.isNotEmpty == true
-            ? homeController!.activeHomeId!
-            : 'home_01');
+    final effectiveClient = apiClient ?? ApiClient.sharedClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
+    final effectiveHomeId = (homeController?.activeHomeId != null &&
+            homeController!.activeHomeId!.isNotEmpty &&
+            homeController!.activeHomeId != 'home_default' &&
+            homeController!.activeHomeId != 'home_01' &&
+            homeController!.activeHomeId != 'HN-7A28F91C')
+        ? homeController!.activeHomeId!
+        : (homeId.isNotEmpty &&
+                homeId != 'home_default' &&
+                homeId != 'home_01' &&
+                homeId != 'HN-7A28F91C')
+            ? homeId
+            : (DeviceStorageService.cachedActiveHomeId != null &&
+                    DeviceStorageService.cachedActiveHomeId!.isNotEmpty &&
+                    DeviceStorageService.cachedActiveHomeId != 'home_default' &&
+                    DeviceStorageService.cachedActiveHomeId != 'home_01' &&
+                    DeviceStorageService.cachedActiveHomeId != 'HN-7A28F91C')
+                ? DeviceStorageService.cachedActiveHomeId!
+                : 'home_01';
 
     return NestedSettingsScaffold(
       title: 'System & Diagnostics',
@@ -326,7 +340,10 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => EdgeExecutionDashboardPage(
                         homeId: effectiveHomeId,
-                        edgeService: EdgeControlService(baseUrl: effectiveClient.baseUrl),
+                        edgeService: EdgeControlService(
+                          baseUrl: effectiveClient.baseUrl,
+                          apiClient: effectiveClient,
+                        ),
                       ),
                     ),
                   ),
@@ -402,7 +419,10 @@ class AdvancedFleetOperationsPage extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => EnergyOptimizationPage(
                         homeId: effectiveHomeId,
-                        service: EnergyAutomationService(baseUrl: effectiveClient.baseUrl),
+                        service: EnergyAutomationService(
+                          baseUrl: effectiveClient.baseUrl,
+                          apiClient: effectiveClient,
+                        ),
                       ),
                     ),
                   ),

@@ -65,7 +65,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setIsCheckingApi(true);
     try {
       const health = await apiClient.checkHealth();
-      if (health.success && health.data?.status === 'UP') {
+      // Accept both API health response formats used by deployed/local builds:
+      // current /health returns UP, and older builds return READY.
+      if (health.success && (health.data?.status === 'UP' || health.data?.status === 'READY')) {
         setIsApiConnected(true);
         setApiStatusMessage('Connected to apps/api');
 

@@ -800,8 +800,10 @@ class RoomCard extends StatelessWidget {
                               children: [
                                 Icon(
                                   _capabilityIcon(item.kind),
-                                  color: tokens.textSecondary,
-                                  size: 18,
+                                  size: 16,
+                                  color: item.value.toLowerCase() == 'on'
+                                      ? tokens.bluePrimary
+                                      : tokens.textTertiary,
                                 ),
                                 const SizedBox(width: 9),
                                 Expanded(

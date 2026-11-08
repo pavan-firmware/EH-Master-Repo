@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/product_catalog_models.dart';
+import '../../../core/repositories/settings_repository.dart';
 import '../../../core/services/product_catalog_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/product_image_widget.dart';
 import '../../product_discovery/presentation/compatibility_result_widget.dart';
+import '../../settings/presentation/add_device_page.dart';
 
 /// Complete Consumer Device Add Wizard Flow.
 /// Abstracting away low-level protocol engineering complexities while maintaining high fidelity.
@@ -230,7 +232,7 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           tokens: tokens,
           onTap: () {
             _entryMode = 'QR_SCAN';
-            _selectDefaultProduct();
+            _pickDeviceFamilyThenProceed();
           },
         ),
         const SizedBox(height: 12),
@@ -241,7 +243,9 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           tokens: tokens,
           onTap: () {
             _entryMode = 'NEARBY_DISCOVERY';
-            _selectDefaultProduct();
+            // Navigate to the real BLE discovery page which correctly identifies
+            // device type (switch vs socket) from firmware-advertised BLE name.
+            _launchRealBleDiscovery();
           },
         ),
         const SizedBox(height: 12),
@@ -252,7 +256,7 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           tokens: tokens,
           onTap: () {
             _entryMode = 'MANUAL_CATALOG';
-            _selectDefaultProduct();
+            _pickDeviceFamilyThenProceed();
           },
         ),
         const SizedBox(height: 12),
@@ -263,31 +267,47 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           tokens: tokens,
           onTap: () {
             _entryMode = 'RE_ADD_RESET';
-            _selectDefaultProduct();
+            _pickDeviceFamilyThenProceed();
           },
         ),
       ],
     );
   }
 
-  void _selectDefaultProduct() {
-    _initProductState(const ProductCatalogEntry(
-      productId: 'eh-smart-switch',
-      productFamilyId: 'smart_switch',
-      modelId: 'eh-switch-gen1',
-      variantId: 'eh-smart-switch-3x',
-      sku: 'EH-SWITCH3X-001',
-      marketingName: 'EH Smart Switch 3X',
-      technicalName: 'EH-SW3X-ESP32C6',
-      description: 'Triple-relay smart switchboard with energy monitoring',
-      category: 'switches',
-      channelCount: 3,
-      wifiSupport: true,
-      bleProvisioningSupport: true,
-      energyMonitoringSupport: true,
-      capabilities: ['switch', 'relay', 'energy', 'ota'],
-    ));
-    setState(() => _currentStep = 1);
+  /// Route NEARBY_DISCOVERY to the real BLE scanner page which reads the
+  /// firmware-advertised device name (e.g. "EH Smart Socket 2X") and correctly
+  /// determines the hardware variant — switch vs. socket and channel count —
+  /// from the actual BLE advertisement rather than a hard-coded default.
+  void _launchRealBleDiscovery() {
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AddDevicePage(
+          repository: PreviewSettingsRepository(),
+        ),
+      ),
+    );
+  }
+
+  /// Show a device-family picker so the user explicitly selects their device
+  /// type (Smart Switch / Smart Socket) before the wizard proceeds.  This
+  /// avoids hard-coding a single variant and ensures the correct product
+  /// artwork, channel count, and capability list are used throughout the
+  /// wizard steps.
+  void _pickDeviceFamilyThenProceed() {
+    if (!mounted) return;
+    showModalBottomSheet<ProductCatalogEntry>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => _DeviceFamilyPickerSheet(service: _service),
+    ).then((selected) {
+      if (selected != null && mounted) {
+        _initProductState(selected);
+        setState(() => _currentStep = 1);
+      }
+    });
   }
 
   // ─── Step 1: Compatibility Assessment ──────────────────────────────────────
@@ -321,7 +341,7 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           child: Row(
             children: [
               ProductImageWidget(
-                imageUrl: _product!.imageUrl,
+                imageUrl: _product!.discoveryImageUrl,
                 size: 48,
                 borderRadius: BorderRadius.circular(12),
                 fallbackIcon: Icons.settings_input_component_rounded,
@@ -646,4 +666,173 @@ class _SummaryRow extends StatelessWidget {
       ],
     );
   }
+}
+
+// ─── Device Family Picker ──────────────────────────────────────────────────
+
+/// Bottom-sheet that lets the user choose their physical device family
+/// (Smart Switch 3X / Smart Socket 2X, etc.) before the add-device wizard
+/// proceeds to the compatibility step.  Presenting explicit choices here
+/// avoids hard-coding a single default variant when the entry mode is
+/// QR_SCAN, MANUAL_CATALOG, or RE_ADD_RESET.
+class _DeviceFamilyPickerSheet extends StatelessWidget {
+  final ProductCatalogClientService service;
+
+  const _DeviceFamilyPickerSheet({required this.service});
+
+  /// Canonical product entries for the device families bundled in this release.
+  static const List<_DeviceFamilyOption> _families = [
+    _DeviceFamilyOption(
+      entry: ProductCatalogEntry(
+        productId: 'eh-smart-switch',
+        productFamilyId: 'smart_switch',
+        modelId: 'eh-switch-gen1',
+        variantId: 'eh-smart-switch-3x',
+        sku: 'EH-SWITCH3X-001',
+        marketingName: 'EH Smart Switch 3X',
+        technicalName: 'EH-SW3X-ESP32C6',
+        description: 'Triple-relay smart switchboard with energy monitoring',
+        category: 'switches',
+        channelCount: 3,
+        wifiSupport: true,
+        bleProvisioningSupport: true,
+        energyMonitoringSupport: true,
+        capabilities: ['switch', 'relay', 'energy', 'ota'],
+      ),
+      icon: Icons.toggle_on_rounded,
+      subtitle: '3-channel smart switchboard',
+      imageAsset: 'assets/products/catalog/eh-smart-switch-3x/hero.webp',
+    ),
+    _DeviceFamilyOption(
+      entry: ProductCatalogEntry(
+        productId: 'eh-smart-socket',
+        productFamilyId: 'smart_socket',
+        modelId: 'eh-socket-gen1',
+        variantId: 'eh-smart-socket-2x',
+        sku: 'EH-SOCKET2X-001',
+        marketingName: 'EH Smart Socket 2X',
+        technicalName: 'EH-SK2X-ESP32C6',
+        description: 'Dual-outlet smart socket with energy monitoring',
+        category: 'sockets',
+        channelCount: 2,
+        wifiSupport: true,
+        bleProvisioningSupport: true,
+        energyMonitoringSupport: true,
+        capabilities: ['socket', 'relay', 'energy', 'ota'],
+      ),
+      icon: Icons.power_rounded,
+      subtitle: '2-outlet smart power socket',
+      imageAsset: 'assets/products/catalog/eh-smart-socket-2x/hero.webp',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.bgApp,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: tokens.borderSubtle,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Select Your Device',
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Choose the device type shown on your product packaging.',
+            style: TextStyle(color: tokens.textSecondary, fontSize: 14),
+          ),
+          const SizedBox(height: 20),
+          ..._families.map(
+            (opt) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => Navigator.pop(context, opt.entry),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: tokens.surfaceCard,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: tokens.borderSubtle),
+                  ),
+                  child: Row(
+                    children: [
+                      ProductImageWidget(
+                        imageUrl: opt.imageAsset,
+                        size: 56,
+                        borderRadius: BorderRadius.circular(12),
+                        fallbackIcon: opt.icon,
+                        placeholderColor: tokens.iconBgBlue,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              opt.entry.marketingName,
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              opt.subtitle,
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: tokens.chevron),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeviceFamilyOption {
+  final ProductCatalogEntry entry;
+  final IconData icon;
+  final String subtitle;
+  final String imageAsset;
+
+  const _DeviceFamilyOption({
+    required this.entry,
+    required this.icon,
+    required this.subtitle,
+    required this.imageAsset,
+  });
 }

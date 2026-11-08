@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/context_presence_models.dart';
 import '../../../core/services/context_presence_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../settings/presentation/settings_ui.dart';
 
 class HomeContextPage extends StatefulWidget {
   final String homeId;
@@ -38,15 +39,72 @@ class _HomeContextPageState extends State<HomeContextPage> {
         final currentContext = widget.service.currentContext;
         final transitions = widget.service.transitions;
         final isLoading = widget.service.isLoading;
+        final errorMessage = widget.service.errorMessage;
+
+        if (currentContext == null && errorMessage != null && !isLoading) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('Home Context & Modes'),
+              actions: [
+                settingsHelpAction(context, screenId: 'home_context'),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _refresh,
+                ),
+              ],
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.cloud_off_rounded,
+                      size: 48,
+                      color: tokens.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Failed to load home context',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      errorMessage,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: tokens.bluePrimary,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: _refresh,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
 
         return Scaffold(
           appBar: AppBar(
             title: const Text('Home Context & Modes'),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _refresh,
-              ),
+              settingsHelpAction(context, screenId: 'home_context'),
+              IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
             ],
           ),
           body: RefreshIndicator(
@@ -56,6 +114,41 @@ class _HomeContextPageState extends State<HomeContextPage> {
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
+                      if (errorMessage != null) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: tokens.error.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: tokens.error.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                size: 20,
+                                color: tokens.error,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  errorMessage,
+                                  style: TextStyle(
+                                    color: tokens.error,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       // 1. Context Hero Card
                       _buildCurrentContextCard(context, currentContext, tokens),
                       const SizedBox(height: 20),
@@ -74,7 +167,11 @@ class _HomeContextPageState extends State<HomeContextPage> {
                       const SizedBox(height: 20),
 
                       // 3. Precedence Hierarchy Legend
-                      _buildPrecedenceCard(context, currentContext?.precedenceTier, tokens),
+                      _buildPrecedenceCard(
+                        context,
+                        currentContext?.precedenceTier,
+                        tokens,
+                      ),
                       const SizedBox(height: 20),
 
                       // 4. Transitions Timeline
@@ -102,7 +199,8 @@ class _HomeContextPageState extends State<HomeContextPage> {
     EHThemeTokens tokens,
   ) {
     final mode = contextModel?.mode ?? ContextMode.home;
-    final precedence = contextModel?.precedenceTier ?? PrecedenceTier.defaultFallback;
+    final precedence =
+        contextModel?.precedenceTier ?? PrecedenceTier.defaultFallback;
     final isOverride = precedence == PrecedenceTier.manualOverride;
 
     Color color = tokens.bluePrimary;
@@ -181,9 +279,10 @@ class _HomeContextPageState extends State<HomeContextPage> {
                       Text(
                         isOverride
                             ? 'Manual Override Active'
-                            : (contextModel?.precedenceTier == PrecedenceTier.defaultFallback
-                                ? 'Default Baseline State'
-                                : 'Automatic Reconciled State'),
+                            : (contextModel?.precedenceTier ==
+                                      PrecedenceTier.defaultFallback
+                                  ? 'Default Baseline State'
+                                  : 'Automatic Reconciled State'),
                         style: TextStyle(
                           color: tokens.textSecondary,
                           fontSize: 14,
@@ -211,7 +310,11 @@ class _HomeContextPageState extends State<HomeContextPage> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                    const Icon(
+                      Icons.info_outline,
+                      color: Colors.orange,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -226,7 +329,13 @@ class _HomeContextPageState extends State<HomeContextPage> {
                     ),
                     TextButton(
                       onPressed: _clearOverride,
-                      child: const Text('Clear', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                      child: const Text(
+                        'Clear',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.redAccent,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -243,20 +352,19 @@ class _HomeContextPageState extends State<HomeContextPage> {
     ContextMode? activeMode,
     EHThemeTokens tokens,
   ) {
+    final effectiveMode = activeMode ?? ContextMode.home;
     final modes = ContextMode.values;
     return Wrap(
       spacing: 10,
       runSpacing: 10,
       children: modes.map((m) {
-        final isSelected = m == activeMode;
+        final isSelected = m == effectiveMode;
         return ChoiceChip(
           label: Text(
             m.toApiValue(),
             style: TextStyle(
               fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-              color: isSelected
-                  ? Colors.white
-                  : tokens.textPrimary,
+              color: isSelected ? Colors.white : tokens.textPrimary,
             ),
           ),
           selected: isSelected,
@@ -280,11 +388,17 @@ class _HomeContextPageState extends State<HomeContextPage> {
     final success = await widget.service.setQuickMode(widget.homeId, mode);
     if (!mounted) return;
     if (success) {
-      widget.service.fetchTransitions(widget.homeId);
+      await widget.service.fetchHomeContext(widget.homeId);
+      await widget.service.fetchTransitions(widget.homeId);
     }
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Context set to ${mode.toApiValue()}' : 'Failed to set mode'),
+        content: Text(
+          success
+              ? 'Context set to ${mode.toApiValue()}'
+              : (widget.service.errorMessage ?? 'Failed to set mode'),
+        ),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -294,11 +408,17 @@ class _HomeContextPageState extends State<HomeContextPage> {
     final success = await widget.service.clearContextOverride(widget.homeId);
     if (!mounted) return;
     if (success) {
-      widget.service.fetchTransitions(widget.homeId);
+      await widget.service.fetchHomeContext(widget.homeId);
+      await widget.service.fetchTransitions(widget.homeId);
     }
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Override cleared' : 'Failed to clear override'),
+        content: Text(
+          success
+              ? 'Override cleared'
+              : (widget.service.errorMessage ?? 'Failed to clear override'),
+        ),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -309,6 +429,7 @@ class _HomeContextPageState extends State<HomeContextPage> {
     PrecedenceTier? tier,
     EHThemeTokens tokens,
   ) {
+    final effectiveTier = tier ?? PrecedenceTier.defaultFallback;
     return Card(
       elevation: 2,
       color: tokens.surfaceCard,
@@ -330,10 +451,26 @@ class _HomeContextPageState extends State<HomeContextPage> {
               ),
             ),
             const SizedBox(height: 10),
-            _buildTierRow('1. Manual Overrides (Highest)', tier == PrecedenceTier.manualOverride, tokens),
-            _buildTierRow('2. Scheduled Windows (Quiet/Sleep)', tier == PrecedenceTier.scheduledWindow, tokens),
-            _buildTierRow('3. Reconciled Presence (Sensors/App)', tier == PrecedenceTier.reconciledPresence, tokens),
-            _buildTierRow('4. Default Fallback (Baseline)', tier == PrecedenceTier.defaultFallback, tokens),
+            _buildTierRow(
+              '1. Manual Overrides (Highest)',
+              effectiveTier == PrecedenceTier.manualOverride,
+              tokens,
+            ),
+            _buildTierRow(
+              '2. Scheduled Windows (Quiet/Sleep)',
+              effectiveTier == PrecedenceTier.scheduledWindow,
+              tokens,
+            ),
+            _buildTierRow(
+              '3. Reconciled Presence (Sensors/App)',
+              effectiveTier == PrecedenceTier.reconciledPresence,
+              tokens,
+            ),
+            _buildTierRow(
+              '4. Default Fallback (Baseline)',
+              effectiveTier == PrecedenceTier.defaultFallback,
+              tokens,
+            ),
           ],
         ),
       ),
@@ -346,7 +483,9 @@ class _HomeContextPageState extends State<HomeContextPage> {
       child: Row(
         children: [
           Icon(
-            isCurrent ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+            isCurrent
+                ? Icons.check_circle_rounded
+                : Icons.radio_button_unchecked_rounded,
             size: 18,
             color: isCurrent ? tokens.success : tokens.textSecondary,
           ),
@@ -357,7 +496,9 @@ class _HomeContextPageState extends State<HomeContextPage> {
               style: TextStyle(
                 fontWeight: isCurrent ? FontWeight.w800 : FontWeight.normal,
                 color: isCurrent
-                    ? (tokens.isDark ? const Color(0xFF81C784) : Colors.green.shade800)
+                    ? (tokens.isDark
+                          ? const Color(0xFF81C784)
+                          : Colors.green.shade800)
                     : tokens.textPrimary,
               ),
             ),
@@ -402,7 +543,10 @@ class _HomeContextPageState extends State<HomeContextPage> {
             leading: Icon(Icons.swap_horiz_rounded, color: tokens.bluePrimary),
             title: Text(
               '${t.fromMode?.toApiValue() ?? 'INITIAL'} → ${t.toMode.toApiValue()}',
-              style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: tokens.textPrimary,
+              ),
             ),
             subtitle: Text(
               'Source: ${t.triggerSource}\n${t.reason}',

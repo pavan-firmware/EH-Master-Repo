@@ -477,8 +477,7 @@ void main() {
       expect(find.text('HELP AND PRIVACY'), findsOneWidget);
 
       // Verify core feature tiles
-      expect(find.text('Add a room device'), findsOneWidget);
-      expect(find.text('Connect your home'), findsOneWidget);
+      expect(find.text('Add a device'), findsOneWidget);
       expect(find.text('System update'), findsOneWidget);
       expect(find.text('Device health'), findsOneWidget);
       expect(find.text('People at home'), findsOneWidget);

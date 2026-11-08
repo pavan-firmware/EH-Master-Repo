@@ -2,12 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
+import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/models/activity_models.dart';
 import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/health_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/repositories/device_health_repository.dart';
 import '../../../core/services/check_timestamp_service.dart';
+import '../../../core/services/product_asset_resolver.dart';
+import '../../../core/widgets/product_image_widget.dart';
 import '../../activity/presentation/activity_page.dart';
 import '../../rooms/presentation/room_context_page.dart';
 import '../../settings/presentation/settings_ui.dart';
@@ -80,7 +83,10 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
     }
   }
 
-  HomeHealthSummary _buildRealSummary(HomeController controller, {DateTime? lastChecked}) {
+  HomeHealthSummary _buildRealSummary(
+    HomeController controller, {
+    DateTime? lastChecked,
+  }) {
     final devices = controller.devices;
     final onlineList = devices.where((d) => d.online).toList();
     final offlineList = devices.where((d) => !d.online).toList();
@@ -94,14 +100,18 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
         state: d.online ? DeviceHealthState.healthy : DeviceHealthState.offline,
         signal: d.online ? SignalStrength.strong : SignalStrength.unknown,
         lastSeen: DateTime.now(),
-        statusLine: d.online ? 'Online · ${d.connectedVia}' : 'Offline · Disconnected',
+        statusLine: d.online
+            ? 'Online · ${d.connectedVia}'
+            : 'Offline · Disconnected',
         iconKey: 'switch',
         reading: d.model,
       );
     }).toList();
 
     final rooms = controller.rooms.map((r) {
-      final roomDevices = devices.where((d) => d.roomName.toLowerCase() == r.name.toLowerCase()).toList();
+      final roomDevices = devices
+          .where((d) => d.roomName.toLowerCase() == r.name.toLowerCase())
+          .toList();
       final issues = roomDevices.where((d) => !d.online).length;
       return RoomHealthSummary(
         roomId: r.id,
@@ -114,12 +124,18 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
 
     final isAllOnline = offlineList.isEmpty;
     return HomeHealthSummary(
-      overall: isAllOnline ? HomeHealthOverall.healthy : HomeHealthOverall.attention,
-      title: isAllOnline ? 'All good!' : '${offlineList.length} device${offlineList.length == 1 ? '' : 's'} offline',
+      overall: isAllOnline
+          ? HomeHealthOverall.healthy
+          : HomeHealthOverall.attention,
+      title: isAllOnline
+          ? 'All good!'
+          : '${offlineList.length} device${offlineList.length == 1 ? '' : 's'} offline',
       subtitle: isAllOnline
           ? 'All ${devices.length} devices are online and communicating properly.'
           : 'Some devices require attention or are currently unreachable.',
-      statusLabel: isAllOnline ? 'Healthy' : '${offlineList.length} issue${offlineList.length == 1 ? '' : 's'}',
+      statusLabel: isAllOnline
+          ? 'Healthy'
+          : '${offlineList.length} issue${offlineList.length == 1 ? '' : 's'}',
       totalDevices: devices.length,
       onlineCount: onlineList.length,
       attentionCount: offlineList.length,
@@ -142,7 +158,8 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
 
   void _load() {
     setState(() {
-      if (widget.homeController != null && widget.homeController!.devices.isNotEmpty) {
+      if (widget.homeController != null &&
+          widget.homeController!.devices.isNotEmpty) {
         _summary = Future.value(_buildRealSummary(widget.homeController!));
       } else {
         _summary = widget.repository.getSummary();
@@ -169,7 +186,9 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
         if (mounted) {
           setState(() {
             _lastCheckedTime = completionTime;
-            _summary = Future.value(_buildRealSummary(ctrl, lastChecked: completionTime));
+            _summary = Future.value(
+              _buildRealSummary(ctrl, lastChecked: completionTime),
+            );
             _checking = false;
           });
         }
@@ -209,13 +228,6 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
   Widget build(BuildContext context) => NestedSettingsScaffold(
     title: 'Device health',
     subtitle: 'Check your devices\' connection, status and performance.',
-    actions: [
-      settingsHelpAction(
-        context,
-        message:
-            'Device health shows connection status, recent communication, and issues that may need attention.',
-      ),
-    ],
     child: FutureBuilder<HomeHealthSummary>(
       future: _summary,
       builder: (context, snapshot) {
@@ -233,7 +245,9 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
               summary: data,
               checking: _checking,
               onCheckAgain: _checkAgain,
-              lastCheckedLabel: _timeService.formatDeviceHealthChecked(_lastCheckedTime),
+              lastCheckedLabel: _timeService.formatDeviceHealthChecked(
+                _lastCheckedTime,
+              ),
             ),
             const SizedBox(height: 24),
             Row(
@@ -280,11 +294,15 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
                 itemBuilder: (context, index) => _RoomHealthCard(
                   room: data.rooms[index],
                   onTap: () {
-                    final ctrl = widget.homeController ?? HomeController.instance;
+                    final ctrl =
+                        widget.homeController ?? HomeController.instance;
                     final availableRooms = ctrl?.rooms ?? [];
                     final roomSummary = data.rooms[index];
                     final typed = availableRooms.firstWhere(
-                      (r) => r.id == roomSummary.roomId || r.name.toLowerCase() == roomSummary.roomName.toLowerCase(),
+                      (r) =>
+                          r.id == roomSummary.roomId ||
+                          r.name.toLowerCase() ==
+                              roomSummary.roomName.toLowerCase(),
                       orElse: () => Room(
                         id: roomSummary.roomId,
                         name: roomSummary.roomName,
@@ -308,10 +326,8 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => RoomContextPage(
-                          room: typed,
-                          homeController: ctrl,
-                        ),
+                        builder: (_) =>
+                            RoomContextPage(room: typed, homeController: ctrl),
                       ),
                     );
                   },
@@ -449,11 +465,19 @@ class _DeviceHealthTile extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            SettingsIconBadge(
-              icon: _deviceIcon(entry.iconKey),
-              color: _iconColor(entry.state),
-              background: _iconBg(entry.state),
-              size: 44,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ProductImageWidget(
+                imageUrl: resolveBundledProductAsset(
+                  MockProductCatalogRepository.resolveCanonicalProductVariant(
+                    variantId: entry.reading,
+                    deviceName: entry.name,
+                  ),
+                ),
+                size: 44,
+                fallbackIcon: _deviceIcon(entry.iconKey),
+                placeholderColor: _iconBg(entry.state),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -649,11 +673,6 @@ IconData _roomIcon(String key) => switch (key) {
   'water' => Icons.water_drop_outlined,
   _ => Icons.meeting_room_outlined,
 };
-
-Color _iconColor(DeviceHealthState state) =>
-    state == DeviceHealthState.attention
-    ? SettingsColors.orange
-    : SettingsColors.blue;
 
 Color _iconBg(DeviceHealthState state) => state == DeviceHealthState.attention
     ? SettingsColors.paleOrange

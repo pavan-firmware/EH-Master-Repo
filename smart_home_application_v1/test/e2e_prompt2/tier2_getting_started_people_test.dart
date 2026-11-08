@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_home_application_v1/core/models/settings_models.dart';
-import 'package:smart_home_application_v1/features/connection/presentation/home_connection_page.dart';
 import 'package:smart_home_application_v1/features/rooms/presentation/rooms_page.dart';
-import 'package:smart_home_application_v1/features/settings/presentation/add_room_device_page.dart';
+import 'package:smart_home_application_v1/features/settings/presentation/add_device_page.dart';
 import 'package:smart_home_application_v1/features/settings/presentation/help/help_support_page.dart';
 import 'package:smart_home_application_v1/features/settings/presentation/people_page.dart';
 
@@ -24,7 +23,7 @@ void main() {
   });
 
   group('Tier 2: Task 3 — Getting Started Navigation Flows', () {
-    testWidgets('T3-1: Getting Started displays all 5 canonical options with updated descriptions',
+    testWidgets('T3-1: Getting Started displays canonical options with updated descriptions',
         (tester) async {
       final helpRepo = TestHelpRepository();
       await tester.pumpWidget(
@@ -37,10 +36,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Connect your home'), findsWidgets);
-      expect(find.text('Connect EH Home to your network and supported devices.'), findsOneWidget);
-
-      expect(find.text('Add your first device'), findsOneWidget);
+      expect(find.text('Add a device'), findsWidgets);
       expect(find.text('Discover and securely set up a supported EH device.'), findsOneWidget);
 
       expect(find.text('Create a room'), findsOneWidget);
@@ -57,7 +53,7 @@ void main() {
           findsOneWidget);
     });
 
-    testWidgets('T3-2: "Connect your home" navigates to canonical HomeConnectionPage',
+    testWidgets('T3-2: "Add a device" navigates to canonical AddDevicePage',
         (tester) async {
       final helpRepo = TestHelpRepository();
       await tester.pumpWidget(
@@ -70,30 +66,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Connect your home').first);
+      await tester.tap(find.text('Add a device').first);
       await tester.pumpAndSettle();
 
-      expect(find.byType(HomeConnectionPage), findsOneWidget);
-    });
-
-    testWidgets('T3-3: "Add your first device" navigates to canonical AddRoomDevicePage',
-        (tester) async {
-      final helpRepo = TestHelpRepository();
-      await tester.pumpWidget(
-        buildTestApp(
-          child: HelpSupportPage(
-            repository: helpRepo,
-            settingsRepository: TestSettingsRepository(),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Add your first device'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(AddRoomDevicePage), findsOneWidget);
-      expect(find.text('Pair a New Device'), findsOneWidget);
+      expect(find.byType(AddDevicePage), findsOneWidget);
     });
 
     testWidgets('T3-4: "Create a room" navigates to canonical RoomsPage and triggers create-room action',

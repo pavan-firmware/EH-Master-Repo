@@ -35,6 +35,7 @@ export declare class ProductService {
         productId?: string;
         limit?: number;
         offset?: number;
+        databaseOnly?: boolean;
     }): Promise<{
         items: VariantDetail[];
         total: number;

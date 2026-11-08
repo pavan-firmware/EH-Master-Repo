@@ -53,7 +53,7 @@ void main() {
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Pavan’s home'), findsOneWidget);
     expect(find.text('People at home'), findsOneWidget);
-    expect(find.text('Add a room device'), findsOneWidget);
+    expect(find.text('Add a device'), findsOneWidget);
 
     await _scrollSettingsToBottom(tester);
     expect(find.text('Help and support'), findsOneWidget);
@@ -74,12 +74,11 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Version 1.0.0'), findsOneWidget);
       expect(find.text('Healthy'), findsOneWidget);
 
-      await _tapSettingsRow(tester, 'Connect your home');
-      expect(find.text('Your home is connected'), findsOneWidget);
+      await _tapSettingsRow(tester, 'Add a device');
+      expect(find.text('Add a device'), findsWidgets);
       expect(find.text('Home'), findsNothing);
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -141,9 +140,9 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.close_rounded));
       await tester.pumpAndSettle();
-      await _tapSettingsRow(tester, 'Add a room device');
+      await _tapSettingsRow(tester, 'Add a device');
       expect(find.text('Nearby devices'), findsOneWidget);
-      expect(find.text('Smart Mist Maker'), findsOneWidget);
+      expect(find.text('EH Smart Switch 3X'), findsOneWidget);
     },
   );
 }

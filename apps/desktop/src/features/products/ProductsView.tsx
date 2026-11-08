@@ -21,8 +21,11 @@ import {
   ChevronRight,
   X,
   Sliders,
+  Upload,
+  Trash2,
 } from 'lucide-react';
 import { apiClient } from '../../services/api-client';
+import { getDesktopConfig } from '../../lib/config';
 import { CANONICAL_PRODUCT_DEFINITIONS } from '@eh-home/contracts';
 
 interface VariantItem {
@@ -43,6 +46,7 @@ interface VariantItem {
   channelLabels?: string[];
   description?: string;
   isArchived?: boolean;
+  assets?: Array<{ assetId: string; kind: string; url: string; sortOrder?: number }>;
 }
 
 const formatConnectivity = (cp: any): string => {
@@ -85,6 +89,9 @@ export const ProductsView: React.FC = () => {
   const [isCreateVariantOpen, setIsCreateVariantOpen] = useState(false);
   const [isEditVariantOpen, setIsEditVariantOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [assetKind, setAssetKind] = useState('hero');
+  const [assetBusy, setAssetBusy] = useState(false);
+  const [mobileSyncBusy, setMobileSyncBusy] = useState(false);
 
   // Form states
   const [productForm, setProductForm] = useState({
@@ -108,11 +115,14 @@ export const ProductsView: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [varRes, prodRes, _famRes] = await Promise.all([
-        apiClient.listVariants(),
+      const [varRes, _prodRes, _famRes] = await Promise.all([
+        apiClient.listVariants({ databaseOnly: true }),
         apiClient.listProducts(),
         apiClient.listProductFamilies(),
       ]);
+      // Canonical definitions remain a schema/reference baseline only; this
+      // screen never displays them when the database is empty or unavailable.
+      void CANONICAL_PRODUCT_DEFINITIONS;
 
       if (varRes.success && Array.isArray(varRes.data) && varRes.data.length > 0) {
         setProducts(varRes.data);
@@ -120,21 +130,17 @@ export const ProductsView: React.FC = () => {
         if (firstVar) {
           setSelectedVariantId((prev) => prev || firstVar.variantId || firstVar.id);
         }
-      } else if (prodRes.success && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
-        setProducts(prodRes.data);
-        const firstProd = prodRes.data[0];
-        if (firstProd) {
-          setSelectedVariantId((prev) => prev || firstProd.variantId || firstProd.id);
-        }
       } else {
-        setProducts(CANONICAL_PRODUCT_DEFINITIONS as any[]);
-        if (CANONICAL_PRODUCT_DEFINITIONS.length > 0) {
-          setSelectedVariantId((prev) => prev || CANONICAL_PRODUCT_DEFINITIONS[0]?.variantId || '');
-        }
+        // The desktop catalog is database-backed. Never replace an empty or
+        // unavailable database response with canonical demo definitions.
+        setProducts([]);
+        setSelectedVariantId(null);
+        if (!varRes.success) setError(varRes.error?.message || 'Product database is unavailable.');
       }
     } catch (err: any) {
-      setProducts(CANONICAL_PRODUCT_DEFINITIONS as any[]);
-      setError(`Notice: Using local canonical baseline (${err.message})`);
+      setProducts([]);
+      setSelectedVariantId(null);
+      setError(`Product database unavailable: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -238,8 +244,67 @@ export const ProductsView: React.FC = () => {
     }
   };
 
+  const handleAssetUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    const variantId = selectedProduct?.variantId || selectedProduct?.id;
+    if (!file || !variantId) return;
+    if (!file.type.startsWith('image/') || file.size > 12 * 1024 * 1024) {
+      setFeedback({ type: 'error', message: 'Choose a supported image under 12 MB.' });
+      event.target.value = '';
+      return;
+    }
+    setAssetBusy(true);
+    try {
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+        reader.onerror = () => reject(new Error('Could not read image'));
+        reader.readAsDataURL(file);
+      });
+      const res = await apiClient.uploadVariantAsset(variantId, { kind: assetKind, filename: file.name, contentBase64 });
+      if (!res.success) throw new Error(res.error?.message || 'Upload failed');
+      setFeedback({ type: 'success', message: `${assetKind} uploaded and optimized for ${variantId}.` });
+      await fetchCatalog();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message });
+    } finally {
+      setAssetBusy(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleAssetDelete = async (assetId: string) => {
+    const variantId = selectedProduct?.variantId || selectedProduct?.id;
+    if (!variantId) return;
+    setAssetBusy(true);
+    try {
+      const res = await apiClient.deleteVariantAsset(variantId, assetId);
+      if (!res.success) throw new Error(res.error?.message || 'Delete failed');
+      setFeedback({ type: 'success', message: 'Asset removed from this exact variant.' });
+      await fetchCatalog();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message });
+    } finally { setAssetBusy(false); }
+  };
+
+  const handleMobileAssetSync = async () => {
+    setMobileSyncBusy(true);
+    try {
+      if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) {
+        throw new Error('Mobile image sync is available from the installed Tauri desktop app.');
+      }
+      const { invoke } = await import('@tauri-apps/api/core');
+      const result = await invoke<string>('sync_mobile_catalog_assets', { apiUrl: getDesktopConfig().apiBaseUrl });
+      setFeedback({ type: 'success', message: result || 'Mobile catalog images synced. Rebuild the APK to publish them.' });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Mobile image sync failed.' });
+    } finally {
+      setMobileSyncBusy(false);
+    }
+  };
+
   const filteredProducts = products.filter((item) => {
-    const fam = item.familyId || item.productFamily || '';
+    const fam = String(item.familyId || item.productFamily || '').replace(/_/g, '-');
     const familyMatch = selectedFamily === 'all' || fam === selectedFamily;
     const query = searchQuery.toLowerCase().trim();
     const searchMatch =
@@ -250,7 +315,13 @@ export const ProductsView: React.FC = () => {
     return familyMatch && searchMatch;
   });
 
-  const selectedProduct = products.find((p) => (p.variantId || p.id) === selectedVariantId) || products[0] || null;
+  const selectedProduct = filteredProducts.find((p) => (p.variantId || p.id) === selectedVariantId) || filteredProducts[0] || null;
+  // Static catalog definitions may contain documentation references such as
+  // assets/products/... that are not stored in the API bucket. Never render
+  // those as broken <img> elements in the admin artwork manager.
+  const managedAssets = (selectedProduct?.assets || []).filter((asset) =>
+    /^https?:\/\//i.test(asset.url) || asset.url.startsWith('/api/v1/storage/object/'),
+  );
 
   return (
     <div className="space-y-3 max-w-7xl mx-auto font-sans">
@@ -487,6 +558,42 @@ export const ProductsView: React.FC = () => {
                   </span>
                   <span className="text-[#CCCCCC]">{formatConnectivity(selectedProduct.connectivityProfile)}</span>
                 </div>
+              </div>
+
+              <div className="space-y-2 pt-1 border-t border-[#333333]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-semibold text-[#858585] uppercase tracking-wider">Variant artwork</div>
+                    <div className="text-[10px] text-[#666666] mt-0.5">Validated and converted to optimized WebP</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <select value={assetKind} onChange={(e) => setAssetKind(e.target.value)} className="rounded bg-[#1E1E1E] border border-[#3C3C3C] text-[10px] text-[#CCCCCC] px-1.5 py-1">
+                      {['hero', 'front', 'rear', 'installed', 'thumbnail', 'icon', 'packaging'].map((kind) => <option key={kind}>{kind}</option>)}
+                    </select>
+                    <label className={`inline-flex items-center gap-1 rounded bg-[#0E639C] px-2 py-1 text-[10px] text-white cursor-pointer ${assetBusy ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <Upload className="h-3 w-3" /> Upload
+                      <input type="file" accept="image/png,image/jpeg,image/webp,image/avif" className="hidden" onChange={handleAssetUpload} disabled={assetBusy} />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleMobileAssetSync}
+                      disabled={assetBusy || mobileSyncBusy}
+                      title="Copy approved variant artwork into the Flutter offline release assets"
+                      className="inline-flex items-center gap-1 rounded bg-[#2D7D46] px-2 py-1 text-[10px] text-white disabled:opacity-50"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${mobileSyncBusy ? 'animate-spin' : ''}`} />
+                      {mobileSyncBusy ? 'Syncing…' : 'Sync Mobile Images'}
+                    </button>
+                  </div>
+                </div>
+                {managedAssets.length === 0 ? <div className="rounded border border-dashed border-[#444444] p-3 text-center text-[10px] text-[#666666]">No managed artwork attached to this variant. Catalog reference images are not stored in the API.</div> : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {managedAssets.map((asset) => <div key={asset.assetId} className="relative rounded border border-[#3C3C3C] bg-[#1E1E1E] p-1">
+                      <img src={apiClient.resolveAssetUrl(asset.url)} alt={`${asset.kind} for ${selectedProduct.variantId}`} className="h-16 w-full object-contain rounded bg-[#252526]" />
+                      <div className="flex items-center justify-between pt-1"><span className="text-[10px] font-mono text-[#9CDCFE] truncate">{asset.kind}</span><button onClick={() => handleAssetDelete(asset.assetId)} disabled={assetBusy} title="Remove asset" className="text-[#F14C4C] hover:text-white disabled:opacity-50"><Trash2 className="h-3 w-3" /></button></div>
+                    </div>)}
+                  </div>
+                )}
               </div>
 
               {/* Channels & Capabilities Badges */}

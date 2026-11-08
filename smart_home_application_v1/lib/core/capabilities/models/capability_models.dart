@@ -1,6 +1,8 @@
 // Canonical capability and product models for the Flutter Capability Engine.
 // Strictly maps from canonical contracts and metadata definitions.
 
+import '../../services/product_asset_resolver.dart';
+
 enum CapabilityConnectionState { online, stale, offline }
 
 class CanonicalCapability {
@@ -126,8 +128,33 @@ class ProductVariantDefinition {
   final String sku;
   final String description;
 
-  String? get heroImageUrl =>
-      images['hero'] ?? images['front'] ?? images['thumbnail'];
+  String? get heroImageUrl {
+    // 1. Exact bundled catalog asset from APK FIRST (for instant 100% offline support)
+    final bundled = resolveBundledProductAsset(productVariantId);
+    if (bundled != null && bundled.isNotEmpty) return bundled;
+
+    final direct = images['hero'] ?? images['front'] ?? images['thumbnail'];
+    if (direct != null && (direct.startsWith('http://') || direct.startsWith('https://') || direct.startsWith('/api/'))) {
+      return direct;
+    }
+    // 2. Any non-empty direct image reference from API (e.g. already an asset path)
+    if (direct != null && direct.isNotEmpty) return direct;
+    // 3. Canonical catalog fallback using the known variant ID naming convention
+    //    e.g. eh-smart-switch-3x  → assets/products/catalog/eh-smart-switch-3x/hero.webp
+    final catalogKey = productVariantId
+        .toLowerCase()
+        .trim()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+    if (catalogKey.isNotEmpty) {
+      final inManifest = resolveBundledProductAsset(catalogKey);
+      if (inManifest != null) return inManifest;
+      final candidatePath = 'assets/products/catalog/$catalogKey/hero.webp';
+      if (catalogKey.contains('switch') || catalogKey.contains('socket') || catalogKey.contains('fan') || catalogKey.contains('light')) {
+        return candidatePath;
+      }
+    }
+    return null;
+  }
 
   String? get imageUrl => heroImageUrl;
 

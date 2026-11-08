@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/product_image_widget.dart';
 import '../models/capability_models.dart';
 import 'dynamic_channel_card.dart';
 import 'energy_card.dart';
@@ -123,6 +124,26 @@ class _DynamicDeviceViewState extends State<DynamicDeviceView> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          if (device.heroImageUrl != null || device.productVariantId.isNotEmpty) ...[
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: tokens.surfaceCard,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: tokens.borderSubtle),
+                ),
+                child: ProductImageWidget(
+                  imageUrl: device.heroImageUrl,
+                  size: 80,
+                  borderRadius: BorderRadius.circular(16),
+                  placeholderColor: tokens.isDark ? Colors.black26 : const Color(0xFFEFF4FB),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           // Dynamic Channels Section
           Row(
             children: [

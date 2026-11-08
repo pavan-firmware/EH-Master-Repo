@@ -46,6 +46,7 @@ pub fn run() {
             commands::open_provisioning_terminal_window,
             commands::close_provisioning_terminal_window,
             commands::send_serial_command,
+            commands::sync_mobile_catalog_assets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running EH Home Desktop application");

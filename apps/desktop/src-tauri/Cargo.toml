@@ -1,6 +1,6 @@
 [package]
 name = "eh-home-desktop"
-version = "1.0.0"
+version = "1.0.1"
 description = "EH Home Engineering & Manufacturing Desktop Workbench (Tauri v2 Native Layer)"
 authors = ["EH Home Engineering <dev@ehhome.io>"]
 license = "Proprietary"

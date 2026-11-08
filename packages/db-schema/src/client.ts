@@ -37,9 +37,11 @@ export function getDatabaseConfig(): DatabaseConfig {
   return {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432', 10),
-    database: process.env.DB_NAME || 'eh_home',
-    user: process.env.DB_USER || 'eh_user',
-    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME || 'eh_home_dev',
+    user: process.env.DB_USER || 'eh_admin',
+    // Development defaults match docker-compose. Production must provide
+    // DB_PASSWORD or DATABASE_URL explicitly; never silently invent a secret.
+    password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'development' ? 'eh_development_password_only' : undefined),
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     maxConnections: parseInt(process.env.DATABASE_POOL_MAX || '20', 10),
     idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT_MS || '30000', 10),

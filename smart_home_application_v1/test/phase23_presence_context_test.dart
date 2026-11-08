@@ -260,6 +260,7 @@ void main() {
                 'activeUserCount': 1,
                 'userStates': {
                   'usr_01': {
+                    'userName': 'Alice Walker',
                     'state': 'HOME',
                     'confidence': 0.90,
                     'source': 'mobile_app',
@@ -269,6 +270,7 @@ void main() {
                 'inferredRooms': [
                   {
                     'roomId': 'room_living',
+                    'roomName': 'Living Room',
                     'isOccupied': true,
                     'confidence': 0.75,
                     'inferenceReason': 'Device activity'
@@ -316,6 +318,10 @@ void main() {
       expect(find.text("Away"), findsWidgets);
       expect(find.text('Family & Member Presence'), findsOneWidget);
       expect(find.text('Inferred Room Occupancy'), findsOneWidget);
+      expect(find.text('Alice Walker'), findsOneWidget);
+      expect(find.text('Living Room'), findsOneWidget);
+      expect(find.textContaining('User: usr_01'), findsNothing);
+      expect(find.textContaining('Room: room_living'), findsNothing);
     });
 
     testWidgets('HomeContextPage renders modes and transitions', (tester) async {

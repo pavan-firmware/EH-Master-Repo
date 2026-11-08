@@ -60,6 +60,42 @@ class PrivacyDataDetailPage extends StatelessWidget {
             ),
           ),
         ],
+        if (category.kind == PrivacyDataCategoryKind.activityHistory) ...[
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.delete_sweep_rounded, color: Colors.red),
+            label: const Text('Clear Local Activity Cache', style: TextStyle(color: Colors.red)),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.red),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Clear Local Activity Cache?'),
+                  content: const Text(
+                    'This will remove cached operational timeline events from this device. '
+                    'Central platform audit logs will remain intact according to retention policies.',
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      child: const Text('Clear Cache'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmed == true && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Local activity cache cleared.')),
+                );
+              }
+            },
+          ),
+        ],
       ],
     ),
   );

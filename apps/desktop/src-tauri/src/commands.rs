@@ -335,6 +335,31 @@ pub fn get_workspace_root() -> std::path::PathBuf {
     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
 }
 
+/// Synchronizes approved API artwork into the Flutter release workspace using
+/// the repository's fixed, audited asset-sync script. This is intentionally
+/// not an arbitrary shell executor.
+#[tauri::command]
+pub fn sync_mobile_catalog_assets(api_url: String) -> Result<String, String> {
+    if !api_url.starts_with("http://") && !api_url.starts_with("https://") {
+        return Err("API URL must use http:// or https://".to_string());
+    }
+    let workspace = get_workspace_root();
+    let script = workspace.join("scripts").join("sync-mobile-catalog-assets.mjs");
+    if !script.exists() {
+        return Err(format!("Mobile asset sync script was not found in workspace: {}", script.display()));
+    }
+    let output = create_hidden_command("node")
+        .current_dir(&workspace)
+        .args([script.to_string_lossy().as_ref(), "--api", api_url.as_str()])
+        .output()
+        .map_err(|error| format!("Unable to start mobile asset sync: {error}"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() { "Mobile asset sync failed.".to_string() } else { detail });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 /// Resolves a path that might be relative to the workspace root
 pub fn resolve_relative_path(path_str: &str, base: &std::path::Path) -> std::path::PathBuf {
     let p = std::path::Path::new(path_str);
