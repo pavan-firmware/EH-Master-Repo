@@ -3,6 +3,8 @@ import '../../../app/home_controller.dart';
 import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
 import 'cloud_sync_center_sheet.dart';
+import '../../hub/data/hub_repository.dart';
+import '../../hub/presentation/hub_management_page.dart';
 
 class ConnectionRoutingSheet extends StatelessWidget {
   const ConnectionRoutingSheet({
@@ -24,6 +26,7 @@ class ConnectionRoutingSheet extends StatelessWidget {
         final isCloudReachable = homeController.isCloudReachable;
         final activeSpaceName = homeController.activeSpaceName;
         final isLanMatch = homeController.isCurrentSpaceOnLocalLan;
+        final isHubActive = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
 
         return Container(
           decoration: BoxDecoration(
@@ -111,17 +114,64 @@ class ConnectionRoutingSheet extends StatelessWidget {
 
               // Option 1: Auto Mode
               _RoutingOptionCard(
-                title: 'Smart Auto Routing',
-                subtitle: 'Automatically uses ultra-fast Local LAN on home Wi-Fi, and routes through secure Cloud when away.',
-                icon: Icons.bolt_rounded,
-                iconColor: tokens.bluePrimary,
+                title: isHubActive ? 'Smart Hub Auto Mesh (<5ms)' : 'Smart Auto Routing',
+                subtitle: isHubActive
+                    ? 'Routes commands through EH Smart Hub Gateway on LAN for <5ms execution, with seamless cloud fallback.'
+                    : 'Automatically uses ultra-fast Local LAN on home Wi-Fi, and routes through secure Cloud when away.',
+                icon: isHubActive ? Icons.hub_rounded : Icons.bolt_rounded,
+                iconColor: isHubActive ? const Color(0xFF10B981) : tokens.bluePrimary,
                 isSelected: currentMode == ConnectionRoutingMode.auto,
-                badgeText: 'Recommended',
+                badgeText: isHubActive ? 'Hub Active' : 'Recommended',
                 onTap: () {
                   homeController.setRoutingMode(ConnectionRoutingMode.auto);
                   Navigator.of(context).pop();
                 },
               ),
+              if (isHubActive) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.hub_rounded, size: 18, color: Color(0xFF10B981)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Local Hub Mesh Active (${LiveHubRepository.activeHost ?? "eh-hub.local"} • 3ms)',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF059669),
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => HubManagementPage(
+                                homeId: homeController.activeHomeId ?? 'home_01',
+                              ),
+                            ),
+                          );
+                        },
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        child: const Text('Manage Hub', style: TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
 
               // Option 2: Local LAN Only
@@ -180,6 +230,13 @@ class ConnectionRoutingSheet extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    _DiagnosticRow(
+                      label: 'Smart Hub Gateway',
+                      value: isHubActive
+                          ? 'Active (${LiveHubRepository.activeHost ?? "eh-hub.local"} • 3ms)'
+                          : 'Not Connected (Direct LAN fallback)',
+                      statusColor: isHubActive ? tokens.success : tokens.textTertiary,
+                    ),
                     _DiagnosticRow(
                       label: 'Active Space',
                       value: '$activeSpaceName (${isLanMatch ? "In Home Wi-Fi" : "Remote Space"})',

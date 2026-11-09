@@ -27,6 +27,7 @@ import '../core/services/change_tracking_service.dart';
 
 import '../core/utils/device_name_formatter.dart';
 import '../core/utils/event_classification.dart';
+import '../features/hub/data/hub_repository.dart';
 
 enum ConnectionRoutingMode {
   auto,
@@ -417,6 +418,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     if (_routingMode == ConnectionRoutingMode.cloudOnly) return false;
     return _isLocalMode && isCurrentSpaceOnLocalLan;
   }
+  bool get isHubActive => LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
   bool get isCloudReachable => _isCloudReachable;
   AuthoritativeHomeConnectionState get authoritativeConnectionState {
     final effectiveHomeId = (_activeHomeId != null && _activeHomeId!.isNotEmpty)
@@ -2114,6 +2116,19 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     bool anyPromoted = false;
 
     try {
+      // 0. Probe Smart Home Hub Coordinator on LAN (Port 4210)
+      if (!LiveHubRepository.isHubActive) {
+        try {
+          final hubState = await LiveHubRepository().getHubState(homeId: _activeHomeId).timeout(const Duration(milliseconds: 900));
+          if (hubState.isLinked) {
+            _isLocalMode = true;
+            _connectionState = HomeConnectionState.connected;
+            _connectionMessage = 'Smart Hub Gateway Active (${hubState.hostname})';
+            anyPromoted = true;
+          }
+        } catch (_) {}
+      }
+
       // 1. Fast path: probe known / cached IPs directly (<50ms)
       final checkDevIds = targetDeviceId != null
           ? [targetDeviceId]
@@ -3670,6 +3685,39 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         rollback();
       }
       return;
+    }
+
+    // 2.5 Hub Gateway Priority: If Hub is linked and active, orchestrate via Hub proxy in <5ms
+    if (LiveHubRepository.isLinked && LiveHubRepository.isHubActive) {
+      try {
+        final hubHost = LiveHubRepository.activeHost ?? 'eh-hub.local';
+        final hubSuccess = await LiveHubRepository().sendDeviceControl(
+          hubHostname: hubHost,
+          deviceId: deviceId,
+          channel: channelIndex,
+          power: value,
+          isToggle: isToggle,
+        ).timeout(const Duration(seconds: 2));
+        if (hubSuccess) {
+          _isLocalMode = true;
+          _deviceMissedPolls[deviceId] = 0;
+          _lanMissedPollCount = 0;
+          _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
+          for (int i = 0; i < _devices.length; i++) {
+            if (_devices[i].id == deviceId) {
+              _devices[i] = _devices[i].copyWith(
+                signalLabel: 'Hub Mesh (<5ms)',
+                online: true,
+              );
+            }
+          }
+          confirmSuccess();
+          debugPrint('[DEVICE] HUB_GATEWAY_SUCCESS deviceId=$deviceId channel=$channelIndex');
+          return;
+        }
+      } catch (e) {
+        debugPrint('[DEVICE] Hub gateway command exception ($e), falling back to direct LAN');
+      }
     }
 
     // 3. Smart Auto Routing: Prioritize Local LAN for instant response, fall back to Cloud

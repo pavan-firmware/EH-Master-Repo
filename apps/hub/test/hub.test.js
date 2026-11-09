@@ -136,7 +136,36 @@ async function runTests() {
   assert.strictEqual(notFoundRes.statusCode, 404);
   console.log('  ✓ 404 handling passed');
 
-  console.log('\n[PASS] All 9 Hub Core Daemon Tests Succeeded!\n');
+  console.log('[Test 10] Testing POST /api/v1/hub/identify (Beacon)...');
+  const identifyRes = await request('POST', '/api/v1/hub/identify');
+  assert.strictEqual(identifyRes.statusCode, 200);
+  assert.strictEqual(identifyRes.body.status, 'ok');
+  console.log('  ✓ POST /api/v1/hub/identify passed');
+
+  console.log('[Test 11] Testing POST /api/v1/hub/auth/verify (PIN check)...');
+  const authRes = await request('POST', '/api/v1/hub/auth/verify', { pin: '842-109' });
+  assert.strictEqual(authRes.statusCode, 200);
+  assert.strictEqual(authRes.body.verified, true);
+  const badAuthRes = await request('POST', '/api/v1/hub/auth/verify', { pin: '12' });
+  assert.strictEqual(badAuthRes.statusCode, 401);
+  console.log('  ✓ POST /api/v1/hub/auth/verify passed');
+
+  console.log('[Test 12] Testing POST /api/v1/hub/network/reset...');
+  const netResetRes = await request('POST', '/api/v1/hub/network/reset');
+  assert.strictEqual(netResetRes.statusCode, 200);
+  console.log('  ✓ POST /api/v1/hub/network/reset passed');
+
+  console.log('[Test 13] Testing POST /api/v1/hub/reboot...');
+  const rebootRes = await request('POST', '/api/v1/hub/reboot');
+  assert.strictEqual(rebootRes.statusCode, 200);
+  console.log('  ✓ POST /api/v1/hub/reboot passed');
+
+  console.log('[Test 14] Testing POST /api/v1/hub/factory-reset...');
+  const factoryRes = await request('POST', '/api/v1/hub/factory-reset');
+  assert.strictEqual(factoryRes.statusCode, 200);
+  console.log('  ✓ POST /api/v1/hub/factory-reset passed');
+
+  console.log('\n[PASS] All 14 Hub Core Daemon Tests Succeeded!\n');
 }
 
 runTests()

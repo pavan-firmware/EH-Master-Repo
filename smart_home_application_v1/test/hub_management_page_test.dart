@@ -83,6 +83,18 @@ class MockTestHubRepository implements HubRepository {
   Future<bool> restartHubCore({required String hubHostname}) async => true;
 
   @override
+  Future<bool> identifyHub({required String hubHostname}) async => true;
+
+  @override
+  Future<bool> verifyHubPin({required String hubHostname, required String pin}) async => true;
+
+  @override
+  Future<bool> resetMeshNetwork({required String hubHostname}) async => true;
+
+  @override
+  Future<bool> factoryResetHub({required String hubHostname}) async => true;
+
+  @override
   Future<Map<String, dynamic>> getHubUpdates({required String hubHostname}) async => {
     'status': 'ok',
     'hub': {

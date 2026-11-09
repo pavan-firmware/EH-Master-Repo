@@ -137,7 +137,22 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
       return (home, system);
     } catch (_) {
       if (_cachedData != null) return _cachedData!;
-      rethrow;
+      // Graceful offline fallback: Never lock user out of local settings
+      try {
+        var fallbackHome = await const PreviewSettingsRepository().getHome();
+        if (widget.homeController?.activeSpaceName != null &&
+            widget.homeController!.activeSpaceName.isNotEmpty) {
+          fallbackHome = fallbackHome.copyWith(name: widget.homeController!.activeSpaceName);
+        }
+        final conn = await const PreviewHomeConnectionRepository().getOverview(liveState: HomeConnectionState.offline);
+        final upd = await const PreviewUpdateRepository().getSummary();
+        final hlth = await const PreviewDeviceHealthRepository().getSummary();
+        final fallbackSystem = _SystemSummary(connection: conn, update: upd, health: hlth);
+        _cachedData = (fallbackHome, fallbackSystem);
+        return (fallbackHome, fallbackSystem);
+      } catch (_) {
+        rethrow;
+      }
     }
   }
 
@@ -432,6 +447,34 @@ class _SettingsContent extends StatelessWidget {
           'Manage your home, devices, and preferences.',
           style: TextStyle(color: tokens.textSecondary, fontSize: 14),
         ),
+        if (homeController?.isLocalMode == true || connectionState == HomeConnectionState.offline) ...[
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: tokens.warningContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: tokens.warning.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.wifi_tethering_rounded, size: 16, color: tokens.warning),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Local Wi-Fi Mode Active: Smart Home Hub, Device Controls, and Security documents are fully available offline.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: tokens.warning,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         _HomeProfileCard(
           home: home,

@@ -28,6 +28,7 @@ import '../core/repositories/cloud_notification_repository.dart';
 import '../core/repositories/local_notification_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../features/dashboard/presentation/cloud_sync_center_sheet.dart';
+import '../features/hub/presentation/hub_management_page.dart';
 import '../core/config/app_config.dart';
 import '../core/repositories/cloud_update_repository.dart';
 import '../core/services/device_storage_service.dart';
@@ -689,6 +690,8 @@ class _HomeShellState extends State<HomeShell> {
                   // Global Status Bar when Local LAN Mode is actively running
                   if (_homeController.isLocalMode)
                     _GlobalLanActiveBar(
+                      isHubActive: _homeController.isHubActive,
+                      homeId: _homeController.activeHomeId ?? 'home_01',
                       onRetryCloud: () async {
                         await _homeController.loadHomeData();
                       },
@@ -1075,39 +1078,57 @@ class _GlobalOfflineAlertBarState extends State<_GlobalOfflineAlertBar> {
   }
 }
 
-/// Global Active Bar indicating local LAN Wi-Fi mode is active.
+/// Global Active Bar indicating local LAN Wi-Fi mode or Smart Hub Gateway is active.
 class _GlobalLanActiveBar extends StatelessWidget {
-  const _GlobalLanActiveBar({required this.onRetryCloud});
+  const _GlobalLanActiveBar({
+    required this.onRetryCloud,
+    this.isHubActive = false,
+    this.homeId = 'home_01',
+  });
 
   final Future<void> Function() onRetryCloud;
+  final bool isHubActive;
+  final String homeId;
 
   @override
   Widget build(BuildContext context) {
+    final barBg = isHubActive
+        ? const Color(0xFF10B981).withValues(alpha: 0.15)
+        : const Color(0xFFF59E0B).withValues(alpha: 0.15);
+    final borderCol = isHubActive
+        ? const Color(0xFF10B981).withValues(alpha: 0.4)
+        : const Color(0xFFF59E0B).withValues(alpha: 0.4);
+    final textCol = isHubActive
+        ? const Color(0xFF059669)
+        : const Color(0xFFD97706);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+        color: barBg,
         border: Border(
           bottom: BorderSide(
-            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+            color: borderCol,
             width: 1,
           ),
         ),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.wifi_tethering_rounded,
-            color: Color(0xFFD97706),
+          Icon(
+            isHubActive ? Icons.hub_rounded : Icons.wifi_tethering_rounded,
+            color: textCol,
             size: 16,
           ),
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Local Wi-Fi Mode Active • Direct Device Control',
+              isHubActive
+                  ? 'Smart Hub Gateway Active • Local Mesh Orchestration (<5ms)'
+                  : 'Local Wi-Fi Mode Active • Direct Device Control',
               style: TextStyle(
-                color: Color(0xFFD97706),
+                color: textCol,
                 fontWeight: FontWeight.w700,
                 fontSize: 12,
               ),
@@ -1115,6 +1136,37 @@ class _GlobalLanActiveBar extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          if (isHubActive) ...[
+            InkWell(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => HubManagementPage(homeId: homeId),
+                  ),
+                );
+              },
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.dashboard_customize_rounded, size: 14, color: textCol),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Manage Hub',
+                      style: TextStyle(
+                        color: textCol,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           InkWell(
             onTap: onRetryCloud,
             borderRadius: BorderRadius.circular(6),
@@ -1122,13 +1174,13 @@ class _GlobalLanActiveBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.refresh_rounded, size: 14, color: Color(0xFFD97706)),
-                  SizedBox(width: 4),
+                children: [
+                  Icon(Icons.refresh_rounded, size: 14, color: textCol),
+                  const SizedBox(width: 4),
                   Text(
                     'Retry Cloud',
                     style: TextStyle(
-                      color: Color(0xFFD97706),
+                      color: textCol,
                       fontWeight: FontWeight.w700,
                       fontSize: 11,
                     ),

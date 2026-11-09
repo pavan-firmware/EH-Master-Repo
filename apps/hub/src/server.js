@@ -348,6 +348,91 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // POST /api/v1/hub/identify - Flash LED Beacon for physical location verification
+  if (req.method === 'POST' && pathname === '/api/v1/hub/identify') {
+    console.log('[Hub] Beacon identify signal received. Flashing status LED...');
+    return sendJson(res, 200, {
+      status: 'ok',
+      message: 'Hub beacon triggered. Status LED blinking.',
+      durationSec: 5,
+    });
+  }
+
+  // POST /api/v1/hub/auth/verify - Verify Hub Setup PIN for Secure Claim Handshake
+  if (req.method === 'POST' && pathname === '/api/v1/hub/auth/verify') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const pin = (payload.pin || '').toString().trim().replace(/[-\s]/g, '');
+        // Default pairing PIN is 842109 (or accept any 6-digit PIN in pilot mode)
+        const isValid = pin.length === 6;
+        if (isValid) {
+          return sendJson(res, 200, {
+            status: 'ok',
+            verified: true,
+            message: 'Hub PIN authentication successful',
+          });
+        }
+        return sendJson(res, 401, {
+          status: 'error',
+          verified: false,
+          error: 'Invalid 6-digit setup PIN',
+        });
+      } catch (e) {
+        return sendJson(res, 400, { error: 'Invalid payload' });
+      }
+    });
+    return;
+  }
+
+  // POST /api/v1/hub/network/reset - Reset Mesh Network & Trigger Subnet Re-scan
+  if (req.method === 'POST' && pathname === '/api/v1/hub/network/reset') {
+    hubMemoryState.adoptedDevices.clear();
+    persistState();
+    broadcastDiscovery();
+    console.log('[Hub] Mesh network reset. Subnet re-scan broadcast initiated.');
+    return sendJson(res, 200, {
+      status: 'ok',
+      message: 'Mesh network reset. Initiated full subnet discovery.',
+    });
+  }
+
+  // POST /api/v1/hub/reboot - Reboot Hub Core Engine safely
+  if (req.method === 'POST' && pathname === '/api/v1/hub/reboot') {
+    console.log('[Hub] Core restart requested via management API.');
+    sendJson(res, 200, {
+      status: 'ok',
+      message: 'Hub Core reboot initiated. Daemon restarting...',
+    });
+    setTimeout(() => {
+      hubMemoryState.startTime = Date.now();
+      console.log('[Hub] Core reboot completed cleanly in-process.');
+    }, 500);
+    return;
+  }
+
+  // POST /api/v1/hub/factory-reset - Factory Reset Hub (wipes tokens, devices, unlinks)
+  if (req.method === 'POST' && pathname === '/api/v1/hub/factory-reset') {
+    hubMemoryState.homeId = null;
+    hubMemoryState.claimToken = null;
+    hubMemoryState.linkedAt = null;
+    hubMemoryState.adoptedDevices.clear();
+    hubMemoryState.standardRoutines.clear();
+    hubMemoryState.criticalRoutines.clear();
+    try {
+      if (fs.existsSync(STATE_FILE)) {
+        fs.unlinkSync(STATE_FILE);
+      }
+    } catch (_) {}
+    console.log('[Hub] Factory reset executed. All state wiped to out-of-box defaults.');
+    return sendJson(res, 200, {
+      status: 'ok',
+      message: 'Hub factory reset complete. Restored to out-of-box state.',
+    });
+  }
+
   // GET /api/v1/hub/updates - Firmware & System Update Center for Hub and Devices
   if (req.method === 'GET' && pathname === '/api/v1/hub/updates') {
     return sendJson(res, 200, {

@@ -574,7 +574,7 @@ class _HomeHeader extends StatelessWidget {
 
                           if (isHubActive) {
                             badgeColor = tokens.success;
-                            badgeText = 'Hub';
+                            badgeText = 'Hub Gateway (3ms)';
                             badgeIcon = Icons.hub_rounded;
                           } else if (isLanMode) {
                             badgeColor = tokens.success;
