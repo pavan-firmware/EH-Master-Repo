@@ -180,6 +180,11 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     if (lower.contains('disconnected') || lower.contains('timeout')) {
       return "The device disconnected or took too long to respond. Keep it nearby and try again.";
     }
+    if (lower.contains('devicechallenge') ||
+        lower.contains('challenge') ||
+        lower.contains('timed out before verification')) {
+      return "The device connection timed out before verification. Tap Try again to re-verify.";
+    }
     return error
         .replaceFirst('Exception: ', '')
         .replaceFirst('BLE Wi-Fi provisioning exchange failed: ', '');
@@ -253,6 +258,12 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         return;
       }
 
+      final resolvedVariant = MockProductCatalogRepository.resolveCanonicalProductVariant(
+        deviceName: widget.deviceName,
+        serialNumber: widget.serialNumber,
+        hardwareModel: widget.deviceId,
+      );
+      final isSocket = resolvedVariant.contains('socket') || widget.deviceName.toLowerCase().contains('socket');
       final baseIdentity =
           _activeIdentity ??
           widget.channel?.deviceIdentity ??
@@ -260,9 +271,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
               ? OnboardingDeviceIdentity(
                   deviceId: widget.deviceId!,
                   serialNumber: widget.serialNumber!,
-                  productVariantId: 'eh-smart-switch-3x',
+                  productVariantId: resolvedVariant.isNotEmpty ? resolvedVariant : (isSocket ? 'eh-smart-socket-2x' : 'eh-smart-switch-3x'),
                   hardwareRevision: 'HW_1_0',
-                  firmwareFamily: 'esp32-switch-platform',
+                  firmwareFamily: isSocket ? 'esp32-socket-platform' : 'esp32-switch-platform',
                   displayName: widget.deviceName,
                 )
               : null);
@@ -339,10 +350,15 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
           _statusDetail = 'Verifying cryptographic device identity...';
         });
 
+        final challengeBytes = _session?.deviceChallenge ?? [];
+        if (challengeBytes.length != 32) {
+          throw Exception('The device connection timed out before verification. Tap Try again to re-verify.');
+        }
+
         final authResult = await _service.proveIdentity(
           sessionId: _session!.sessionId,
           identity: identity,
-          deviceChallenge: Uint8List.fromList(_session!.deviceChallenge ?? []),
+          deviceChallenge: Uint8List.fromList(challengeBytes),
           session: _session,
         );
         if (authResult.hasFailed || authResult.session == null) {
@@ -985,8 +1001,14 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
                 onPressed: _isProvisioningInProgress
                     ? null
                     : () => setState(() {
-                        _stage = ProvisioningUiStage.inputCredentials;
+                        _session = null;
+                        _activeIdentity = null;
                         _errorMessage = null;
+                        _isProvisioningInProgress = false;
+                        final hasCreds = _ssidController.text.trim().isNotEmpty;
+                        _stage = hasCreds
+                            ? ProvisioningUiStage.verifyDevice
+                            : ProvisioningUiStage.inputCredentials;
                       }),
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.blueDarker,

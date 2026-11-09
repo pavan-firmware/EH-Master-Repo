@@ -11,6 +11,7 @@ import '../../../core/services/check_timestamp_service.dart';
 import '../../activity/presentation/activity_page.dart';
 import '../../rooms/presentation/room_context_page.dart';
 import '../../settings/presentation/settings_ui.dart';
+import '../../../core/widgets/product_image_widget.dart';
 
 class DeviceHealthPage extends StatefulWidget {
   const DeviceHealthPage({
@@ -449,11 +450,12 @@ class _DeviceHealthTile extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            SettingsIconBadge(
-              icon: _deviceIcon(entry.iconKey),
-              color: _iconColor(entry.state),
-              background: _iconBg(entry.state),
+            ProductImageWidget(
+              imageUrl: entry.reading,
               size: 44,
+              borderRadius: BorderRadius.circular(10),
+              fallbackIcon: _deviceIcon(entry.iconKey),
+              placeholderColor: _iconBg(entry.state),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -649,11 +651,6 @@ IconData _roomIcon(String key) => switch (key) {
   'water' => Icons.water_drop_outlined,
   _ => Icons.meeting_room_outlined,
 };
-
-Color _iconColor(DeviceHealthState state) =>
-    state == DeviceHealthState.attention
-    ? SettingsColors.orange
-    : SettingsColors.blue;
 
 Color _iconBg(DeviceHealthState state) => state == DeviceHealthState.attention
     ? SettingsColors.paleOrange

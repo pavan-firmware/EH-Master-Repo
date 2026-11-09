@@ -6,6 +6,7 @@ import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
 import '../../devices/presentation/device_control_page.dart';
 import '../../automations/presentation/active_routine_guard.dart';
 import '../../../core/models/routine_models.dart';
@@ -1402,19 +1403,6 @@ class _DeviceRow extends StatelessWidget {
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: hasActiveChannels
-                          ? [
-                              tokens.bluePrimary.withValues(alpha: 0.22),
-                              tokens.bluePrimary.withValues(alpha: 0.08),
-                            ]
-                          : [
-                              devBg,
-                              devBg.withValues(alpha: 0.6),
-                            ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: hasActiveChannels
@@ -1422,12 +1410,14 @@ class _DeviceRow extends StatelessWidget {
                           : devColor.withValues(alpha: 0.2),
                     ),
                   ),
-                  child: Center(
-                    child: Icon(
-                      icon,
-                      color: hasActiveChannels ? tokens.bluePrimary : devColor,
-                      size: 26,
-                    ),
+                  child: ProductImageWidget(
+                    imageUrl: devSummary?.model ?? device.type,
+                    size: 52,
+                    borderRadius: BorderRadius.circular(16),
+                    fallbackIcon: icon,
+                    placeholderColor: hasActiveChannels
+                        ? tokens.bluePrimary.withValues(alpha: 0.12)
+                        : devBg,
                   ),
                 ),
                 Positioned(

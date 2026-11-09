@@ -6,6 +6,7 @@ import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/connection_repository.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/product_image_widget.dart';
 import '../../connection/presentation/connection_page.dart';
 import 'settings_ui.dart';
 import 'help/help_support_page.dart';
@@ -519,10 +520,33 @@ class _NearbyDeviceRow extends StatelessWidget {
                   size: 13,
                 ),
                 const SizedBox(width: 10),
-                SettingsIconBadge(
-                  icon: icon,
-                  size: 40,
-                  color: SettingsColors.blue,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    ProductImageWidget(
+                      imageUrl: device.model,
+                      size: 40,
+                      borderRadius: BorderRadius.circular(10),
+                      fallbackIcon: icon,
+                      placeholderColor: SettingsColors.blue.withValues(alpha: 0.1),
+                    ),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          icon,
+                          size: 14,
+                          color: SettingsColors.blue,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(width: 12),
                 Expanded(

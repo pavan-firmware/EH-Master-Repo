@@ -9,6 +9,7 @@ import '../../../core/repositories/settings_repository.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/iana_timezones.dart';
+import '../../../core/widgets/product_image_widget.dart';
 import 'notification_preferences_page.dart';
 import 'people_page.dart';
 import 'settings_ui.dart';
@@ -776,16 +777,33 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
                     itemBuilder: (c, idx) {
                       final d = devices[idx];
                       return ListTile(
-                        leading: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: d.online ? tokens.iconBgGreen : tokens.iconBgOrange,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            d.online ? Icons.check_circle_rounded : Icons.sensors_off_rounded,
-                            color: d.online ? tokens.success : tokens.warning,
-                            size: 20,
+                        leading: SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Stack(
+                            children: [
+                              ProductImageWidget(
+                                imageUrl: d.model,
+                                size: 44,
+                                borderRadius: BorderRadius.circular(10),
+                                fallbackIcon: d.name.toLowerCase().contains('socket')
+                                    ? Icons.power_rounded
+                                    : Icons.toggle_on_rounded,
+                              ),
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: d.online ? tokens.success : tokens.warning,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: tokens.surfaceCard, width: 2),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         title: Text(d.name, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700)),

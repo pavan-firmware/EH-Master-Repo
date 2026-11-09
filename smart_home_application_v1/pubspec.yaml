@@ -41,3 +41,7 @@ flutter:
   assets:
     - assets/branding/logo.png
     - assets/branding/app_startup_without_loading.png
+    # Bundled product catalog images (populated by scripts/sync-mobile-catalog-assets.mjs)
+    - assets/products/catalog/
+    - assets/products/catalog/eh-smart-socket-2x/
+    - assets/products/catalog/eh-smart-switch-3x/

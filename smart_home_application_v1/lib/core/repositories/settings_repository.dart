@@ -94,6 +94,22 @@ class PreviewSettingsRepository implements SettingsRepository {
   @override
   Future<List<DiscoveredRoomDevice>> getNearbyDevices() async => const [
     DiscoveredRoomDevice(
+      id: 'EH-SK2X-01',
+      name: 'Smart Socket 2X',
+      model: 'eh-smart-socket-2x',
+      signalLabel: 'Strong',
+      signal: DeviceConnection.online,
+      icon: 'socket',
+    ),
+    DiscoveredRoomDevice(
+      id: 'EH-SW3X-01',
+      name: 'Smart Switch 3X',
+      model: 'eh-smart-switch-3x',
+      signalLabel: 'Strong',
+      signal: DeviceConnection.online,
+      icon: 'switch',
+    ),
+    DiscoveredRoomDevice(
       id: 'SH-8EF248',
       name: 'Smart Mist Maker',
       model: 'SH-8EF248',
@@ -108,14 +124,6 @@ class PreviewSettingsRepository implements SettingsRepository {
       signalLabel: 'Strong',
       signal: DeviceConnection.online,
       icon: 'light',
-    ),
-    DiscoveredRoomDevice(
-      id: 'SH-91BC22',
-      name: 'Smart Plug',
-      model: 'SH-91BC22',
-      signalLabel: 'Medium',
-      signal: DeviceConnection.stale,
-      icon: 'plug',
     ),
   ];
 
