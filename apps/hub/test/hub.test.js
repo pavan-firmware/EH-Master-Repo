@@ -85,3 +85,4 @@ runTests()
   .finally(() => {
     child.kill('SIGTERM');
   });
+

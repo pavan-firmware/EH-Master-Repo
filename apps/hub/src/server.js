@@ -225,7 +225,7 @@ const udpSocket = dgram.createSocket('udp4');
 udpSocket.on('message', (msg, rinfo) => {
   try {
     const raw = msg.toString('utf8');
-    if (raw.startsWith('EH_BEACON:') || raw.startsWith('{')) {
+    if (raw.startsWith('EH_BEACON:') || raw.startsWith('EH_DISCOVER_RESP:') || raw.startsWith('{')) {
       let data = {};
       if (raw.startsWith('{')) {
         data = JSON.parse(raw);
@@ -234,11 +234,12 @@ udpSocket.on('message', (msg, rinfo) => {
         data = { deviceId: parts[1], ip: rinfo.address };
       }
 
-      if (data.deviceId && !hubMemoryState.adoptedDevices.has(data.deviceId)) {
+      const devId = data.deviceId;
+      if (devId && !hubMemoryState.adoptedDevices.has(devId)) {
         // Apply Jitter (Rule 3) before initial read-only probe
         const delay = Math.floor(Math.random() * 50) + 20;
         setTimeout(() => {
-          performNonDisruptiveStateSync(data.deviceId, rinfo.address);
+          performNonDisruptiveStateSync(devId, rinfo.address);
         }, delay);
       }
     }
@@ -277,9 +278,17 @@ function performNonDisruptiveStateSync(deviceId, ipAddress) {
   });
 }
 
-// Broadcast discovery periodic beacon
+// Broadcast discovery periodic beacon with passive NTP time injection
 function broadcastDiscovery() {
-  const message = Buffer.from(`EH_DISCOVER:${HUB_ID}:${hubMemoryState.homeId || 'open'}`);
+  const epoch = Math.floor(Date.now() / 1000);
+  const payload = JSON.stringify({
+    cmd: 'EH_DISCOVER',
+    hubId: HUB_ID,
+    homeId: hubMemoryState.homeId || 'open',
+    epoch: epoch,
+    unix_time: epoch,
+  });
+  const message = Buffer.from(payload);
   udpSocket.send(message, 0, message.length, UDP_PORT, '255.255.255.255', err => {
     if (err) console.warn('[Hub UDP] Discovery broadcast notice:', err.message);
   });
@@ -315,3 +324,4 @@ process.on('SIGTERM', () => {
   udpSocket.close();
   process.exit(0);
 });
+

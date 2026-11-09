@@ -116,3 +116,4 @@ void main() {
     expect(find.text('Restart Hub Core'), findsOneWidget);
   });
 }
+
