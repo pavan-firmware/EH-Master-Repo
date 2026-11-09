@@ -22,6 +22,7 @@ import {
   FileCode,
   ClipboardCheck,
   Package,
+  Network,
 } from 'lucide-react';
 import { useAppState } from '../../state/app-state';
 import { apiClient } from '../../services/api-client';
@@ -50,6 +51,14 @@ export const DashboardView: React.FC = () => {
     inventoryItemsCount: 0,
     cartonsCount: 0,
   });
+  const [hubStatus, setHubStatus] = useState<{
+    isOnline: boolean;
+    hostname: string;
+    uptime: string;
+    latencyMs: number;
+    devicesCount: number;
+    model: string;
+  } | null>(null);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
 
   const fetchPlatformMetrics = useCallback(async () => {
@@ -64,6 +73,45 @@ export const DashboardView: React.FC = () => {
         apiClient.listInventoryItems().catch(() => ({ success: false, data: [] })),
         apiClient.listCartons().catch(() => ({ success: false, data: [] })),
       ]);
+
+      // Check Hub status on LAN concurrently
+      try {
+        const hubController = new AbortController();
+        const hubTimer = setTimeout(() => hubController.abort(), 1200);
+        const hubRes = await fetch('http://192.168.0.174:4210/api/v1/hub/info', {
+          signal: hubController.signal,
+        }).catch(() => null);
+        clearTimeout(hubTimer);
+        if (hubRes && hubRes.ok) {
+          const hubJson = await hubRes.json();
+          setHubStatus({
+            isOnline: true,
+            hostname: hubJson.hostname || 'eh-hub.local',
+            uptime: hubJson.uptime || 'Active',
+            latencyMs: hubJson.latencyMs || 3,
+            devicesCount: hubJson.devicesCount || 0,
+            model: hubJson.model || 'EH-HUB-V1-PI (Raspberry Pi 3B+)',
+          });
+        } else {
+          setHubStatus({
+            isOnline: false,
+            hostname: 'eh-hub.local',
+            uptime: 'Standby / Optional',
+            latencyMs: 0,
+            devicesCount: 0,
+            model: 'EH-HUB-V1-PI (Optional Gateway)',
+          });
+        }
+      } catch {
+        setHubStatus({
+          isOnline: false,
+          hostname: 'eh-hub.local',
+          uptime: 'Standby / Optional',
+          latencyMs: 0,
+          devicesCount: 0,
+          model: 'EH-HUB-V1-PI (Optional Gateway)',
+        });
+      }
 
       const productsCount = prodRes.success && Array.isArray(prodRes.data) ? prodRes.data.length : 0;
       const hardwareRevsCount = hwRes.success && Array.isArray(hwRes.data) ? hwRes.data.length : 0;
@@ -159,7 +207,7 @@ export const DashboardView: React.FC = () => {
       </div>
 
       {/* Subsystem Health Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Backend API Service */}
         <div className="rounded border border-[#3C3C3C] bg-[#252526] p-3.5 shadow-sm">
           <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-[#333333]">
@@ -247,6 +295,40 @@ export const DashboardView: React.FC = () => {
               <span className={isScannerActive ? 'text-[#4EC9B0]' : 'text-[#858585]'}>
                 {isScannerActive ? 'Ready' : 'Standby'}
               </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Smart Home Hub Coordinator (Phase 51 Ecosystem) */}
+        <div className="rounded border border-[#3C3C3C] bg-[#252526] p-3.5 shadow-sm">
+          <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-[#333333]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-white">
+              <Network className="h-4 w-4 text-[#9CDCFE]" />
+              <span>Hub Gateway (apps/hub)</span>
+            </div>
+            {hubStatus?.isOnline ? (
+              <span className="flex items-center gap-1 text-[10px] font-mono font-medium text-[#4EC9B0] bg-[#4EC9B0]/10 px-1.5 py-0.5 rounded border border-[#4EC9B0]/30">
+                <CheckCircle2 className="h-3 w-3" />
+                <span>ACTIVE</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] font-mono font-medium text-[#CCA700] bg-[#CCA700]/10 px-1.5 py-0.5 rounded border border-[#CCA700]/30">
+                <span>STANDBY</span>
+              </span>
+            )}
+          </div>
+          <div className="space-y-1 font-mono text-[11px] text-[#858585]">
+            <div className="flex justify-between">
+              <span>Platform:</span>
+              <span className="text-[#CCCCCC]">{hubStatus?.isOnline ? 'Pi 3B+ (Port 4210)' : 'Optional Gateway'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Engine Mode:</span>
+              <span className="text-[#4EC9B0]">{hubStatus?.isOnline ? '100% RAM Scheduler' : 'Edge Micro (Standalone)'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Subnet Latency:</span>
+              <span className="text-[#CCCCCC]">{hubStatus?.isOnline ? `${hubStatus.latencyMs}ms (LAN Mesh)` : 'N/A'}</span>
             </div>
           </div>
         </div>

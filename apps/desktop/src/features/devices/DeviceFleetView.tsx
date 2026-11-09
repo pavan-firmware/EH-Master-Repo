@@ -267,7 +267,14 @@ export const DeviceFleetView: React.FC = () => {
                         }`}
                       >
                         <td className="p-2.5 font-mono text-[#4EC9B0] font-semibold">{d.serialNumber}</td>
-                        <td className="p-2.5 font-medium">{d.productVariantId}</td>
+                        <td className="p-2.5 font-medium">
+                          <span>{d.productVariantId}</span>
+                          {d.productVariantId.includes('hub') && (
+                            <span className="ml-1.5 text-[9px] font-mono px-1 py-0.5 rounded bg-[#9CDCFE]/15 text-[#9CDCFE] border border-[#9CDCFE]/30">
+                              GATEWAY
+                            </span>
+                          )}
+                        </td>
                         <td className="p-2.5 font-mono text-[#858585]">{d.hardwareRevision}</td>
                         <td className="p-2.5 font-mono text-[#858585]">v{d.firmwareVersion}</td>
                         <td className="p-2.5 text-right">
