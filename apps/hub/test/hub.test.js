@@ -42,9 +42,21 @@ function request(method, path, body = null) {
   });
 }
 
+async function waitForReady() {
+  for (let i = 0; i < 20; i++) {
+    try {
+      const res = await request('GET', '/api/v1/hub/info');
+      if (res.statusCode === 200) return;
+    } catch (_) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+  throw new Error('Hub daemon failed to become ready in time');
+}
+
 async function runTests() {
   console.log('[Test] Waiting for Hub daemon to start on port', PORT);
-  await new Promise(r => setTimeout(r, 800));
+  await waitForReady();
 
   console.log('[Test 1] Testing GET /api/v1/hub/info...');
   const infoRes = await request('GET', '/api/v1/hub/info');

@@ -29,7 +29,8 @@ def get_ssh_client():
 
 def run_remote_command(client, command, sudo=False):
     if sudo:
-        command = f"echo '{PI_PASSWORD}' | sudo -S {command}"
+        escaped = command.replace("'", "'\\''")
+        command = f"echo '{PI_PASSWORD}' | sudo -S bash -c '{escaped}'"
     stdin, stdout, stderr = client.exec_command(command)
     out = stdout.read().decode().strip()
     err = stderr.read().decode().strip()
