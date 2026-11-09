@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +15,8 @@ import '../../../core/repositories/cloud_routine_repository.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
+import '../../hub/data/hub_repository.dart';
+import '../../hub/domain/models/hub_models.dart';
 
 class AutomationsPage extends StatefulWidget {
   const AutomationsPage({
@@ -1633,6 +1637,37 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
       result = widget.initialRoutine != null
           ? await widget.repository.updateRoutine(widget.initialRoutine!.id, draft)
           : await widget.repository.createRoutine(draft);
+
+      // Section 3: Dual-Mode Hub Routine Synchronization
+      try {
+        final hubRepo = LiveHubRepository();
+        final hubState = await hubRepo.getHubState();
+        if (hubState.status == HubConnectionStatus.connected) {
+          final client = http.Client();
+          for (final act in routineActions) {
+            if (act.deviceId.isNotEmpty) {
+              for (final host in [hubState.hostname, 'eh-hub.local', '192.168.0.174']) {
+                try {
+                  await client.post(
+                    Uri.parse('http://$host:4210/api/v1/routines'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'name': name,
+                      'deviceId': act.deviceId,
+                      'channel': act.channelIndex,
+                      'targetState': act.targetState,
+                      'hour': _scheduledTime.hour,
+                      'minute': _scheduledTime.minute,
+                      'criticalHardwareFallback': _criticalHardwareFallback,
+                    }),
+                  ).timeout(const Duration(seconds: 1));
+                  break;
+                } catch (_) {}
+              }
+            }
+          }
+        }
+      } catch (_) {}
     } catch (e) {
       debugPrint('[RoutineBuilder] Save routine exception (fallback to success since local/edge persisted): $e');
       result = RepositoryResult.success;

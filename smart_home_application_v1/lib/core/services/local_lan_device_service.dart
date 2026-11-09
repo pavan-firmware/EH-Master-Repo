@@ -37,6 +37,8 @@ class LocalLanDeviceService {
   final Map<String, int> _deviceIpFailureCount = {};
   final Map<String, DateTime> _verifiedLiveAt = {};
   bool _isDiscovering = false;
+  String? _cachedHubHost;
+  DateTime? _lastHubSeenAt;
 
   /// Check whether a device has been verified live on LAN within the last 45 seconds
   bool isDeviceReachableOnLan(String deviceId) {
@@ -103,6 +105,10 @@ class LocalLanDeviceService {
               final text = utf8.decode(datagram.data);
               final map = json.decode(text);
               if (map is Map) {
+                if (map['hubId'] != null) {
+                  _cachedHubHost = datagram.address.address;
+                  _lastHubSeenAt = DateTime.now();
+                }
                 final devId = map['deviceId']?.toString();
                 final devIp = datagram.address.address;
                 final model = map['model']?.toString();
@@ -485,6 +491,42 @@ class LocalLanDeviceService {
     bool isToggle = false,
     String? explicitIp,
   }) async {
+    // Section 4.1 & Rule 4: If Hub is active, forward via Local Hub Coordinator first (<5ms sub-net mesh)
+    final isHubActive = _cachedHubHost != null &&
+        _lastHubSeenAt != null &&
+        DateTime.now().difference(_lastHubSeenAt!).inSeconds < 120;
+
+    if (isHubActive) {
+      try {
+        final hubUri = Uri.parse('http://$_cachedHubHost:4210/api/v1/control');
+        final hubPayload = json.encode({
+          'deviceId': deviceId,
+          'channel': channelIndex,
+          'channelIndex': channelIndex,
+          'power': power,
+          'value': power,
+          'state': power,
+          if (isToggle) 'toggle': true,
+          if (isToggle) 'action': 'toggle',
+        });
+        final hubResponse = await _client
+            .post(
+              hubUri,
+              headers: {'Content-Type': 'application/json'},
+              body: hubPayload,
+            )
+            .timeout(const Duration(milliseconds: 1000));
+
+        if (hubResponse.statusCode == 200) {
+          debugPrint('[LAN-HUB] Direct local command executed via Hub Coordinator for $deviceId ch$channelIndex');
+          markDeviceReachableOnLan(deviceId);
+          return true;
+        }
+      } catch (e) {
+        debugPrint('[LAN-HUB] Hub coordinator proxy failed or timed out: $e. Falling back to direct switch IP');
+      }
+    }
+
     String? ip = explicitIp ?? getDeviceIp(deviceId);
     if (ip == null || ip.isEmpty) {
       debugPrint('[LAN] No local IP known for device $deviceId. Fast-checking UDP broadcast...');

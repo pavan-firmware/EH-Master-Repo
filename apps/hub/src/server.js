@@ -228,11 +228,22 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body || '{}');
-        const { deviceId, channel, state } = payload;
+        const deviceId = payload.deviceId;
+        const channel = payload.channel ?? payload.channelIndex ?? 1;
+        const state = payload.state ?? payload.power ?? payload.value ?? true;
+
         const target = hubMemoryState.adoptedDevices.get(deviceId);
         if (target && target.ipAddress) {
           // Forward directly to switch IP via local LAN HTTP in <5ms
-          const postData = JSON.stringify({ channel, state });
+          const postData = JSON.stringify({
+            channel,
+            channelIndex: channel,
+            power: state,
+            value: state,
+            state: state,
+            toggle: Boolean(payload.toggle),
+            action: payload.action,
+          });
           const forwardReq = http.request({
             hostname: target.ipAddress,
             port: 80,
@@ -242,9 +253,16 @@ const server = http.createServer((req, res) => {
               'Content-Type': 'application/json',
               'Content-Length': Buffer.byteLength(postData),
             },
-            timeout: 500,
+            timeout: 800,
           }, forwardRes => {
-            sendJson(res, forwardRes.statusCode || 200, { status: 'forwarded', target: deviceId });
+            target.channels = target.channels || {};
+            target.channels[channel] = state;
+            sendJson(res, forwardRes.statusCode || 200, {
+              status: 'forwarded',
+              target: deviceId,
+              channel,
+              state,
+            });
           });
           forwardReq.on('error', err => {
             sendJson(res, 502, { error: 'Device unreachable', detail: err.message });
@@ -253,7 +271,7 @@ const server = http.createServer((req, res) => {
           forwardReq.end();
           return;
         }
-        return sendJson(res, 200, { status: 'ok', localExecuted: true });
+        return sendJson(res, 200, { status: 'ok', localExecuted: true, deviceId, channel, state });
       } catch (e) {
         return sendJson(res, 400, { error: 'Invalid control payload' });
       }
@@ -284,12 +302,28 @@ udpSocket.on('message', (msg, rinfo) => {
       }
 
       const devId = data.deviceId;
-      if (devId && !hubMemoryState.adoptedDevices.has(devId)) {
-        // Apply Jitter (Rule 3) before initial read-only probe
-        const delay = Math.floor(Math.random() * 50) + 20;
-        setTimeout(() => {
-          performNonDisruptiveStateSync(devId, rinfo.address);
-        }, delay);
+      if (devId) {
+        if (!hubMemoryState.adoptedDevices.has(devId)) {
+          // Apply Jitter (Rule 3) before initial read-only probe
+          const delay = Math.floor(Math.random() * 50) + 20;
+          setTimeout(() => {
+            performNonDisruptiveStateSync(devId, rinfo.address);
+          }, delay);
+        } else {
+          // Update live IP and online status dynamically (DHCP shift resilience)
+          const existing = hubMemoryState.adoptedDevices.get(devId);
+          existing.ipAddress = rinfo.address;
+          existing.online = true;
+          existing.lastSeenAt = new Date().toISOString();
+          if (data.channels && Array.isArray(data.channels)) {
+            existing.channels = existing.channels || {};
+            for (const ch of data.channels) {
+              if (ch.channelIndex != null && ch.power != null) {
+                existing.channels[ch.channelIndex] = ch.power;
+              }
+            }
+          }
+        }
       }
     }
   } catch (_) {}

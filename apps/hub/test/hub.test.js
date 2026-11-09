@@ -81,12 +81,42 @@ async function runTests() {
   assert(Array.isArray(devRes.body.devices));
   console.log('  ✓ GET /api/v1/hub/devices passed');
 
-  console.log('[Test 4] Testing 404 for unknown endpoint...');
+  console.log('[Test 4] Testing POST /api/v1/control (Actuator proxy)...');
+  const controlRes = await request('POST', '/api/v1/control', {
+    deviceId: 'test_dev_01',
+    channelIndex: 1,
+    power: true,
+  });
+  assert.strictEqual(controlRes.statusCode, 200);
+  assert.strictEqual(controlRes.body.status, 'ok');
+  console.log('  ✓ POST /api/v1/control passed');
+
+  console.log('[Test 5] Testing POST /api/v1/routines (24/7 RAM Scheduler)...');
+  const routineRes = await request('POST', '/api/v1/routines', {
+    name: 'Evening Porch Light',
+    deviceId: 'test_dev_01',
+    channel: 1,
+    targetState: true,
+    hour: 18,
+    minute: 30,
+    criticalHardwareFallback: false,
+  });
+  assert.strictEqual(routineRes.statusCode, 200);
+  assert.strictEqual(routineRes.body.status, 'ok');
+  assert.strictEqual(routineRes.body.routine.name, 'Evening Porch Light');
+
+  const listRoutinesRes = await request('GET', '/api/v1/routines');
+  assert.strictEqual(listRoutinesRes.statusCode, 200);
+  assert(Array.isArray(listRoutinesRes.body.routines));
+  assert.strictEqual(listRoutinesRes.body.routines.length, 1);
+  console.log('  ✓ POST & GET /api/v1/routines passed');
+
+  console.log('[Test 6] Testing 404 for unknown endpoint...');
   const notFoundRes = await request('GET', '/api/v1/unknown');
   assert.strictEqual(notFoundRes.statusCode, 404);
   console.log('  ✓ 404 handling passed');
 
-  console.log('\n[PASS] All 4 Hub Core Daemon Tests Succeeded!\n');
+  console.log('\n[PASS] All 6 Hub Core Daemon Tests Succeeded!\n');
 }
 
 runTests()
