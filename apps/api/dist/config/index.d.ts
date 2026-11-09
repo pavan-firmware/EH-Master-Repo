@@ -18,7 +18,8 @@ export declare const EnvSchema: z.ZodObject<{
     CORS_ORIGIN: z.ZodDefault<z.ZodString>;
     REQUEST_TIMEOUT_MS: z.ZodDefault<z.ZodNumber>;
     BODY_LIMIT_BYTES: z.ZodDefault<z.ZodNumber>;
-    STORAGE_PROVIDER: z.ZodDefault<z.ZodEnum<["memory", "s3", "minio"]>>;
+    STORAGE_PROVIDER: z.ZodDefault<z.ZodEnum<["memory", "disk", "s3", "minio"]>>;
+    STORAGE_ROOT: z.ZodDefault<z.ZodString>;
     S3_ENDPOINT: z.ZodDefault<z.ZodString>;
     S3_REGION: z.ZodDefault<z.ZodString>;
     S3_ACCESS_KEY_ID: z.ZodDefault<z.ZodString>;
@@ -39,7 +40,8 @@ export declare const EnvSchema: z.ZodObject<{
     CORS_ORIGIN: string;
     REQUEST_TIMEOUT_MS: number;
     BODY_LIMIT_BYTES: number;
-    STORAGE_PROVIDER: "memory" | "s3" | "minio";
+    STORAGE_PROVIDER: "memory" | "disk" | "s3" | "minio";
+    STORAGE_ROOT: string;
     S3_ENDPOINT: string;
     S3_REGION: string;
     S3_ACCESS_KEY_ID: string;
@@ -64,7 +66,8 @@ export declare const EnvSchema: z.ZodObject<{
     CORS_ORIGIN?: string | undefined;
     REQUEST_TIMEOUT_MS?: number | undefined;
     BODY_LIMIT_BYTES?: number | undefined;
-    STORAGE_PROVIDER?: "memory" | "s3" | "minio" | undefined;
+    STORAGE_PROVIDER?: "memory" | "disk" | "s3" | "minio" | undefined;
+    STORAGE_ROOT?: string | undefined;
     S3_ENDPOINT?: string | undefined;
     S3_REGION?: string | undefined;
     S3_ACCESS_KEY_ID?: string | undefined;

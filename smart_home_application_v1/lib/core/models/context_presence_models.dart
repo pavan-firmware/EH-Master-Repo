@@ -206,6 +206,7 @@ class PresenceSignalModel {
 @immutable
 class UserPresenceState {
   final String userId;
+  final String? userName;
   final PresenceState state;
   final double confidence;
   final PresenceSource source;
@@ -214,6 +215,7 @@ class UserPresenceState {
 
   const UserPresenceState({
     required this.userId,
+    this.userName,
     required this.state,
     required this.confidence,
     required this.source,
@@ -224,6 +226,7 @@ class UserPresenceState {
   factory UserPresenceState.fromJson(String userId, Map<String, dynamic> json) {
     return UserPresenceState(
       userId: userId,
+      userName: json['userName']?.toString() ?? json['user_name']?.toString() ?? json['name']?.toString(),
       state: PresenceState.fromApiValue(json['state']?.toString()),
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.5,
       source: PresenceSource.fromApiValue(json['source']?.toString()),
@@ -238,6 +241,7 @@ class UserPresenceState {
 @immutable
 class InferredRoomPresence {
   final String roomId;
+  final String? roomName;
   final bool isOccupied;
   final double confidence;
   final bool isInferred;
@@ -246,6 +250,7 @@ class InferredRoomPresence {
 
   const InferredRoomPresence({
     required this.roomId,
+    this.roomName,
     required this.isOccupied,
     required this.confidence,
     this.isInferred = true,
@@ -256,6 +261,7 @@ class InferredRoomPresence {
   factory InferredRoomPresence.fromJson(Map<String, dynamic> json) {
     return InferredRoomPresence(
       roomId: json['roomId']?.toString() ?? json['room_id']?.toString() ?? '',
+      roomName: json['roomName']?.toString() ?? json['room_name']?.toString() ?? json['name']?.toString(),
       isOccupied: json['isOccupied'] == true || json['is_occupied'] == 1 || json['is_occupied'] == true,
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.5,
       isInferred: json['isInferred'] != false && json['is_inferred'] != false,

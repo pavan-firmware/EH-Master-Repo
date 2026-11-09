@@ -1,5 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/core/models/edge_control_models.dart';
 import 'package:smart_home_application_v1/core/services/edge_control_service.dart';
 import 'package:smart_home_application_v1/core/theme/app_theme.dart';
@@ -8,6 +12,10 @@ import 'package:smart_home_application_v1/features/edge_control/presentation/edg
 import 'package:smart_home_application_v1/features/edge_control/presentation/edge_execution_dashboard_page.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   group('Phase 28 — Local-First Edge Control Models', () {
     test('LocalConnectivityStatus serialization and deserialization', () {
       final json = {
@@ -211,7 +219,67 @@ void main() {
     });
 
     testWidgets('EdgeExecutionDashboardPage renders resiliency banner & edge controls', (tester) async {
-      final service = EdgeControlService(baseUrl: 'http://localhost:3000');
+      final mockClient = MockClient((request) async {
+        if (request.url.path.contains('/local-status')) {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'homeId': 'home_001',
+                'isLocalNetworkActive': true,
+                'localDevicesCount': 2,
+                'reachableDevicesCount': 2,
+                'avgLocalLatencyMs': 8.5,
+                'activeTransportSummary': {'LAN': 2},
+                'lastDiscoveredAt': '2026-09-04T12:00:00.000Z',
+              }
+            }),
+            200,
+          );
+        }
+        if (request.url.path.contains('/local-devices')) {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'devices': [
+                  {
+                    'deviceId': 'dev_001',
+                    'deviceName': 'Living Room Light',
+                    'transportType': 'WIFI_LAN',
+                    'ipAddress': '192.168.1.101',
+                    'isOnline': true,
+                    'isReachable': true,
+                  }
+                ]
+              }
+            }),
+            200,
+          );
+        }
+        if (request.url.path.contains('/edge-metrics')) {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'homeId': 'home_001',
+                'totalExecutions': 10,
+                'localCount': 9,
+                'cloudCount': 1,
+                'averageLatencyMs': 12.0,
+              }
+            }),
+            200,
+          );
+        }
+        return http.Response('{"success": true, "data": []}', 200);
+      });
+
+      final service = EdgeControlService(
+        baseUrl: 'http://localhost:3000',
+        client: mockClient,
+        authToken: 'test_token',
+      );
 
       await tester.pumpWidget(createThemedTestApp(
         EdgeExecutionDashboardPage(
@@ -221,7 +289,7 @@ void main() {
         ),
       ));
 
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.text('Intelligent Villa'), findsOneWidget);
       expect(find.text('Local-First Edge Control'), findsOneWidget);

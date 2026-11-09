@@ -166,6 +166,26 @@ class MockRecoveryRepository implements RecoveryRepository {
           ),
         ];
   }
+
+  @override
+  Future<List<RecoveryIntegrityModel>> listIntegrityResults({int limit = 50, int offset = 0, String? backupId}) async {
+    if (shouldThrow) throw Exception('Verification service error');
+    final defaultIntegrity = integrity ??
+        RecoveryIntegrityModel(
+          verificationId: 'v-001',
+          backupId: backupId ?? '0194fe23-7a1b-7890-a123-456789abcdef',
+          status: IntegrityStatus.valid,
+          manifestValid: true,
+          checksumsValid: true,
+          schemaCompatible: true,
+          migrationCompatible: true,
+          verifiedObjectsCount: 15,
+          failedObjectsCount: 0,
+          verifiedBy: 'SYSTEM',
+          verifiedAt: DateTime.now(),
+        );
+    return [defaultIntegrity];
+  }
 }
 
 void main() {

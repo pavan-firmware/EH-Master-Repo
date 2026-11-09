@@ -18,6 +18,7 @@ const security_routes_1 = require("../modules/security/security.routes");
 const audit_routes_1 = require("../modules/audit/audit.routes");
 const storage_routes_1 = require("../modules/storage/storage.routes");
 const backup_routes_1 = require("../modules/backup/backup.routes");
+const auth_routes_1 = require("../modules/auth/auth.routes");
 const registerRoutes = async (app) => {
     // 1. Root Operational Endpoints (/health, /ready)
     await app.register(health_1.healthRoutes);
@@ -47,6 +48,8 @@ const registerRoutes = async (app) => {
         await v1.register(storage_routes_1.storageRoutes, { prefix: '/storage' });
         // Database Backup, Verification & Recovery (Part 16)
         await v1.register(backup_routes_1.backupRoutes, { prefix: '/backups' });
+        // Account authentication used by the Flutter client.
+        await v1.register(auth_routes_1.authRoutes, { prefix: '/auth' });
     }, { prefix: '/api/v1' });
 };
 exports.registerRoutes = registerRoutes;

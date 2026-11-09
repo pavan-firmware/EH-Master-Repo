@@ -20,10 +20,9 @@ import '../../../core/services/device_storage_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/auth_controller.dart';
 import '../../dashboard/presentation/cloud_sync_center_sheet.dart';
-import '../../connection/presentation/connection_page.dart';
 import '../../diagnostics/presentation/device_health_page.dart';
 import '../../updates/presentation/system_update_page.dart';
-import 'add_room_device_page.dart';
+import 'add_device_page.dart';
 import 'advanced_fleet_operations_page.dart';
 import 'factory_reset/factory_reset_page.dart';
 import 'help/help_support_page.dart';
@@ -391,13 +390,28 @@ class _SettingsContent extends StatelessWidget {
             ThemeMode.light => 'Light theme',
           };
 
-    final effectiveHomeId = (homeId != null && homeId!.isNotEmpty)
-        ? homeId!
-        : (homeController?.activeHomeId != null &&
-                homeController!.activeHomeId!.isNotEmpty)
-            ? homeController!.activeHomeId!
-            : (home.id.isNotEmpty ? home.id : 'home_01');
-    final effectiveClient = apiClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
+    final effectiveHomeId = (homeController?.activeHomeId != null &&
+            homeController!.activeHomeId!.isNotEmpty &&
+            homeController!.activeHomeId != 'home_default' &&
+            homeController!.activeHomeId != 'home_01' &&
+            homeController!.activeHomeId != 'HN-7A28F91C')
+        ? homeController!.activeHomeId!
+        : (homeId != null &&
+                homeId!.isNotEmpty &&
+                homeId != 'home_default' &&
+                homeId != 'home_01' &&
+                homeId != 'HN-7A28F91C')
+            ? homeId!
+            : (home.id.isNotEmpty && home.id != 'HN-7A28F91C' && home.id != 'home_01'
+                ? home.id
+                : (DeviceStorageService.cachedActiveHomeId != null &&
+                        DeviceStorageService.cachedActiveHomeId!.isNotEmpty &&
+                        DeviceStorageService.cachedActiveHomeId != 'home_default' &&
+                        DeviceStorageService.cachedActiveHomeId != 'home_01' &&
+                        DeviceStorageService.cachedActiveHomeId != 'HN-7A28F91C')
+                    ? DeviceStorageService.cachedActiveHomeId!
+                    : 'home_01');
+    final effectiveClient = apiClient ?? authController?.apiClient ?? ApiClient.sharedClient ?? ApiClient(baseUrl: AppConfig.backendBaseUrl);
 
     return ListView(
       key: const PageStorageKey<String>('settings-scroll'),
@@ -445,14 +459,14 @@ class _SettingsContent extends StatelessWidget {
             children: [
               SettingsListItem(
                 icon: Icons.add_to_queue_rounded,
-                title: 'Add a room device',
+                title: 'Add a device',
                 subtitle: 'Set up a nearby device',
                 onTap: () async {
                   await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => AddRoomDevicePage(
-                        repository: repository,
+                      builder: (_) => AddDevicePage(
+                        repository: BleDiscoverySettingsRepository(),
                         onStartSecureSetup: onConnectHome,
                         connectionState: connectionState,
                         homeController: homeController,
@@ -461,44 +475,6 @@ class _SettingsContent extends StatelessWidget {
                   );
                   if (context.mounted) onReload();
                 },
-                showDivider: true,
-              ),
-              SettingsListItem(
-                icon: Icons.bluetooth_connected_rounded,
-                title: 'Connect your home',
-                subtitle: connection.detail,
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ConnectionPage(
-                        onStart: onConnectHome,
-                        connectionState: homeController?.authoritativeConnectionState.isOnline == false
-                            ? HomeConnectionState.offline
-                            : (connectionState ?? homeController?.connectionState),
-                        connectionMessage: connectionMessage ?? homeController?.connectionMessage,
-                        repository: connectionRepository,
-                      ),
-                    ),
-                  );
-                  if (context.mounted) onReload();
-                },
-                iconColor: tokens.isDark
-                    ? tokens.bluePrimary
-                    : SettingsColors.purple,
-                iconBackground: tokens.isDark
-                    ? tokens.iconBgBlue
-                    : SettingsColors.palePurple,
-                trailing: SettingsStatusChip(
-                  label: connection.shortLabel,
-                  color: connection.color,
-                  background: connection.background,
-                  leading: Icon(
-                    connection.chipIcon,
-                    color: connection.color,
-                    size: 14,
-                  ),
-                ),
                 showDivider: true,
               ),
               SettingsListItem(
@@ -701,7 +677,13 @@ class _SettingsContent extends StatelessWidget {
                 onTap: () async {
                   await Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const PrivacyPage()),
+                    MaterialPageRoute(
+                      builder: (_) => PrivacyPage(
+                        homeController: homeController,
+                        authController: authController,
+                        apiClient: effectiveClient,
+                      ),
+                    ),
                   );
                   if (context.mounted) onReload();
                 },

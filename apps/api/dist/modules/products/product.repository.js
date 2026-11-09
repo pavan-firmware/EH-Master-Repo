@@ -10,6 +10,36 @@ exports.ProductRepository = void 0;
 const drizzle_orm_1 = require("drizzle-orm");
 const db_schema_1 = require("@eh-home/db-schema");
 const product_adapter_1 = require("./product.adapter");
+// The original product_images table was created by the frozen legacy
+// migration and stores uppercase media kinds. The API contract uses the
+// descriptive lowercase names. Keep this compatibility boundary here so new
+// uploads work against existing databases without weakening the DB constraint.
+const API_TO_DB_ASSET_KIND = {
+    hero: 'HERO',
+    front: 'FRONT',
+    rear: 'BACK',
+    installed: 'INSTALL',
+    packaging: 'INSTALL',
+    technicalDiagram: 'WIRING',
+    diagram: 'WIRING',
+    render: 'HERO',
+    icon: 'THUMB',
+    thumbnail: 'THUMB',
+};
+const DB_TO_API_ASSET_KIND = {
+    HERO: 'hero',
+    FRONT: 'front',
+    BACK: 'rear',
+    INSTALL: 'installed',
+    WIRING: 'technicalDiagram',
+    THUMB: 'thumbnail',
+};
+function databaseAssetKind(kind) {
+    return API_TO_DB_ASSET_KIND[kind] || kind.toUpperCase();
+}
+function apiAssetKind(kind) {
+    return DB_TO_API_ASSET_KIND[kind] || kind;
+}
 class ProductRepository {
     db;
     memoryCache = new Map();
@@ -222,8 +252,8 @@ class ProductRepository {
             const assets = imgRows.map((img) => ({
                 assetId: img.id,
                 productVariantId: img.productVariantId,
-                kind: img.kind,
-                purpose: img.kind === 'thumbnail' ? 'catalog' : 'marketing',
+                kind: apiAssetKind(img.kind),
+                purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing',
                 url: img.url,
                 sortOrder: img.sortOrder,
                 isPublished: true,
@@ -276,8 +306,8 @@ class ProductRepository {
         const assets = imgRows.map((img) => ({
             assetId: img.id,
             productVariantId: img.productVariantId,
-            kind: img.kind,
-            purpose: img.kind === 'thumbnail' ? 'catalog' : 'marketing',
+            kind: apiAssetKind(img.kind),
+            purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing',
             url: img.url,
             sortOrder: img.sortOrder,
             isPublished: true,
@@ -507,7 +537,7 @@ class ProductRepository {
                     .values({
                     id: asset.assetId,
                     productVariantId: asset.productVariantId,
-                    kind: asset.kind,
+                    kind: databaseAssetKind(asset.kind),
                     url: asset.url,
                     sortOrder: asset.sortOrder,
                 })
@@ -539,13 +569,28 @@ class ProductRepository {
      * Lists all product variants with optional filters.
      */
     async listVariants(filters = {}) {
+        if (filters.databaseOnly && !this.db)
+            return { items: [], total: 0 };
         if (this.db) {
             try {
                 const query = this.db.select().from(db_schema_1.productVariants);
-                const rows = await (filters.productId ? query.where((0, drizzle_orm_1.eq)(db_schema_1.productVariants.productId, filters.productId)) : query);
+                let rows = await (filters.productId ? query.where((0, drizzle_orm_1.eq)(db_schema_1.productVariants.productId, filters.productId)) : query);
+                if (filters.familyId) {
+                    const families = await this.db.select().from(db_schema_1.productFamilies);
+                    const family = families.find((f) => f.id === filters.familyId || f.slug === filters.familyId || f.id.replace(/_/g, '-') === filters.familyId);
+                    if (family) {
+                        const familyProducts = await this.db.select().from(db_schema_1.products).where((0, drizzle_orm_1.eq)(db_schema_1.products.familyId, family.id));
+                        const productIds = new Set(familyProducts.map((product) => product.id));
+                        rows = rows.filter((row) => productIds.has(row.productId));
+                    }
+                    else {
+                        rows = [];
+                    }
+                }
                 if (rows.length > 0) {
                     const items = [];
                     for (const v of rows) {
+                        const imgRows = await this.db.select().from(db_schema_1.productImages).where((0, drizzle_orm_1.eq)(db_schema_1.productImages.productVariantId, v.id));
                         items.push({
                             variantId: v.id,
                             productId: v.productId,
@@ -559,7 +604,7 @@ class ProductRepository {
                             electricalSpecifications: v.electricalSpecifications || {},
                             firmwareFamily: v.firmwareFamily,
                             supportedHardwareRevisions: v.supportedHardwareRevisions || [],
-                            assets: [],
+                            assets: imgRows.map((img) => ({ assetId: img.id, productVariantId: img.productVariantId, kind: apiAssetKind(img.kind), purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing', url: img.url, sortOrder: img.sortOrder, isPublished: true })),
                             createdAt: v.createdAt.toISOString(),
                         });
                     }
@@ -567,9 +612,13 @@ class ProductRepository {
                 }
             }
             catch {
+                if (filters.databaseOnly)
+                    return { items: [], total: 0 };
                 // Fall back to memory
             }
         }
+        if (filters.databaseOnly)
+            return { items: [], total: 0 };
         const items = [];
         for (const def of this.memoryCache.values()) {
             if (filters.productId && def.product.id !== filters.productId)
@@ -932,6 +981,63 @@ class ProductRepository {
             return this.getVariantFromMemory(id);
         }
         return this.getVariantById(id);
+    }
+    async createVariantAsset(asset) {
+        if (this.db) {
+            // One active presentation asset per kind keeps consumer resolution
+            // deterministic (a newly approved hero replaces the previous hero).
+            const dbKind = databaseAssetKind(asset.kind);
+            await this.db.delete(db_schema_1.productImages).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(db_schema_1.productImages.productVariantId, asset.productVariantId), (0, drizzle_orm_1.eq)(db_schema_1.productImages.kind, dbKind)));
+            await this.db.insert(db_schema_1.productImages).values({
+                id: asset.id,
+                productVariantId: asset.productVariantId,
+                kind: dbKind,
+                url: asset.url,
+                sortOrder: asset.sortOrder || 0,
+            });
+        }
+        const existing = this.memoryCache.get(asset.productVariantId);
+        if (existing) {
+            existing.assets = existing.assets.filter((entry) => entry.kind !== asset.kind);
+            existing.assets.push({ assetId: asset.id, productVariantId: asset.productVariantId, kind: asset.kind, purpose: asset.kind === 'thumbnail' ? 'catalog' : 'marketing', url: asset.url, sortOrder: asset.sortOrder || 0, isPublished: true });
+        }
+        return { assetId: asset.id, productVariantId: asset.productVariantId, kind: asset.kind, purpose: asset.kind === 'thumbnail' ? 'catalog' : 'marketing', url: asset.url, sortOrder: asset.sortOrder || 0, isPublished: true };
+    }
+    async listVariantAssets(variantId) {
+        if (!this.db)
+            return [];
+        const rows = await this.db.select().from(db_schema_1.productImages).where((0, drizzle_orm_1.eq)(db_schema_1.productImages.productVariantId, variantId));
+        return rows.map((img) => ({
+            assetId: img.id,
+            productVariantId: img.productVariantId,
+            kind: apiAssetKind(img.kind),
+            purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing',
+            url: img.url,
+            sortOrder: img.sortOrder,
+            isPublished: true,
+        }));
+    }
+    async getVariantAsset(variantId, assetId) {
+        if (this.db) {
+            const rows = await this.db.select().from(db_schema_1.productImages).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(db_schema_1.productImages.productVariantId, variantId), (0, drizzle_orm_1.eq)(db_schema_1.productImages.id, assetId))).limit(1);
+            const row = rows[0];
+            if (row) {
+                const kind = apiAssetKind(row.kind);
+                return { assetId: row.id, productVariantId: row.productVariantId, kind, purpose: kind === 'thumbnail' ? 'catalog' : 'marketing', url: row.url, sortOrder: row.sortOrder, isPublished: true };
+            }
+        }
+        return this.memoryCache.get(variantId)?.assets.find((a) => a.assetId === assetId) || null;
+    }
+    async deleteVariantAsset(variantId, assetId) {
+        const asset = await this.getVariantAsset(variantId, assetId);
+        if (!asset)
+            return false;
+        if (this.db)
+            await this.db.delete(db_schema_1.productImages).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(db_schema_1.productImages.productVariantId, variantId), (0, drizzle_orm_1.eq)(db_schema_1.productImages.id, assetId)));
+        const cached = this.memoryCache.get(variantId);
+        if (cached)
+            cached.assets = cached.assets.filter((a) => a.assetId !== assetId);
+        return true;
     }
 }
 exports.ProductRepository = ProductRepository;

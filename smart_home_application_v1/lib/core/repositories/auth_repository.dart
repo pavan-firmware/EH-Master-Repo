@@ -59,13 +59,19 @@ class AuthRepository {
   static const String _refreshTokenKey = 'auth_refresh_token';
   static const String _userProfileKey = 'auth_user_profile';
 
+  static AuthRepository? instance;
+
   String? _accessToken;
   String? _refreshToken;
   UserProfile? _currentUser;
 
   AuthRepository(this._apiClient) {
+    instance = this;
     _apiClient.getAccessToken = () async => _accessToken;
     _apiClient.onRefreshToken = () async => await refresh();
+    ApiClient.defaultTokenProvider = () async => _accessToken;
+    ApiClient.defaultRefreshTokenProvider = () async => await refresh();
+    ApiClient.sharedClient = _apiClient;
   }
 
   UserProfile? get currentUser => _currentUser;
@@ -99,6 +105,7 @@ class AuthRepository {
 
     _accessToken = access;
     _refreshToken = refresh;
+    ApiClient.defaultTokenProvider = () async => _accessToken;
     if (userJsonStr != null && userJsonStr.isNotEmpty) {
       try {
         _currentUser = UserProfile.fromJson(jsonDecode(userJsonStr));
@@ -133,35 +140,6 @@ class AuthRepository {
   }
 
   /// Direct Local/Offline Mode Access — creates/restores a local authenticated profile
-  Future<void> loginLocalGuest({String? email, String? displayName}) async {
-    final localEmail = (email != null && email.trim().isNotEmpty) ? email.trim() : 'local_admin@ehhome.local';
-    final name = (displayName != null && displayName.trim().isNotEmpty) ? displayName.trim() : localEmail.split('@').first;
-    final guestProfile = UserProfile(
-      id: 'local_user_${DateTime.now().millisecondsSinceEpoch}',
-      email: localEmail,
-      emailVerified: true,
-      role: 'USER',
-      fullName: name,
-    );
-
-    _accessToken = 'local_offline_token';
-    _refreshToken = 'local_offline_refresh';
-    _currentUser = guestProfile;
-
-    try {
-      await _storage.write(key: _accessTokenKey, value: _accessToken!);
-      await _storage.write(key: _refreshTokenKey, value: _refreshToken!);
-      await _storage.write(key: _userProfileKey, value: jsonEncode(guestProfile.toJson()));
-    } catch (_) {}
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_accessTokenKey, _accessToken!);
-      await prefs.setString(_refreshTokenKey, _refreshToken!);
-      await prefs.setString(_userProfileKey, jsonEncode(guestProfile.toJson()));
-    } catch (_) {}
-  }
-
   Future<void> register(String email, String password, {String? fullName}) async {
     final body = <String, dynamic>{
       'email': email,
@@ -214,6 +192,7 @@ class AuthRepository {
     _accessToken = null;
     _refreshToken = null;
     _currentUser = null;
+    ApiClient.defaultTokenProvider = null;
 
     // Clean secure storage
     try {
@@ -340,6 +319,8 @@ class AuthRepository {
     // 3. Commit to in-memory state
     _accessToken = accessToken;
     _refreshToken = refreshToken;
+    _currentUser = userProfile;
+    ApiClient.defaultTokenProvider = () async => _accessToken;
     _currentUser = userProfile;
   }
 }

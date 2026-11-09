@@ -18,6 +18,7 @@ import { SecurityRepository } from './modules/security/security.repository';
 import { IStorageProvider } from './modules/storage/storage.interface';
 import { StorageService } from './modules/storage/storage.service';
 import { MemoryStorageProvider } from './modules/storage/providers/memory-storage.provider';
+import { DiskStorageProvider } from './modules/storage/providers/disk-storage.provider';
 import { S3StorageProvider } from './modules/storage/providers/s3-storage.provider';
 import { BackupService } from './modules/backup/backup.service';
 import { RestoreService } from './modules/backup/restore.service';
@@ -52,6 +53,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   let storageProvider: IStorageProvider;
   if (opts.storageProvider) {
     storageProvider = opts.storageProvider;
+  } else if (config.STORAGE_PROVIDER === 'disk') {
+    storageProvider = new DiskStorageProvider(config.STORAGE_ROOT);
   } else if (config.STORAGE_PROVIDER === 's3' || config.STORAGE_PROVIDER === 'minio') {
     storageProvider = new S3StorageProvider({
       endpoint: config.S3_ENDPOINT,

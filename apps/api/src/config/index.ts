@@ -13,8 +13,8 @@ export const EnvSchema = z.object({
   DATABASE_URL: z.string().url().optional(),
   DB_HOST: z.string().default('localhost'),
   DB_PORT: z.coerce.number().int().default(5432),
-  DB_NAME: z.string().default('eh_home'),
-  DB_USER: z.string().default('eh_user'),
+  DB_NAME: z.string().default('eh_home_dev'),
+  DB_USER: z.string().default('eh_admin'),
   DB_PASSWORD: z.string().optional(),
   DB_SSL: z.coerce.boolean().default(false),
   CORS_ORIGIN: z.string().default('*'),
@@ -22,7 +22,8 @@ export const EnvSchema = z.object({
   BODY_LIMIT_BYTES: z.coerce.number().int().default(10485760), // 10MB default for firmware binaries & backups
 
   // Storage & MinIO S3-compatible configuration (Part 16)
-  STORAGE_PROVIDER: z.enum(['memory', 's3', 'minio']).default('memory'),
+  STORAGE_PROVIDER: z.enum(['memory', 'disk', 's3', 'minio']).default('disk'),
+  STORAGE_ROOT: z.string().default('./data/storage'),
   S3_ENDPOINT: z.string().default('http://127.0.0.1:9000'),
   S3_REGION: z.string().default('us-east-1'),
   S3_ACCESS_KEY_ID: z.string().default('minioadmin'),

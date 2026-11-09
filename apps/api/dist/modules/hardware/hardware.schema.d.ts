@@ -15,12 +15,12 @@ export declare const ListHardwareRevisionsQuerySchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     limit: number;
     offset: number;
-    status?: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE" | undefined;
+    status?: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE" | undefined;
     productVariantId?: string | undefined;
     revisionCode?: string | undefined;
     mcuFamily?: string | undefined;
 }, {
-    status?: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE" | undefined;
+    status?: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE" | undefined;
     limit?: number | undefined;
     offset?: number | undefined;
     productVariantId?: string | undefined;
@@ -71,7 +71,7 @@ export declare const CreateHardwareRevisionBodySchema: z.ZodObject<{
     mcuFamily: string;
     pcbName: string;
     pcbRevision: string;
-    lifecycleStatus: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE";
+    lifecycleStatus: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE";
     layerCount: number;
     pinMap: Record<string, number>;
     designMetadata: Record<string, unknown>;
@@ -92,7 +92,7 @@ export declare const CreateHardwareRevisionBodySchema: z.ZodObject<{
     id?: string | undefined;
     mcuFamily?: string | undefined;
     pcbRevision?: string | undefined;
-    lifecycleStatus?: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE" | undefined;
+    lifecycleStatus?: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE" | undefined;
     layerCount?: number | undefined;
     dimensionsMm?: {
         width: number;
@@ -110,10 +110,10 @@ export declare const UpdateHardwareRevisionStatusBodySchema: z.ZodObject<{
     status: z.ZodEnum<["DRAFT", "VALIDATION", "APPROVED", "ACTIVE", "DEPRECATED", "RETIRED", "PROTOTYPE", "OBSOLETE"]>;
     reason: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    status: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE";
+    status: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE";
     reason?: string | undefined;
 }, {
-    status: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE";
+    status: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE";
     reason?: string | undefined;
 }>;
 export type UpdateHardwareRevisionStatusBody = z.infer<typeof UpdateHardwareRevisionStatusBodySchema>;
@@ -254,7 +254,7 @@ export declare const HardwareRevisionDetailSchema: z.ZodObject<{
     mcuFamily: string;
     pcbName: string;
     pcbRevision: string;
-    lifecycleStatus: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE";
+    lifecycleStatus: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE";
     layerCount: number;
     pinMap: Record<string, number>;
     designMetadata: Record<string, unknown>;
@@ -274,7 +274,7 @@ export declare const HardwareRevisionDetailSchema: z.ZodObject<{
     mcuFamily: string;
     pcbName: string;
     pcbRevision: string;
-    lifecycleStatus: "DRAFT" | "DEPRECATED" | "RETIRED" | "VALIDATION" | "APPROVED" | "ACTIVE" | "PROTOTYPE" | "OBSOLETE";
+    lifecycleStatus: "DRAFT" | "DEPRECATED" | "RETIRED" | "ACTIVE" | "VALIDATION" | "APPROVED" | "PROTOTYPE" | "OBSOLETE";
     layerCount: number;
     pinMap: Record<string, number>;
     designMetadata: Record<string, unknown>;

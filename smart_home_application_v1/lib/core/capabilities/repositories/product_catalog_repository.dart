@@ -477,6 +477,9 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
       ),
     ],
     capabilities: ['switch', 'relay', 'local_switch', 'ota', 'automation', 'scene', 'schedule'],
+    images: {
+      'hero': 'assets/products/catalog/eh-smart-switch-1x/hero.webp',
+    },
     firmwareFamily: 'esp32c6-switch-platform',
     supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
   );
@@ -501,6 +504,9 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
       ),
     ],
     capabilities: ['switch', 'relay', 'local_switch', 'ota', 'automation', 'scene', 'schedule'],
+    images: {
+      'hero': 'assets/products/catalog/eh-smart-switch-2x/hero.webp',
+    },
     firmwareFamily: 'esp32c6-switch-platform',
     supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
   );
@@ -530,6 +536,9 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
       ),
     ],
     capabilities: ['switch', 'relay', 'local_switch', 'ota', 'automation', 'scene', 'schedule'],
+    images: {
+      'hero': 'assets/products/catalog/eh-smart-switch-3x/hero.webp',
+    },
     firmwareFamily: 'esp32c6-switch-platform',
     supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
   );
@@ -564,6 +573,9 @@ class MockProductCatalogRepository implements ProductCatalogRepository {
       ),
     ],
     capabilities: ['switch', 'relay', 'local_switch', 'ota', 'automation', 'scene', 'schedule'],
+    images: {
+      'hero': 'assets/products/catalog/eh-smart-switch-4x/hero.webp',
+    },
     firmwareFamily: 'esp32c6-switch-platform',
     supportedHardwareRevisions: ['HW_1_0', 'HW_1_1'],
   );

@@ -158,7 +158,14 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                   borderSide: BorderSide(color: tokens.borderControl),
                 ),
               ),
-              validator: (val) => val == null || val.trim().isEmpty ? 'Name is required' : null,
+              validator: (val) {
+                if (val == null || val.trim().isEmpty) return 'Name is required';
+                final duplicate = widget.costService.tariffs.any((t) =>
+                    t.id != widget.tariff?.id &&
+                    t.name.trim().toLowerCase() == val.trim().toLowerCase());
+                if (duplicate) return 'A tariff with this name already exists';
+                return null;
+              },
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<TariffType>(
@@ -240,6 +247,13 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                         borderSide: BorderSide(color: tokens.borderControl),
                       ),
                     ),
+                    validator: (val) {
+                      if (val != null && val.trim().isNotEmpty) {
+                        final d = double.tryParse(val.trim());
+                        if (d == null || d < 0) return 'Must be non-negative';
+                      }
+                      return null;
+                    },
                   ),
                 ),
               ],
@@ -578,6 +592,13 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
                   borderSide: BorderSide(color: tokens.borderControl),
                 ),
               ),
+              validator: (val) {
+                if (val != null && val.trim().isNotEmpty) {
+                  final d = double.tryParse(val.trim());
+                  if (d == null || d < 0) return 'Must be non-negative';
+                }
+                return null;
+              },
             ),
           ],
         ),
@@ -586,7 +607,20 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
   }
 
   Future<void> _saveTariff() async {
+    if (_isSaving) return;
     if (!_formKey.currentState!.validate()) return;
+
+    if (_selectedType == TariffType.timeOfUse && _periods.isEmpty) {
+      final tokens = context.ehColors;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('At least one Time-of-Use period is required.'),
+          backgroundColor: tokens.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isSaving = true);
     final isEditing = widget.tariff != null;
@@ -623,13 +657,17 @@ class _TariffEditorPageState extends State<TariffEditorPage> {
       final tokens = context.ehColors;
       setState(() => _isSaving = false);
       if (success) {
-        Navigator.pop(context, true);
+        await widget.costService.fetchTariffs(widget.homeId);
+        if (mounted) {
+          Navigator.pop(context, true);
+        }
       } else {
         final err = widget.costService.errorMessage ?? 'Failed to save tariff. Please check your connection and values.';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(err),
             backgroundColor: tokens.error,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }

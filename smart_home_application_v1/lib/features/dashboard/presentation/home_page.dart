@@ -1261,7 +1261,7 @@ class _QuickControlsSection extends StatelessWidget {
                             child: Icon(
                               isSocket ? Icons.power_rounded : Icons.toggle_on_rounded,
                               size: 16,
-                              color: isOn ? Colors.white : tokens.textSecondary,
+                              color: isOn ? Colors.white : tokens.textTertiary,
                             ),
                           ),
                           Switch(
@@ -1792,7 +1792,9 @@ class _FavouriteDevicesStrip extends StatelessWidget {
                                 ? Icons.lightbulb_outline_rounded
                                 : (isFan
                                     ? Icons.air_rounded
-                                    : (isSocket ? Icons.power_rounded : Icons.toggle_on_rounded)),
+                                    : (isSocket
+                                        ? Icons.power_rounded
+                                        : Icons.toggle_on_rounded)),
                             size: 19,
                             color: isOn ? Colors.white : tokens.textSecondary,
                           ),
@@ -3429,7 +3431,7 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   color: isOn && !unavailable
-                      ? visual.color
+                      ? visual.color.withValues(alpha: 0.18)
                       : tokens.isDark
                           ? const Color(0xFF253347)
                           : const Color(0xFFEFF2F7),
@@ -3437,8 +3439,8 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
                 ),
                 child: Icon(
                   visual.icon,
-                  color: isOn && !unavailable ? Colors.white : tokens.textTertiary,
                   size: 22,
+                  color: isOn && !unavailable ? visual.color : tokens.textTertiary,
                 ),
               ),
               _ControlToggle(
@@ -3533,7 +3535,7 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: isOn && !unavailable
-                      ? visual.color
+                      ? visual.color.withValues(alpha: 0.18)
                       : tokens.isDark
                           ? const Color(0xFF253347)
                           : const Color(0xFFEFF2F7),
@@ -3541,8 +3543,8 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
                 ),
                 child: Icon(
                   visual.icon,
-                  color: isOn && !unavailable ? Colors.white : tokens.textTertiary,
                   size: 24,
+                  color: isOn && !unavailable ? visual.color : tokens.textTertiary,
                 ),
               ),
               const SizedBox(width: 14),

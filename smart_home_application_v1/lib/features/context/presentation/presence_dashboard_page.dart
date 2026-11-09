@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../../app/home_controller.dart';
 import '../../../core/models/context_presence_models.dart';
+import '../../../core/repositories/auth_repository.dart';
 import '../../../core/services/context_presence_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/eh_action_button.dart';
+import '../../settings/presentation/settings_ui.dart';
 
 class PresenceDashboardPage extends StatefulWidget {
   final String homeId;
@@ -42,6 +45,75 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
         final snapshot = widget.service.currentSnapshot;
         final homeContext = widget.service.currentContext;
         final isLoading = widget.service.isLoading;
+        final errorMessage = widget.service.errorMessage;
+
+        if (snapshot == null && errorMessage != null && !isLoading) {
+          return Scaffold(
+            backgroundColor: tokens.bgApp,
+            appBar: AppBar(
+              backgroundColor: tokens.bgApp,
+              elevation: 0,
+              iconTheme: IconThemeData(color: tokens.headerAction),
+              title: Text(
+                'Presence & Occupancy',
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              actions: [
+                settingsHelpAction(context, screenId: 'presence'),
+                IconButton(
+                  icon: Icon(Icons.refresh, color: tokens.headerAction),
+                  onPressed: _refreshData,
+                ),
+              ],
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.cloud_off_rounded,
+                      size: 48,
+                      color: tokens.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Failed to load presence data',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      errorMessage,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: tokens.bluePrimary,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: _refreshData,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
 
         return Scaffold(
           backgroundColor: tokens.bgApp,
@@ -51,9 +123,13 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
             iconTheme: IconThemeData(color: tokens.headerAction),
             title: Text(
               'Presence & Occupancy',
-              style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             actions: [
+              settingsHelpAction(context, screenId: 'presence'),
               IconButton(
                 icon: Icon(Icons.refresh, color: tokens.headerAction),
                 onPressed: _refreshData,
@@ -65,16 +141,62 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
             backgroundColor: tokens.surfaceElevated,
             onRefresh: _refreshData,
             child: isLoading && snapshot == null
-                ? Center(child: CircularProgressIndicator(color: tokens.bluePrimary))
+                ? Center(
+                    child: CircularProgressIndicator(color: tokens.bluePrimary),
+                  )
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
+                      if (errorMessage != null) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: tokens.error.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: tokens.error.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                size: 20,
+                                color: tokens.error,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  errorMessage,
+                                  style: TextStyle(
+                                    color: tokens.error,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       // 1. Whole-Home Occupancy Card
-                      _buildOccupancyHeroCard(context, snapshot, homeContext, tokens),
+                      _buildOccupancyHeroCard(
+                        context,
+                        snapshot,
+                        homeContext,
+                        tokens,
+                      ),
                       const SizedBox(height: 16),
 
                       // 2. Quick Manual Presence Overrides
-                      _buildQuickPresenceActions(context, snapshot?.state, tokens),
+                      _buildQuickPresenceActions(
+                        context,
+                        snapshot?.state,
+                        tokens,
+                      ),
                       const SizedBox(height: 20),
 
                       // 3. User Presence Breakdown
@@ -200,7 +322,10 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
                   children: [
                     Text(
                       'Reconciliation Confidence',
-                      style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: tokens.textSecondary,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -211,11 +336,26 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
                         color: tokens.textPrimary,
                       ),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      confidence >= 0.8
+                          ? 'High (trusted sources)'
+                          : confidence >= 0.4
+                          ? 'Moderate (recent signals)'
+                          : 'Low (stale / sparse)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: tokens.textSecondary,
+                      ),
+                    ),
                   ],
                 ),
                 if (homeContext != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: tokens.isDark
                           ? tokens.surfaceCard
@@ -262,7 +402,11 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
           children: [
             Row(
               children: [
-                Icon(Icons.touch_app_rounded, size: 16, color: tokens.textSecondary),
+                Icon(
+                  Icons.touch_app_rounded,
+                  size: 16,
+                  color: tokens.textSecondary,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   'Manual App Override',
@@ -280,7 +424,9 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
                 Expanded(
                   child: EHSelectionButton(
                     label: 'Home',
-                    icon: isHome ? Icons.check_circle_rounded : Icons.home_rounded,
+                    icon: isHome
+                        ? Icons.check_circle_rounded
+                        : Icons.home_rounded,
                     isSelected: isHome,
                     isLoading: _isSubmittingHome,
                     selectedBackgroundColor: tokens.success,
@@ -292,7 +438,9 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
                 Expanded(
                   child: EHSelectionButton(
                     label: 'Away',
-                    icon: isAway ? Icons.check_circle_rounded : Icons.exit_to_app_rounded,
+                    icon: isAway
+                        ? Icons.check_circle_rounded
+                        : Icons.exit_to_app_rounded,
                     isSelected: isAway,
                     isLoading: _isSubmittingAway,
                     selectedBackgroundColor: tokens.bluePrimary,
@@ -351,6 +499,51 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
     );
   }
 
+  static bool _isUuid(String s) {
+    final regex = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    );
+    return regex.hasMatch(s.trim());
+  }
+
+  String _resolveUserName(UserPresenceState u) {
+    if (u.userName != null &&
+        u.userName!.trim().isNotEmpty &&
+        !_isUuid(u.userName!)) {
+      return u.userName!.trim();
+    }
+    final currentUser = AuthRepository.instance?.currentUser;
+    if (currentUser != null &&
+        (currentUser.id == u.userId ||
+            currentUser.email.split('@').first == u.userName)) {
+      final name = currentUser.displayName.isNotEmpty
+          ? currentUser.displayName
+          : (currentUser.fullName ?? '');
+      if (name.trim().isNotEmpty && !_isUuid(name)) return name.trim();
+    }
+    return 'Home Owner';
+  }
+
+  String _resolveRoomName(InferredRoomPresence r) {
+    if (r.roomName != null &&
+        r.roomName!.trim().isNotEmpty &&
+        !_isUuid(r.roomName!)) {
+      return r.roomName!.trim();
+    }
+    final rooms = HomeController.instance?.rooms;
+    if (rooms != null) {
+      for (final room in rooms) {
+        if (room.id == r.roomId &&
+            room.name.trim().isNotEmpty &&
+            !_isUuid(room.name)) {
+          return room.name.trim();
+        }
+      }
+    }
+    return 'Primary Room';
+  }
+
   Widget _buildUserStatesList(
     BuildContext context,
     PresenceSnapshotModel? snapshot,
@@ -387,21 +580,30 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
           child: ListTile(
             leading: CircleAvatar(
               backgroundColor: isHome
-                  ? (tokens.isDark ? const Color(0xFF1E3A2F) : Colors.green.shade100)
-                  : (tokens.isDark ? const Color(0xFF263238) : Colors.blueGrey.shade100),
+                  ? (tokens.isDark
+                        ? const Color(0xFF1E3A2F)
+                        : Colors.green.shade100)
+                  : (tokens.isDark
+                        ? const Color(0xFF263238)
+                        : Colors.blueGrey.shade100),
               child: Icon(
                 isHome ? Icons.person_rounded : Icons.person_outline_rounded,
                 color: isHome
                     ? (tokens.isDark ? const Color(0xFF81C784) : Colors.green)
-                    : (tokens.isDark ? Colors.blueGrey.shade300 : Colors.blueGrey),
+                    : (tokens.isDark
+                          ? Colors.blueGrey.shade300
+                          : Colors.blueGrey),
               ),
             ),
             title: Text(
-              'User: ${u.userId}',
-              style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary),
+              _resolveUserName(u),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: tokens.textPrimary,
+              ),
             ),
             subtitle: Text(
-              'State: ${u.state.toApiValue()} • Source: ${u.source.toApiValue()}${u.isStale ? ' (STALE)' : ''}',
+              'State: ${u.state.toApiValue()} • Source: ${u.source.toApiValue()}${u.isStale ? ' (Expired)' : ' (Active)'}',
               style: TextStyle(color: tokens.textSecondary, fontSize: 13),
             ),
             trailing: Column(
@@ -410,7 +612,10 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
               children: [
                 Text(
                   '${(u.confidence * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: tokens.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: tokens.textPrimary,
+                  ),
                 ),
                 Text(
                   u.isStale ? 'Expired' : 'Active',
@@ -450,8 +655,16 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
       );
     }
 
+    final Map<String, InferredRoomPresence> uniqueRooms = {};
+    for (final r in snapshot.inferredRooms) {
+      final name = _resolveRoomName(r);
+      if (!uniqueRooms.containsKey(name) || r.isOccupied) {
+        uniqueRooms[name] = r;
+      }
+    }
+
     return Column(
-      children: snapshot.inferredRooms.map((r) {
+      children: uniqueRooms.values.map((r) {
         return Card(
           color: tokens.surfaceCard,
           shape: RoundedRectangleBorder(
@@ -461,27 +674,40 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: Icon(
-              r.isOccupied ? Icons.meeting_room_rounded : Icons.no_meeting_room_outlined,
+              r.isOccupied
+                  ? Icons.meeting_room_rounded
+                  : Icons.no_meeting_room_outlined,
               color: r.isOccupied ? tokens.success : tokens.textSecondary,
             ),
             title: Text(
-              'Room: ${r.roomId}',
-              style: TextStyle(fontWeight: FontWeight.w700, color: tokens.textPrimary),
+              _resolveRoomName(r),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: tokens.textPrimary,
+              ),
             ),
             subtitle: Text(
-              r.inferenceReason.isNotEmpty ? r.inferenceReason : 'Device activity analysis',
+              r.inferenceReason.isNotEmpty
+                  ? r.inferenceReason
+                  : 'Device activity analysis',
               style: TextStyle(color: tokens.textSecondary, fontSize: 13),
             ),
             trailing: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: r.isOccupied
-                    ? (tokens.isDark ? const Color(0xFF1E3A2F) : Colors.green.shade50)
-                    : (tokens.isDark ? const Color(0xFF263238) : Colors.grey.shade100),
+                    ? (tokens.isDark
+                          ? const Color(0xFF1E3A2F)
+                          : Colors.green.shade50)
+                    : (tokens.isDark
+                          ? const Color(0xFF263238)
+                          : Colors.grey.shade100),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: r.isOccupied
-                      ? (tokens.isDark ? const Color(0xFF2E7D32) : Colors.green.shade200)
+                      ? (tokens.isDark
+                            ? const Color(0xFF2E7D32)
+                            : Colors.green.shade200)
                       : tokens.borderControl,
                 ),
               ),
@@ -489,7 +715,9 @@ class _PresenceDashboardPageState extends State<PresenceDashboardPage> {
                 r.isOccupied ? 'Occupied' : 'Vacant',
                 style: TextStyle(
                   color: r.isOccupied
-                      ? (tokens.isDark ? const Color(0xFF81C784) : Colors.green.shade800)
+                      ? (tokens.isDark
+                            ? const Color(0xFF81C784)
+                            : Colors.green.shade800)
                       : tokens.textSecondary,
                   fontWeight: FontWeight.bold,
                   fontSize: 12,

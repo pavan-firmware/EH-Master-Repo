@@ -516,6 +516,7 @@ function createApp(options = {}) {
     homeRepo,
     deviceRepo,
     roomRepo,
+    userRepo,
     energyService,
     automationService,
     notificationService,
@@ -1383,12 +1384,25 @@ function createApp(options = {}) {
     }
 
     // 8.8d. Route to Disaster Recovery Router (Phase 33)
-    if (pathname.startsWith('/api/v1/admin/recovery')) {
+    if (
+      pathname.startsWith('/api/v1/admin/recovery') ||
+      pathname.startsWith('/api/v1/recovery') ||
+      pathname.startsWith('/api/v1/backups') ||
+      pathname.startsWith('/api/v1/storage/backups')
+    ) {
       if (req.user) {
         query.userId = req.user.id;
         if (req.user.role) query.userRole = req.user.role;
       }
-      const recoveryResult = await recoveryRouter.handle(method, pathname, body, req.headers, query);
+      let targetPath = pathname;
+      if (pathname.startsWith('/api/v1/recovery')) {
+        targetPath = '/api/v1/admin' + pathname.slice('/api/v1'.length);
+      } else if (pathname.startsWith('/api/v1/backups')) {
+        targetPath = '/api/v1/admin/recovery' + pathname.slice('/api/v1'.length);
+      } else if (pathname.startsWith('/api/v1/storage/backups')) {
+        targetPath = '/api/v1/admin/recovery' + pathname.slice('/api/v1/storage'.length);
+      }
+      const recoveryResult = await recoveryRouter.handle(method, targetPath, body, req.headers, query);
       if (recoveryResult) {
         return sendJsonResponse(res, recoveryResult.status, recoveryResult.body);
       }

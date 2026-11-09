@@ -81,12 +81,12 @@ export declare const CreateFirmwareReleaseBodySchema: z.ZodObject<{
     version: string;
     productVariantId: string;
     firmwareFamily: string;
+    sha256: string;
     releaseChannel: "development" | "production" | "beta" | "staging" | "canary";
     gitCommitSha: string;
     gitBranch: string;
     idfVersion: string;
     binarySizeBytes: number;
-    sha256: string;
     downloadUrl: string;
     id?: string | undefined;
     hardwareRevision?: string | undefined;
@@ -98,8 +98,8 @@ export declare const CreateFirmwareReleaseBodySchema: z.ZodObject<{
     version: string;
     productVariantId: string;
     firmwareFamily: string;
-    gitCommitSha: string;
     sha256: string;
+    gitCommitSha: string;
     status?: "DRAFT" | undefined;
     id?: string | undefined;
     hardwareRevision?: string | undefined;

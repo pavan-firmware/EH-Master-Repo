@@ -1,6 +1,8 @@
 /// Canonical models for Product Discovery, Catalog, Compatibility & Consumer Device Add (Phase 27).
 library;
 
+import '../services/product_asset_resolver.dart';
+
 class ProductAssetModel {
   final String hero;
   final String front;
@@ -120,14 +122,36 @@ class ProductCatalogEntry {
   });
 
   String? get imageUrl {
-    if (images.hero.isNotEmpty) return images.hero;
-    if (images.thumbnail.isNotEmpty) return images.thumbnail;
-    if (images.front.isNotEmpty) return images.front;
+    // 1. Exact bundled catalog asset from APK FIRST (for instant 100% offline support)
+    final bundled = resolveBundledProductAsset(variantId);
+    if (bundled != null && bundled.isNotEmpty) return bundled;
+
+    final direct = images.hero.isNotEmpty
+        ? images.hero
+        : images.thumbnail.isNotEmpty
+            ? images.thumbnail
+            : images.front;
+    if (direct.isNotEmpty) return direct;
     if (icon != null && icon!.isNotEmpty) return icon;
     return null;
   }
 
+  /// Artwork policy for the Add Device / discovery stage: use the clean
+  /// product hero, then the catalog thumbnail, then the front view.
+  String? get discoveryImageUrl => imageUrl;
+
   factory ProductCatalogEntry.fromJson(Map<String, dynamic> json) {
+    final rawImages = json['images'] is Map ? Map<String, dynamic>.from(json['images'] as Map) : <String, dynamic>{};
+    // The admin/API representation is a normalized asset list. Convert it to
+    // the consumer model while preserving the exact variant association.
+    if (json['assets'] is List) {
+      for (final raw in (json['assets'] as List).whereType<Map>()) {
+        final kind = (raw['kind'] ?? '').toString();
+        final url = (raw['url'] ?? '').toString();
+        if (url.isEmpty) continue;
+        rawImages.putIfAbsent(kind, () => url);
+      }
+    }
     return ProductCatalogEntry(
       productId: json['productId'] as String? ?? json['product_id'] as String? ?? '',
       productFamilyId: json['productFamilyId'] as String? ?? json['product_family_id'] as String? ?? '',
@@ -142,9 +166,7 @@ class ProductCatalogEntry {
       category: json['category'] as String? ?? 'switches',
       subcategory: json['subcategory'] as String?,
       brand: json['brand'] as String? ?? 'EH',
-      images: json['images'] is Map<String, dynamic>
-          ? ProductAssetModel.fromJson(json['images'] as Map<String, dynamic>)
-          : const ProductAssetModel(),
+      images: ProductAssetModel.fromJson(rawImages),
       icon: json['icon'] as String?,
       channelCount: (json['channelCount'] as num? ?? json['channel_count'] as num? ?? 1).toInt(),
       channels: (json['channels'] as List<dynamic>?)

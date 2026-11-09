@@ -1,4 +1,5 @@
 import 'device_models.dart';
+import '../services/product_asset_resolver.dart';
 
 enum HomeConnectionAvailability {
   connected,
@@ -7,7 +8,6 @@ enum HomeConnectionAvailability {
   offline,
   unavailable,
 }
-
 enum HomeMemberRole {
   owner,
   admin,
@@ -27,7 +27,6 @@ enum HomeMemberRole {
     }
   }
 }
-
 enum HomeMemberStatus { active, pending, unavailable }
 
 enum SettingsOperationResult {
@@ -37,7 +36,6 @@ enum SettingsOperationResult {
   unsupported,
   failed,
 }
-
 class HomePreferences {
   const HomePreferences({
     required this.temperatureUnit,
@@ -62,7 +60,6 @@ class HomePreferences {
     );
   }
 }
-
 class HomeSettingsData {
   const HomeSettingsData({
     required this.id,
@@ -178,6 +175,8 @@ class DiscoveredRoomDevice {
     required this.signalLabel,
     required this.signal,
     required this.icon,
+    this.imageUrl,
+    this.productVariantId,
   });
 
   final String id;
@@ -186,4 +185,31 @@ class DiscoveredRoomDevice {
   final String signalLabel;
   final DeviceConnection signal;
   final String icon;
+  final String? imageUrl;
+  final String? productVariantId;
+
+  String? get resolvedImageUrl {
+    final idOrModel = (productVariantId ?? model).toLowerCase().replaceAll('_', '-');
+    // 1. Exact bundled catalog asset (placed by sync-mobile-catalog-assets.mjs)
+    final bundled = resolveBundledProductAsset(idOrModel);
+    if (bundled != null && bundled.isNotEmpty) return bundled;
+    // 2. Explicit catalog path already stored in imageUrl
+    if (imageUrl != null && imageUrl!.isNotEmpty && imageUrl!.startsWith('assets/products/catalog/')) return imageUrl;
+    // 3. Any non-local imageUrl (e.g. http, /api/)
+    if (imageUrl != null && imageUrl!.isNotEmpty && !imageUrl!.contains('smart_')) return imageUrl;
+    // 4. Conventional catalog path based on variant id — works as soon as the
+    //    admin runs "Sync Mobile Assets" and rebuilds the APK.
+    if (idOrModel.contains('fan')) {
+      return 'assets/products/catalog/eh-smart-fan-1x/hero.webp';
+    }
+    if (idOrModel.contains('socket') || idOrModel.contains('plug')) {
+      return 'assets/products/catalog/eh-smart-socket-2x/hero.webp';
+    }
+    // For switches, use the canonical eh-smart-switch-Nx path so the catalog
+    // image (once synced) is used automatically.
+    final match = RegExp(r'(1|2|3|4|5)x').firstMatch(idOrModel);
+    final variant = match?.group(1) ?? '3';
+    return 'assets/products/catalog/eh-smart-switch-${variant}x/hero.webp';
+  }
 }
+

@@ -23,6 +23,7 @@ import '../core/capabilities/repositories/product_catalog_repository.dart';
 import '../core/services/device_storage_service.dart';
 import '../core/services/local_lan_device_service.dart';
 import '../core/services/edge_routine_sync_service.dart';
+import '../core/services/change_tracking_service.dart';
 
 import '../core/utils/device_name_formatter.dart';
 import '../core/utils/event_classification.dart';
@@ -437,7 +438,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       hasHome: hasHome,
     );
   }
-  bool get hasPendingCloudUpload => _hasPendingCloudUpload;
+  bool get hasPendingCloudUpload => _hasPendingCloudUpload || ChangeTrackingService.instance.hasPendingChanges;
   SyncMode get syncMode => _syncMode;
   ConnectionRoutingMode get routingMode => _routingMode;
   DateTime? get lastCloudSyncTime => _lastCloudSyncTime;
@@ -707,6 +708,16 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       );
       notifyListeners();
     }
+
+    ChangeTrackingService.instance.recordChange(
+      entityType: 'routine',
+      entityId: id,
+      field: 'enabled',
+      oldValue: (!enabled).toString(),
+      newValue: enabled.toString(),
+      changeType: ChangeType.modified,
+    );
+    _markLocalChangesDirty();
 
     // 2. Persist in PreviewRoutineRepository and sync to edge / cloud non-blocking
     unawaited(() async {
@@ -1036,6 +1047,15 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       'icon': icon,
     });
     await _storageService.saveSpaces(_spaces);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'space',
+      entityId: id,
+      field: 'name',
+      oldValue: null,
+      newValue: cleanName,
+      changeType: ChangeType.created,
+    );
+    _markLocalChangesDirty();
     await selectSpace(id);
   }
 
@@ -1044,9 +1064,19 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     if (cleanName.isEmpty) return;
     final idx = _spaces.indexWhere((s) => s['id'] == spaceId);
     if (idx >= 0) {
+      final oldName = _spaces[idx]['name'] as String?;
       _spaces[idx]['name'] = cleanName;
       if (icon != null) _spaces[idx]['icon'] = icon;
       await _storageService.saveSpaces(_spaces);
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'space',
+        entityId: spaceId,
+        field: 'name',
+        oldValue: oldName,
+        newValue: cleanName,
+        changeType: ChangeType.modified,
+      );
+      _markLocalChangesDirty();
       if (_repository is CloudHomeRepository) {
         try {
           await _repository.updateHome(spaceId, cleanName);
@@ -1064,10 +1094,20 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     final deletedIdx = _spaces.indexWhere((s) => s['id'] == spaceId);
     if (deletedIdx == 0) return; // Never delete primary home space
 
+    final oldName = _spaces[deletedIdx]['name']?.toString() ?? spaceId;
     _spaces.removeWhere((s) => s['id'] == spaceId);
     _spaceDevicesCache.remove(spaceId);
     await _storageService.saveSpaces(_spaces);
     await _storageService.addDeletedSpaceId(spaceId);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'space',
+      entityId: spaceId,
+      field: 'name',
+      oldValue: oldName,
+      newValue: null,
+      changeType: ChangeType.deleted,
+    );
+    _markLocalChangesDirty();
 
     if (_repository is CloudHomeRepository) {
       try {
@@ -1150,6 +1190,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     _selectedQuickControlIds = List.from(ids);
     await _storageService.saveQuickControlsForSpace(_activeSpaceId, _selectedQuickControlIds);
     await _storageService.saveQuickControls(_selectedQuickControlIds);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'quick_controls',
+      entityId: _activeSpaceId,
+      field: 'quickControls',
+      oldValue: null,
+      newValue: '${ids.length} actions selected',
+      changeType: ChangeType.modified,
+    );
     _markLocalChangesDirty();
     notifyListeners();
   }
@@ -1157,16 +1205,35 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> saveFavouritesForSpace(String spaceId, List<String> favouriteIds) async {
     _favouriteControlIds = List.from(favouriteIds);
     await _storageService.saveFavouritesForSpace(spaceId, _favouriteControlIds);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'favourites',
+      entityId: spaceId,
+      field: 'favourites',
+      oldValue: null,
+      newValue: '${favouriteIds.length} items',
+      changeType: ChangeType.modified,
+    );
+    _markLocalChangesDirty();
     notifyListeners();
   }
 
   Future<void> toggleFavourite(String controlId) async {
-    if (_favouriteControlIds.contains(controlId)) {
+    final wasFav = _favouriteControlIds.contains(controlId);
+    if (wasFav) {
       _favouriteControlIds.remove(controlId);
     } else {
       _favouriteControlIds.add(controlId);
     }
     await _storageService.saveFavouritesForSpace(_activeSpaceId, _favouriteControlIds);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'favourites',
+      entityId: controlId,
+      field: 'favourite',
+      oldValue: wasFav.toString(),
+      newValue: (!wasFav).toString(),
+      changeType: ChangeType.modified,
+    );
+    _markLocalChangesDirty();
     notifyListeners();
   }
 
@@ -2307,6 +2374,17 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         _connectionState = HomeConnectionState.connected;
         stateChanged = true;
       }
+      // A successful cloud response is itself a verified home connection.
+      // Do not leave the UI stuck in Offline merely because every physical
+      // device is currently asleep or reports offline.
+      if (_routingMode != ConnectionRoutingMode.localOnly && !_isLocalMode) {
+        if (_connectionState != HomeConnectionState.connected ||
+            _connectionMessage != 'Cloud Mode (Remote)') {
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Cloud Mode (Remote)';
+          stateChanged = true;
+        }
+      }
       if (rawDevices.isEmpty) {
         if (stateChanged) notifyListeners();
         return;
@@ -2708,7 +2786,16 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     required int channelIndex,
     required String newName,
   }) async {
+    final oldLabel = DeviceStorageService.getChannelLabels(deviceId)[channelIndex];
     await DeviceStorageService.saveChannelLabel(deviceId, channelIndex, newName);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'channel',
+      entityId: '$deviceId:ch$channelIndex',
+      field: 'label',
+      oldValue: oldLabel,
+      newValue: newName,
+      changeType: ChangeType.modified,
+    );
     _markLocalChangesDirty();
     if (_repository is CloudHomeRepository) {
       await _repository.renameChannel(
@@ -2733,6 +2820,15 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     required String newName,
   }) async {
     await DeviceStorageService.renameRoom(oldName, newName);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'room',
+      entityId: roomId.isNotEmpty ? roomId : oldName,
+      field: 'name',
+      oldValue: oldName,
+      newValue: newName,
+      changeType: ChangeType.modified,
+    );
+    _markLocalChangesDirty();
     final matchingBackendRoom = _backendRooms.cast<Room?>().firstWhere(
       (br) => br?.id == roomId || br?.name.toLowerCase() == oldName.toLowerCase(),
       orElse: () => null,
@@ -2803,6 +2899,15 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   }) async {
     await _storageService.removeRoomForSpace(_activeSpaceId, roomName);
     await DeviceStorageService.deleteRoom(roomName);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'room',
+      entityId: roomId.isNotEmpty ? roomId : roomName,
+      field: 'name',
+      oldValue: roomName,
+      newValue: null,
+      changeType: ChangeType.deleted,
+    );
+    _markLocalChangesDirty();
     final matchingBackendRoom = _backendRooms.cast<Room?>().firstWhere(
       (br) => br?.id == roomId || br?.name.toLowerCase() == roomName.toLowerCase(),
       orElse: () => null,
@@ -3750,6 +3855,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           ),
         ),
       );
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'room',
+        entityId: roomId,
+        field: 'name',
+        oldValue: null,
+        newValue: trimmed,
+        changeType: ChangeType.created,
+      );
       _markLocalChangesDirty();
       notifyListeners();
     }
@@ -3810,6 +3923,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       debugPrint('[HOME] Device $deviceId moved to room: $trimmedRoom');
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'device',
+        entityId: deviceId,
+        field: 'room',
+        oldValue: old.roomName,
+        newValue: trimmedRoom,
+        changeType: ChangeType.modified,
+      );
       _markLocalChangesDirty();
       notifyListeners();
     }
@@ -3836,6 +3957,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       final targetDevs = List<ConnectedDeviceSummary>.from(await _storageService.loadDevicesForSpace(targetSpaceId));
       _spaceDevicesCache[targetSpaceId] = targetDevs;
       debugPrint('[HOME] Device $deviceId transferred from $_activeSpaceId to $targetSpaceId');
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'device',
+        entityId: deviceId,
+        field: 'space',
+        oldValue: _activeSpaceId,
+        newValue: targetSpaceId,
+        changeType: ChangeType.modified,
+      );
       _markLocalChangesDirty();
       notifyListeners();
     }
@@ -3844,6 +3973,19 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   /// Removes device from the current app account/home space.
   /// Hardware keeps its Wi-Fi credentials intact.
   Future<void> removeDevice(String deviceId) async {
+    final devName = _devices.firstWhere(
+      (d) => d.id == deviceId,
+      orElse: () => ConnectedDeviceSummary(
+        id: deviceId,
+        name: deviceId,
+        model: '',
+        firmware: '',
+        connectedVia: '',
+        signalLabel: '',
+        roomName: '',
+        online: false,
+      ),
+    ).name;
     await DeviceStorageService.addDeletedDeviceId(deviceId);
     LocalLanDeviceService.instance.unregisterDeviceIp(deviceId);
     LocalLanDeviceService.instance.markDeviceOfflineOnLan(deviceId);
@@ -3857,6 +3999,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     await _storageService.removeDeviceForSpace(_activeSpaceId, deviceId);
     await _storageService.saveQuickControlsForSpace(_activeSpaceId, _selectedQuickControlIds);
     await _storageService.saveFavouritesForSpace(_activeSpaceId, _favouriteControlIds);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'device',
+      entityId: deviceId,
+      field: 'device',
+      oldValue: devName,
+      newValue: null,
+      changeType: ChangeType.deleted,
+    );
 
     if (_connectedDeviceSummary?.id == deviceId) {
       _connectedDeviceSummary = _devices.isNotEmpty ? _devices.first : null;
@@ -3938,6 +4088,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           );
         } catch (_) {}
       }
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'device',
+        entityId: deviceId,
+        field: 'name',
+        oldValue: old.name,
+        newValue: trimmed,
+        changeType: ChangeType.modified,
+      );
       _markLocalChangesDirty();
       notifyListeners();
     }
@@ -3947,6 +4105,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     _selectedQuickControlIds = List.from(controlIds);
     await _storageService.saveQuickControls(_selectedQuickControlIds);
     await _storageService.saveQuickControlsForSpace(_activeSpaceId, _selectedQuickControlIds);
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'quick_controls',
+      entityId: _activeSpaceId,
+      field: 'quickControls',
+      oldValue: null,
+      newValue: '${controlIds.length} items',
+      changeType: ChangeType.modified,
+    );
     _markLocalChangesDirty();
     notifyListeners();
   }
@@ -3954,6 +4120,15 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> updateNotificationPreference(String key, bool value) async {
     _notificationPrefs[key] = value;
     await _storageService.saveNotificationPrefs({key: value});
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'notification_preference',
+      entityId: key,
+      field: key,
+      oldValue: null,
+      newValue: value.toString(),
+      changeType: ChangeType.modified,
+    );
+    _markLocalChangesDirty();
     notifyListeners();
   }
 
@@ -3984,6 +4159,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'channel_alert',
+      entityId: '$deviceId:ch$channelIndex',
+      field: 'alertConfig',
+      oldValue: null,
+      newValue: 'updated',
+      changeType: ChangeType.modified,
+    );
     _markLocalChangesDirty();
     notifyListeners();
 
@@ -4324,6 +4507,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       await DeviceStorageService.recordCloudSyncSuccess();
+      await ChangeTrackingService.instance.clearChanges();
       _hasPendingCloudUpload = false;
       _lastCloudSyncTime = DateTime.now();
       return true;
@@ -4465,6 +4649,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
       await loadHomeData();
       await DeviceStorageService.recordCloudSyncSuccess();
+      await ChangeTrackingService.instance.clearChanges();
       _hasPendingCloudUpload = false;
       _lastCloudSyncTime = DateTime.now();
       _isLoading = false;

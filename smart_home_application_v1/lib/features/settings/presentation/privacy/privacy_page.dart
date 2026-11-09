@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../../../app/home_controller.dart';
+import '../../../../core/api/api_client.dart';
 import '../../../../core/models/privacy_models.dart';
 import '../../../../core/repositories/privacy_repository.dart';
 import '../../../../core/services/app_permission_service.dart';
+import '../../../auth/auth_controller.dart';
 import '../settings_ui.dart';
 import 'privacy_data_detail_page.dart';
 import 'privacy_legal_page.dart';
@@ -13,10 +16,16 @@ class PrivacyPage extends StatefulWidget {
     super.key,
     this.repository,
     this.permissionService,
+    this.homeController,
+    this.authController,
+    this.apiClient,
   });
 
   final PrivacyRepository? repository;
   final AppPermissionService? permissionService;
+  final HomeController? homeController;
+  final AuthController? authController;
+  final ApiClient? apiClient;
 
   @override
   State<PrivacyPage> createState() => _PrivacyPageState();
@@ -31,7 +40,12 @@ class _PrivacyPageState extends State<PrivacyPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _repository = widget.repository ??
-        PreviewPrivacyRepository(permissionService: widget.permissionService);
+        AuthoritativePrivacyRepository(
+          homeController: widget.homeController ?? HomeController.instance,
+          authController: widget.authController,
+          apiClient: widget.apiClient,
+          permissionService: widget.permissionService,
+        );
     _load();
   }
 
@@ -39,9 +53,17 @@ class _PrivacyPageState extends State<PrivacyPage> with WidgetsBindingObserver {
   void didUpdateWidget(PrivacyPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.repository != oldWidget.repository ||
-        widget.permissionService != oldWidget.permissionService) {
+        widget.permissionService != oldWidget.permissionService ||
+        widget.homeController != oldWidget.homeController ||
+        widget.authController != oldWidget.authController ||
+        widget.apiClient != oldWidget.apiClient) {
       _repository = widget.repository ??
-          PreviewPrivacyRepository(permissionService: widget.permissionService);
+          AuthoritativePrivacyRepository(
+            homeController: widget.homeController ?? HomeController.instance,
+            authController: widget.authController,
+            apiClient: widget.apiClient,
+            permissionService: widget.permissionService,
+          );
       _load();
     }
   }
@@ -93,7 +115,6 @@ class _PrivacyPageState extends State<PrivacyPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) => NestedSettingsScaffold(
     title: 'Privacy',
     subtitle: 'Manage your data and privacy preferences.',
-    actions: [settingsHelpAction(context)],
     child: FutureBuilder<PrivacySummary>(
       future: _summary,
       builder: (context, snapshot) {

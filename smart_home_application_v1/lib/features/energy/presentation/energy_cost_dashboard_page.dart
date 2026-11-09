@@ -211,6 +211,18 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
                     cost!.effectiveTariffName!,
                     style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
                   ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Configuration Required',
+                    style: TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
                 ),
             ],
           ),
@@ -224,6 +236,29 @@ class _EnergyCostDashboardPageState extends State<EnergyCostDashboardPage> {
             '${totalKwh.toStringAsFixed(2)} kWh consumed',
             style: const TextStyle(color: Color(0xFFD9E8FF), fontSize: 14),
           ),
+          if (cost?.effectiveTariffName == null) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white70),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.tune_rounded, size: 16),
+              label: const Text('Configure Tariff Plan'),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TariffManagementPage(
+                      homeId: widget.homeId,
+                      costService: widget.costService,
+                    ),
+                  ),
+                ).then((_) => _loadAllData());
+              },
+            ),
+          ],
         ],
       ),
     );

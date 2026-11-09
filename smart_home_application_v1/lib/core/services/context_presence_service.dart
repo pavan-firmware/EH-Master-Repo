@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/home_controller.dart';
 import '../api/api_client.dart';
 import '../config/app_config.dart';
@@ -13,6 +14,10 @@ class ContextPresenceService extends ChangeNotifier {
   final http.Client _client;
   final ApiClient? apiClient;
   String? authToken;
+
+  static PresenceSnapshotModel? cachedSnapshot;
+  static HomeContextModel? cachedContext;
+  static List<ContextTransitionModel> cachedTransitions = [];
 
   PresenceSnapshotModel? _currentSnapshot;
   HomeContextModel? _currentContext;
@@ -28,7 +33,10 @@ class ContextPresenceService extends ChangeNotifier {
     this.apiClient,
     this.authToken,
   })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
-        _client = client ?? http.Client();
+        _client = client ?? http.Client(),
+        _currentSnapshot = cachedSnapshot,
+        _currentContext = cachedContext,
+        _transitions = cachedTransitions.isNotEmpty ? List.from(cachedTransitions) : [];
 
   PresenceSnapshotModel? get currentSnapshot => _currentSnapshot;
   HomeContextModel? get currentContext => _currentContext;
@@ -38,12 +46,23 @@ class ContextPresenceService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
+  ApiClient get effectiveApiClient =>
+      apiClient ?? ApiClient(baseUrl: baseUrl, client: _client);
+
   Future<Map<String, String>> _getHeaders() async {
     String? token = authToken;
     if (token == null || token.isEmpty) {
       if (apiClient?.getAccessToken != null) {
         token = await apiClient!.getAccessToken!();
+      } else if (ApiClient.defaultTokenProvider != null) {
+        token = await ApiClient.defaultTokenProvider!();
+      } else {
+        try {
+          final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
+          token = prefs.getString('auth_access_token');
+        } catch (_) {}
       }
+      if (token != null) authToken = token;
     }
     return {
       'Content-Type': 'application/json',
@@ -57,6 +76,9 @@ class ContextPresenceService extends ChangeNotifier {
   }
 
   Future<String> _resolveHomeId(String homeId) async {
+    if (homeId.isNotEmpty && homeId != 'home_default') {
+      return homeId;
+    }
     final ctrl = HomeController.instance;
     if (ctrl?.activeHomeId != null &&
         ctrl!.activeHomeId!.isNotEmpty &&
@@ -67,25 +89,92 @@ class ContextPresenceService extends ChangeNotifier {
     if (cached != null && cached.isNotEmpty && cached != 'home_default') {
       return cached;
     }
-    if (homeId.isNotEmpty && homeId != 'HN-7A28F91C' && homeId != 'home_preview') {
-      return homeId;
-    }
-    if (apiClient != null) {
-      try {
-        final homes = await apiClient!.get('/api/v1/homes');
-        if (homes != null) {
-          final list = homes is List
-              ? homes
-              : (homes is Map && homes['data'] is List ? homes['data'] as List : []);
-          if (list.isNotEmpty && list[0]['id'] != null) {
-            final resolved = list[0]['id'].toString();
-            DeviceStorageService.cachedActiveHomeId = resolved;
-            return resolved;
-          }
+    try {
+      final homes = await effectiveApiClient.get('/api/v1/homes');
+      if (homes != null) {
+        final list = homes is List
+            ? homes
+            : (homes is Map && homes['data'] is List ? homes['data'] as List : []);
+        if (list.isNotEmpty && list[0]['id'] != null) {
+          final resolved = list[0]['id'].toString();
+          DeviceStorageService.cachedActiveHomeId = resolved;
+          return resolved;
         }
-      } catch (_) {}
+      }
+    } catch (_) {}
+    return homeId.isNotEmpty ? homeId : 'home_default';
+  }
+
+  Future<dynamic> _apiGet(String path) async {
+    if (apiClient != null) {
+      return apiClient!.get(path);
     }
-    return homeId;
+    final headers = await _getHeaders();
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await _client.get(uri, headers: headers);
+    return _handleResponse(response, () => _apiGet(path));
+  }
+
+  Future<dynamic> _apiPost(String path, {Map<String, dynamic>? body}) async {
+    if (apiClient != null) {
+      return apiClient!.post(path, body: body);
+    }
+    final headers = await _getHeaders();
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await _client.post(
+      uri,
+      headers: headers,
+      body: body != null ? json.encode(body) : null,
+    );
+    return _handleResponse(response, () => _apiPost(path, body: body));
+  }
+
+  Future<dynamic> _apiDelete(String path) async {
+    if (apiClient != null) {
+      return apiClient!.delete(path);
+    }
+    final headers = await _getHeaders();
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await _client.delete(uri, headers: headers);
+    return _handleResponse(response, () => _apiDelete(path));
+  }
+
+  Future<dynamic> _handleResponse(http.Response response, Future<dynamic> Function() retry) async {
+    if (response.statusCode == 401 && ApiClient.defaultRefreshTokenProvider != null) {
+      final refreshSuccess = await ApiClient.defaultRefreshTokenProvider!();
+      if (refreshSuccess) {
+        authToken = null;
+        return retry();
+      } else {
+        ApiClient.defaultSessionExpiredHandler?.call();
+        throw ApiException(statusCode: 401, message: 'Authentication required: session expired');
+      }
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.body.isEmpty) return null;
+      try {
+        final data = json.decode(response.body);
+        if (data is Map<String, dynamic> && data.containsKey('data')) {
+          return data['data'];
+        }
+        return data;
+      } catch (_) {
+        return response.body;
+      }
+    }
+
+    String msg = 'Request failed (${response.statusCode})';
+    try {
+      final body = json.decode(response.body);
+      if (body is Map) {
+        msg = body['error']?['message']?.toString() ??
+            body['error']?.toString() ??
+            body['message']?.toString() ??
+            msg;
+      }
+    } catch (_) {}
+    throw ApiException(statusCode: response.statusCode, message: msg);
   }
 
   // ---------------------------------------------------------------------------
@@ -99,34 +188,28 @@ class ContextPresenceService extends ChangeNotifier {
 
     try {
       final effectiveHomeId = await _resolveHomeId(homeId);
-      final headers = await _getHeaders();
-      final response = await _client.get(
-        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/presence'),
-        headers: headers,
-      );
+      debugPrint('[ContextPresenceService] fetchPresenceSnapshot for homeId=$effectiveHomeId');
+      final res = await _apiGet('/api/v1/context/homes/$effectiveHomeId/presence');
 
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true && body['data'] != null) {
-          _currentSnapshot = PresenceSnapshotModel.fromJson(Map<String, dynamic>.from(body['data']));
-          _isLoading = false;
-          notifyListeners();
-          return _currentSnapshot;
-        }
+      if (res is Map<String, dynamic>) {
+        _currentSnapshot = PresenceSnapshotModel.fromJson(res);
+        cachedSnapshot = _currentSnapshot;
+        _isLoading = false;
+        notifyListeners();
+        return _currentSnapshot;
       }
-      try {
-        final body = json.decode(response.body);
-        _errorMessage = body['error']?.toString() ?? 'Failed to load presence snapshot (${response.statusCode})';
-      } catch (_) {
-        _errorMessage = 'Failed to load presence snapshot: ${response.statusCode}';
-      }
+      _errorMessage = 'Invalid presence data received';
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+      debugPrint('[ContextPresenceService] Presence API error: ${e.message} (${e.statusCode})');
     } catch (e) {
       _errorMessage = 'Network error: $e';
+      debugPrint('[ContextPresenceService] Presence network error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
     }
-    return null;
+    return _currentSnapshot;
   }
 
   Future<bool> submitPresenceSignal({
@@ -151,31 +234,26 @@ class ContextPresenceService extends ChangeNotifier {
         'evidence': evidence,
       };
 
-      final headers = await _getHeaders();
-      final response = await _client.post(
-        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/presence'),
-        headers: headers,
-        body: json.encode(payload),
+      debugPrint('[ContextPresenceService] submitPresenceSignal for homeId=$effectiveHomeId state=${state.toApiValue()}');
+      final res = await _apiPost(
+        '/api/v1/context/homes/$effectiveHomeId/presence',
+        body: payload,
       );
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true) {
-          if (body['data']?['context'] != null) {
-            _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(body['data']['context']));
-          }
-          await fetchPresenceSnapshot(effectiveHomeId);
-          return true;
+      if (res is Map<String, dynamic>) {
+        if (res['context'] != null && res['context'] is Map<String, dynamic>) {
+          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(res['context'] as Map));
         }
+        await fetchPresenceSnapshot(effectiveHomeId);
+        return true;
       }
-      try {
-        final body = json.decode(response.body);
-        _errorMessage = body['error']?.toString() ?? 'Failed to submit presence signal (${response.statusCode})';
-      } catch (_) {
-        _errorMessage = 'Failed to submit presence signal: ${response.statusCode}';
-      }
+      return false;
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+      debugPrint('[ContextPresenceService] submit signal API error: ${e.message}');
     } catch (e) {
       _errorMessage = 'Network error: $e';
+      debugPrint('[ContextPresenceService] submit signal error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -194,29 +272,28 @@ class ContextPresenceService extends ChangeNotifier {
 
     try {
       final effectiveHomeId = await _resolveHomeId(homeId);
-      final headers = await _getHeaders();
-      final response = await _client.get(
-        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/context'),
-        headers: headers,
-      );
+      debugPrint('[ContextPresenceService] fetchHomeContext for homeId=$effectiveHomeId');
+      final res = await _apiGet('/api/v1/context/homes/$effectiveHomeId/context');
 
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true && body['data'] != null) {
-          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(body['data']));
-          _isLoading = false;
-          notifyListeners();
-          return _currentContext;
-        }
+      if (res is Map<String, dynamic>) {
+        _currentContext = HomeContextModel.fromJson(res);
+        cachedContext = _currentContext;
+        _isLoading = false;
+        notifyListeners();
+        return _currentContext;
       }
-      _errorMessage = 'Failed to load home context: ${response.statusCode}';
+      _errorMessage = 'Invalid context data received';
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+      debugPrint('[ContextPresenceService] Context API error: ${e.message} (${e.statusCode})');
     } catch (e) {
       _errorMessage = 'Network error: $e';
+      debugPrint('[ContextPresenceService] Context network error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
     }
-    return null;
+    return _currentContext;
   }
 
   Future<bool> setContextOverride({
@@ -237,25 +314,29 @@ class ContextPresenceService extends ChangeNotifier {
         'durationHours': ?durationHours,
       };
 
-      final headers = await _getHeaders();
-      final response = await _client.post(
-        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/override'),
-        headers: headers,
-        body: json.encode(payload),
+      debugPrint('[ContextPresenceService] setContextOverride mode=${mode.toApiValue()} homeId=$effectiveHomeId');
+      final res = await _apiPost(
+        '/api/v1/context/homes/$effectiveHomeId/override',
+        body: payload,
       );
 
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true && body['data']?['context'] != null) {
-          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(body['data']['context']));
-          _isLoading = false;
-          notifyListeners();
-          return true;
+      if (res is Map<String, dynamic>) {
+        if (res['context'] != null && res['context'] is Map<String, dynamic>) {
+          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(res['context'] as Map));
+          cachedContext = _currentContext;
         }
+        await fetchTransitions(effectiveHomeId);
+        _isLoading = false;
+        notifyListeners();
+        return true;
       }
-      _errorMessage = 'Failed to set context override: ${response.statusCode}';
+      _errorMessage = 'Failed to set context override';
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+      debugPrint('[ContextPresenceService] Override API error: ${e.message}');
     } catch (e) {
       _errorMessage = 'Network error: $e';
+      debugPrint('[ContextPresenceService] Override network error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -270,22 +351,22 @@ class ContextPresenceService extends ChangeNotifier {
 
     try {
       final effectiveHomeId = await _resolveHomeId(homeId);
-      final headers = await _getHeaders();
-      final response = await _client.delete(
-        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/override'),
-        headers: headers,
-      );
+      debugPrint('[ContextPresenceService] clearContextOverride homeId=$effectiveHomeId');
+      final res = await _apiDelete('/api/v1/context/homes/$effectiveHomeId/override');
 
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true && body['data']?['context'] != null) {
-          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(body['data']['context']));
-          _isLoading = false;
-          notifyListeners();
-          return true;
+      if (res is Map<String, dynamic>) {
+        if (res['context'] != null && res['context'] is Map<String, dynamic>) {
+          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(res['context'] as Map));
+          cachedContext = _currentContext;
         }
+        await fetchTransitions(effectiveHomeId);
+        _isLoading = false;
+        notifyListeners();
+        return true;
       }
-      _errorMessage = 'Failed to clear context override: ${response.statusCode}';
+      _errorMessage = 'Failed to clear context override';
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
     } catch (e) {
       _errorMessage = 'Network error: $e';
     } finally {
@@ -315,23 +396,24 @@ class ContextPresenceService extends ChangeNotifier {
         'reason': reason,
       };
 
-      final headers = await _getHeaders();
-      final response = await _client.post(
-        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/vacation'),
-        headers: headers,
-        body: json.encode(payload),
+      final res = await _apiPost(
+        '/api/v1/context/homes/$effectiveHomeId/vacation',
+        body: payload,
       );
 
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true && body['data']?['context'] != null) {
-          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(body['data']['context']));
-          _isLoading = false;
-          notifyListeners();
-          return true;
+      if (res is Map<String, dynamic>) {
+        if (res['context'] != null && res['context'] is Map<String, dynamic>) {
+          _currentContext = HomeContextModel.fromJson(Map<String, dynamic>.from(res['context'] as Map));
+          cachedContext = _currentContext;
         }
+        await fetchTransitions(effectiveHomeId);
+        _isLoading = false;
+        notifyListeners();
+        return true;
       }
-      _errorMessage = 'Failed to set vacation mode: ${response.statusCode}';
+      _errorMessage = 'Failed to set vacation mode';
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
     } catch (e) {
       _errorMessage = 'Network error: $e';
     } finally {
@@ -348,53 +430,48 @@ class ContextPresenceService extends ChangeNotifier {
   Future<List<ContextTransitionModel>> fetchTransitions(String homeId, {int limit = 50}) async {
     try {
       final effectiveHomeId = await _resolveHomeId(homeId);
-      final headers = await _getHeaders();
-      final response = await _client.get(
-        Uri.parse('$baseUrl/api/v1/context/homes/$effectiveHomeId/transitions?limit=$limit'),
-        headers: headers,
-      );
+      debugPrint('[ContextPresenceService] fetchTransitions homeId=$effectiveHomeId');
+      final res = await _apiGet('/api/v1/context/homes/$effectiveHomeId/transitions?limit=$limit');
 
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true && body['data'] is List) {
-          _transitions = (body['data'] as List)
-              .map((e) => ContextTransitionModel.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList();
-          notifyListeners();
-          return _transitions;
-        }
+      List<dynamic> listData = [];
+      if (res is List) {
+        listData = res;
+      } else if (res is Map && res['data'] is List) {
+        listData = res['data'] as List;
       }
+      _transitions = listData
+          .map((e) => ContextTransitionModel.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      cachedTransitions = List.from(_transitions);
+      notifyListeners();
+      return _transitions;
     } catch (e) {
-      _errorMessage = 'Error fetching transitions: $e';
+      debugPrint('[ContextPresenceService] Error fetching transitions: $e');
     }
-    return [];
+    return _transitions;
   }
 
   Future<List<PresenceSignalModel>> fetchSignals(String homeId, {int limit = 50, String? userId}) async {
     try {
       final effectiveHomeId = await _resolveHomeId(homeId);
-      var url = '$baseUrl/api/v1/context/homes/$effectiveHomeId/signals?limit=$limit';
-      if (userId != null) url += '&userId=$userId';
+      var path = '/api/v1/context/homes/$effectiveHomeId/signals?limit=$limit';
+      if (userId != null) path += '&userId=$userId';
 
-      final headers = await _getHeaders();
-      final response = await _client.get(
-        Uri.parse(url),
-        headers: headers,
-      );
-
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        if (body['success'] == true && body['data'] is List) {
-          _recentSignals = (body['data'] as List)
-              .map((e) => PresenceSignalModel.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList();
-          notifyListeners();
-          return _recentSignals;
-        }
+      final res = await _apiGet(path);
+      List<dynamic> listData = [];
+      if (res is List) {
+        listData = res;
+      } else if (res is Map && res['data'] is List) {
+        listData = res['data'] as List;
       }
+      _recentSignals = listData
+          .map((e) => PresenceSignalModel.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      notifyListeners();
+      return _recentSignals;
     } catch (e) {
-      _errorMessage = 'Error fetching signals: $e';
+      debugPrint('[ContextPresenceService] Error fetching signals: $e');
     }
-    return [];
+    return _recentSignals;
   }
 }

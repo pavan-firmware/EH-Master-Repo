@@ -23,6 +23,40 @@ import {
 } from './product.adapter';
 import { ListProductsQuery, ProductAsset, ProductDetail, ProductSummary, VariantDetail } from './product.schema';
 
+// The original product_images table was created by the frozen legacy
+// migration and stores uppercase media kinds. The API contract uses the
+// descriptive lowercase names. Keep this compatibility boundary here so new
+// uploads work against existing databases without weakening the DB constraint.
+const API_TO_DB_ASSET_KIND: Record<string, string> = {
+  hero: 'HERO',
+  front: 'FRONT',
+  rear: 'BACK',
+  installed: 'INSTALL',
+  packaging: 'INSTALL',
+  technicalDiagram: 'WIRING',
+  diagram: 'WIRING',
+  render: 'HERO',
+  icon: 'THUMB',
+  thumbnail: 'THUMB',
+};
+
+const DB_TO_API_ASSET_KIND: Record<string, ProductAsset['kind']> = {
+  HERO: 'hero',
+  FRONT: 'front',
+  BACK: 'rear',
+  INSTALL: 'installed',
+  WIRING: 'technicalDiagram',
+  THUMB: 'thumbnail',
+};
+
+function databaseAssetKind(kind: string): string {
+  return API_TO_DB_ASSET_KIND[kind] || kind.toUpperCase();
+}
+
+function apiAssetKind(kind: string): ProductAsset['kind'] {
+  return DB_TO_API_ASSET_KIND[kind] || (kind as ProductAsset['kind']);
+}
+
 export class ProductRepository {
   private db?: EhDatabase;
   private memoryCache: Map<string, CanonicalMappedProductDefinition> = new Map();
@@ -247,8 +281,8 @@ export class ProductRepository {
       const assets: ProductAsset[] = imgRows.map((img) => ({
         assetId: img.id,
         productVariantId: img.productVariantId,
-        kind: img.kind as any,
-        purpose: img.kind === 'thumbnail' ? 'catalog' : 'marketing',
+        kind: apiAssetKind(img.kind),
+        purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing',
         url: img.url,
         sortOrder: img.sortOrder,
         isPublished: true,
@@ -306,8 +340,8 @@ export class ProductRepository {
     const assets: ProductAsset[] = imgRows.map((img) => ({
       assetId: img.id,
       productVariantId: img.productVariantId,
-      kind: img.kind as any,
-      purpose: img.kind === 'thumbnail' ? 'catalog' : 'marketing',
+      kind: apiAssetKind(img.kind),
+      purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing',
       url: img.url,
       sortOrder: img.sortOrder,
       isPublished: true,
@@ -554,7 +588,7 @@ export class ProductRepository {
           .values({
             id: asset.assetId,
             productVariantId: asset.productVariantId,
-            kind: asset.kind,
+            kind: databaseAssetKind(asset.kind),
             url: asset.url,
             sortOrder: asset.sortOrder,
           })
@@ -588,14 +622,27 @@ export class ProductRepository {
   /**
    * Lists all product variants with optional filters.
    */
-  async listVariants(filters: { familyId?: string; productId?: string; limit?: number; offset?: number } = {}): Promise<{ items: VariantDetail[]; total: number }> {
+  async listVariants(filters: { familyId?: string; productId?: string; limit?: number; offset?: number; databaseOnly?: boolean } = {}): Promise<{ items: VariantDetail[]; total: number }> {
+    if (filters.databaseOnly && !this.db) return { items: [], total: 0 };
     if (this.db) {
       try {
         const query = this.db.select().from(productVariants);
-        const rows = await (filters.productId ? query.where(eq(productVariants.productId, filters.productId)) : query);
+        let rows = await (filters.productId ? query.where(eq(productVariants.productId, filters.productId)) : query);
+        if (filters.familyId) {
+          const families = await this.db.select().from(productFamilies);
+          const family = families.find((f) => f.id === filters.familyId || f.slug === filters.familyId || f.id.replace(/_/g, '-') === filters.familyId);
+          if (family) {
+            const familyProducts = await this.db.select().from(products).where(eq(products.familyId, family.id));
+            const productIds = new Set(familyProducts.map((product) => product.id));
+            rows = rows.filter((row) => productIds.has(row.productId));
+          } else {
+            rows = [];
+          }
+        }
         if (rows.length > 0) {
           const items: VariantDetail[] = [];
           for (const v of rows) {
+            const imgRows = await this.db.select().from(productImages).where(eq(productImages.productVariantId, v.id));
             items.push({
               variantId: v.id,
               productId: v.productId,
@@ -609,16 +656,19 @@ export class ProductRepository {
               electricalSpecifications: (v.electricalSpecifications as Record<string, any>) || {},
               firmwareFamily: v.firmwareFamily,
               supportedHardwareRevisions: (v.supportedHardwareRevisions as string[]) || [],
-              assets: [],
+              assets: imgRows.map((img) => ({ assetId: img.id, productVariantId: img.productVariantId, kind: apiAssetKind(img.kind), purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing', url: img.url, sortOrder: img.sortOrder, isPublished: true })),
               createdAt: v.createdAt.toISOString(),
             });
           }
           return { items, total: items.length };
         }
       } catch {
+        if (filters.databaseOnly) return { items: [], total: 0 };
         // Fall back to memory
       }
     }
+
+    if (filters.databaseOnly) return { items: [], total: 0 };
 
     const items: VariantDetail[] = [];
     for (const def of this.memoryCache.values()) {
@@ -963,6 +1013,63 @@ export class ProductRepository {
       return this.getVariantFromMemory(id);
     }
     return this.getVariantById(id);
+  }
+
+  async createVariantAsset(asset: { id: string; productVariantId: string; kind: string; url: string; sortOrder?: number }): Promise<ProductAsset> {
+    if (this.db) {
+      // One active presentation asset per kind keeps consumer resolution
+      // deterministic (a newly approved hero replaces the previous hero).
+      const dbKind = databaseAssetKind(asset.kind);
+      await this.db.delete(productImages).where(and(eq(productImages.productVariantId, asset.productVariantId), eq(productImages.kind, dbKind)));
+      await this.db.insert(productImages).values({
+        id: asset.id,
+        productVariantId: asset.productVariantId,
+        kind: dbKind,
+        url: asset.url,
+        sortOrder: asset.sortOrder || 0,
+      });
+    }
+    const existing = this.memoryCache.get(asset.productVariantId);
+    if (existing) {
+      existing.assets = existing.assets.filter((entry) => entry.kind !== asset.kind);
+      existing.assets.push({ assetId: asset.id, productVariantId: asset.productVariantId, kind: asset.kind as any, purpose: asset.kind === 'thumbnail' ? 'catalog' : 'marketing', url: asset.url, sortOrder: asset.sortOrder || 0, isPublished: true });
+    }
+    return { assetId: asset.id, productVariantId: asset.productVariantId, kind: asset.kind as any, purpose: asset.kind === 'thumbnail' ? 'catalog' : 'marketing', url: asset.url, sortOrder: asset.sortOrder || 0, isPublished: true };
+  }
+
+  async listVariantAssets(variantId: string): Promise<ProductAsset[]> {
+    if (!this.db) return [];
+    const rows = await this.db.select().from(productImages).where(eq(productImages.productVariantId, variantId));
+    return rows.map((img) => ({
+      assetId: img.id,
+      productVariantId: img.productVariantId,
+      kind: apiAssetKind(img.kind),
+      purpose: apiAssetKind(img.kind) === 'thumbnail' ? 'catalog' : 'marketing',
+      url: img.url,
+      sortOrder: img.sortOrder,
+      isPublished: true,
+    }));
+  }
+
+  async getVariantAsset(variantId: string, assetId: string): Promise<ProductAsset | null> {
+    if (this.db) {
+      const rows = await this.db.select().from(productImages).where(and(eq(productImages.productVariantId, variantId), eq(productImages.id, assetId))).limit(1);
+      const row = rows[0];
+      if (row) {
+        const kind = apiAssetKind(row.kind);
+        return { assetId: row.id, productVariantId: row.productVariantId, kind, purpose: kind === 'thumbnail' ? 'catalog' : 'marketing', url: row.url, sortOrder: row.sortOrder, isPublished: true };
+      }
+    }
+    return this.memoryCache.get(variantId)?.assets.find((a) => a.assetId === assetId) || null;
+  }
+
+  async deleteVariantAsset(variantId: string, assetId: string): Promise<boolean> {
+    const asset = await this.getVariantAsset(variantId, assetId);
+    if (!asset) return false;
+    if (this.db) await this.db.delete(productImages).where(and(eq(productImages.productVariantId, variantId), eq(productImages.id, assetId)));
+    const cached = this.memoryCache.get(variantId);
+    if (cached) cached.assets = cached.assets.filter((a) => a.assetId !== assetId);
+    return true;
   }
 }
 

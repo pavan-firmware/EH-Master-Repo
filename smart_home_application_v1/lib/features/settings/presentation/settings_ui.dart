@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/models/settings_help_models.dart';
+import '../../../core/repositories/settings_help_repository.dart';
 
 class SettingsColors {
   const SettingsColors._();
@@ -75,24 +77,174 @@ Color _adaptBadgeFg(Color fg, EHThemeTokens tokens) {
   return fg;
 }
 
-Widget settingsHelpAction(BuildContext context, {String? message}) {
-  final tokens = context.ehColors;
-  return IconButton(
-    tooltip: 'Help',
-    onPressed: () => showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: tokens.surfaceCard,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-        child: Text(
-          message ?? 'This screen helps you manage your home settings safely.',
-          style: TextStyle(color: tokens.textSecondary, height: 1.4),
+Widget settingsHelpAction(
+  BuildContext context, {
+  String? message,
+  String? screenId,
+}) => SettingsHelpAction(
+  screenId: screenId ?? 'settings',
+  overrideMessage: message,
+);
+
+class SettingsHelpAction extends StatelessWidget {
+  const SettingsHelpAction({
+    super.key,
+    required this.screenId,
+    this.overrideMessage,
+  });
+
+  final String screenId;
+  final String? overrideMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return IconButton(
+      tooltip: 'Help',
+      onPressed: () => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: tokens.surfaceCard,
+        builder: (_) => SettingsHelpSheet(
+          content: SettingsHelpRepository.forScreen(screenId),
+          overrideMessage: overrideMessage,
         ),
       ),
-    ),
-    icon: Icon(Icons.help_outline_rounded, color: tokens.headerAction),
-  );
+      icon: Icon(Icons.help_outline_rounded, color: tokens.headerAction),
+    );
+  }
+}
+
+class SettingsHelpSheet extends StatelessWidget {
+  const SettingsHelpSheet({
+    super.key,
+    required this.content,
+    this.overrideMessage,
+  });
+
+  final SettingsHelpContent content;
+  final String? overrideMessage;
+
+  String _statusLabel(SettingsHelpStatus status) => switch (status) {
+    SettingsHelpStatus.implemented => 'Implemented',
+    SettingsHelpStatus.partial => 'Partially implemented',
+    SettingsHelpStatus.planned => 'Planned',
+    SettingsHelpStatus.unavailable => 'Not available',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.ehColors;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 680),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                content.title,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SettingsStatusChip(
+                label: _statusLabel(content.status),
+                color: tokens.bluePrimary,
+                background: tokens.blueSelectedBg,
+              ),
+              const SizedBox(height: 18),
+              _helpSection(
+                context,
+                'What is this screen?',
+                overrideMessage ?? content.purpose,
+              ),
+              _helpSection(context, 'Why is it useful?', content.usefulBecause),
+              _helpSection(context, 'How does it work?', content.howItWorks),
+              _helpListSection(context, 'What can I do here?', content.actions),
+              _helpListSection(
+                context,
+                'Warnings and limitations',
+                content.limitations,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _helpSection(BuildContext context, String heading, String body) {
+    final tokens = context.ehColors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            heading,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            body,
+            style: TextStyle(height: 1.4, color: tokens.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _helpListSection(
+    BuildContext context,
+    String heading,
+    List<String> items,
+  ) {
+    final tokens = context.ehColors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            heading,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 5),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('•  ', style: TextStyle(color: tokens.bluePrimary)),
+                  Expanded(
+                    child: Text(
+                      item,
+                      style: TextStyle(
+                        height: 1.35,
+                        color: tokens.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class SettingsStatusChip extends StatelessWidget {
@@ -917,12 +1069,16 @@ class NestedSettingsScaffold extends StatelessWidget {
     required this.child,
     this.subtitle,
     this.actions,
+    this.screenId,
+    this.showHelp = true,
   });
 
   final String title;
   final String? subtitle;
   final Widget child;
   final List<Widget>? actions;
+  final String? screenId;
+  final bool showHelp;
 
   @override
   Widget build(BuildContext context) {
@@ -946,7 +1102,13 @@ class NestedSettingsScaffold extends StatelessWidget {
             color: tokens.textPrimary,
           ),
         ),
-        actions: actions,
+        actions: [
+          if (showHelp)
+            SettingsHelpAction(
+              screenId: screenId ?? title.toLowerCase().replaceAll(' ', '_'),
+            ),
+          ...?actions,
+        ],
       ),
       body: SafeArea(
         top: false,
@@ -1285,8 +1447,13 @@ class AdminAccessRequiredView extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   backgroundColor: tokens.bluePrimary,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],

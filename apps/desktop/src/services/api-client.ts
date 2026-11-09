@@ -19,7 +19,10 @@ export interface ApiClientResponse<T> {
 }
 
 export interface HealthStatus {
-  status: 'UP' | 'DOWN';
+  // Older/released API builds report READY from /health, while current builds
+  // report UP. Both are successful liveness responses; DOWN is never returned
+  // with a successful HTTP response.
+  status: 'UP' | 'READY' | 'DOWN';
   uptimeSeconds: number;
   timestamp: string;
 }
@@ -49,6 +52,11 @@ export class ApiClient {
     this.baseUrl = baseUrl || getDesktopConfig().apiBaseUrl;
   }
 
+  public resolveAssetUrl(url?: string | null): string | undefined {
+    if (!url) return undefined;
+    return /^https?:\/\//i.test(url) ? url : `${this.baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+  }
+
   private async request<T>(path: string, options: RequestInit = {}): Promise<ApiClientResponse<T>> {
     const isGet = !options.method || options.method.toUpperCase() === 'GET';
     const cacheKey = isGet ? `${path}` : null;
@@ -63,7 +71,7 @@ export class ApiClient {
       const startTime = performance.now();
 
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
+        ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         'x-request-id': requestId,
         ...(options.headers as Record<string, string>),
       };
@@ -209,12 +217,13 @@ export class ApiClient {
     return this.request<any[]>(`/api/v1/products${qs}`);
   }
 
-  public async listVariants(params?: { familyId?: string; productId?: string; limit?: number; offset?: number }): Promise<ApiClientResponse<any[]>> {
+  public async listVariants(params?: { familyId?: string; productId?: string; limit?: number; offset?: number; databaseOnly?: boolean }): Promise<ApiClientResponse<any[]>> {
     const query = new URLSearchParams();
     if (params?.familyId) query.set('familyId', params.familyId);
     if (params?.productId) query.set('productId', params.productId);
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
+    if (params?.databaseOnly) query.set('databaseOnly', 'true');
     const qs = query.toString() ? `?${query.toString()}` : '';
     return this.request<any[]>(`/api/v1/products/variants${qs}`);
   }
@@ -306,6 +315,17 @@ export class ApiClient {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
+  }
+
+  public async uploadVariantAsset(variantId: string, payload: { kind: string; filename: string; contentBase64: string }): Promise<ApiClientResponse<any>> {
+    return this.request(`/api/v1/products/variants/${encodeURIComponent(variantId)}/assets`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async deleteVariantAsset(variantId: string, assetId: string): Promise<ApiClientResponse<any>> {
+    return this.request(`/api/v1/products/variants/${encodeURIComponent(variantId)}/assets/${encodeURIComponent(assetId)}`, { method: 'DELETE' });
   }
 
   public async createHardwareRevision(payload: any): Promise<ApiClientResponse<any>> {

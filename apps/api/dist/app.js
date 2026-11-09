@@ -22,6 +22,7 @@ const security_service_1 = require("./modules/security/security.service");
 const security_repository_1 = require("./modules/security/security.repository");
 const storage_service_1 = require("./modules/storage/storage.service");
 const memory_storage_provider_1 = require("./modules/storage/providers/memory-storage.provider");
+const disk_storage_provider_1 = require("./modules/storage/providers/disk-storage.provider");
 const s3_storage_provider_1 = require("./modules/storage/providers/s3-storage.provider");
 const backup_service_1 = require("./modules/backup/backup.service");
 const restore_service_1 = require("./modules/backup/restore.service");
@@ -39,6 +40,9 @@ async function buildApp(opts = {}) {
     let storageProvider;
     if (opts.storageProvider) {
         storageProvider = opts.storageProvider;
+    }
+    else if (config.STORAGE_PROVIDER === 'disk') {
+        storageProvider = new disk_storage_provider_1.DiskStorageProvider(config.STORAGE_ROOT);
     }
     else if (config.STORAGE_PROVIDER === 's3' || config.STORAGE_PROVIDER === 'minio') {
         storageProvider = new s3_storage_provider_1.S3StorageProvider({

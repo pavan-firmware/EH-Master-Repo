@@ -34,7 +34,6 @@ class _FactoryResetPageState extends State<FactoryResetPage> {
   Widget build(BuildContext context) => NestedSettingsScaffold(
     title: 'Factory reset',
     subtitle: 'Reset your device to its factory state.',
-    actions: [settingsHelpAction(context)],
     child: FutureBuilder<FactoryResetImpact>(
       future: _impact,
       builder: (context, snapshot) {

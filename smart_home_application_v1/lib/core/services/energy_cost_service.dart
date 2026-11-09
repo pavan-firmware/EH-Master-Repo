@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/home_controller.dart';
 import '../api/api_client.dart';
 import '../config/app_config.dart';
@@ -42,18 +43,28 @@ class EnergyCostService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (authToken != null && authToken!.isNotEmpty) 'Authorization': 'Bearer $authToken',
-      };
+  ApiClient get effectiveApiClient =>
+      apiClient ?? ApiClient(baseUrl: baseUrl, client: _client);
 
   Future<Map<String, String>> _getHeaders() async {
-    if (authToken == null || authToken!.isEmpty) {
+    String? token = authToken;
+    if (token == null || token.isEmpty) {
       if (apiClient?.getAccessToken != null) {
-        authToken = await apiClient!.getAccessToken!();
+        token = await apiClient!.getAccessToken!();
+      } else if (ApiClient.defaultTokenProvider != null) {
+        token = await ApiClient.defaultTokenProvider!();
+      } else {
+        try {
+          final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
+          token = prefs.getString('auth_access_token');
+        } catch (_) {}
       }
+      if (token != null) authToken = token;
     }
-    return _headers;
+    return {
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
   }
 
   void updateAuthToken(String? token) {
@@ -62,6 +73,9 @@ class EnergyCostService extends ChangeNotifier {
   }
 
   Future<String> _resolveHomeId(String homeId) async {
+    if (homeId.isNotEmpty && homeId != 'home_default') {
+      return homeId;
+    }
     final ctrl = HomeController.instance;
     if (ctrl?.activeHomeId != null &&
         ctrl!.activeHomeId!.isNotEmpty &&
@@ -72,28 +86,107 @@ class EnergyCostService extends ChangeNotifier {
     if (cached != null && cached.isNotEmpty && cached != 'home_default') {
       return cached;
     }
-    if (homeId.isNotEmpty &&
-        homeId != 'home_01' &&
-        homeId != 'HN-7A28F91C' &&
-        homeId != 'home_preview') {
-      return homeId;
-    }
-    if (apiClient != null) {
-      try {
-        final homes = await apiClient!.get('/api/v1/homes');
-        if (homes != null) {
-          final list = homes is List
-              ? homes
-              : (homes is Map && homes['data'] is List ? homes['data'] as List : []);
-          if (list.isNotEmpty && list[0]['id'] != null) {
-            final resolved = list[0]['id'].toString();
-            DeviceStorageService.cachedActiveHomeId = resolved;
-            return resolved;
-          }
+    final client = effectiveApiClient;
+    try {
+      final homes = await client.get('/api/v1/homes');
+      if (homes != null) {
+        final list = homes is List
+            ? homes
+            : (homes is Map && homes['data'] is List ? homes['data'] as List : []);
+        if (list.isNotEmpty && list[0]['id'] != null) {
+          final resolved = list[0]['id'].toString();
+          DeviceStorageService.cachedActiveHomeId = resolved;
+          return resolved;
         }
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
     return homeId;
+  }
+
+  Future<dynamic> _apiGet(String path) async {
+    if (apiClient != null) {
+      return apiClient!.get(path);
+    }
+    final headers = await _getHeaders();
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await _client.get(uri, headers: headers);
+    return _handleResponse(response, () => _apiGet(path));
+  }
+
+  Future<dynamic> _apiPost(String path, {Map<String, dynamic>? body}) async {
+    if (apiClient != null) {
+      return apiClient!.post(path, body: body);
+    }
+    final headers = await _getHeaders();
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await _client.post(
+      uri,
+      headers: headers,
+      body: body != null ? json.encode(body) : null,
+    );
+    return _handleResponse(response, () => _apiPost(path, body: body));
+  }
+
+  Future<dynamic> _apiPut(String path, {Map<String, dynamic>? body}) async {
+    if (apiClient != null) {
+      return apiClient!.put(path, body: body);
+    }
+    final headers = await _getHeaders();
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await _client.put(
+      uri,
+      headers: headers,
+      body: body != null ? json.encode(body) : null,
+    );
+    return _handleResponse(response, () => _apiPut(path, body: body));
+  }
+
+  Future<dynamic> _apiDelete(String path) async {
+    if (apiClient != null) {
+      return apiClient!.delete(path);
+    }
+    final headers = await _getHeaders();
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await _client.delete(uri, headers: headers);
+    return _handleResponse(response, () => _apiDelete(path));
+  }
+
+  Future<dynamic> _handleResponse(http.Response response, Future<dynamic> Function() retry) async {
+    if (response.statusCode == 401 && ApiClient.defaultRefreshTokenProvider != null) {
+      final refreshSuccess = await ApiClient.defaultRefreshTokenProvider!();
+      if (refreshSuccess) {
+        authToken = null;
+        return retry();
+      } else {
+        ApiClient.defaultSessionExpiredHandler?.call();
+        throw ApiException(statusCode: 401, message: 'Authentication required: session expired');
+      }
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.body.isEmpty) return null;
+      try {
+        final data = json.decode(response.body);
+        if (data is Map<String, dynamic> && data.containsKey('data')) {
+          return data['data'];
+        }
+        return data;
+      } catch (_) {
+        return response.body;
+      }
+    }
+
+    String msg = 'Request failed (${response.statusCode})';
+    try {
+      final body = json.decode(response.body);
+      if (body is Map) {
+        msg = body['error']?['message']?.toString() ??
+            body['error']?.toString() ??
+            body['message']?.toString() ??
+            msg;
+      }
+    } catch (_) {}
+    throw ApiException(statusCode: response.statusCode, message: msg);
   }
 
   // ---------------------------------------------------------------------------
@@ -107,22 +200,25 @@ class EnergyCostService extends ChangeNotifier {
 
     try {
       final effectiveHomeId = await _resolveHomeId(homeId);
-      final headers = await _getHeaders();
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs');
-      final response = await _client.get(uri, headers: headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final list = (data['data'] as List<dynamic>? ?? [])
-            .map((t) => ElectricityTariffModel.fromJson(t as Map<String, dynamic>))
-            .toList();
-        _tariffs = list;
-        _isLoading = false;
-        notifyListeners();
-        return list;
-      } else {
-        throw Exception('Failed to load tariffs: ${response.statusCode}');
+      final res = await _apiGet('/api/v1/energy/homes/$effectiveHomeId/tariffs');
+      List<dynamic> listData = [];
+      if (res is List) {
+        listData = res;
+      } else if (res is Map && res['data'] is List) {
+        listData = res['data'] as List;
       }
+      final list = listData
+          .map((t) => ElectricityTariffModel.fromJson(Map<String, dynamic>.from(t as Map)))
+          .toList();
+      _tariffs = list;
+      _isLoading = false;
+      notifyListeners();
+      return list;
+    } on ApiException catch (e) {
+      _isLoading = false;
+      _errorMessage = e.message;
+      notifyListeners();
+      return _tariffs;
     } catch (e) {
       _isLoading = false;
       _errorMessage = e.toString();
@@ -134,32 +230,33 @@ class EnergyCostService extends ChangeNotifier {
   Future<ElectricityTariffModel?> createTariff(ElectricityTariffModel tariff) async {
     try {
       final effectiveHomeId = await _resolveHomeId(tariff.homeId);
-      final headers = await _getHeaders();
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs');
       final payload = tariff.copyWith(homeId: effectiveHomeId).toJson();
-      final response = await _client.post(
-        uri,
-        headers: headers,
-        body: json.encode(payload),
+      final res = await _apiPost(
+        '/api/v1/energy/homes/$effectiveHomeId/tariffs',
+        body: payload,
       );
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final created = ElectricityTariffModel.fromJson(data['data'] as Map<String, dynamic>);
-        _tariffs = [created, ..._tariffs.where((t) => t.id != created.id)];
+      if (res is Map<String, dynamic>) {
+        final created = ElectricityTariffModel.fromJson(res);
+        if (created.isActive) {
+          _tariffs = [created, ..._tariffs.map((t) => t.copyWith(isActive: false))];
+        } else {
+          _tariffs = [created, ..._tariffs.where((t) => t.id != created.id)];
+        }
+        _costSummary = null;
+        _forecast = null;
         _errorMessage = null;
         notifyListeners();
         return created;
       }
-      try {
-        final body = json.decode(response.body);
-        _errorMessage = body['error']?.toString() ?? body['message']?.toString() ?? 'Server returned status ${response.statusCode}';
-      } catch (_) {
-        _errorMessage = 'Server returned status ${response.statusCode}';
-      }
+      return null;
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+      notifyListeners();
       return null;
     } catch (e) {
       _errorMessage = 'Network connection error: $e';
+      notifyListeners();
       return null;
     }
   }
@@ -167,50 +264,71 @@ class EnergyCostService extends ChangeNotifier {
   Future<ElectricityTariffModel?> updateTariff(ElectricityTariffModel tariff) async {
     try {
       final effectiveHomeId = await _resolveHomeId(tariff.homeId);
-      final headers = await _getHeaders();
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs/${tariff.id}');
       final payload = tariff.copyWith(homeId: effectiveHomeId).toJson();
-      final response = await _client.put(
-        uri,
-        headers: headers,
-        body: json.encode(payload),
+      final res = await _apiPut(
+        '/api/v1/energy/homes/$effectiveHomeId/tariffs/${tariff.id}',
+        body: payload,
       );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final updated = ElectricityTariffModel.fromJson(data['data'] as Map<String, dynamic>);
-        _tariffs = _tariffs.map((t) => t.id == updated.id ? updated : t).toList();
+      if (res is Map<String, dynamic>) {
+        final updated = ElectricityTariffModel.fromJson(res);
+        if (updated.isActive) {
+          _tariffs = _tariffs.map((t) => t.id == updated.id ? updated : t.copyWith(isActive: false)).toList();
+        } else {
+          _tariffs = _tariffs.map((t) => t.id == updated.id ? updated : t).toList();
+        }
+        _costSummary = null;
+        _forecast = null;
         _errorMessage = null;
         notifyListeners();
         return updated;
       }
-      try {
-        final body = json.decode(response.body);
-        _errorMessage = body['error']?.toString() ?? body['message']?.toString() ?? 'Server returned status ${response.statusCode}';
-      } catch (_) {
-        _errorMessage = 'Server returned status ${response.statusCode}';
-      }
+      return null;
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+      notifyListeners();
       return null;
     } catch (e) {
       _errorMessage = 'Network connection error: $e';
+      notifyListeners();
       return null;
+    }
+  }
+
+  Future<bool> activateTariff(String homeId, String tariffId) async {
+    try {
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final res = await _apiPut(
+        '/api/v1/energy/homes/$effectiveHomeId/tariffs/$tariffId',
+        body: {'isActive': true},
+      );
+      if (res != null) {
+        _tariffs = _tariffs.map((t) => t.copyWith(isActive: t.id == tariffId)).toList();
+        _costSummary = null;
+        _forecast = null;
+        notifyListeners();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
     }
   }
 
   Future<bool> deleteTariff(String homeId, String tariffId) async {
     try {
       final effectiveHomeId = await _resolveHomeId(homeId);
-      final headers = await _getHeaders();
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$effectiveHomeId/tariffs/$tariffId');
-      final response = await _client.delete(uri, headers: headers);
-
-      if (response.statusCode == 200) {
-        _tariffs = _tariffs.where((t) => t.id != tariffId).toList();
-        notifyListeners();
-        return true;
-      }
-      return false;
-    } catch (_) {
+      await _apiDelete('/api/v1/energy/homes/$effectiveHomeId/tariffs/$tariffId');
+      _tariffs = _tariffs.where((t) => t.id != tariffId).toList();
+      _costSummary = null;
+      _forecast = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
       return false;
     }
   }
@@ -226,20 +344,12 @@ class EnergyCostService extends ChangeNotifier {
     String period = 'today',
   }) async {
     try {
-      final queryParams = <String, String>{
-        'entityType': entityType,
-        'period': period,
-      };
-      if (entityId != null) {
-        queryParams['entityId'] = entityId;
-      }
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/cost')
-          .replace(queryParameters: queryParams);
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _costSummary = EnergyCostSummaryModel.fromJson(data['data'] as Map<String, dynamic>);
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      var path = '/api/v1/energy/homes/$effectiveHomeId/cost?entityType=$entityType&period=$period';
+      if (entityId != null) path += '&entityId=$entityId';
+      final res = await _apiGet(path);
+      if (res is Map<String, dynamic>) {
+        _costSummary = EnergyCostSummaryModel.fromJson(res);
         notifyListeners();
         return _costSummary;
       }
@@ -254,13 +364,10 @@ class EnergyCostService extends ChangeNotifier {
     String period = 'monthly',
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/cost/forecast')
-          .replace(queryParameters: {'period': period});
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _forecast = CostForecastModel.fromJson(data['data'] as Map<String, dynamic>);
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final res = await _apiGet('/api/v1/energy/homes/$effectiveHomeId/cost/forecast?period=$period');
+      if (res is Map<String, dynamic>) {
+        _forecast = CostForecastModel.fromJson(res);
         notifyListeners();
         return _forecast;
       }
@@ -279,13 +386,10 @@ class EnergyCostService extends ChangeNotifier {
     String periodType = 'monthly',
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/budget')
-          .replace(queryParameters: {'periodType': periodType});
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _budgetStatus = BudgetStatusModel.fromJson(data['data'] as Map<String, dynamic>);
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final res = await _apiGet('/api/v1/energy/homes/$effectiveHomeId/budget?periodType=$periodType');
+      if (res is Map<String, dynamic>) {
+        _budgetStatus = BudgetStatusModel.fromJson(res);
         notifyListeners();
         return _budgetStatus;
       }
@@ -297,17 +401,14 @@ class EnergyCostService extends ChangeNotifier {
 
   Future<EnergyBudgetModel?> saveBudget(EnergyBudgetModel budget) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/${budget.homeId}/budget');
-      final response = await _client.post(
-        uri,
-        headers: _headers,
-        body: json.encode(budget.toJson()),
+      final effectiveHomeId = await _resolveHomeId(budget.homeId);
+      final res = await _apiPost(
+        '/api/v1/energy/homes/$effectiveHomeId/budget',
+        body: budget.toJson(),
       );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = json.decode(response.body);
-        final saved = EnergyBudgetModel.fromJson(data['data'] as Map<String, dynamic>);
-        await fetchBudgetStatus(budget.homeId, periodType: budget.periodType.toServerString());
+      if (res is Map<String, dynamic>) {
+        final saved = EnergyBudgetModel.fromJson(res);
+        await fetchBudgetStatus(effectiveHomeId, periodType: budget.periodType.toServerString());
         return saved;
       }
       return null;
@@ -326,16 +427,12 @@ class EnergyCostService extends ChangeNotifier {
     int withinHours = 24,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/optimization/cheapest-periods')
-          .replace(queryParameters: {
-        'durationHours': durationHours.toString(),
-        'withinHours': withinHours.toString(),
-      });
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _cheapestPeriods = CheapestPeriodModel.fromJson(data['data'] as Map<String, dynamic>);
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final res = await _apiGet(
+        '/api/v1/energy/homes/$effectiveHomeId/optimization/cheapest-periods?durationHours=$durationHours&withinHours=$withinHours',
+      );
+      if (res is Map<String, dynamic>) {
+        _cheapestPeriods = CheapestPeriodModel.fromJson(res);
         notifyListeners();
         return _cheapestPeriods;
       }
@@ -350,13 +447,10 @@ class EnergyCostService extends ChangeNotifier {
     String period = 'today',
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/carbon')
-          .replace(queryParameters: {'period': period});
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _carbonFootprint = CarbonFootprintModel.fromJson(data['data'] as Map<String, dynamic>);
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final res = await _apiGet('/api/v1/energy/homes/$effectiveHomeId/carbon?period=$period');
+      if (res is Map<String, dynamic>) {
+        _carbonFootprint = CarbonFootprintModel.fromJson(res);
         notifyListeners();
         return _carbonFootprint;
       }
@@ -368,26 +462,20 @@ class EnergyCostService extends ChangeNotifier {
 
   Future<List<CostOptimizationRecommendationModel>> fetchCostOptimizations(String homeId) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/homes/$homeId/optimization/cost');
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final raw = data['data'];
-        List<dynamic> rawList = [];
-        if (raw is List) {
-          rawList = raw;
-        } else if (raw is Map && raw['recommendations'] is List) {
-          rawList = raw['recommendations'] as List<dynamic>;
-        }
-        final list = rawList
-            .map((o) => CostOptimizationRecommendationModel.fromJson(o as Map<String, dynamic>))
-            .toList();
-        _optimizations = list;
-        notifyListeners();
-        return list;
+      final effectiveHomeId = await _resolveHomeId(homeId);
+      final res = await _apiGet('/api/v1/energy/homes/$effectiveHomeId/optimization/cost');
+      List<dynamic> rawList = [];
+      if (res is List) {
+        rawList = res;
+      } else if (res is Map && res['recommendations'] is List) {
+        rawList = res['recommendations'] as List;
       }
-      return _optimizations;
+      final list = rawList
+          .map((o) => CostOptimizationRecommendationModel.fromJson(Map<String, dynamic>.from(o as Map)))
+          .toList();
+      _optimizations = list;
+      notifyListeners();
+      return list;
     } catch (_) {
       return _optimizations;
     }
@@ -395,15 +483,10 @@ class EnergyCostService extends ChangeNotifier {
 
   Future<bool> dismissCostOptimization(String homeId, String optimizationId) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/v1/energy/optimization/cost/$optimizationId/dismiss');
-      final response = await _client.post(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        _optimizations = _optimizations.where((o) => o.id != optimizationId).toList();
-        notifyListeners();
-        return true;
-      }
-      return false;
+      await _apiPost('/api/v1/energy/optimization/cost/$optimizationId/dismiss');
+      _optimizations = _optimizations.where((o) => o.id != optimizationId).toList();
+      notifyListeners();
+      return true;
     } catch (_) {
       return false;
     }

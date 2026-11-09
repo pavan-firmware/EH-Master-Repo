@@ -4,6 +4,7 @@ import '../../../app/home_controller.dart';
 import '../../../core/capabilities/models/capability_models.dart';
 import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/models/connection_models.dart';
+import '../../../core/services/product_asset_resolver.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -1530,7 +1531,20 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
                     Row(
                       children: [
                         ProductImageWidget(
-                          imageUrl: _variant?.imageUrl,
+                          // Bundled catalog artwork is the source of truth for
+                          // the installed app. The repository can still be
+                          // using its offline/mock metadata, whose imageUrl
+                          // may be a generic placeholder, so resolve the
+                          // exact variant before falling back to repository
+                          // metadata.
+                          imageUrl: resolveBundledProductAsset(
+                                MockProductCatalogRepository
+                                    .resolveCanonicalProductVariant(
+                                  variantId: liveDevice.model,
+                                  deviceName: liveDevice.name,
+                                ),
+                              ) ??
+                              _variant?.imageUrl,
                           size: 56,
                           borderRadius: BorderRadius.circular(18),
                           fallbackIcon: _productIconFor(liveDevice),
@@ -1794,9 +1808,7 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
                           ),
                           child: Icon(
                             isSocket ? Icons.power_rounded : Icons.lightbulb_rounded,
-                            color: isChOn && isOnline
-                                ? Colors.white
-                                : tokens.textTertiary,
+                            color: isChOn && isOnline ? Colors.white : tokens.textTertiary,
                             size: 26,
                           ),
                         ),

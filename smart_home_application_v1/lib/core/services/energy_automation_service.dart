@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_client.dart';
 import '../config/app_config.dart';
 import '../models/energy_automation_models.dart';
 
@@ -8,6 +10,7 @@ import '../models/energy_automation_models.dart';
 class EnergyAutomationService extends ChangeNotifier {
   final String baseUrl;
   final http.Client? httpClient;
+  final ApiClient? apiClient;
   final String? Function()? getAuthToken;
 
   List<EnergyAutomationRuleModel> _automations = [];
@@ -31,18 +34,32 @@ class EnergyAutomationService extends ChangeNotifier {
   EnergyAutomationService({
     String? baseUrl,
     this.httpClient,
+    this.apiClient,
     this.getAuthToken,
   }) : baseUrl = baseUrl ?? AppConfig.backendBaseUrl;
 
-  Map<String, String> _buildHeaders() {
+  Future<Map<String, String>> _buildHeaders() async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
     };
+    String? token;
     if (getAuthToken != null) {
-      final token = getAuthToken!();
-      if (token != null) {
-        headers['Authorization'] = 'Bearer $token';
-      }
+      token = getAuthToken!();
+    }
+    if (token == null && apiClient?.getAccessToken != null) {
+      token = await apiClient!.getAccessToken!();
+    }
+    if (token == null && ApiClient.defaultTokenProvider != null) {
+      token = await ApiClient.defaultTokenProvider!();
+    }
+    if (token == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
+        token = prefs.getString('auth_access_token');
+      } catch (_) {}
+    }
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
     }
     return headers;
   }
@@ -58,7 +75,7 @@ class EnergyAutomationService extends ChangeNotifier {
     try {
       final client = httpClient ?? http.Client();
       final uri = Uri.parse('$baseUrl/api/v1/energy/automations?homeId=$homeId');
-      final res = await client.get(uri, headers: _buildHeaders());
+      final res = await client.get(uri, headers: await _buildHeaders());
 
       if (res.statusCode == 200) {
         final body = json.decode(res.body);
@@ -93,7 +110,7 @@ class EnergyAutomationService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/automations');
       final res = await client.post(
         uri,
-        headers: _buildHeaders(),
+        headers: await _buildHeaders(),
         body: json.encode(rule.toJson()),
       );
 
@@ -128,7 +145,7 @@ class EnergyAutomationService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/automations/$id');
       final res = await client.put(
         uri,
-        headers: _buildHeaders(),
+        headers: await _buildHeaders(),
         body: json.encode(updates),
       );
 
@@ -163,7 +180,7 @@ class EnergyAutomationService extends ChangeNotifier {
       final client = httpClient ?? http.Client();
       final action = enable ? 'enable' : 'disable';
       final uri = Uri.parse('$baseUrl/api/v1/energy/automations/$id/$action');
-      final res = await client.post(uri, headers: _buildHeaders());
+      final res = await client.post(uri, headers: await _buildHeaders());
 
       if (res.statusCode == 200) {
         final body = json.decode(res.body);
@@ -195,7 +212,7 @@ class EnergyAutomationService extends ChangeNotifier {
     try {
       final client = httpClient ?? http.Client();
       final uri = Uri.parse('$baseUrl/api/v1/energy/automations/$id');
-      final res = await client.delete(uri, headers: _buildHeaders());
+      final res = await client.delete(uri, headers: await _buildHeaders());
 
       if (res.statusCode == 200) {
         _automations.removeWhere((a) => a.id == id);
@@ -224,7 +241,7 @@ class EnergyAutomationService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/automations/$id/evaluate');
       final res = await client.post(
         uri,
-        headers: _buildHeaders(),
+        headers: await _buildHeaders(),
         body: json.encode({'context': context ?? {}}),
       );
 
@@ -252,7 +269,7 @@ class EnergyAutomationService extends ChangeNotifier {
     try {
       final client = httpClient ?? http.Client();
       final uri = Uri.parse('$baseUrl/api/v1/energy/automations/$automationId/history?limit=$limit');
-      final res = await client.get(uri, headers: _buildHeaders());
+      final res = await client.get(uri, headers: await _buildHeaders());
 
       if (res.statusCode == 200) {
         final body = json.decode(res.body);
@@ -285,7 +302,7 @@ class EnergyAutomationService extends ChangeNotifier {
     try {
       final client = httpClient ?? http.Client();
       final uri = Uri.parse('$baseUrl/api/v1/energy/optimization?homeId=$homeId');
-      final res = await client.get(uri, headers: _buildHeaders());
+      final res = await client.get(uri, headers: await _buildHeaders());
 
       if (res.statusCode == 200) {
         final body = json.decode(res.body);
@@ -322,7 +339,7 @@ class EnergyAutomationService extends ChangeNotifier {
       final uri = Uri.parse('$baseUrl/api/v1/energy/optimization/$recommendationId/dismiss');
       final res = await client.post(
         uri,
-        headers: _buildHeaders(),
+        headers: await _buildHeaders(),
         body: json.encode({'homeId': homeId}),
       );
 

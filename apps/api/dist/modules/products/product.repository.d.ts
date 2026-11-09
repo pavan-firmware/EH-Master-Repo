@@ -6,7 +6,7 @@
  */
 import { EhDatabase } from '@eh-home/db-schema';
 import { CanonicalMappedProductDefinition, MappedProductFamily } from './product.adapter';
-import { ListProductsQuery, ProductDetail, ProductSummary, VariantDetail } from './product.schema';
+import { ListProductsQuery, ProductAsset, ProductDetail, ProductSummary, VariantDetail } from './product.schema';
 export declare class ProductRepository {
     private db?;
     private memoryCache;
@@ -56,6 +56,7 @@ export declare class ProductRepository {
         productId?: string;
         limit?: number;
         offset?: number;
+        databaseOnly?: boolean;
     }): Promise<{
         items: VariantDetail[];
         total: number;
@@ -78,5 +79,15 @@ export declare class ProductRepository {
     }): Promise<ProductDetail | null>;
     createVariant(data: any): Promise<VariantDetail>;
     updateVariant(id: string, data: any): Promise<VariantDetail | null>;
+    createVariantAsset(asset: {
+        id: string;
+        productVariantId: string;
+        kind: string;
+        url: string;
+        sortOrder?: number;
+    }): Promise<ProductAsset>;
+    listVariantAssets(variantId: string): Promise<ProductAsset[]>;
+    getVariantAsset(variantId: string, assetId: string): Promise<ProductAsset | null>;
+    deleteVariantAsset(variantId: string, assetId: string): Promise<boolean>;
 }
 //# sourceMappingURL=product.repository.d.ts.map

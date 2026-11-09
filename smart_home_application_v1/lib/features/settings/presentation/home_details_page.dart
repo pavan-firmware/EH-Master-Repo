@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/models/authoritative_home_connection_state.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/repositories/settings_repository.dart';
 import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/change_tracking_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/iana_timezones.dart';
 import '../../../core/widgets/product_image_widget.dart';
+import '../../../core/services/product_asset_resolver.dart';
 import 'notification_preferences_page.dart';
 import 'people_page.dart';
 import 'settings_ui.dart';
@@ -467,6 +470,7 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
     );
     if (draftLocation == null || !context.mounted) return;
 
+    final oldLocation = _home.location;
     setState(() {
       _home = _home.copyWith(location: draftLocation);
     });
@@ -481,6 +485,15 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
     );
     if (!context.mounted) return;
     if (result == SettingsOperationResult.success) {
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'home',
+        entityId: _home.id,
+        field: 'location',
+        oldValue: oldLocation,
+        newValue: draftLocation,
+        changeType: ChangeType.modified,
+      );
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Home location updated.'),
@@ -500,6 +513,7 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
     );
     if (selected == null || !context.mounted) return;
 
+    final oldTimezone = _home.timezone;
     setState(() {
       _home = _home.copyWith(timezone: selected);
     });
@@ -514,6 +528,15 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
     );
     if (!context.mounted) return;
     if (result == SettingsOperationResult.success) {
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'home',
+        entityId: _home.id,
+        field: 'timezone',
+        oldValue: oldTimezone,
+        newValue: selected,
+        changeType: ChangeType.modified,
+      );
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Timezone updated to $selected.'),
@@ -550,6 +573,7 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
       ),
     );
     if (selected == null || !context.mounted) return;
+    final oldTempUnit = _home.preferences.temperatureUnit;
     final newPrefs = _home.preferences.copyWith(temperatureUnit: selected);
     setState(() {
       _home = _home.copyWith(preferences: newPrefs);
@@ -567,15 +591,22 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
         preferences: newPrefs,
       ),
     );
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Temperature unit updated to $selected.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      await _refreshHome();
-    }
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'home',
+      entityId: _home.id,
+      field: 'temperatureUnit',
+      oldValue: oldTempUnit,
+      newValue: selected,
+      changeType: ChangeType.modified,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Temperature unit updated to $selected.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    await _refreshHome();
   }
 
   Future<void> _editNotifications(BuildContext context) async {
@@ -619,6 +650,7 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
       ),
     );
     if (selected == null || !context.mounted) return;
+    final oldTimeFormat = _home.preferences.timeFormat;
     final newPrefs = _home.preferences.copyWith(timeFormat: selected);
     setState(() {
       _home = _home.copyWith(preferences: newPrefs);
@@ -636,15 +668,22 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
         preferences: newPrefs,
       ),
     );
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Time format updated to $selected.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      await _refreshHome();
-    }
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'home',
+      entityId: _home.id,
+      field: 'timeFormat',
+      oldValue: oldTimeFormat,
+      newValue: selected,
+      changeType: ChangeType.modified,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Time format updated to $selected.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    await _refreshHome();
   }
 
   void _copyHomeId(BuildContext context) {
@@ -777,33 +816,19 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
                     itemBuilder: (c, idx) {
                       final d = devices[idx];
                       return ListTile(
-                        leading: SizedBox(
-                          width: 44,
-                          height: 44,
-                          child: Stack(
-                            children: [
-                              ProductImageWidget(
-                                imageUrl: d.model,
-                                size: 44,
-                                borderRadius: BorderRadius.circular(10),
-                                fallbackIcon: d.name.toLowerCase().contains('socket')
-                                    ? Icons.power_rounded
-                                    : Icons.toggle_on_rounded,
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: ProductImageWidget(
+                            imageUrl: resolveBundledProductAsset(
+                              MockProductCatalogRepository.resolveCanonicalProductVariant(
+                                variantId: d.model,
+                                deviceName: d.name,
                               ),
-                              Positioned(
-                                right: 0,
-                                bottom: 0,
-                                child: Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    color: d.online ? tokens.success : tokens.warning,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: tokens.surfaceCard, width: 2),
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ) ?? resolveBundledProductAsset(d.model) ?? resolveBundledProductAsset(d.name),
+                            size: 40,
+                            borderRadius: BorderRadius.circular(10),
+                            fallbackIcon: d.online ? Icons.check_circle_rounded : Icons.sensors_off_rounded,
+                            placeholderColor: d.online ? tokens.iconBgGreen : tokens.iconBgOrange,
                           ),
                         ),
                         title: Text(d.name, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700)),

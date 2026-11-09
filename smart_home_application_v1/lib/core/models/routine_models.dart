@@ -6,6 +6,7 @@ import '../../app/home_controller.dart';
 import '../models/connection_models.dart';
 import '../services/device_storage_service.dart';
 import '../services/edge_routine_sync_service.dart';
+import '../services/change_tracking_service.dart';
 
 enum RoutineAvailability { available, partiallyAvailable, unavailable }
 
@@ -701,6 +702,14 @@ class PreviewRoutineRepository implements RoutineRepository {
 
     _routines.insert(0, newRoutine);
     await _persist();
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'routine',
+      entityId: id,
+      field: 'routine',
+      oldValue: null,
+      newValue: routineName,
+      changeType: ChangeType.created,
+    );
     unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(newRoutine));
     return RepositoryResult.success;
   }
@@ -770,6 +779,14 @@ class PreviewRoutineRepository implements RoutineRepository {
             : old.summary,
       );
       await _persist();
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'routine',
+        entityId: id,
+        field: 'routine',
+        oldValue: old.name,
+        newValue: draft.name.trim().isNotEmpty ? draft.name.trim() : old.name,
+        changeType: ChangeType.modified,
+      );
       unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(_routines[idx]));
     }
     return RepositoryResult.success;
@@ -779,6 +796,7 @@ class PreviewRoutineRepository implements RoutineRepository {
   Future<RepositoryResult> deleteRoutine(String id) async {
     await _ensureHydrated();
     final toRemove = _routines.where((r) => r.id == id).toList();
+    final oldName = toRemove.isNotEmpty ? toRemove.first.name : id;
     _routines.removeWhere((r) => r.id == id);
     _cachedRoutines.removeWhere((r) => r.id == id);
     for (final r in toRemove) {
@@ -792,6 +810,14 @@ class PreviewRoutineRepository implements RoutineRepository {
     await DeviceStorageService.markRoutineDeleted(id);
     _history.remove(id);
     await _persist();
+    await ChangeTrackingService.instance.recordChange(
+      entityType: 'routine',
+      entityId: id,
+      field: 'routine',
+      oldValue: oldName,
+      newValue: null,
+      changeType: ChangeType.deleted,
+    );
     return RepositoryResult.success;
   }
 
@@ -863,6 +889,14 @@ class PreviewRoutineRepository implements RoutineRepository {
         summary: old.summary,
       );
       await _persist();
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'routine',
+        entityId: id,
+        field: 'enabled',
+        oldValue: 'false',
+        newValue: 'true',
+        changeType: ChangeType.modified,
+      );
       unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(_routines[idx]));
     }
     return RepositoryResult.success;
@@ -893,6 +927,14 @@ class PreviewRoutineRepository implements RoutineRepository {
         summary: old.summary,
       );
       await _persist();
+      await ChangeTrackingService.instance.recordChange(
+        entityType: 'routine',
+        entityId: id,
+        field: 'enabled',
+        oldValue: 'true',
+        newValue: 'false',
+        changeType: ChangeType.modified,
+      );
       unawaited(EdgeRoutineSyncService.instance.disableRoutineOnEdge(_routines[idx]));
     }
     return RepositoryResult.success;

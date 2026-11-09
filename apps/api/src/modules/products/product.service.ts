@@ -58,7 +58,7 @@ export class ProductService {
   /**
    * Retrieves list of all variants.
    */
-  async listVariants(filters: { familyId?: string; productId?: string; limit?: number; offset?: number } = {}): Promise<{ items: VariantDetail[]; total: number }> {
+  async listVariants(filters: { familyId?: string; productId?: string; limit?: number; offset?: number; databaseOnly?: boolean } = {}): Promise<{ items: VariantDetail[]; total: number }> {
     return this.repository.listVariants(filters);
   }
 

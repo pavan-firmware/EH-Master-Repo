@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/energy_cost_models.dart';
 import '../../../core/services/energy_cost_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../settings/presentation/settings_ui.dart';
 import 'tariff_editor_page.dart';
 
 /// Tariff Management Page — View, activate, edit and delete electricity tariffs
@@ -55,6 +56,7 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
         elevation: 0,
         iconTheme: IconThemeData(color: tokens.headerAction),
         actions: [
+          settingsHelpAction(context, screenId: 'tariffs'),
           IconButton(
             key: const Key('btn_add_tariff'),
             icon: Icon(Icons.add, color: tokens.headerAction),
@@ -66,20 +68,20 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: tokens.bluePrimary))
           : tariffs.isEmpty
-              ? _buildEmptyState(tokens)
-              : RefreshIndicator(
-                  color: tokens.bluePrimary,
-                  backgroundColor: tokens.surfaceElevated,
-                  onRefresh: _loadTariffs,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16.0),
-                    itemCount: tariffs.length,
-                    itemBuilder: (context, index) {
-                      final t = tariffs[index];
-                      return _buildTariffCard(t, tokens);
-                    },
-                  ),
-                ),
+          ? _buildEmptyState(tokens)
+          : RefreshIndicator(
+              color: tokens.bluePrimary,
+              backgroundColor: tokens.surfaceElevated,
+              onRefresh: _loadTariffs,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16.0),
+                itemCount: tariffs.length,
+                itemBuilder: (context, index) {
+                  final t = tariffs[index];
+                  return _buildTariffCard(t, tokens);
+                },
+              ),
+            ),
     );
   }
 
@@ -90,11 +92,19 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.price_change_outlined, size: 64, color: tokens.textTertiary),
+            Icon(
+              Icons.price_change_outlined,
+              size: 64,
+              color: tokens.textTertiary,
+            ),
             const SizedBox(height: 16),
             Text(
               'No Tariffs Configured',
-              style: TextStyle(color: tokens.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -110,8 +120,13 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
               style: FilledButton.styleFrom(
                 backgroundColor: tokens.bluePrimary,
                 foregroundColor: tokens.buttonText,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],
@@ -129,7 +144,9 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: tariff.isActive ? tokens.gold.withValues(alpha: 0.6) : tokens.borderSubtle,
+          color: tariff.isActive
+              ? tokens.gold.withValues(alpha: 0.6)
+              : tokens.borderSubtle,
           width: 1,
         ),
       ),
@@ -152,7 +169,10 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: tariff.isActive
                         ? tokens.successContainer
@@ -162,7 +182,9 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
                   child: Text(
                     tariff.isActive ? 'ACTIVE' : 'INACTIVE',
                     style: TextStyle(
-                      color: tariff.isActive ? tokens.success : tokens.textTertiary,
+                      color: tariff.isActive
+                          ? tokens.success
+                          : tokens.textTertiary,
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
                     ),
@@ -176,7 +198,9 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
                 Text(
                   tariff.tariffType.displayName,
                   style: TextStyle(
-                    color: tokens.isDark ? tokens.goldBright : tokens.bluePrimary,
+                    color: tokens.isDark
+                        ? tokens.goldBright
+                        : tokens.bluePrimary,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -212,7 +236,10 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
                     runSpacing: 4,
                     children: tariff.periods.map((p) {
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: tokens.bgApp,
                           borderRadius: BorderRadius.circular(8),
@@ -220,7 +247,10 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
                         ),
                         child: Text(
                           '${p.periodType.displayName}: ${tariff.currency} ${p.pricePerKwh.toStringAsFixed(2)} (${p.startTime}-${p.endTime})',
-                          style: TextStyle(color: tokens.textSecondary, fontSize: 11),
+                          style: TextStyle(
+                            color: tokens.textSecondary,
+                            fontSize: 11,
+                          ),
                         ),
                       );
                     }).toList(),
@@ -231,13 +261,51 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                if (!tariff.isActive)
+                  TextButton.icon(
+                    icon: Icon(
+                      Icons.check_circle_outline,
+                      size: 16,
+                      color: tokens.success,
+                    ),
+                    label: Text(
+                      'Activate',
+                      style: TextStyle(color: tokens.success),
+                    ),
+                    onPressed: () async {
+                      final ok = await widget.costService.activateTariff(
+                        widget.homeId,
+                        tariff.id,
+                      );
+                      if (mounted) {
+                        if (ok) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Activated tariff "${tariff.name}"',
+                              ),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                        await _loadTariffs();
+                      }
+                    },
+                  ),
                 TextButton.icon(
                   icon: Icon(Icons.edit, size: 16, color: tokens.bluePrimary),
-                  label: Text('Edit', style: TextStyle(color: tokens.bluePrimary)),
+                  label: Text(
+                    'Edit',
+                    style: TextStyle(color: tokens.bluePrimary),
+                  ),
                   onPressed: () => _openEditor(tariff),
                 ),
                 TextButton.icon(
-                  icon: Icon(Icons.delete_outline, size: 16, color: tokens.error),
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 16,
+                    color: tokens.error,
+                  ),
                   label: Text('Delete', style: TextStyle(color: tokens.error)),
                   onPressed: () => _confirmDelete(tariff, tokens),
                 ),
@@ -270,7 +338,10 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: tokens.surfaceElevated,
-        title: Text('Delete Tariff', style: TextStyle(color: tokens.textPrimary)),
+        title: Text(
+          'Delete Tariff',
+          style: TextStyle(color: tokens.textPrimary),
+        ),
         content: Text(
           'Are you sure you want to delete "${tariff.name}"?',
           style: TextStyle(color: tokens.textSecondary),
@@ -278,7 +349,10 @@ class _TariffManagementPageState extends State<TariffManagementPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: TextStyle(color: tokens.textSecondary)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
           ),
           ElevatedButton(
             onPressed: () async {

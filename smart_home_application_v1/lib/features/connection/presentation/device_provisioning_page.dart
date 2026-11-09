@@ -2,16 +2,20 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
-import '../../../core/capabilities/repositories/product_catalog_repository.dart';
+import '../../../core/models/connection_models.dart';
 import '../../../core/services/device_storage_service.dart';
 import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/services/product_asset_resolver.dart';
+import '../../../core/widgets/product_image_widget.dart';
 import '../../onboarding/ble/ble_commissioning_channel.dart';
 import '../../onboarding/models/onboarding_models.dart';
 import '../../onboarding/presentation/qr_scanner_dialog.dart';
 import '../../onboarding/services/onboarding_service.dart';
+import '../../settings/presentation/help/help_support_page.dart';
 
 enum ProvisioningUiStage {
+  readyPreview,
   inputCredentials,
   verifyDevice,
   commissioningHandshake,
@@ -22,12 +26,16 @@ enum ProvisioningUiStage {
   failed,
 }
 
+typedef DeviceSetupPage = DeviceProvisioningPage;
+
 class DeviceProvisioningPage extends StatefulWidget {
   const DeviceProvisioningPage({
     super.key,
     required this.deviceName,
     this.deviceId,
     this.serialNumber,
+    this.model,
+    this.imageUrl,
     this.channel,
     this.onboardingService,
     this.storageService,
@@ -35,17 +43,21 @@ class DeviceProvisioningPage extends StatefulWidget {
     this.initialRoomName,
     this.availableRooms,
     this.spaceId,
+    this.initialShowWifiForm = false,
   });
 
   final String deviceName;
   final String? deviceId;
   final String? serialNumber;
+  final String? model;
+  final String? imageUrl;
   final BleCommissioningChannel? channel;
   final OnboardingService? onboardingService;
   final DeviceStorageService? storageService;
   final String? initialRoomName;
   final List<String>? availableRooms;
   final String? spaceId;
+  final bool initialShowWifiForm;
   final void Function({
     required String deviceId,
     required String displayName,
@@ -67,10 +79,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   bool _obscurePassword = true;
   bool _showManualQrInput = false;
 
-  ProvisioningUiStage _stage = ProvisioningUiStage.inputCredentials;
+  late ProvisioningUiStage _stage;
   String? _errorMessage;
-  String _statusDetail =
-      'Enter your 2.4 GHz Wi-Fi details to connect this device.';
+  String _statusDetail = 'Enter your 2.4 GHz Wi-Fi details to connect this device.';
   late final OnboardingService _service;
   late final DeviceStorageService _storageService;
   EhProv1Session? _session;
@@ -89,9 +100,32 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   bool _isProvisioned = false;
   bool _isProvisioningInProgress = false;
 
+  String get _resolvedImageUrl {
+    if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty) {
+      return widget.imageUrl!;
+    }
+    final modelOrName = widget.model ?? widget.deviceName;
+    final resolved = resolveBundledProductAsset(modelOrName);
+    if (resolved != null && resolved.isNotEmpty) {
+      return resolved;
+    }
+    final modelLower = modelOrName.toLowerCase();
+    if (modelLower.contains('socket') || modelLower.contains('plug') || modelLower.contains('sk')) {
+      return 'assets/products/catalog/eh-smart-socket-2x/hero.webp';
+    } else if (modelLower.contains('fan')) {
+      return 'assets/products/catalog/eh-smart-fan-1x/hero.webp';
+    }
+    final match = RegExp(r'(1|2|3|4|5)x').firstMatch(modelLower);
+    final variant = match?.group(1) ?? '3';
+    return 'assets/products/catalog/eh-smart-switch-${variant}x/hero.webp';
+  }
+
   @override
   void initState() {
     super.initState();
+    _stage = widget.initialShowWifiForm
+        ? ProvisioningUiStage.inputCredentials
+        : ProvisioningUiStage.readyPreview;
     _service =
         widget.onboardingService ??
         DefaultOnboardingService(channel: widget.channel);
@@ -102,12 +136,10 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
   Future<void> _loadRooms() async {
     final Set<String> roomSet = {};
 
-    // 1. Incorporate rooms passed from active space
     if (widget.availableRooms != null && widget.availableRooms!.isNotEmpty) {
       roomSet.addAll(widget.availableRooms!.where((r) => r.trim().isNotEmpty && r.trim().toLowerCase() != 'unassigned'));
     }
 
-    // 2. Load persisted rooms from storage
     final loaded = await _storageService.loadRooms();
     roomSet.addAll(loaded.where((r) => r.trim().isNotEmpty && r.trim().toLowerCase() != 'unassigned'));
 
@@ -116,7 +148,6 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
       roomSet.addAll(spaceRooms.where((r) => r.trim().isNotEmpty && r.trim().toLowerCase() != 'unassigned'));
     }
 
-    // 3. Always include standard canonical rooms
     for (final def in [
       'Living Room',
       'Bedroom',
@@ -177,21 +208,51 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         lower.contains('ssid')) {
       return "The device could not connect to this Wi-Fi network. Check the network name and password.";
     }
-    if (lower.contains('disconnected') || lower.contains('timeout')) {
-      return "The device disconnected or took too long to respond. Keep it nearby and try again.";
-    }
     if (lower.contains('devicechallenge') ||
         lower.contains('challenge') ||
-        lower.contains('timed out before verification')) {
+        lower.contains('argumenterror')) {
       return "The device connection timed out before verification. Tap Try again to re-verify.";
+    }
+    if (lower.contains('disconnected') || lower.contains('timeout')) {
+      return "The device disconnected or took too long to respond. Keep it nearby and try again.";
     }
     return error
         .replaceFirst('Exception: ', '')
         .replaceFirst('BLE Wi-Fi provisioning exchange failed: ', '');
   }
 
-  Future<void> _openQrScanner() async {
-    final scannedPayload = await QrScannerDialog.show(context);
+  /// Wi-Fi QR Scanner: Scans ONLY standard Wi-Fi QR codes (`WIFI:T:...;S:...;P:...;;`)
+  /// Fills SSID and Password. NEVER triggers device verification.
+  Future<void> _scanWifiQr() async {
+    final raw = await QrScannerDialog.show(context, mode: QrScannerMode.wifiCredentials);
+    if (!mounted || raw == null || raw.trim().isEmpty) return;
+
+    final wifiData = WifiQrPayload.tryParse(raw);
+    if (wifiData == null) {
+      setState(() {
+        _errorMessage = 'Invalid Wi-Fi QR code. Please scan a standard Wi-Fi network QR code.';
+      });
+      return;
+    }
+
+    setState(() {
+      _ssidController.text = wifiData.ssid;
+      _passwordController.text = wifiData.password;
+      _errorMessage = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Wi-Fi credentials filled for "${wifiData.ssid}"'),
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Device QR Scanner: Dedicated scanner for device ownership and commissioning verification.
+  Future<void> _openDeviceQrScanner() async {
+    final scannedPayload = await QrScannerDialog.showDeviceScanner(context);
     if (scannedPayload != null && scannedPayload.isNotEmpty) {
       _qrController.text = scannedPayload;
       await _verifyDeviceQr(scannedPayload);
@@ -258,12 +319,6 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         return;
       }
 
-      final resolvedVariant = MockProductCatalogRepository.resolveCanonicalProductVariant(
-        deviceName: widget.deviceName,
-        serialNumber: widget.serialNumber,
-        hardwareModel: widget.deviceId,
-      );
-      final isSocket = resolvedVariant.contains('socket') || widget.deviceName.toLowerCase().contains('socket');
       final baseIdentity =
           _activeIdentity ??
           widget.channel?.deviceIdentity ??
@@ -271,9 +326,9 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
               ? OnboardingDeviceIdentity(
                   deviceId: widget.deviceId!,
                   serialNumber: widget.serialNumber!,
-                  productVariantId: resolvedVariant.isNotEmpty ? resolvedVariant : (isSocket ? 'eh-smart-socket-2x' : 'eh-smart-switch-3x'),
+                  productVariantId: widget.model ?? 'eh-smart-switch-3x',
                   hardwareRevision: 'HW_1_0',
-                  firmwareFamily: isSocket ? 'esp32-socket-platform' : 'esp32-switch-platform',
+                  firmwareFamily: 'esp32-switch-platform',
                   displayName: widget.deviceName,
                 )
               : null);
@@ -282,7 +337,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         setState(() {
           _stage = ProvisioningUiStage.failed;
           _errorMessage =
-              'Device identity could not be verified from hardware (6105). Please reconnect.';
+              'Device identity could not be verified from hardware. Please reconnect.';
         });
         return;
       }
@@ -309,7 +364,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         }
       }
 
-      // If commissioningSecret is missing, prompt user to scan QR code
+      // If commissioningSecret is missing, prompt user to scan device QR code
       if (baseIdentity.commissioningSecret == null ||
           baseIdentity.commissioningSecret!.trim().isEmpty) {
         setState(() {
@@ -345,20 +400,22 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
         }
         _session = helloResult.session;
 
+        final rawDevChallenge = _session?.deviceChallenge;
+        if (rawDevChallenge == null || rawDevChallenge.length != 32) {
+          throw Exception(
+            'The device took too long to complete verification handshake. Please keep it nearby and try again.',
+          );
+        }
+
         // Step 2: Prove Identity (AUTH -> AUTH_ACK)
         setState(() {
           _statusDetail = 'Verifying cryptographic device identity...';
         });
 
-        final challengeBytes = _session?.deviceChallenge ?? [];
-        if (challengeBytes.length != 32) {
-          throw Exception('The device connection timed out before verification. Tap Try again to re-verify.');
-        }
-
         final authResult = await _service.proveIdentity(
           sessionId: _session!.sessionId,
           identity: identity,
-          deviceChallenge: Uint8List.fromList(challengeBytes),
+          deviceChallenge: Uint8List.fromList(rawDevChallenge),
           session: _session,
         );
         if (authResult.hasFailed || authResult.session == null) {
@@ -466,560 +523,820 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
     }
   }
 
-  void _finishRoomAssignment({String? fallbackRoom}) {
-    if (_isProvisioned) return;
-    _isProvisioned = true;
-
-    final assignedRoom = fallbackRoom ??
-        (_customRoomController.text.trim().isNotEmpty
-            ? _customRoomController.text.trim()
-            : _selectedRoom);
-
-    final devName = widget.deviceName.isNotEmpty ? widget.deviceName : 'EH Smart Device';
-    final serial = widget.serialNumber ?? widget.deviceId ?? (devName.startsWith('EH-') ? devName : 'EH-DEV-${DateTime.now().millisecondsSinceEpoch % 100000}');
-    String variant = MockProductCatalogRepository.normalizeVariantId(devName);
-    if (variant.isEmpty && widget.serialNumber != null) {
-      variant = MockProductCatalogRepository.normalizeVariantId(widget.serialNumber!);
-    }
-    if (variant.isEmpty) {
-      final lower = devName.toLowerCase();
-      final isSocket = lower.contains('socket') || lower.contains('plug');
-      if (lower.contains('4x') || lower.contains('4ch')) {
-        variant = isSocket ? 'eh-smart-socket-4x' : 'eh-smart-switch-4x';
-      } else if (lower.contains('3x') || lower.contains('3ch')) {
-        variant = isSocket ? 'eh-smart-socket-3x' : 'eh-smart-switch-3x';
-      } else if (lower.contains('2x') || lower.contains('2ch')) {
-        variant = isSocket ? 'eh-smart-socket-2x' : 'eh-smart-switch-2x';
-      } else {
-        variant = isSocket ? 'eh-smart-socket-1x' : 'eh-smart-switch-4x';
-      }
-    }
+  Future<void> _completeRoomAssignment() async {
+    final finalRoom = _customRoomController.text.trim().isNotEmpty
+        ? _customRoomController.text.trim()
+        : _selectedRoom;
 
     final targetIdentity =
         _activeIdentity ??
         widget.channel?.deviceIdentity ??
         OnboardingDeviceIdentity(
-          deviceId: widget.deviceId ?? 'dev-${DateTime.now().millisecondsSinceEpoch}',
-          serialNumber: serial,
-          productVariantId: variant,
+          deviceId: widget.deviceId ?? 'device-001',
+          serialNumber: widget.serialNumber ?? 'SN-001',
+          productVariantId: widget.model ?? 'eh-smart-switch-3x',
           hardwareRevision: 'HW_1_0',
           firmwareFamily: 'esp32-switch-platform',
-          displayName: devName,
+          displayName: widget.deviceName,
         );
 
-    if (assignedRoom.toLowerCase() != 'unassigned') {
-      _storageService.addRoom(assignedRoom);
-      if (widget.spaceId != null) {
-        _storageService.addRoomForSpace(widget.spaceId!, assignedRoom);
-      }
+    final devSummary = ConnectedDeviceSummary(
+      id: targetIdentity.deviceId,
+      name: targetIdentity.displayName,
+      model: targetIdentity.productVariantId,
+      firmware: '1.0.0',
+      connectedVia: 'Wi-Fi (2.4 GHz)',
+      signalLabel: 'Strong',
+      roomName: finalRoom,
+      online: true,
+    );
+
+    if (widget.spaceId != null && widget.spaceId!.isNotEmpty) {
+      await _storageService.saveDeviceForSpace(widget.spaceId!, devSummary);
+    } else {
+      await _storageService.saveDevice(devSummary);
     }
 
-    debugPrint('[ROOM] DEVICE_ASSIGNED room=$assignedRoom');
+    _isProvisioned = true;
 
-    if (widget.onDeviceProvisioned != null) {
-      widget.onDeviceProvisioned!(
-        deviceId: targetIdentity.deviceId,
-        displayName: targetIdentity.displayName,
-        serialNumber: targetIdentity.serialNumber,
-        roomName: assignedRoom,
-        model: targetIdentity.productVariantId,
-      );
+    widget.onDeviceProvisioned?.call(
+      deviceId: targetIdentity.deviceId,
+      displayName: targetIdentity.displayName,
+      serialNumber: targetIdentity.serialNumber,
+      roomName: finalRoom,
+      model: targetIdentity.productVariantId,
+    );
+
+    if (mounted) {
+      setState(() {
+        _stage = ProvisioningUiStage.success;
+        _statusDetail = 'Setup complete! Your device is ready to use.';
+      });
     }
-
-    setState(() {
-      _stage = ProvisioningUiStage.success;
-      _statusDetail = (assignedRoom.toLowerCase() == 'unassigned')
-          ? '${targetIdentity.displayName} is connected! You can assign it to a room anytime in device settings.'
-          : '${targetIdentity.displayName} is securely connected in $assignedRoom!';
-    });
   }
 
-  Future<void> _handleBackNavigation() async {
-    if (_stage == ProvisioningUiStage.roomAssignment && !_isProvisioned) {
-      final shouldAssignLater = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Assign Room to Complete Setup'),
-          content: const Text(
-            'Your device is connected to Wi-Fi!\n\n'
-            'Would you like to assign it to a room now, or assign it later?\n\n'
-            'If you assign later, it will be listed under "Unassigned Devices" so you can organize it anytime.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true), // Assign later
-              child: const Text('Assign Later'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, false), // Stay and choose room
-              child: const Text('Choose Room'),
-            ),
-          ],
-        ),
-      );
-      if (shouldAssignLater == true && mounted) {
-        _finishRoomAssignment(fallbackRoom: 'Unassigned');
-        Navigator.pop(context);
-      }
-      return;
-    }
-    if (!_isProvisioned) {
-      widget.channel?.disconnect();
-    }
-    Navigator.pop(context);
-  }
-
-  void _backToHome() {
-    widget.channel?.disconnect();
-    Navigator.popUntil(context, (route) => route.isFirst);
+  void _showHelp() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const HelpSupportPage()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
 
-    return PopScope(
-      canPop: _stage != ProvisioningUiStage.roomAssignment || _isProvisioned,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        await _handleBackNavigation();
-      },
-      child: Scaffold(
+    return Scaffold(
+      backgroundColor: tokens.bgApp,
+      appBar: AppBar(
         backgroundColor: tokens.bgApp,
-        appBar: AppBar(
-          backgroundColor: tokens.bgApp,
-          leading: IconButton(
-            onPressed: _handleBackNavigation,
-            icon: Icon(Icons.arrow_back_rounded, color: tokens.headerAction),
-          ),
-          title: Text(
-            'Set up device',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: tokens.textPrimary,
-            ),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.qr_code_scanner_rounded),
-              tooltip: 'Scan QR Code',
-              onPressed: _isProvisioningInProgress ? null : _openQrScanner,
-            ),
-          ],
+        elevation: 0,
+        centerTitle: false,
+        leading: IconButton(
+          onPressed: () => Navigator.of(context).pop(),
+          icon: Icon(Icons.arrow_back_rounded, color: tokens.textPrimary),
         ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        title: Text(
+          'Set up device',
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Setup help',
+            onPressed: _showHelp,
+            icon: Icon(Icons.help_outline_rounded, color: tokens.headerAction),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 350),
+          switchInCurve: Curves.easeInOut,
+          switchOutCurve: Curves.easeInOut,
+          child: _buildStageContent(tokens),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStageContent(EHThemeTokens tokens) {
+    switch (_stage) {
+      case ProvisioningUiStage.readyPreview:
+        return _buildReadyPreview(tokens);
+      case ProvisioningUiStage.inputCredentials:
+        return _buildWifiForm(tokens);
+      case ProvisioningUiStage.verifyDevice:
+        return _buildVerifyDevice(tokens);
+      case ProvisioningUiStage.commissioningHandshake:
+      case ProvisioningUiStage.sendingWifi:
+      case ProvisioningUiStage.awaitingDeviceAck:
+        return _buildProgressState(tokens);
+      case ProvisioningUiStage.roomAssignment:
+        return _buildRoomAssignment(tokens);
+      case ProvisioningUiStage.success:
+        return _buildSuccess(tokens);
+      case ProvisioningUiStage.failed:
+        return _buildFailure(tokens);
+    }
+  }
+
+  /// Page 3 Design: Product ready preview with Proceed button.
+  Widget _buildReadyPreview(EHThemeTokens tokens) {
+    return Padding(
+      key: const ValueKey('stage_ready_preview'),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: Column(
         children: [
+          const Spacer(),
+          Center(
+            child: ProductImageWidget(
+              imageUrl: _resolvedImageUrl,
+              size: 220,
+              borderRadius: BorderRadius.circular(24),
+              placeholderColor: tokens.surfaceCard,
+            ),
+          ),
+          const SizedBox(height: 28),
           Text(
-            _activeIdentity?.displayName ??
-                widget.channel?.deviceIdentity?.displayName ??
-                widget.deviceName,
+            widget.deviceName,
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w800,
               color: tokens.textPrimary,
             ),
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 6),
-          Text(
-            _statusDetail,
-            style: TextStyle(color: tokens.textSecondary, height: 1.3),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Powered on and ready. Tap Proceed to connect it to your Wi-Fi.',
+              style: TextStyle(
+                fontSize: 15,
+                color: tokens.textSecondary,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
           ),
-          const SizedBox(height: 24),
-
-          if (_stage == ProvisioningUiStage.inputCredentials) ...[
-            TextField(
-              controller: _ssidController,
-              decoration: InputDecoration(
-                labelText: 'Wi-Fi Network (SSID)',
-                prefixIcon: const Icon(Icons.wifi_rounded),
-                border: OutlineInputBorder(
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _passwordController,
-              obscureText: _obscurePassword,
-              decoration: InputDecoration(
-                labelText: 'Password',
-                prefixIcon: const Icon(Icons.lock_outline_rounded),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePassword
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                  ),
-                  onPressed: () =>
-                      setState(() => _obscurePassword = !_obscurePassword),
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 14),
-              Text(
-                _errorMessage!,
+              onPressed: () {
+                setState(() {
+                  _stage = ProvisioningUiStage.inputCredentials;
+                });
+              },
+              child: const Text(
+                'Proceed',
                 style: TextStyle(
-                  color: tokens.warning,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
-              ),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 52,
-              child: FilledButton.icon(
-                onPressed: _isProvisioningInProgress
-                    ? null
-                    : _startProvisioning,
-                style: FilledButton.styleFrom(
-                  backgroundColor: tokens.blueDarker,
-                ),
-                icon: const Icon(Icons.send_rounded),
-                label: const Text('Connect & Provision'),
               ),
             ),
-          ] else if (_stage == ProvisioningUiStage.verifyDevice) ...[
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: tokens.blueDarker.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: tokens.bluePrimary.withValues(alpha: 0.2),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
+  /// Page 4 Design: Wi-Fi Form with collapsed instructions, QR button, SSID/Password, and Connect & Provision button.
+  Widget _buildWifiForm(EHThemeTokens tokens) {
+    return SingleChildScrollView(
+      key: const ValueKey('stage_wifi_form'),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row: Product thumbnail + Name + Connected over Bluetooth
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                ProductImageWidget(
+                  imageUrl: _resolvedImageUrl,
+                  size: 46,
+                  borderRadius: BorderRadius.circular(10),
+                  placeholderColor: tokens.surfaceCard,
                 ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: tokens.bluePrimary.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.qr_code_scanner_rounded,
-                          color: tokens.bluePrimary,
-                          size: 26,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Verify Device Ownership',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                color: tokens.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Scan the QR code on your EH Home device label.',
-                              style: TextStyle(
-                                color: tokens.textSecondary,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: FilledButton.icon(
-                      onPressed: _isProvisioningInProgress
-                          ? null
-                          : _openQrScanner,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: tokens.bluePrimary,
-                      ),
-                      icon: const Icon(Icons.camera_alt_rounded),
-                      label: const Text(
-                        'Scan QR Code',
+                      Text(
+                        widget.deviceName,
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
+                          color: tokens.textPrimary,
                         ),
                       ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFF10B981),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Connected over Bluetooth',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF10B981),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Setup Instructions Dropdown (Collapsed by default)
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: Material(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: tokens.borderSubtle),
+                ),
+                child: ExpansionTile(
+                initiallyExpanded: false,
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                leading: Icon(Icons.info_outline_rounded, color: tokens.bluePrimary, size: 22),
+                title: Text(
+                  'Setup instructions',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: tokens.textPrimary,
+                  ),
+                ),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [
+                  Text(
+                    '1. Ensure your Wi-Fi router is operating at 2.4 GHz.\n'
+                    '2. Type the network SSID exactly as configured or tap "Scan QR" to auto-fill.\n'
+                    '3. Keep your phone near the device while credentials are securely provisioned.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                      color: tokens.textSecondary,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: () =>
-                  setState(() => _showManualQrInput = !_showManualQrInput),
-              icon: Icon(
-                _showManualQrInput
-                    ? Icons.keyboard_arrow_up_rounded
-                    : Icons.keyboard_arrow_down_rounded,
-                color: tokens.textSecondary,
+          ),
+        ),
+          const SizedBox(height: 20),
+
+          // Wi-Fi Details Header & Scan QR button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Wi-Fi details',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '2.4 GHz networks only',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: tokens.textSecondary,
+                    ),
+                  ),
+                ],
               ),
-              label: Text(
-                _showManualQrInput
-                    ? 'Hide manual code entry'
-                    : 'Or enter setup code manually',
-                style: TextStyle(color: tokens.textSecondary, fontSize: 13),
-              ),
-            ),
-            if (_showManualQrInput) ...[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _qrController,
-                decoration: InputDecoration(
-                  labelText: 'QR Payload / Code (EH1:...)',
-                  hintText: 'EH1:<deviceId>:<variant>:<secret>:<pin>',
-                  prefixIcon: const Icon(Icons.qr_code_rounded),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+              OutlinedButton.icon(
+                onPressed: _scanWifiQr,
+                icon: Icon(Icons.qr_code_scanner_rounded, size: 18, color: tokens.bluePrimary),
+                label: Text(
+                  'Scan QR',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: tokens.bluePrimary,
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                height: 48,
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _isProvisioningInProgress ? null : _verifyDeviceQr,
-                  icon: const Icon(Icons.check_rounded),
-                  label: const Text('Verify Code'),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: tokens.bluePrimary.withValues(alpha: 0.5)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
               ),
             ],
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 14),
-              Text(
-                _errorMessage!,
-                style: TextStyle(
-                  color: tokens.warning,
-                  fontWeight: FontWeight.w600,
+          ),
+          const SizedBox(height: 14),
+
+          // Error Banner if present
+          if (_errorMessage != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade900.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _errorMessage!,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // SSID Field
+          TextFormField(
+            controller: _ssidController,
+            style: TextStyle(color: tokens.textPrimary, fontSize: 15),
+            decoration: InputDecoration(
+              labelText: 'Wi-Fi Network (SSID)',
+              labelStyle: TextStyle(color: tokens.textSecondary, fontSize: 14),
+              prefixIcon: Icon(Icons.wifi_rounded, color: tokens.bluePrimary),
+              filled: true,
+              fillColor: tokens.surfaceCard,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: tokens.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: tokens.bluePrimary, width: 1.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Password Field
+          TextFormField(
+            controller: _passwordController,
+            obscureText: _obscurePassword,
+            style: TextStyle(color: tokens.textPrimary, fontSize: 15),
+            decoration: InputDecoration(
+              labelText: 'Password',
+              labelStyle: TextStyle(color: tokens.textSecondary, fontSize: 14),
+              prefixIcon: Icon(Icons.lock_outline_rounded, color: tokens.bluePrimary),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  color: tokens.textSecondary,
+                ),
+                onPressed: () {
+                  setState(() => _obscurePassword = !_obscurePassword);
+                },
+              ),
+              filled: true,
+              fillColor: tokens.surfaceCard,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: tokens.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: tokens.bluePrimary, width: 1.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Connect & Provision Button
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: _isProvisioningInProgress ? null : _startProvisioning,
+              icon: _isProvisioningInProgress
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: Text(
+                _isProvisioningInProgress ? 'Provisioning...' : 'Connect & Provision',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
               ),
-            ],
-          ] else if (_stage == ProvisioningUiStage.commissioningHandshake ||
-              _stage == ProvisioningUiStage.sendingWifi ||
-              _stage == ProvisioningUiStage.awaitingDeviceAck) ...[
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(color: tokens.bluePrimary),
-                    const SizedBox(height: 24),
-                    Text(
-                      _stage == ProvisioningUiStage.commissioningHandshake
-                          ? 'Establishing Secure Session…'
-                          : (_stage == ProvisioningUiStage.sendingWifi
-                                ? 'Sending Wi-Fi Credentials…'
-                                : 'Connecting Device to Wi-Fi…'),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: tokens.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Do not close the app or power off your device.',
-                      style: TextStyle(
-                        color: tokens.textSecondary,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ] else if (_stage == ProvisioningUiStage.roomAssignment) ...[
-            Text(
-              'Select a Room',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: tokens.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _availableRooms.map((room) {
-                final isSelected =
-                    _selectedRoom == room && _customRoomController.text.isEmpty;
-                return ChoiceChip(
-                  label: Text(room),
-                  selected: isSelected,
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _selectedRoom = room;
-                        _customRoomController.clear();
-                      });
-                    }
-                  },
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _customRoomController,
-              decoration: InputDecoration(
-                labelText: 'Or enter custom room name',
-                hintText: 'e.g. Master Bedroom, Garage',
-                prefixIcon: const Icon(Icons.add_home_rounded),
-                border: OutlineInputBorder(
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              onChanged: (_) => setState(() {}),
             ),
-            const SizedBox(height: 28),
-            SizedBox(
-              height: 52,
-              child: FilledButton.icon(
-                onPressed: _finishRoomAssignment,
-                style: FilledButton.styleFrom(
-                  backgroundColor: tokens.blueDarker,
-                ),
-                icon: const Icon(Icons.check_rounded),
-                label: const Text('Assign Room & Finish'),
+          ),
+          const SizedBox(height: 14),
+
+          // Footer note
+          Center(
+            child: Text(
+              'Keep your phone close to the device during setup.',
+              style: TextStyle(
+                fontSize: 13,
+                color: tokens.textSecondary,
               ),
+              textAlign: TextAlign.center,
             ),
-          ] else if (_stage == ProvisioningUiStage.success) ...[
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Device Verification Step (Cryptographic Ownership Proof)
+  Widget _buildVerifyDevice(EHThemeTokens tokens) {
+    return Padding(
+      key: const ValueKey('stage_verify_device'),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Verify device ownership',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'To secure your smart home network, scan the QR code printed on the device or its packaging.',
+            style: TextStyle(fontSize: 14, color: tokens.textSecondary, height: 1.4),
+          ),
+          const SizedBox(height: 24),
+
+          if (_errorMessage != null)
             Container(
-              padding: const EdgeInsets.all(20),
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: tokens.successContainer,
-                borderRadius: BorderRadius.circular(18),
+                color: Colors.red.shade900.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.check_circle_rounded,
-                    color: tokens.success,
-                    size: 36,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Setup Complete!',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: tokens.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Your device is securely commissioned and connected.',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              child: Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ),
-            const SizedBox(height: 24),
+
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: _openDeviceQrScanner,
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: const Text('Scan device QR code'),
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          Center(
+            child: TextButton(
+              onPressed: () {
+                setState(() => _showManualQrInput = !_showManualQrInput);
+              },
+              child: Text(
+                _showManualQrInput ? 'Hide manual entry' : 'Enter setup code manually',
+                style: TextStyle(color: tokens.bluePrimary, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+
+          if (_showManualQrInput) ...[
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _qrController,
+              decoration: InputDecoration(
+                labelText: 'Setup code / QR payload',
+                filled: true,
+                fillColor: tokens.surfaceCard,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
-              height: 50,
-              child: FilledButton(
-                onPressed: _backToHome,
-                style: FilledButton.styleFrom(
-                  backgroundColor: tokens.blueDarker,
-                ),
-                child: const Text('Back to Home'),
-              ),
-            ),
-          ] else if (_stage == ProvisioningUiStage.failed) ...[
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: tokens.warningContainer,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.error_outline_rounded,
-                    color: tokens.warning,
-                    size: 28,
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Setup Failed',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: tokens.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _errorMessage ?? 'Unknown error occurred.',
-                          style: TextStyle(
-                            color: tokens.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              height: 50,
-              child: FilledButton(
-                onPressed: _isProvisioningInProgress
-                    ? null
-                    : () => setState(() {
-                        _session = null;
-                        _activeIdentity = null;
-                        _errorMessage = null;
-                        _isProvisioningInProgress = false;
-                        final hasCreds = _ssidController.text.trim().isNotEmpty;
-                        _stage = hasCreds
-                            ? ProvisioningUiStage.verifyDevice
-                            : ProvisioningUiStage.inputCredentials;
-                      }),
-                style: FilledButton.styleFrom(
-                  backgroundColor: tokens.blueDarker,
-                ),
-                child: const Text('Try Again'),
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton(
+                onPressed: () => _verifyDeviceQr(),
+                child: const Text('Submit setup code'),
               ),
             ),
           ],
         ],
       ),
-    ),
-  );
-}
+    );
+  }
+
+  /// In-flight Provisioning Progress Animation
+  Widget _buildProgressState(EHThemeTokens tokens) {
+    return Center(
+      key: const ValueKey('stage_progress'),
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 68,
+              height: 68,
+              child: CircularProgressIndicator(
+                strokeWidth: 4,
+                valueColor: AlwaysStoppedAnimation(tokens.bluePrimary),
+              ),
+            ),
+            const SizedBox(height: 28),
+            Text(
+              'Connecting device',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: tokens.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _statusDetail,
+              style: TextStyle(
+                fontSize: 14,
+                color: tokens.textSecondary,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Room Assignment Step
+  Widget _buildRoomAssignment(EHThemeTokens tokens) {
+    return Padding(
+      key: const ValueKey('stage_room_assignment'),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Assign a room',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Where is this ${widget.deviceName} located?',
+            style: TextStyle(fontSize: 14, color: tokens.textSecondary),
+          ),
+          const SizedBox(height: 20),
+
+          Wrap(
+            spacing: 8,
+            runSpacing: 10,
+            children: _availableRooms.map((room) {
+              final isSelected = _selectedRoom == room && _customRoomController.text.trim().isEmpty;
+              return ChoiceChip(
+                label: Text(room),
+                selected: isSelected,
+                selectedColor: tokens.bluePrimary,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : tokens.textPrimary,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                ),
+                backgroundColor: tokens.surfaceCard,
+                onSelected: (val) {
+                  if (val) {
+                    setState(() {
+                      _selectedRoom = room;
+                      _customRoomController.clear();
+                    });
+                  }
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20),
+
+          TextFormField(
+            controller: _customRoomController,
+            decoration: InputDecoration(
+              labelText: 'Or enter a custom room name',
+              filled: true,
+              fillColor: tokens.surfaceCard,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onChanged: (val) {
+              if (val.trim().isNotEmpty) {
+                setState(() {});
+              }
+            },
+          ),
+          const Spacer(),
+
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton(
+              onPressed: _completeRoomAssignment,
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: const Text(
+                'Complete setup',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Success View
+  Widget _buildSuccess(EHThemeTokens tokens) {
+    return Center(
+      key: const ValueKey('stage_success'),
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF10B981),
+              ),
+              child: const Icon(Icons.check_rounded, color: Colors.white, size: 48),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Device connected!',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: tokens.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${widget.deviceName} is ready to control in $_selectedRoom.',
+              style: TextStyle(
+                fontSize: 15,
+                color: tokens.textSecondary,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 36),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: FilledButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: tokens.bluePrimary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Done', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Failure View with Retry
+  Widget _buildFailure(EHThemeTokens tokens) {
+    return Padding(
+      key: const ValueKey('stage_failed'),
+      padding: const EdgeInsets.all(28.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.red.shade900.withValues(alpha: 0.3),
+            ),
+            child: const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 44),
+          ),
+          const SizedBox(height: 22),
+          Text(
+            'Setup encountered an issue',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _errorMessage ?? _statusDetail,
+            style: TextStyle(
+              fontSize: 14,
+              color: tokens.textSecondary,
+              height: 1.4,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: FilledButton(
+              onPressed: () {
+                setState(() {
+                  _session = null;
+                  _activeIdentity = null;
+                  _errorMessage = null;
+                  _isProvisioningInProgress = false;
+                  final hasCreds = _ssidController.text.trim().isNotEmpty;
+                  _stage = hasCreds
+                      ? ProvisioningUiStage.verifyDevice
+                      : ProvisioningUiStage.inputCredentials;
+                });
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: const Text('Try again', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

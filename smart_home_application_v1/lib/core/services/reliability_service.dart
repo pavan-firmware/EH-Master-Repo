@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_client.dart';
 import '../config/app_config.dart';
 import '../models/reliability_models.dart';
 
@@ -46,11 +48,20 @@ class ReliabilityService extends ChangeNotifier {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  Map<String, String> get _headers {
-    final token = tokenProvider?.call();
+  Future<Map<String, String>> _getHeaders() async {
+    String? token = tokenProvider?.call();
+    if (token == null && ApiClient.defaultTokenProvider != null) {
+      token = await ApiClient.defaultTokenProvider!();
+    }
+    if (token == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
+        token = prefs.getString('auth_access_token');
+      } catch (_) {}
+    }
     return {
       'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
   }
 
@@ -66,7 +77,7 @@ class ReliabilityService extends ChangeNotifier {
 
   Future<Map<String, dynamic>?> _get(String path) async {
     try {
-      final res = await _client.get(Uri.parse('$baseUrl$path'), headers: _headers);
+      final res = await _client.get(Uri.parse('$baseUrl$path'), headers: await _getHeaders());
       final body = jsonDecode(res.body) as Map<String, dynamic>;
       if (res.statusCode >= 200 && res.statusCode < 300 && body['success'] == true) {
         return body['data'] as Map<String, dynamic>?;
@@ -83,7 +94,7 @@ class ReliabilityService extends ChangeNotifier {
     try {
       final res = await _client.post(
         Uri.parse('$baseUrl$path'),
-        headers: _headers,
+        headers: await _getHeaders(),
         body: jsonEncode(data),
       );
       final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -103,7 +114,7 @@ class ReliabilityService extends ChangeNotifier {
     T Function(Map<String, dynamic>) fromJson,
   ) async {
     try {
-      final res = await _client.get(Uri.parse('$baseUrl$path'), headers: _headers);
+      final res = await _client.get(Uri.parse('$baseUrl$path'), headers: await _getHeaders());
       final body = jsonDecode(res.body) as Map<String, dynamic>;
       if (res.statusCode >= 200 && res.statusCode < 300 && body['success'] == true) {
         final data = body['data'];

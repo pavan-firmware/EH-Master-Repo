@@ -5,7 +5,7 @@ import '../../../core/services/product_catalog_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/product_image_widget.dart';
 import '../../product_discovery/presentation/compatibility_result_widget.dart';
-import '../../settings/presentation/add_room_device_page.dart';
+import '../../settings/presentation/add_device_page.dart';
 
 /// Complete Consumer Device Add Wizard Flow.
 /// Abstracting away low-level protocol engineering complexities while maintaining high fidelity.
@@ -243,6 +243,8 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           tokens: tokens,
           onTap: () {
             _entryMode = 'NEARBY_DISCOVERY';
+            // Navigate to the real BLE discovery page which correctly identifies
+            // device type (switch vs socket) from firmware-advertised BLE name.
             _launchRealBleDiscovery();
           },
         ),
@@ -272,18 +274,27 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
     );
   }
 
+  /// Route NEARBY_DISCOVERY to the real BLE scanner page which reads the
+  /// firmware-advertised device name (e.g. "EH Smart Socket 2X") and correctly
+  /// determines the hardware variant — switch vs. socket and channel count —
+  /// from the actual BLE advertisement rather than a hard-coded default.
   void _launchRealBleDiscovery() {
     if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const AddRoomDevicePage(
+        builder: (_) => const AddDevicePage(
           repository: PreviewSettingsRepository(),
         ),
       ),
     );
   }
 
+  /// Show a device-family picker so the user explicitly selects their device
+  /// type (Smart Switch / Smart Socket) before the wizard proceeds.  This
+  /// avoids hard-coding a single variant and ensures the correct product
+  /// artwork, channel count, and capability list are used throughout the
+  /// wizard steps.
   void _pickDeviceFamilyThenProceed() {
     if (!mounted) return;
     showModalBottomSheet<ProductCatalogEntry>(
@@ -330,7 +341,7 @@ class _ConsumerDeviceAddFlowPageState extends State<ConsumerDeviceAddFlowPage> {
           child: Row(
             children: [
               ProductImageWidget(
-                imageUrl: _product!.imageUrl,
+                imageUrl: _product!.discoveryImageUrl,
                 size: 48,
                 borderRadius: BorderRadius.circular(12),
                 fallbackIcon: Icons.settings_input_component_rounded,
@@ -657,11 +668,19 @@ class _SummaryRow extends StatelessWidget {
   }
 }
 
+// ─── Device Family Picker ──────────────────────────────────────────────────
+
+/// Bottom-sheet that lets the user choose their physical device family
+/// (Smart Switch 3X / Smart Socket 2X, etc.) before the add-device wizard
+/// proceeds to the compatibility step.  Presenting explicit choices here
+/// avoids hard-coding a single default variant when the entry mode is
+/// QR_SCAN, MANUAL_CATALOG, or RE_ADD_RESET.
 class _DeviceFamilyPickerSheet extends StatelessWidget {
   final ProductCatalogClientService service;
 
   const _DeviceFamilyPickerSheet({required this.service});
 
+  /// Canonical product entries for the device families bundled in this release.
   static const List<_DeviceFamilyOption> _families = [
     _DeviceFamilyOption(
       entry: ProductCatalogEntry(

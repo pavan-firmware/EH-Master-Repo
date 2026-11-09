@@ -83,4 +83,18 @@ class CloudRecoveryRepository implements RecoveryRepository {
     final list = response is List ? response : (response['data'] as List<dynamic>? ?? []);
     return list.map((e) => RecoveryCheckpointModel.fromJson(e as Map<String, dynamic>)).toList();
   }
+
+  @override
+  Future<List<RecoveryIntegrityModel>> listIntegrityResults({int limit = 50, int offset = 0, String? backupId}) async {
+    final params = <String>[
+      'limit=$limit',
+      'offset=$offset',
+    ];
+    if (backupId != null) {
+      params.add('backupId=$backupId');
+    }
+    final response = await _apiClient.get('/api/v1/admin/recovery/integrity?${params.join('&')}');
+    final list = response is List ? response : (response['data'] as List<dynamic>? ?? []);
+    return list.map((e) => RecoveryIntegrityModel.fromJson(e as Map<String, dynamic>)).toList();
+  }
 }

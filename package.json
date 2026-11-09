@@ -9,7 +9,8 @@
     "test:mqtt-mock": "node backend/tests/phase6-mqtt.test.js",
     "test:mqtt-harness": "node backend/tests/phase6-protocol-harness.test.js",
     "test:emqx": "node backend/tests/phase6-emqx-integration.test.js",
-    "test:part13-emqx": "node scripts/test-emqx-live.js"
+    "test:part13-emqx": "node scripts/test-emqx-live.js",
+    "mobile:sync-assets": "node scripts/sync-mobile-catalog-assets.mjs"
   },
   "dependencies": {
     "mqtt": "^5.10.0",

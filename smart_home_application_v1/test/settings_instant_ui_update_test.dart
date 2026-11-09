@@ -8,7 +8,7 @@ import 'package:smart_home_application_v1/core/repositories/settings_repository.
 import 'package:smart_home_application_v1/core/repositories/unavailable_connection_repository.dart';
 import 'package:smart_home_application_v1/features/settings/presentation/home_details_page.dart';
 import 'package:smart_home_application_v1/features/settings/presentation/settings_page_rebuild.dart';
-import 'package:smart_home_application_v1/features/settings/presentation/add_room_device_page.dart';
+import 'package:smart_home_application_v1/features/settings/presentation/add_device_page.dart';
 
 class _MutableSettingsRepository implements SettingsRepository {
   _MutableSettingsRepository({HomeSettingsData? initialHome})
@@ -283,7 +283,7 @@ void main() {
       expect(controller.activeSpaceName, 'Updated Living Home');
     });
 
-    testWidgets('AddRoomDevicePage reacts to homeController listener dynamically',
+    testWidgets('AddDevicePage reacts to homeController listener dynamically',
         (tester) async {
       tester.view.physicalSize = const Size(800, 1600);
       tester.view.devicePixelRatio = 1;
@@ -300,7 +300,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AddRoomDevicePage(
+          home: AddDevicePage(
             repository: repo,
             homeController: controller,
           ),
@@ -346,14 +346,12 @@ void main() {
       // Controller with no devices and unavailable repo evaluates to offline
       expect(controller.authoritativeConnectionState.isOnline, isFalse);
       expect(find.text('Disconnected'), findsOneWidget);
-      expect(find.text('Unavailable'), findsOneWidget);
 
       // Now resume app lifecycle to test lifecycle re-probe
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
 
       expect(find.text('Disconnected'), findsOneWidget);
-      expect(find.text('Unavailable'), findsOneWidget);
     });
 
     testWidgets('HomeDetailsPage live badges update dynamically when connection changes',

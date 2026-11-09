@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_application_v1/core/models/energy_cost_models.dart';
 import 'package:smart_home_application_v1/core/services/energy_cost_service.dart';
 import 'package:smart_home_application_v1/features/energy/presentation/energy_cost_dashboard_page.dart';
@@ -244,6 +245,7 @@ void main() {
     late EnergyCostService costService;
 
     setUp(() {
+      SharedPreferences.setMockInitialValues({});
       mockClient = MockClient((request) async {
         final path = request.url.path;
         if (path.contains('/tariffs')) {
