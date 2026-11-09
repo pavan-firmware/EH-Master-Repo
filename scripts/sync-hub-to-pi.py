@@ -9,7 +9,7 @@ import sys
 import argparse
 import paramiko
 
-PI_HOST = os.environ.get("EH_HUB_HOST", "eh-hub.local")
+PI_HOST = os.environ.get("EH_HUB_HOST", "192.168.0.174")
 PI_PORT = int(os.environ.get("EH_HUB_PORT", 22))
 PI_USER = os.environ.get("EH_HUB_USER", "ehpavan")
 PI_PASSWORD = os.environ.get("EH_HUB_PASSWORD", "2004")

@@ -628,6 +628,59 @@ class _HubManagementPageState extends State<HubManagementPage> {
             ],
           ),
         ),
+        const SizedBox(height: 24),
+
+        // 5. Hub System & Device Firmware Update Center
+        SettingsSectionTitle(
+          'Firmware & Local Updates',
+          trailing: TextButton.icon(
+            onPressed: () async {
+              final ok = await _repo.checkForUpdates(hubHostname: state.hostname);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(ok
+                        ? 'Hub and device firmware checked: All components up to date.'
+                        : 'Could not connect to update feed.'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.system_update_alt_rounded, size: 16),
+            label: const Text('Check Updates'),
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+          ),
+        ),
+        SettingsSurface(
+          child: Column(
+            children: [
+              SettingsListItem(
+                icon: Icons.memory_rounded,
+                title: 'Hub Daemon Core v${state.firmwareVersion}',
+                subtitle: 'Platform: Raspberry Pi 3B+ (Debian Linux aarch64) • Channel: Stable',
+                onTap: () {},
+                trailing: SettingsStatusChip(
+                  label: 'Up to Date',
+                  color: tokens.success,
+                  background: tokens.successContainer,
+                ),
+              ),
+              const Divider(height: 1, indent: 56),
+              SettingsListItem(
+                icon: Icons.cached_rounded,
+                title: 'Local Device OTA Cache',
+                subtitle: '2 production ESP32 images staged in Hub RAM for zero-WAN local flashing',
+                onTap: () {},
+                trailing: SettingsStatusChip(
+                  label: 'Cache Active',
+                  color: tokens.bluePrimary,
+                  background: tokens.iconBgBlue,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     ),
   );

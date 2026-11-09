@@ -124,12 +124,19 @@ async function runTests() {
   assert(typeof timeRes.body.epoch === 'number');
   console.log('  ✓ POST /api/v1/hub/time/sync passed');
 
-  console.log('[Test 8] Testing 404 for unknown endpoint...');
+  console.log('[Test 8] Testing GET /api/v1/hub/updates...');
+  const updateRes = await request('GET', '/api/v1/hub/updates');
+  assert.strictEqual(updateRes.statusCode, 200);
+  assert.strictEqual(updateRes.body.hub.currentVersion, '1.0.0-phase51');
+  assert.strictEqual(updateRes.body.deviceOtaCache.enabled, true);
+  console.log('  ✓ GET /api/v1/hub/updates passed');
+
+  console.log('[Test 9] Testing 404 for unknown endpoint...');
   const notFoundRes = await request('GET', '/api/v1/unknown');
   assert.strictEqual(notFoundRes.statusCode, 404);
   console.log('  ✓ 404 handling passed');
 
-  console.log('\n[PASS] All 8 Hub Core Daemon Tests Succeeded!\n');
+  console.log('\n[PASS] All 9 Hub Core Daemon Tests Succeeded!\n');
 }
 
 runTests()

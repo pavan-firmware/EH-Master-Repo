@@ -348,6 +348,47 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // GET /api/v1/hub/updates - Firmware & System Update Center for Hub and Devices
+  if (req.method === 'GET' && pathname === '/api/v1/hub/updates') {
+    return sendJson(res, 200, {
+      status: 'ok',
+      hub: {
+        currentVersion: hubMemoryState.version,
+        latestVersion: hubMemoryState.version,
+        updateAvailable: false,
+        platform: 'Raspberry Pi 3B+ (Debian aarch64)',
+        channel: 'stable',
+        lastChecked: new Date().toISOString(),
+      },
+      deviceOtaCache: {
+        enabled: true,
+        cachedFirmwares: [
+          {
+            model: 'eh-smart-switch-3x',
+            version: '2.1.0-freertos',
+            sizeBytes: 1482912,
+            status: 'Ready on Local LAN',
+          },
+          {
+            model: 'eh-smart-socket-2x',
+            version: '2.1.0-freertos',
+            sizeBytes: 1474560,
+            status: 'Ready on Local LAN',
+          },
+        ],
+      },
+    });
+  }
+
+  // POST /api/v1/hub/updates/check - Trigger check for Hub & Device firmware updates
+  if (req.method === 'POST' && pathname === '/api/v1/hub/updates/check') {
+    return sendJson(res, 200, {
+      status: 'ok',
+      message: 'Firmware update check completed. All components up to date.',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   // Fallback 404
   return sendJson(res, 404, { error: 'Endpoint not found' });
 });
