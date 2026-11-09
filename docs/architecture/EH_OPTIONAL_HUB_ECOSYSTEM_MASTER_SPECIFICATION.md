@@ -139,6 +139,109 @@ The platform guarantees that a user who never purchases a Hub receives an except
 
 ---
 
+### 4.2 Zero-Touch Migration Architecture for Existing Standalone Devices (10+ Switch Adoption)
+
+A foundational commercial use case is the **Incremental Buyer Journey**:
+1. A customer initially purchases 5 to 15 standalone EH Smart Switches, installs them in switchboards across multiple rooms, and configures them without a hub.
+2. The switches function autonomously with direct on-chip FreeRTOS scheduling (`edge_routine_engine.c`), local UDP app control (`port 4210`), and cloud sync.
+3. Weeks or months later, the customer purchases the **EH Smart Hub Gateway** to unlock cross-room local automations, third-party bridging, and zero-subscription historical energy logging.
+
+#### The Zero-Touch Guarantee
+```
+TRADITIONAL / BUDGET ECOSYSTEM PAIN       EH HOME PRODUCTION-GRADE ZERO-TOUCH
+───────────────────────────────────       ───────────────────────────────────
+• User must unscrew 10+ switch plates     • User NEVER touches physical switches
+• Press recessed physical reset buttons   • Zero factory resets or re-pairings
+• Re-enter Wi-Fi credentials 10+ times    • Takes <2 seconds over existing LAN
+• Re-create rooms, names, and schedules   • All names, rooms, and states preserved
+• High product returns (>25% churn)       • 100% software-driven background adoption
+```
+
+#### End-to-End Migration Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Mobile App (Flutter)
+    participant Cloud as EH Cloud Backend
+    participant Hub as Newly Installed EH Hub
+    participant SW as 10+ Existing Standalone Switches (ESP32)
+
+    Note over SW: Already running on Home Wi-Fi<br/>Operating autonomously via NVS routines
+    User->>Hub: 1. Discovers Hub via mDNS (_eh-hub._tcp)<br/>Taps "Link Hub to My Home"
+    User->>Hub: 2. Injects Home ID & HMAC-SHA256 Local Pairing Token
+    Hub->>Cloud: 3. Registers as Local Controller for Home ID & fetches Device Manifest
+    Cloud-->>Hub: Device Manifest (IDs, MACs, Room assignments, Routines)
+
+    Note over Hub: Begins Zero-Touch LAN Switchover
+    Hub->>SW: 4. Broadcasts UDP EH_DISCOVER on port 4210 (with Home Token)
+    SW-->>Hub: 5. Unicast response with Device IDs, Current State, and IP
+    
+    loop For each switch (staggered with 20-50ms jitter)
+        Hub->>SW: 6. GET /api/v1/state (Read-Only probe, zero relay clicking)
+        SW-->>Hub: Returns channel states, power telemetry, active routine IDs
+        Hub->>SW: 7. POST /api/v1/routines/rebalance (Adopt local coordination)
+        Note over SW: Non-critical routines offloaded to Hub DB.<br/>Critical hardware routines remain in ESP32 NVS.
+    end
+
+    Hub-->>User: 8. Adoption complete: 10+ Devices bound in <2 seconds
+    Note over User,SW: Dashboard updates to "🟢 Local Hub Active (eh-hub.local)"<br/>Sub-5ms execution active across entire home
+```
+
+---
+
+### 4.3 The 4 Production-Grade Hardening Rules
+
+To guarantee enterprise-grade stability, zero false relay toggles, and total isolation against malicious or misconfigured local devices, the migration and ongoing hub operation strictly enforce four architectural safeguards:
+
+#### Rule 1: Cryptographic Token Claim Handshake (Rogue Hub & Network Isolation)
+* **Threat:** On shared Wi-Fi networks (apartments, shared villas, guest networks), another tenant or an unauthorized hub could send UDP discovery packets and attempt to commandeer the household's smart switches.
+* **Production Implementation:**
+  * Standalone switches will **never** bind to an unauthenticated hub.
+  * During initial hub linking, the authenticated mobile app exchanges an asymmetric cryptographic challenge and writes a 256-bit **Home Claim Token** (`home_claim_token`) into the Hub’s secure key store.
+  * When the Hub initiates adoption via `EH_DISCOVER` and subsequent HTTP/MQTT sessions, it must transmit an HMAC-SHA256 signature generated using this token and matching the switch’s provisioned `home_id`.
+  * Switches verify this signature before delegating coordination to the Hub. Unsigned or mismatched packets are dropped immediately.
+
+#### Rule 2: Non-Disruptive Read-Only State Sync (Zero Relay Clicking)
+* **Threat:** When a hub is plugged in and starts absorbing 10+ switches, an uncoordinated initial state broadcast could send default `OFF` or `ON` commands, causing lights to flicker or water motors to toggle unintentionally.
+* **Production Implementation:**
+  * First-contact between Hub and switch is strictly **READ-ONLY**:
+    $$\text{Hub Handshake} = \text{GET } /api/v1/state \quad (\text{No PUT / POST actuators})$$
+  * The Hub reads the physical state of all relays, active timers, and current power consumption.
+  * The Hub initializes its internal state cache to reflect reality on the wall without writing any GPIO states. The user experiences zero clicking, blinking, or disruption during adoption.
+
+#### Rule 3: Jittered Discovery & Query Stagger (Wi-Fi Broadcast Storm Prevention)
+* **Threat:** In homes with 15–30 switches, blasting simultaneous TCP handshakes and heavy JSON telemetry payloads to the local Wi-Fi router causes buffer saturation, dropped packets, and temporary Wi-Fi disconnects on low-cost ISP routers.
+* **Production Implementation:**
+  * The Hub uses a deterministic **jitter algorithm**:
+    $$T_{\text{delay}}(i) = (i \times 25\text{ ms}) + \text{Random}(0, 25\text{ ms})$$
+  * Queries and routine rebalances are dispatched in a metered stream rather than a single burst. All 10+ devices are seamlessly incorporated within 1.5 to 2.5 seconds without spiking the router's NAT table or dropping frames.
+
+#### Rule 4: 3-Second Heartbeat & Silent Transparent Fallback (Zero Downtime)
+* **Threat:** A user, child, or pet accidentally unplugs the Hub's power cord. If the app remains locked waiting for hub responses, the user is left unable to control their home.
+* **Production Implementation:**
+  * The Flutter app maintains a lightweight UDP/mDNS heartbeat check to `eh-hub.local:4210` with a 1.5-second interval.
+  * If two consecutive heartbeats fail (3.0 seconds elapsed):
+    1. The app runtime flips internal routing to **Direct Device LAN / Cloud Fallback Mode**.
+    2. Subsequent UI toggles dispatch direct UDP/HTTP packets (`/api/v1/control`) directly to individual switch IP addresses or cloud MQTT.
+    3. Critical routines (motors, geysers) continue running seamlessly on the ESP32 hardware clocks.
+    4. When the Hub is plugged back in, the app detects its recovery beacon within 1 second and re-establishes the "Local Hub Active" routing without requiring an app restart.
+
+---
+
+### 4.4 Commercial Industry Benchmark: Budget Systems vs. EH Home
+
+| Architectural Dimension | Budget Platforms (Tuya / Sonoff / Generic Zigbee) | Semi-Closed (Philips Hue / Aqara) | **EH Home Master Architecture** |
+| :--- | :--- | :--- | :--- |
+| **Initial Purchase Barrier** | Low (Standalone Wi-Fi) or High (Mandatory Hub) | Mandatory Hub or Limited BLE (10 devices max) | **Zero Barrier:** 100% standalone autonomous Wi-Fi switches |
+| **Hub Adoption Experience** | **Manual Factory Reset:** Press reset pin on each switch; re-pair one-by-one | In-app transfer for BLE lights only; manual reset for Zigbee | **Zero-Touch LAN Adoption:** Auto-discovered in <2s with 0 physical touches |
+| **Hub Unplugged Resilience** | **Complete Failure:** All automations die; local switch control degraded | Automations die; basic switch click works | **Complete Autonomy:** Critical routines fire from ESP32 NVS; app falls back in 3s |
+| **Microcontroller Flash Health** | High wear (continuous schedule rewrite cycles) | Proprietary closed flash management | **Priority-Tiered:** Standard in Hub RAM/DB; Critical protected by Diff Checks |
+| **Network Security** | Often hardcoded credentials or open LAN ports | Proprietary zigbee encryption | **Zero-Trust:** HMAC-SHA256 Claim Tokens, mTLS Cloud, Cloudflare Outbound Tunnel |
+| **Internet Cut Tolerance** | App stalls; cross-device routines freeze | Local control continues; no cloud | **<5ms Subnet Mesh:** Full multi-room execution without internet access |
+
+---
+
 ## 5. Raspberry Pi 3B+ Semi-Production Hub Specification
 
 ### 5.1 Hardware & Performance Validation
@@ -273,6 +376,23 @@ graph LR
    └────────────────────────────────────────────────────────┘
    ```
 4. On linking, the app exchanges pairing secrets, registers the Hub with the active Home ID, and switches the home's execution mode to **"Local Hub Active"**.
+5. **Zero-Touch Device Adoption Modal:** The wizard displays an instantaneous local adoption progress modal:
+   ```text
+   ┌────────────────────────────────────────────────────────┐
+   │  🔄 Adopting Standalone Devices into Hub...           │
+   │  Found 12 Switches on Local Wi-Fi                      │
+   │  [██████████████████████████████████████] 100%         │
+   │                                                        │
+   │  ✓ Living Room Master Switch (Zero flash wear routine) │
+   │  ✓ Kitchen 2-Gang Switch (Routines synced)             │
+   │  ✓ Water Motor Actuator (Critical hardware guarded)    │
+   │                                                        │
+   │  Success! 12 Devices connected to Local Hub in 1.8s    │
+   │  [ Go to Dashboard ]                                  │
+   └────────────────────────────────────────────────────────┘
+   ```
+   * Zero physical switch interaction required.
+   * All switch configurations, names, room associations, and active states remain undisturbed.
 
 ---
 

@@ -31,6 +31,7 @@ import 'notification_preferences_page.dart';
 import 'people_page.dart';
 import 'privacy/privacy_page.dart';
 import 'settings_ui.dart';
+import '../../hub/presentation/hub_management_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -457,6 +458,29 @@ class _SettingsContent extends StatelessWidget {
         SettingsSurface(
           child: Column(
             children: [
+              SettingsListItem(
+                icon: Icons.hub_rounded,
+                title: 'Smart Home Hub',
+                subtitle: 'Local brain • Sub-5ms mesh & 100% offline control',
+                trailing: SettingsStatusChip(
+                  label: 'Setup Hub',
+                  color: tokens.bluePrimary,
+                  background: tokens.iconBgBlue,
+                  leading: Icon(Icons.bolt_rounded, size: 14, color: tokens.bluePrimary),
+                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => HubManagementPage(
+                        homeId: effectiveHomeId,
+                      ),
+                    ),
+                  );
+                  if (context.mounted) onReload();
+                },
+                showDivider: true,
+              ),
               SettingsListItem(
                 icon: Icons.add_to_queue_rounded,
                 title: 'Add a device',

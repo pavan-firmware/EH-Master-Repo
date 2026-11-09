@@ -12,7 +12,9 @@ Future<void> _scrollSettingsToBottom(WidgetTester tester) async {
 
 Future<void> _tapSettingsRow(WidgetTester tester, String label) async {
   final target = find.text(label);
-  if (target.evaluate().isEmpty) {
+  try {
+    await tester.ensureVisible(target.first);
+  } catch (_) {
     final listFinder = find.byType(Scrollable).first;
     try {
       await tester.scrollUntilVisible(target, 200.0, scrollable: listFinder);

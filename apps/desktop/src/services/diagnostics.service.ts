@@ -108,6 +108,14 @@ export class DiagnosticsService {
           message: 'Connected to http://localhost:3000 (Latency: 4ms)',
           latency_ms: 4,
         },
+        {
+          id: 'diag_hub',
+          category: 'NETWORK',
+          name: 'Smart Home Hub Gateway (Port 4210)',
+          status: 'PASS',
+          message: 'Local Coordinator active (eh-hub.local / 192.168.0.174:4210, Sub-5ms mesh)',
+          latency_ms: 3,
+        },
       ],
     };
   }

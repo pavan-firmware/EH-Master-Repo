@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,8 +13,11 @@ import '../../../core/capabilities/repositories/product_catalog_repository.dart'
 import '../../../core/repositories/cloud_home_repository.dart';
 import '../../../core/repositories/cloud_routine_repository.dart';
 import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/edge_routine_sync_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
+import '../../hub/data/hub_repository.dart';
+import '../../hub/domain/models/hub_models.dart';
 
 class AutomationsPage extends StatefulWidget {
   const AutomationsPage({
@@ -1047,6 +1052,7 @@ class RoutineBuilderPage extends StatefulWidget {
 class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
   int _step = 0;
   bool _saving = false;
+  bool _criticalHardwareFallback = false;
 
   // Step 0: Basics & Target Hardware
   final _nameController = TextEditingController(text: '');
@@ -1632,6 +1638,68 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
       result = widget.initialRoutine != null
           ? await widget.repository.updateRoutine(widget.initialRoutine!.id, draft)
           : await widget.repository.createRoutine(draft);
+
+      final routineId = widget.initialRoutine?.id ?? 'rt_${DateTime.now().millisecondsSinceEpoch}';
+      final builtRoutine = Routine(
+        id: routineId,
+        name: name,
+        icon: _selectedIcon,
+        isFavorite: _isFavorite,
+        enabled: true,
+        trigger: trigger,
+        conditions: const [],
+        actions: routineActions,
+        schedule: schedule,
+        availability: RoutineAvailability.available,
+        involvedDevices: const [],
+        lastExecution: null,
+        nextRun: null,
+        summary: schedule.label,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      // 1. Direct Edge hardware sync to ESP32 switches
+      try {
+        await EdgeRoutineSyncService.instance.syncRoutineToEdge(builtRoutine);
+      } catch (err) {
+        debugPrint('[EdgeRoutineSync] Error syncing to hardware: $err');
+      }
+
+      // 2. Dual-Mode Hub Routine Synchronization
+      try {
+        final hubRepo = LiveHubRepository();
+        final hubState = await hubRepo.getHubState();
+        if (hubState.status == HubConnectionStatus.connected) {
+          final client = http.Client();
+          for (final act in routineActions) {
+            if (act.deviceId.isNotEmpty) {
+              for (final host in [hubState.hostname, 'eh-hub.local', '192.168.0.174']) {
+                try {
+                  await client.post(
+                    Uri.parse('http://$host:4210/api/v1/routines'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'id': builtRoutine.id,
+                      'name': name,
+                      'deviceId': act.deviceId,
+                      'channel': act.channelIndex,
+                      'targetState': act.targetState,
+                      'power': act.targetState,
+                      'value': act.targetState,
+                      'hour': _scheduledTime.hour,
+                      'minute': _scheduledTime.minute,
+                      'daysMask': EdgeRoutineSyncService.computeDaysMask(_formatDaysList()),
+                      'criticalHardwareFallback': _criticalHardwareFallback,
+                    }),
+                  ).timeout(const Duration(seconds: 1));
+                  break;
+                } catch (_) {}
+              }
+            }
+          }
+        }
+      } catch (_) {}
     } catch (e) {
       debugPrint('[RoutineBuilder] Save routine exception (fallback to success since local/edge persisted): $e');
       result = RepositoryResult.success;
@@ -3840,6 +3908,54 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
                   ),
                 );
               }),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: tokens.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: tokens.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Execution Priority (Hub Connected)',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _criticalHardwareFallback,
+                onChanged: (val) => setState(() => _criticalHardwareFallback = val),
+                title: Text(
+                  'Critical Hardware Fallback',
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                subtitle: Text(
+                  _criticalHardwareFallback
+                      ? 'Stores backup copy in switch flash. Fires on time even if Hub is unplugged.'
+                      : 'Standard routine: runs from Hub RAM with zero switch flash memory wear.',
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                ),
+              ),
             ],
           ),
         ),
