@@ -1,0 +1,11 @@
+{
+  "name": "@eh-home/hub-daemon",
+  "version": "1.0.0",
+  "description": "EH Home Smart Hub Core Engine & Local Subnet Orchestrator",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node test/hub.test.js"
+  }
+}

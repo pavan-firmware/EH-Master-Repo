@@ -1,0 +1,19 @@
+[Unit]
+Description=EH Home Smart Hub Core Engine
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ehpavan
+WorkingDirectory=/home/ehpavan/eh-hub
+ExecStart=/usr/bin/node /home/ehpavan/eh-hub/src/server.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=HUB_PORT=4210
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
