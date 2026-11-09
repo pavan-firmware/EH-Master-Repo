@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../app/home_controller.dart';
+import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../settings/presentation/settings_ui.dart';
 import '../data/hub_repository.dart';
@@ -21,6 +24,7 @@ class HubManagementPage extends StatefulWidget {
 class _HubManagementPageState extends State<HubManagementPage> {
   late final HubRepository _repo;
   late Future<HubState> _stateFuture;
+  List<Map<String, dynamic>> _hubRoutines = [];
   bool _isAdopting = false;
   double _adoptionProgress = 0.0;
   String _adoptionStatusText = '';
@@ -36,6 +40,13 @@ class _HubManagementPageState extends State<HubManagementPage> {
     setState(() {
       _stateFuture = _repo.getHubState(homeId: widget.homeId);
     });
+    _repo.getHubState(homeId: widget.homeId).then((state) {
+      if (state.isLinked && mounted) {
+        _repo.getRoutines(hubHostname: state.hostname).then((routines) {
+          if (mounted) setState(() => _hubRoutines = routines);
+        });
+      }
+    });
   }
 
   Future<void> _startZeroTouchAdoption(String hostname) async {
@@ -45,24 +56,60 @@ class _HubManagementPageState extends State<HubManagementPage> {
       _adoptionStatusText = 'Broadcasting UDP EH_DISCOVER on port 4210...';
     });
 
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
     setState(() {
       _adoptionProgress = 0.45;
-      _adoptionStatusText = 'Exchanging HMAC-SHA256 tokens with switches...';
+      _adoptionStatusText = 'Resolving switch IPs on local Wi-Fi subnet...';
     });
 
-    await Future.delayed(const Duration(milliseconds: 700));
+    // Gather real commissioned devices from HomeController & LocalLanDeviceService
+    final devicesToAdopt = <Map<String, dynamic>>[];
+    final ctrl = HomeController.instance;
+    if (ctrl != null) {
+      for (final d in ctrl.devices) {
+        final ip = LocalLanDeviceService.instance.getDeviceIp(d.id);
+        if (ip != null && ip.isNotEmpty) {
+          const chCount = 3;
+          final chMap = <int, bool>{1: false, 2: false, 3: false};
+          devicesToAdopt.add({
+            'id': d.id,
+            'name': d.name,
+            'ipAddress': ip,
+            'roomName': d.roomName,
+            'channelCount': chCount,
+            'channels': chMap,
+          });
+        }
+      }
+    }
+
+    final allIps = DeviceStorageService.getAllCachedDeviceIps();
+    for (final entry in allIps.entries) {
+      if (!devicesToAdopt.any((d) => d['id'] == entry.key)) {
+        devicesToAdopt.add({
+          'id': entry.key,
+          'name': 'EH Switch (${entry.key.length > 4 ? entry.key.substring(entry.key.length - 4) : entry.key})',
+          'ipAddress': entry.value,
+          'roomName': 'Unassigned',
+          'channelCount': 3,
+          'channels': {1: false, 2: false, 3: false},
+        });
+      }
+    }
+
+    await Future.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
     setState(() {
       _adoptionProgress = 0.85;
-      _adoptionStatusText = 'Performing non-disruptive read-only state sync...';
+      _adoptionStatusText = 'Non-destructive read-only state sync (${devicesToAdopt.length} switches)...';
     });
 
     await _repo.linkHub(hubHostname: hostname, homeId: widget.homeId);
     await _repo.adoptDiscoveredSwitches(
       hubHostname: hostname,
-      switchIds: ['sw_living_room_01', 'sw_kitchen_02', 'sw_motor_03'],
+      switchIds: devicesToAdopt.map((d) => d['id'] as String).toList(),
+      devices: devicesToAdopt,
     );
 
     if (!mounted) return;
@@ -148,33 +195,34 @@ class _HubManagementPageState extends State<HubManagementPage> {
                 color: tokens.textPrimary,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               _adoptionStatusText,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: tokens.textSecondary, height: 1.4),
+              style: TextStyle(
+                fontSize: 13,
+                color: tokens.textSecondary,
+                height: 1.4,
+              ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
                 value: _adoptionProgress,
                 minHeight: 8,
-                backgroundColor: tokens.borderSubtle,
-                valueColor: AlwaysStoppedAnimation<Color>(tokens.bluePrimary),
+                backgroundColor: tokens.surfaceCard,
+                valueColor: AlwaysStoppedAnimation(tokens.bluePrimary),
               ),
             ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.shield_outlined, color: tokens.success, size: 16),
-                const SizedBox(width: 6),
-                Text(
-                  'Zero relay toggling • Flash wear protected',
-                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
-                ),
-              ],
+            const SizedBox(height: 12),
+            Text(
+              '${(_adoptionProgress * 100).toInt()}% Complete',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: tokens.bluePrimary,
+              ),
             ),
           ],
         ),
@@ -187,9 +235,11 @@ class _HubManagementPageState extends State<HubManagementPage> {
     EHThemeTokens tokens,
     HubState state,
   ) {
-    return ListView(
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
-      children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -238,9 +288,9 @@ class _HubManagementPageState extends State<HubManagementPage> {
               const SizedBox(height: 14),
               _buildFeatureRow(tokens, Icons.bolt_rounded, 'Sub-5ms Execution', 'Multi-room automations execute instantly over LAN.'),
               const SizedBox(height: 10),
-              _buildFeatureRow(tokens, Icons.wifi_off_rounded, '100% Offline Autonomy', 'Routines fire on time even if internet fiber is disconnected.'),
+              _buildFeatureRow(tokens, Icons.wifi_off_rounded, '100% Offline Autonomy', 'Routines fire on time even if internet fiber is cut.'),
               const SizedBox(height: 10),
-              _buildFeatureRow(tokens, Icons.memory_rounded, 'Flash Memory Preservation', 'Comfort routines live on Hub SQLite, saving switch flash cycles.'),
+              _buildFeatureRow(tokens, Icons.memory_rounded, 'Flash Memory Preservation', 'Comfort routines live on Hub RAM, saving switch flash cycles.'),
               const SizedBox(height: 10),
               _buildFeatureRow(tokens, Icons.touch_app_rounded, 'Zero-Touch Adoption', 'No resetting switches or re-entering Wi-Fi credentials.'),
             ],
@@ -308,8 +358,9 @@ class _HubManagementPageState extends State<HubManagementPage> {
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildHubActiveDashboard(
     BuildContext context,
@@ -318,9 +369,12 @@ class _HubManagementPageState extends State<HubManagementPage> {
   ) {
     final devices = state.connectedDevices;
 
-    return ListView(
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
-      children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+        // 1. Hub Status Header Card
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
@@ -356,8 +410,8 @@ class _HubManagementPageState extends State<HubManagementPage> {
                           ),
                         ),
                         Text(
-                          '${state.hostname} • Sub-5ms Subnet Mesh',
-                          style: TextStyle(fontSize: 13, color: tokens.textSecondary),
+                          '${state.hostname} (${state.ipAddress}) • Sub-5ms Mesh',
+                          style: TextStyle(fontSize: 12, color: tokens.textSecondary),
                         ),
                       ],
                     ),
@@ -375,42 +429,153 @@ class _HubManagementPageState extends State<HubManagementPage> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  _buildMetricTile(tokens, 'Devices', '${devices.length} Active', Icons.devices_rounded),
-                  const SizedBox(width: 12),
-                  _buildMetricTile(tokens, 'Routines', '${state.standardRoutinesCount + state.criticalRoutinesCount} Rules', Icons.schedule_rounded),
-                  const SizedBox(width: 12),
+                  _buildMetricTile(tokens, 'Switches', '${devices.length} Bound', Icons.devices_rounded),
+                  const SizedBox(width: 8),
+                  _buildMetricTile(tokens, 'Scheduler', '${_hubRoutines.length} Rules', Icons.schedule_rounded),
+                  const SizedBox(width: 8),
                   _buildMetricTile(tokens, 'SD Health', 'Read-Only OK', Icons.security_rounded),
                 ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
-        SettingsSectionTitle('Coordinated Devices (${devices.length})'),
-        SettingsSurface(
-          child: Column(
-            children: [
-              for (int i = 0; i < devices.length; i++) ...[
-                if (i > 0) const Divider(height: 1, indent: 56),
-                _buildDeviceTile(tokens, devices[i]),
-              ],
-            ],
+
+        const SizedBox(height: 24),
+
+        // 2. Coordinated Devices with Direct Relay Actuation
+        SettingsSectionTitle(
+          'Adopted Switches (${devices.length})',
+          trailing: TextButton.icon(
+            onPressed: () => _startZeroTouchAdoption(state.hostname),
+            icon: const Icon(Icons.sync_rounded, size: 16),
+            label: const Text('Scan & Adopt'),
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
           ),
         ),
-        const SizedBox(height: 20),
-        const SettingsSectionTitle('Hub Operations & Maintenance'),
+
+        if (devices.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.devices_other_rounded, size: 36, color: tokens.textTertiary),
+                const SizedBox(height: 8),
+                Text(
+                  'No switches adopted yet',
+                  style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Tap "Scan & Adopt" above to incorporate all switches on your Wi-Fi.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          )
+        else
+          SettingsSurface(
+            child: Column(
+              children: [
+                for (int i = 0; i < devices.length; i++) ...[
+                  if (i > 0) const Divider(height: 1),
+                  _buildInteractiveDeviceTile(tokens, state, devices[i]),
+                ],
+              ],
+            ),
+          ),
+
+        const SizedBox(height: 24),
+
+        // 3. Hub-Orchestrated Routines (RAM Scheduler Engine)
+        SettingsSectionTitle(
+          'Hub Scheduler (${_hubRoutines.length} Active)',
+          trailing: TextButton.icon(
+            onPressed: () async {
+              await _repo.syncAutomations(hubHostname: state.hostname);
+              _reload();
+            },
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Refresh'),
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+          ),
+        ),
+
+        if (_hubRoutines.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: tokens.textTertiary, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'No routines in Hub RAM yet. Create a routine in the Routines tab to run it 100% locally with zero flash wear.',
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 12, height: 1.3),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          SettingsSurface(
+            child: Column(
+              children: [
+                for (int i = 0; i < _hubRoutines.length; i++) ...[
+                  if (i > 0) const Divider(height: 1),
+                  _buildRoutineItem(tokens, state, _hubRoutines[i]),
+                ],
+              ],
+            ),
+          ),
+
+        const SizedBox(height: 24),
+
+        // 4. Hub Operations, Hardware Maintenance & NTP
+        const SettingsSectionTitle('Hub Hardware & Network Controls'),
         SettingsSurface(
           child: Column(
             children: [
               SettingsListItem(
                 icon: Icons.sync_rounded,
                 title: 'Sync Automations',
-                subtitle: 'Re-sync standard and critical schedules with switch NVS',
+                subtitle: 'Push all mobile schedules to Hub RAM scheduler engine',
                 onTap: () async {
                   await _repo.syncAutomations(hubHostname: state.hostname);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Automations synchronized with Local Hub.')),
+                      const SnackBar(
+                        content: Text('Automations synchronized to Hub RAM successfully.'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                  _reload();
+                },
+              ),
+              const Divider(height: 1, indent: 56),
+              SettingsListItem(
+                icon: Icons.access_time_filled_rounded,
+                title: 'Broadcast Clock Sync (Local NTP)',
+                subtitle: 'Injects real-time epoch via UDP port 4210 to all switches',
+                onTap: () async {
+                  await _repo.syncTimeBroadcast(hubHostname: state.hostname);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Real-time NTP clock broadcast to all switches in <1s.'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
                   }
                 },
@@ -419,13 +584,44 @@ class _HubManagementPageState extends State<HubManagementPage> {
               SettingsListItem(
                 icon: Icons.restart_alt_rounded,
                 title: 'Restart Hub Core',
-                subtitle: 'Restarts local MQTT and scheduler daemon safely',
+                subtitle: 'Restarts local scheduler & MQTT broker safely in <2s',
                 onTap: () async {
                   await _repo.restartHubCore(hubHostname: state.hostname);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Hub daemon restarted cleanly.')),
+                      const SnackBar(
+                        content: Text('Hub daemon restarted cleanly.'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
+                  }
+                  _reload();
+                },
+              ),
+              const Divider(height: 1, indent: 56),
+              SettingsListItem(
+                icon: Icons.link_off_rounded,
+                title: 'Unlink Hub from this Home',
+                subtitle: 'Releases local coordinator mode and returns to direct standalone LAN',
+                onTap: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Unlink Smart Home Hub?'),
+                      content: const Text('Your standalone switches will continue operating normally via local Wi-Fi and hardware timers.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+                          child: const Text('Unlink Hub'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await _repo.unlinkHub(hubHostname: state.hostname);
+                    _reload();
                   }
                 },
               ),
@@ -433,13 +629,222 @@ class _HubManagementPageState extends State<HubManagementPage> {
           ),
         ),
       ],
+    ),
+  );
+}
+
+  Widget _buildInteractiveDeviceTile(
+    EHThemeTokens tokens,
+    HubState state,
+    HubDeviceInfo device,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: tokens.surfaceElevated,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.toggle_on_rounded, color: tokens.bluePrimary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      device.name,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Text(
+                          '${device.ipAddress} • ${device.latencyMs}ms mesh',
+                          style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                        ),
+                        if (device.hasCriticalHardwareFallback) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: tokens.warningContainer,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Critical NVS',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: tokens.warning,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SettingsStatusChip(
+                label: 'Hub Bound',
+                color: tokens.success,
+                background: tokens.successContainer,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                'Test Relay via Hub:',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: tokens.textTertiary),
+              ),
+              const SizedBox(width: 8),
+              for (int ch = 1; ch <= device.channelCount; ch++) ...[
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () async {
+                      final currentVal = device.channels[ch] ?? false;
+                      final newVal = !currentVal;
+                      await _repo.sendDeviceControl(
+                        hubHostname: state.hostname,
+                        deviceId: device.id,
+                        channel: ch,
+                        power: newVal,
+                      );
+                      setState(() {
+                        device.channels[ch] = newVal;
+                      });
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${device.name} Ch $ch -> ${newVal ? "ON" : "OFF"} via Hub (<5ms)'),
+                            duration: const Duration(milliseconds: 1200),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: (device.channels[ch] ?? false)
+                            ? tokens.bluePrimary
+                            : tokens.surfaceElevated,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: (device.channels[ch] ?? false)
+                              ? tokens.bluePrimary
+                              : tokens.borderSubtle,
+                        ),
+                      ),
+                      child: Text(
+                        'Ch $ch ${(device.channels[ch] ?? false) ? "ON" : "OFF"}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: (device.channels[ch] ?? false)
+                              ? Colors.white
+                              : tokens.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoutineItem(
+    EHThemeTokens tokens,
+    HubState state,
+    Map<String, dynamic> routine,
+  ) {
+    final name = routine['name'] as String? ?? 'Unnamed Routine';
+    final hour = (routine['hour'] as num?)?.toInt() ?? 0;
+    final minute = (routine['minute'] as num?)?.toInt() ?? 0;
+    final isCritical = routine['criticalHardwareFallback'] == true;
+    final timeStr = '${hour.toString().padLeft(2, "0")}:${minute.toString().padLeft(2, "0")}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: isCritical ? tokens.warningContainer : tokens.iconBgBlue,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              isCritical ? Icons.shield_rounded : Icons.schedule_rounded,
+              size: 20,
+              color: isCritical ? tokens.warning : tokens.bluePrimary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: tokens.textPrimary,
+                  ),
+                ),
+                Text(
+                  'Fires at $timeStr daily • ${isCritical ? "Dual-Synced (Hardware Fallback)" : "100% RAM Scheduler"}',
+                  style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.play_arrow_rounded, color: tokens.bluePrimary),
+            tooltip: 'Test Trigger Now',
+            onPressed: () async {
+              final rId = routine['id']?.toString() ?? '';
+              await _repo.triggerRoutine(hubHostname: state.hostname, routineId: rId);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Triggered "$name" via Hub in <5ms!'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildMetricTile(EHThemeTokens tokens, String label, String value, IconData icon) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         decoration: BoxDecoration(
           color: tokens.surfaceElevated,
           borderRadius: BorderRadius.circular(10),
@@ -448,58 +853,24 @@ class _HubManagementPageState extends State<HubManagementPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 16, color: tokens.textSecondary),
-            const SizedBox(height: 6),
-            Text(value, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: tokens.textPrimary)),
-            Text(label, style: TextStyle(fontSize: 11, color: tokens.textSecondary)),
+            Row(
+              children: [
+                Icon(icon, size: 14, color: tokens.bluePrimary),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 10, color: tokens.textSecondary, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.textPrimary),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildDeviceTile(EHThemeTokens tokens, HubDeviceInfo device) {
-    return ListTile(
-      leading: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: tokens.iconBgBlue,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(Icons.toggle_on_outlined, color: tokens.bluePrimary, size: 22),
-      ),
-      title: Text(
-        device.name,
-        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: tokens.textPrimary),
-      ),
-      subtitle: Text(
-        '${device.roomName} • ${device.ipAddress} • ${device.latencyMs}ms',
-        style: TextStyle(fontSize: 12, color: tokens.textSecondary),
-      ),
-      trailing: device.hasCriticalHardwareFallback
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: tokens.warningContainer,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                'Critical NVS',
-                style: TextStyle(color: tokens.warning, fontSize: 11, fontWeight: FontWeight.w700),
-              ),
-            )
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: tokens.iconBgBlue,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                'Hub Coordinated',
-                style: TextStyle(color: tokens.bluePrimary, fontSize: 11, fontWeight: FontWeight.w600),
-              ),
-            ),
     );
   }
 

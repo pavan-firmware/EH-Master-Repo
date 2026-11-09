@@ -14,6 +14,7 @@ import 'other_spaces_devices_sheet.dart';
 import 'space_management_sheet.dart';
 import '../../automations/presentation/active_routine_guard.dart';
 import '../../../core/models/routine_models.dart';
+import '../../hub/data/hub_repository.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({
@@ -565,21 +566,29 @@ class _HomeHeader extends StatelessWidget {
                           final isLanMode = activeRouting == ConnectionRoutingMode.localOnly ||
                               (activeRouting == ConnectionRoutingMode.auto && isLocalMode);
 
-                          final badgeColor = isLanMode
-                              ? tokens.success
-                              : isCloudMode
-                                  ? tokens.bluePrimary
-                                  : const Color(0xFFEF4444);
-                          final badgeText = isLanMode
-                              ? 'Hub'
-                              : isCloudMode
-                                  ? 'Cloud'
-                                  : 'Offline';
-                          final badgeIcon = isLanMode
-                              ? Icons.hub_rounded
-                              : isCloudMode
-                                  ? Icons.cloud_done_rounded
-                                  : Icons.cloud_off_rounded;
+                          final isHubActive = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+
+                          final Color badgeColor;
+                          final String badgeText;
+                          final IconData badgeIcon;
+
+                          if (isHubActive) {
+                            badgeColor = tokens.success;
+                            badgeText = 'Hub';
+                            badgeIcon = Icons.hub_rounded;
+                          } else if (isLanMode) {
+                            badgeColor = tokens.success;
+                            badgeText = 'LAN Direct';
+                            badgeIcon = Icons.wifi_rounded;
+                          } else if (isCloudMode) {
+                            badgeColor = tokens.bluePrimary;
+                            badgeText = 'Cloud';
+                            badgeIcon = Icons.cloud_done_rounded;
+                          } else {
+                            badgeColor = const Color(0xFFEF4444);
+                            badgeText = 'Offline';
+                            badgeIcon = Icons.cloud_off_rounded;
+                          }
 
                           return AnimatedContainer(
                             duration: const Duration(milliseconds: 200),

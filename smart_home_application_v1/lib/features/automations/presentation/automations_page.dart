@@ -13,6 +13,7 @@ import '../../../core/capabilities/repositories/product_catalog_repository.dart'
 import '../../../core/repositories/cloud_home_repository.dart';
 import '../../../core/repositories/cloud_routine_repository.dart';
 import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/edge_routine_sync_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
 import '../../hub/data/hub_repository.dart';
@@ -1638,7 +1639,34 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
           ? await widget.repository.updateRoutine(widget.initialRoutine!.id, draft)
           : await widget.repository.createRoutine(draft);
 
-      // Section 3: Dual-Mode Hub Routine Synchronization
+      final routineId = widget.initialRoutine?.id ?? 'rt_${DateTime.now().millisecondsSinceEpoch}';
+      final builtRoutine = Routine(
+        id: routineId,
+        name: name,
+        icon: _selectedIcon,
+        isFavorite: _isFavorite,
+        enabled: true,
+        trigger: trigger,
+        conditions: const [],
+        actions: routineActions,
+        schedule: schedule,
+        availability: RoutineAvailability.available,
+        involvedDevices: const [],
+        lastExecution: null,
+        nextRun: null,
+        summary: schedule.label,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      // 1. Direct Edge hardware sync to ESP32 switches
+      try {
+        await EdgeRoutineSyncService.instance.syncRoutineToEdge(builtRoutine);
+      } catch (err) {
+        debugPrint('[EdgeRoutineSync] Error syncing to hardware: $err');
+      }
+
+      // 2. Dual-Mode Hub Routine Synchronization
       try {
         final hubRepo = LiveHubRepository();
         final hubState = await hubRepo.getHubState();
@@ -1652,12 +1680,16 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
                     Uri.parse('http://$host:4210/api/v1/routines'),
                     headers: {'Content-Type': 'application/json'},
                     body: jsonEncode({
+                      'id': builtRoutine.id,
                       'name': name,
                       'deviceId': act.deviceId,
                       'channel': act.channelIndex,
                       'targetState': act.targetState,
+                      'power': act.targetState,
+                      'value': act.targetState,
                       'hour': _scheduledTime.hour,
                       'minute': _scheduledTime.minute,
+                      'daysMask': EdgeRoutineSyncService.computeDaysMask(_formatDaysList()),
                       'criticalHardwareFallback': _criticalHardwareFallback,
                     }),
                   ).timeout(const Duration(seconds: 1));

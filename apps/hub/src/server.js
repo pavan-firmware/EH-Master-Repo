@@ -172,16 +172,58 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { status: 'ok', devices: list });
   }
 
-  // POST /api/v1/hub/adopt - Trigger zero-touch discovery & return adopted devices
+  // POST /api/v1/hub/adopt - Trigger zero-touch discovery & adopt real devices
   if (req.method === 'POST' && pathname === '/api/v1/hub/adopt') {
-    broadcastDiscovery();
-    const list = Array.from(hubMemoryState.adoptedDevices.values());
-    return sendJson(res, 200, {
-      status: 'ok',
-      message: 'Zero-touch discovery triggered',
-      adoptedCount: list.length,
-      devices: list,
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        if (payload.devices && Array.isArray(payload.devices)) {
+          for (const d of payload.devices) {
+            if (d.id && d.ipAddress) {
+              hubMemoryState.adoptedDevices.set(d.id, {
+                id: d.id,
+                name: d.name || `Switch (${d.id.slice(-4)})`,
+                ipAddress: d.ipAddress,
+                online: true,
+                channelCount: d.channelCount || 3,
+                channels: d.channels || { 1: false, 2: false, 3: false },
+                activeRoutinesCount: d.activeRoutinesCount || 0,
+                hasCriticalHardwareFallback: Boolean(d.hasCriticalHardwareFallback),
+                latencyMs: 3,
+              });
+            }
+          }
+          persistState();
+        }
+      } catch (_) {}
+
+      broadcastDiscovery();
+      const list = Array.from(hubMemoryState.adoptedDevices.values());
+      return sendJson(res, 200, {
+        status: 'ok',
+        message: 'Zero-touch discovery triggered',
+        adoptedCount: list.length,
+        devices: list,
+      });
     });
+    return;
+  }
+
+  // POST /api/v1/hub/time/sync - Broadcast real-time clock epoch to all switches
+  if (req.method === 'POST' && pathname === '/api/v1/hub/time/sync') {
+    broadcastDiscovery();
+    const epoch = Math.floor(Date.now() / 1000);
+    return sendJson(res, 200, { status: 'ok', epoch, message: 'Time broadcast dispatched to all switches' });
+  }
+
+  // POST /api/v1/hub/unlink - Unlink Hub from current home
+  if (req.method === 'POST' && pathname === '/api/v1/hub/unlink') {
+    hubMemoryState.homeId = null;
+    hubMemoryState.claimToken = null;
+    persistState();
+    return sendJson(res, 200, { status: 'ok', message: 'Hub unlinked successfully' });
   }
 
   // GET /api/v1/routines - List standard comfort routines running on Hub
@@ -190,7 +232,27 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { status: 'ok', routines });
   }
 
-  // POST /api/v1/routines - Save/Update standard comfort routine on Hub (Zero flash wear)
+  // POST /api/v1/routines/trigger - Immediate test trigger of a scheduled routine
+  if (req.method === 'POST' && pathname === '/api/v1/routines/trigger') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const routine = hubMemoryState.standardRoutines.get(payload.id);
+        if (!routine) {
+          return sendJson(res, 404, { error: 'Routine not found' });
+        }
+        dispatchRoutineAction(routine);
+        return sendJson(res, 200, { status: 'ok', triggered: true, routine });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid payload' });
+      }
+    });
+    return;
+  }
+
+  // POST /api/v1/routines - Save/Update routine on Hub (Zero flash wear or Dual-sync)
   if (req.method === 'POST' && pathname === '/api/v1/routines') {
     let body = '';
     req.on('data', chunk => body += chunk);
@@ -203,16 +265,23 @@ const server = http.createServer((req, res) => {
           name: payload.name || 'Unnamed Routine',
           deviceId: payload.deviceId,
           channel: payload.channel ?? 1,
-          targetState: payload.targetState ?? true,
+          targetState: payload.targetState ?? payload.power ?? payload.value ?? true,
           hour: payload.hour ?? 6,
           minute: payload.minute ?? 0,
           daysMask: payload.daysMask ?? 0x7F, // Mon-Sun default
           durationSec: payload.durationSec ?? 0,
           enabled: payload.enabled ?? true,
+          criticalHardwareFallback: Boolean(payload.criticalHardwareFallback),
           updatedAt: new Date().toISOString(),
         };
         hubMemoryState.standardRoutines.set(id, routine);
         persistState();
+
+        // If Critical Hardware Fallback, dual-sync directly to ESP32 switch NVS
+        if (routine.criticalHardwareFallback) {
+          pushRoutineToSwitchHardware(routine);
+        }
+
         return sendJson(res, 200, { status: 'ok', routine });
       } catch (err) {
         return sendJson(res, 400, { error: 'Invalid routine payload' });
@@ -381,13 +450,60 @@ function broadcastDiscovery() {
 // 3. Priority-Tiered 24/7 RAM Routine Scheduler (Zero Flash Wear)
 // ---------------------------------------------------------------------------
 
+function pushRoutineToSwitchHardware(routine) {
+  const target = hubMemoryState.adoptedDevices.get(routine.deviceId);
+  if (!target || !target.ipAddress) {
+    console.warn(`[Hub] Cannot dual-sync routine to ${routine.deviceId}: IP not found`);
+    return;
+  }
+  const payload = JSON.stringify({
+    id: routine.id,
+    name: routine.name,
+    channel: routine.channel,
+    channelIndex: routine.channel,
+    power: Boolean(routine.targetState),
+    value: Boolean(routine.targetState),
+    hour: routine.hour,
+    minute: routine.minute,
+    daysMask: routine.daysMask,
+    enabled: Boolean(routine.enabled),
+    triggerType: 2,
+  });
+  const req = http.request({
+    hostname: target.ipAddress,
+    port: 80,
+    path: '/api/v1/routines',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+    },
+    timeout: 1000,
+  }, res => {
+    console.log(`[Hub] Dual-synced critical routine '${routine.name}' to ESP32 ${routine.deviceId} (HTTP ${res.statusCode})`);
+  });
+  req.on('error', err => {
+    console.warn(`[Hub] Error dual-syncing to ${routine.deviceId}:`, err.message);
+  });
+  req.write(payload);
+  req.end();
+}
+
 function dispatchRoutineAction(routine) {
   const target = hubMemoryState.adoptedDevices.get(routine.deviceId);
   if (!target || !target.ipAddress) {
     console.warn(`[Hub Scheduler] Target switch ${routine.deviceId} not reachable on LAN`);
     return;
   }
-  const postData = JSON.stringify({ channel: routine.channel, state: routine.targetState });
+  // ESP32 local_server.c expects channel, power, value, enabled
+  const postData = JSON.stringify({
+    channel: routine.channel,
+    channelIndex: routine.channel,
+    power: Boolean(routine.targetState),
+    value: Boolean(routine.targetState),
+    enabled: Boolean(routine.targetState),
+    state: Boolean(routine.targetState),
+  });
   const req = http.request({
     hostname: target.ipAddress,
     port: 80,
@@ -397,9 +513,11 @@ function dispatchRoutineAction(routine) {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(postData),
     },
-    timeout: 500,
+    timeout: 800,
   }, res => {
-    console.log(`[Hub Scheduler] Routine '${routine.name}' triggered on ${routine.deviceId} (HTTP ${res.statusCode}) in RAM`);
+    target.channels = target.channels || {};
+    target.channels[routine.channel] = Boolean(routine.targetState);
+    console.log(`[Hub Scheduler] Routine '${routine.name}' triggered on ${routine.deviceId} ch${routine.channel} -> ${routine.targetState} (HTTP ${res.statusCode}) in RAM`);
   });
   req.on('error', err => {
     console.warn(`[Hub Scheduler] Error triggering routine '${routine.name}':`, err.message);

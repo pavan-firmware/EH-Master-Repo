@@ -24,9 +24,13 @@ class MockTestHubRepository implements HubRepository {
   }
 
   @override
+  Future<bool> unlinkHub({required String hubHostname}) async => true;
+
+  @override
   Future<List<HubDeviceInfo>> adoptDiscoveredSwitches({
     required String hubHostname,
     required List<String> switchIds,
+    List<Map<String, dynamic>>? devices,
   }) async {
     adoptCalled = true;
     return const [
@@ -40,9 +44,37 @@ class MockTestHubRepository implements HubRepository {
         activeRoutinesCount: 1,
         hasCriticalHardwareFallback: false,
         latencyMs: 3,
+        channelCount: 3,
+        channels: {1: false, 2: false, 3: false},
       ),
     ];
   }
+
+  @override
+  Future<bool> sendDeviceControl({
+    required String hubHostname,
+    required String deviceId,
+    required int channel,
+    required bool power,
+    bool isToggle = false,
+  }) async => true;
+
+  @override
+  Future<List<Map<String, dynamic>>> getRoutines({required String hubHostname}) async => [
+    {
+      'id': 'rt_test_01',
+      'name': 'Test Porch Routine',
+      'hour': 18,
+      'minute': 30,
+      'criticalHardwareFallback': false,
+    }
+  ];
+
+  @override
+  Future<bool> triggerRoutine({required String hubHostname, required String routineId}) async => true;
+
+  @override
+  Future<bool> syncTimeBroadcast({required String hubHostname}) async => true;
 
   @override
   Future<bool> syncAutomations({required String hubHostname}) async => true;

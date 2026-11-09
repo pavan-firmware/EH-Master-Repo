@@ -20,6 +20,8 @@ class HubDeviceInfo {
     required this.activeRoutinesCount,
     required this.hasCriticalHardwareFallback,
     required this.latencyMs,
+    this.channelCount = 3,
+    this.channels = const {1: false, 2: false, 3: false},
   });
 
   final String id;
@@ -31,8 +33,23 @@ class HubDeviceInfo {
   final int activeRoutinesCount;
   final bool hasCriticalHardwareFallback;
   final int latencyMs;
+  final int channelCount;
+  final Map<int, bool> channels;
 
   factory HubDeviceInfo.fromJson(Map<String, dynamic> json) {
+    final rawChannels = json['channels'];
+    final chMap = <int, bool>{};
+    if (rawChannels is Map) {
+      rawChannels.forEach((k, v) {
+        final idx = int.tryParse(k.toString()) ?? 1;
+        chMap[idx] = v == true;
+      });
+    } else {
+      chMap[1] = false;
+      chMap[2] = false;
+      chMap[3] = false;
+    }
+
     return HubDeviceInfo(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? 'Smart Switch',
@@ -44,6 +61,8 @@ class HubDeviceInfo {
       hasCriticalHardwareFallback:
           json['hasCriticalHardwareFallback'] as bool? ?? false,
       latencyMs: (json['latencyMs'] as num?)?.toInt() ?? 3,
+      channelCount: (json['channelCount'] as num?)?.toInt() ?? (chMap.isNotEmpty ? chMap.length : 3),
+      channels: chMap,
     );
   }
 
@@ -57,6 +76,8 @@ class HubDeviceInfo {
         'activeRoutinesCount': activeRoutinesCount,
         'hasCriticalHardwareFallback': hasCriticalHardwareFallback,
         'latencyMs': latencyMs,
+        'channelCount': channelCount,
+        'channels': channels,
       };
 }
 
