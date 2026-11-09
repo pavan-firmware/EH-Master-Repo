@@ -8,21 +8,27 @@
 
 ## 1. Current Branch & Git Metadata
 
-- **Active Branch:** `feature/phase50-backend-resilience-and-edge-fixes`
+- **Active Branch:** `feature/phase51-hub-ecosystem-addon`
 - **Target Base:** `origin/main`
-- **Working Tree State:** Completely reconciled across Backend (Fastify/Node.js), ESP32 FreeRTOS Firmware, Flutter Application (`smart_home_application_v1`), Desktop Manufacturing Suite (Tauri v2 + Rust), and Hardware Automation.
+- **Working Tree State:** Completely reconciled across Backend (Fastify/Node.js), ESP32 FreeRTOS Firmware, Flutter Application (`smart_home_application_v1`), Desktop Manufacturing Suite (Tauri v2 + Rust), and Physical Smart Hub Daemon (Raspberry Pi 3B+).
 - **Pre-Push Validation:** 80/80 test suites passing via `node scripts/validate-repo.js`.
 - **Flutter Analyzer:** 0 issues found via `flutter analyze`.
 
 ---
 
-## 2. Platform Progression (Phases 1 — 50)
+## 2. Platform Progression (Phases 1 — 51)
 
 - **Phases 1–36:** Canonical contracts (19 schemas), PostgreSQL persistence, product catalog engine, BLE commissioning (`EH-PROV/1`), MQTT mTLS (`EMQX 5.8.0`), RS256 JWT auth, realtime SSE streams, firmware signed OTA, dynamic tariffs, and Flutter runtime integration.
 - **Phases 37–46:** 37 symmetric database migrations, remote backup storage, product catalog expansion, manufacturing flasher, fleet safe OTA rollout, and final production acceptance.
 - **Phases 47–48:** Hardware ESP32 target verification, multi-switch pinouts, home ownership & membership RBAC (`OWNER`, `ADMIN`, `MEMBER`, `GUEST`), and profile timezone management.
 - **Phase 49:** FreeRTOS edge routine engine, zero-touch UDP LAN switchover, migrations 036–037, desktop manufacturing suite (Tauri bench provisioner, thermal label printer, dual-scan packing station), and Windows PDF printing subsystem.
 - **Phase 50:** Cross-layer master flows, backend resilience, truthful standby telemetry, dark-theme contrast tokens, routine notification filtering, offline stale-while-revalidate UX, and home owner administrative access alignment.
+- **Phase 51 (Hub Ecosystem Addon & Physical Pi 3B+ Deployment):**
+  - **Zero-Touch 10+ Device Adoption:** Codified and built zero-touch migration where existing standalone switches are absorbed via UDP port 4210 in $<2$ seconds without user reset button presses.
+  - **The 4 Production Hardening Rules:** Implemented Token Claim Handshake, Read-Only Initial State Sync, Jittered Query Stagger, and 3-Second Heartbeat Watchdog.
+  - **Physical Pi 3B+ Live Deployment:** Built zero-dependency Node.js Hub daemon (`apps/hub/src/server.js`) consuming only 3.7MB of RAM, installed on physical Raspberry Pi 3B+ (`eh-hub.local`), and auto-supervised by `systemd` (`eh-hub.service`).
+  - **Flutter UX & Settings Integration:** Added highlighted `Smart Home Hub` tile in `SettingsPage`, Onboarding View, real-time Adoption Progress modal, and live telemetry Dashboard in `smart_home_application_v1`.
+  - **ESP32 Firmware Clock Synchronization:** Upgraded UDP discovery broadcast with passive NTP epoch time injection matching `local_server.c`.
 - **Truthful App State (Prompt 1 of 5 Implementation):**
   - **Live Home Screen Truth:** Dynamic derivation of overview pills, subtitles, and device counts. Eliminated hardcoded "All systems normal" and "Everything looks good at home" when devices are offline or unconfirmed.
   - **Accessible Switch Toggle UI:** Restored standard high-contrast circular white thumb and themed track outlines for the Activity Notifications switch in both light and dark themes.
