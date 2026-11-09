@@ -738,6 +738,12 @@ class LocalLanDeviceService {
     final ip = explicitIp ?? getDeviceIp(deviceId);
     if (ip == null || ip.isEmpty) return false;
 
+    // 1. First wipe all edge routines on the physical chip
+    try {
+      await sendClearAllRoutines(deviceId: deviceId, explicitIp: ip);
+    } catch (_) {}
+
+    // 2. Send factory reset command to wipe credentials and reboot
     final targetUri = Uri.parse('http://$ip/api/v1/reset');
     try {
       final response = await _client
@@ -746,6 +752,32 @@ class LocalLanDeviceService {
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('[LAN] sendFactoryReset error: $e');
+      return false;
+    }
+  }
+
+  /// Wipe all on-chip edge routines on physical hardware
+  Future<bool> sendClearAllRoutines({required String deviceId, String? explicitIp}) async {
+    final ip = explicitIp ?? getDeviceIp(deviceId);
+    if (ip == null || ip.isEmpty) return false;
+
+    try {
+      final routines = await fetchLocalRoutines(deviceId: deviceId, explicitIp: ip);
+      if (routines != null && routines.isNotEmpty) {
+        for (final r in routines) {
+          final rId = r['id']?.toString() ?? '';
+          if (rId.isNotEmpty) {
+            await sendLocalRoutineDelete(deviceId: deviceId, routineId: rId, explicitIp: ip);
+          }
+        }
+      }
+      final targetUri = Uri.parse('http://$ip/api/v1/routines?id=all');
+      final response = await _client
+          .delete(targetUri, headers: {'Connection': 'close'})
+          .timeout(const Duration(milliseconds: 1500));
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('[LAN] sendClearAllRoutines error: $e');
       return false;
     }
   }

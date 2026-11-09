@@ -7,6 +7,7 @@ import '../models/connection_models.dart';
 import '../services/device_storage_service.dart';
 import '../services/edge_routine_sync_service.dart';
 import '../services/change_tracking_service.dart';
+import '../../features/hub/data/hub_repository.dart';
 
 enum RoutineAvailability { available, partiallyAvailable, unavailable }
 
@@ -352,6 +353,7 @@ class Routine {
     required this.createdAt,
     required this.updatedAt,
     required this.summary,
+    this.isCritical = false,
   });
 
   final String id;
@@ -370,6 +372,7 @@ class Routine {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String summary;
+  final bool isCritical;
 
   Routine copyWith({
     String? id,
@@ -388,6 +391,7 @@ class Routine {
     DateTime? createdAt,
     DateTime? updatedAt,
     String? summary,
+    bool? isCritical,
   }) {
     return Routine(
       id: id ?? this.id,
@@ -406,6 +410,7 @@ class Routine {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       summary: summary ?? this.summary,
+      isCritical: isCritical ?? this.isCritical,
     );
   }
 
@@ -434,6 +439,7 @@ class Routine {
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'summary': summary,
+    'isCritical': isCritical,
   };
 
   factory Routine.fromJson(Map<String, dynamic> json) => Routine(
@@ -442,6 +448,7 @@ class Routine {
     icon: json['icon'] as String? ?? 'auto_awesome',
     isFavorite: json['isFavorite'] as bool? ?? false,
     enabled: json['enabled'] as bool? ?? true,
+    isCritical: json['isCritical'] as bool? ?? false,
     availability: RoutineAvailability.values.firstWhere(
       (a) => a.name == json['availability'],
       orElse: () => RoutineAvailability.available,
@@ -492,6 +499,7 @@ class RoutineDraft {
     this.actions = const [],
     this.schedule,
     this.validation = const RoutineValidation(),
+    this.isCritical = false,
   });
 
   String name;
@@ -502,6 +510,7 @@ class RoutineDraft {
   List<RoutineAction> actions;
   RoutineSchedule? schedule;
   RoutineValidation validation;
+  bool isCritical;
 }
 
 class RoutineValidation {
@@ -698,6 +707,7 @@ class PreviewRoutineRepository implements RoutineRepository {
       summary: draft.actions.isNotEmpty
           ? 'Runs: ${draft.actions.map((a) => a.detail).join(", ")}'
           : 'Runs automated routine on schedule.',
+      isCritical: draft.isCritical,
     );
 
     _routines.insert(0, newRoutine);
@@ -710,7 +720,12 @@ class PreviewRoutineRepository implements RoutineRepository {
       newValue: routineName,
       changeType: ChangeType.created,
     );
-    unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(newRoutine));
+    final isHub = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+    if (!isHub || newRoutine.isCritical) {
+      unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(newRoutine));
+    } else {
+      unawaited(EdgeRoutineSyncService.instance.deleteRoutineFromEdge(newRoutine));
+    }
     return RepositoryResult.success;
   }
 
@@ -777,6 +792,7 @@ class PreviewRoutineRepository implements RoutineRepository {
         summary: draft.actions.isNotEmpty
             ? 'Runs: ${draft.actions.map((a) => a.detail).join(", ")}'
             : old.summary,
+        isCritical: draft.isCritical,
       );
       await _persist();
       await ChangeTrackingService.instance.recordChange(
@@ -787,7 +803,12 @@ class PreviewRoutineRepository implements RoutineRepository {
         newValue: draft.name.trim().isNotEmpty ? draft.name.trim() : old.name,
         changeType: ChangeType.modified,
       );
-      unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(_routines[idx]));
+      final isHub = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+      if (!isHub || _routines[idx].isCritical) {
+        unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(_routines[idx]));
+      } else {
+        unawaited(EdgeRoutineSyncService.instance.deleteRoutineFromEdge(_routines[idx]));
+      }
     }
     return RepositoryResult.success;
   }

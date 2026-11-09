@@ -4,6 +4,7 @@
 #include "status_led.h"
 
 #include "relay_manager.h"
+#include "edge_routine_engine.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -69,15 +70,18 @@ static void execute_factory_reset_and_reboot(void)
     // 4. Clear persisted relay states back to fresh default (all OFF)
     relay_manager_clear_persisted_states();
 
-    // 4. Custom callback if registered
+    // 5. Clear all persisted edge routines from NVS flash
+    edge_routine_engine_clear_all();
+
+    // 6. Custom callback if registered
     if (s_reset_cb) {
         s_reset_cb();
     }
 
-    // 5. Allow flash operations to commit and logs to flush
+    // 7. Allow flash operations to commit and logs to flush
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    // 6. Reboot to BLE commissioning
+    // 8. Reboot to BLE commissioning
     esp_restart();
 }
 

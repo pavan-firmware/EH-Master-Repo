@@ -4093,7 +4093,19 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   Future<bool> forgetDevice(String deviceId) async {
     bool resetSent = false;
     try {
+      // 1. Wipe on-chip NVS routines and trigger factory reset
       resetSent = await LocalLanDeviceService.instance.sendFactoryReset(deviceId: deviceId);
+
+      // 2. Remove all local routines for this device from app memory & cache
+      try {
+        final repo = const PreviewRoutineRepository();
+        final routines = await repo.getRoutines();
+        for (final r in routines) {
+          if (r.actions.any((a) => a.deviceId == deviceId)) {
+            await repo.removeRoutineLocalOnly(r.id);
+          }
+        }
+      } catch (_) {}
     } catch (e) {
       debugPrint('[HOME] forgetDevice factory reset command error: $e');
     }

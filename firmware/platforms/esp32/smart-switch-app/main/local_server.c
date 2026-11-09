@@ -493,7 +493,8 @@ static esp_err_t reset_post_handler(httpd_req_t* req)
     free((void*)response_str);
     cJSON_Delete(resp);
 
-    ESP_LOGW(TAG, "REMOTE_FACTORY_RESET_TRIGGERED: Erasing Wi-Fi credentials and resetting device...");
+    ESP_LOGW(TAG, "REMOTE_FACTORY_RESET_TRIGGERED: Erasing Wi-Fi credentials, edge routines, and resetting device...");
+    edge_routine_engine_clear_all();
     reset_button_trigger_factory_reset();
     return ESP_OK;
 }
@@ -651,7 +652,11 @@ static esp_err_t routines_delete_handler(httpd_req_t* req)
     }
 
     bool success = false;
-    if (routine_id[0] != '\0') {
+    if (strcmp(routine_id, "all") == 0) {
+        edge_routine_engine_clear_all();
+        success = true;
+        ESP_LOGI(TAG, "LOCAL_HTTP: ALL edge routines cleared from chip");
+    } else if (routine_id[0] != '\0') {
         success = edge_routine_engine_delete_routine(routine_id);
         ESP_LOGI(TAG, "LOCAL_HTTP: Routine '%s' deleted from edge engine (success=%d)", routine_id, success);
     } else {

@@ -4,6 +4,7 @@ import '../models/routine_models.dart';
 import 'local_lan_device_service.dart';
 import '../../app/home_controller.dart';
 import 'device_storage_service.dart';
+import '../../features/hub/data/hub_repository.dart';
 
 /// Production-Grade Edge Routine Synchronization Service
 ///
@@ -389,13 +390,19 @@ class EdgeRoutineSyncService {
   /// Reconciles all local routines in storage with connected edge boards on LAN
   Future<void> reconcileAllRoutinesToEdge({bool force = false}) async {
     try {
+      final isHubActive = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
       final routines = await const PreviewRoutineRepository().getRoutines();
-      debugPrint('[EDGE-SYNC] Reconciling ${routines.length} routines to edge devices...');
+      debugPrint('[EDGE-SYNC] Reconciling ${routines.length} routines (isHubActive=$isHubActive)...');
       for (final routine in routines) {
         // CRITICAL FIX: If a routine is currently running on the board, DO NOT POST routine upsert
         // which resets the ESP32 on-chip timer and stops the routine mid-operation!
         if (!force && isRoutineCurrentlyActive(routine)) {
           debugPrint('[EDGE-SYNC] Skipping reconcile for active routine "${routine.name}" to prevent interrupting running on-chip pulse.');
+          continue;
+        }
+        if (isHubActive && !routine.isCritical) {
+          // Master spec: Hub is active and this routine is standard comfort -> MUST NOT exist on ESP32 flash!
+          await deleteRoutineFromEdge(routine);
           continue;
         }
         if (routine.enabled) {

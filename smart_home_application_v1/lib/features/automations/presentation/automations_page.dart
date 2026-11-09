@@ -17,7 +17,6 @@ import '../../../core/services/edge_routine_sync_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
 import '../../hub/data/hub_repository.dart';
-import '../../hub/domain/models/hub_models.dart';
 
 class AutomationsPage extends StatefulWidget {
   const AutomationsPage({
@@ -1630,6 +1629,7 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
       trigger: trigger,
       schedule: schedule,
       actions: routineActions,
+      isCritical: _criticalHardwareFallback,
     );
 
     setState(() => _saving = true);
@@ -1646,6 +1646,7 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
         icon: _selectedIcon,
         isFavorite: _isFavorite,
         enabled: true,
+        isCritical: _criticalHardwareFallback,
         trigger: trigger,
         conditions: const [],
         actions: routineActions,
@@ -1659,22 +1660,27 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
         updatedAt: DateTime.now(),
       );
 
-      // 1. Direct Edge hardware sync to ESP32 switches
-      try {
-        await EdgeRoutineSyncService.instance.syncRoutineToEdge(builtRoutine);
-      } catch (err) {
-        debugPrint('[EdgeRoutineSync] Error syncing to hardware: $err');
-      }
+      // Master Spec Rule: Routine Storage Architecture
+      // Check if Smart Home Hub is linked and active
+      final isHubActive = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
 
-      // 2. Dual-Mode Hub Routine Synchronization
-      try {
-        final hubRepo = LiveHubRepository();
-        final hubState = await hubRepo.getHubState();
-        if (hubState.status == HubConnectionStatus.connected) {
+      if (!isHubActive) {
+        // NON-HUB STANDALONE HOME:
+        // Save directly to physical ESP32 flash NVS
+        try {
+          await EdgeRoutineSyncService.instance.syncRoutineToEdge(builtRoutine);
+        } catch (err) {
+          debugPrint('[EdgeRoutineSync] Error syncing to hardware: $err');
+        }
+      } else {
+        // HUB EQUIPPED HOME:
+        // 1. Sync to Hub RAM Routine Scheduler (0 flash wear)
+        try {
+          final hubHost = LiveHubRepository.activeHost ?? 'eh-hub.local';
           final client = http.Client();
           for (final act in routineActions) {
             if (act.deviceId.isNotEmpty) {
-              for (final host in [hubState.hostname, 'eh-hub.local', '192.168.0.174']) {
+              for (final host in [hubHost, 'eh-hub.local', '192.168.0.174']) {
                 try {
                   await client.post(
                     Uri.parse('http://$host:4210/api/v1/routines'),
@@ -1698,8 +1704,26 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
               }
             }
           }
+        } catch (_) {}
+
+        // 2. Hardware flash commitment strictly based on Critical priority
+        if (_criticalHardwareFallback) {
+          // Critical routine: dual-sync directly to ESP32 flash
+          try {
+            await EdgeRoutineSyncService.instance.syncRoutineToEdge(builtRoutine);
+          } catch (err) {
+            debugPrint('[EdgeRoutineSync] Error dual-syncing critical routine to hardware: $err');
+          }
+        } else {
+          // Standard comfort routine:
+          // NEVER touch ESP32 flash! Actively delete from ESP32 if previously on chip!
+          try {
+            await EdgeRoutineSyncService.instance.deleteRoutineFromEdge(builtRoutine);
+          } catch (err) {
+            debugPrint('[EdgeRoutineSync] Error removing comfort routine from ESP32 edge: $err');
+          }
         }
-      } catch (_) {}
+      }
     } catch (e) {
       debugPrint('[RoutineBuilder] Save routine exception (fallback to success since local/edge persisted): $e');
       result = RepositoryResult.success;

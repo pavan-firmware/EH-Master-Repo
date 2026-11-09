@@ -81,6 +81,7 @@ bool edge_routine_engine_upsert_routine(const edge_routine_t* routine);
  * Updates NVS table.
  */
 bool edge_routine_engine_delete_routine(const char* routine_id);
+void edge_routine_engine_clear_all(void);
 
 /**
  * Get pointer to internal RAM routine table and count.

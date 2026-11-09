@@ -285,6 +285,29 @@ bool edge_routine_engine_delete_routine(const char* routine_id)
     return false;
 }
 
+void edge_routine_engine_clear_all(void)
+{
+    for (size_t i = 0; i < MAX_EDGE_ROUTINES; i++) {
+        if (s_routines[i].runtime_state == ROUTINE_STATE_RUNNING) {
+            s_routines[i].runtime_state = ROUTINE_STATE_STOPPED;
+            s_routines[i].remaining_sec = 0;
+        }
+    }
+    memset(s_routines, 0, sizeof(s_routines));
+    s_routine_count = 0;
+
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_ROUTINES_NAMESPACE, NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        nvs_erase_all(handle);
+        nvs_commit(handle);
+        nvs_close(handle);
+        ESP_LOGW(TAG, "NVS: All edge routines erased from flash during factory reset");
+    }
+#endif
+}
+
 const edge_routine_t* edge_routine_engine_get_routines(size_t* out_count)
 {
     if (out_count) *out_count = s_routine_count;
