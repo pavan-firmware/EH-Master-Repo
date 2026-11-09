@@ -566,17 +566,17 @@ class _HomeHeader extends StatelessWidget {
                               (activeRouting == ConnectionRoutingMode.auto && isLocalMode);
 
                           final badgeColor = isLanMode
-                              ? const Color(0xFFF59E0B)
+                              ? tokens.success
                               : isCloudMode
-                                  ? tokens.success
+                                  ? tokens.bluePrimary
                                   : const Color(0xFFEF4444);
                           final badgeText = isLanMode
-                              ? 'LAN'
+                              ? 'Hub'
                               : isCloudMode
                                   ? 'Cloud'
                                   : 'Offline';
                           final badgeIcon = isLanMode
-                              ? Icons.wifi_tethering_rounded
+                              ? Icons.hub_rounded
                               : isCloudMode
                                   ? Icons.cloud_done_rounded
                                   : Icons.cloud_off_rounded;

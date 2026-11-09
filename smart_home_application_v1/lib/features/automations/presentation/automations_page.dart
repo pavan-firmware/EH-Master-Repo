@@ -1047,6 +1047,7 @@ class RoutineBuilderPage extends StatefulWidget {
 class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
   int _step = 0;
   bool _saving = false;
+  bool _criticalHardwareFallback = false;
 
   // Step 0: Basics & Target Hardware
   final _nameController = TextEditingController(text: '');
@@ -3840,6 +3841,54 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
                   ),
                 );
               }),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: tokens.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: tokens.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Execution Priority (Hub Connected)',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _criticalHardwareFallback,
+                onChanged: (val) => setState(() => _criticalHardwareFallback = val),
+                title: Text(
+                  'Critical Hardware Fallback',
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                subtitle: Text(
+                  _criticalHardwareFallback
+                      ? 'Stores backup copy in switch flash. Fires on time even if Hub is unplugged.'
+                      : 'Standard routine: runs from Hub RAM with zero switch flash memory wear.',
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                ),
+              ),
             ],
           ),
         ),
