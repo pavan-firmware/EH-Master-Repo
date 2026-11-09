@@ -172,6 +172,55 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { status: 'ok', devices: list });
   }
 
+  // POST /api/v1/hub/adopt - Trigger zero-touch discovery & return adopted devices
+  if (req.method === 'POST' && pathname === '/api/v1/hub/adopt') {
+    broadcastDiscovery();
+    const list = Array.from(hubMemoryState.adoptedDevices.values());
+    return sendJson(res, 200, {
+      status: 'ok',
+      message: 'Zero-touch discovery triggered',
+      adoptedCount: list.length,
+      devices: list,
+    });
+  }
+
+  // GET /api/v1/routines - List standard comfort routines running on Hub
+  if (req.method === 'GET' && pathname === '/api/v1/routines') {
+    const routines = Array.from(hubMemoryState.standardRoutines.values());
+    return sendJson(res, 200, { status: 'ok', routines });
+  }
+
+  // POST /api/v1/routines - Save/Update standard comfort routine on Hub (Zero flash wear)
+  if (req.method === 'POST' && pathname === '/api/v1/routines') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const id = payload.id || `rt_${crypto.randomBytes(6).toString('hex')}`;
+        const routine = {
+          id,
+          name: payload.name || 'Unnamed Routine',
+          deviceId: payload.deviceId,
+          channel: payload.channel ?? 1,
+          targetState: payload.targetState ?? true,
+          hour: payload.hour ?? 6,
+          minute: payload.minute ?? 0,
+          daysMask: payload.daysMask ?? 0x7F, // Mon-Sun default
+          durationSec: payload.durationSec ?? 0,
+          enabled: payload.enabled ?? true,
+          updatedAt: new Date().toISOString(),
+        };
+        hubMemoryState.standardRoutines.set(id, routine);
+        persistState();
+        return sendJson(res, 200, { status: 'ok', routine });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid routine payload' });
+      }
+    });
+    return;
+  }
+
   // POST /api/v1/control - Actuator Proxy (<5ms LAN relay)
   if (req.method === 'POST' && pathname === '/api/v1/control') {
     let body = '';
@@ -295,7 +344,57 @@ function broadcastDiscovery() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Server Startup
+// 3. Priority-Tiered 24/7 RAM Routine Scheduler (Zero Flash Wear)
+// ---------------------------------------------------------------------------
+
+function dispatchRoutineAction(routine) {
+  const target = hubMemoryState.adoptedDevices.get(routine.deviceId);
+  if (!target || !target.ipAddress) {
+    console.warn(`[Hub Scheduler] Target switch ${routine.deviceId} not reachable on LAN`);
+    return;
+  }
+  const postData = JSON.stringify({ channel: routine.channel, state: routine.targetState });
+  const req = http.request({
+    hostname: target.ipAddress,
+    port: 80,
+    path: '/api/v1/control',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData),
+    },
+    timeout: 500,
+  }, res => {
+    console.log(`[Hub Scheduler] Routine '${routine.name}' triggered on ${routine.deviceId} (HTTP ${res.statusCode}) in RAM`);
+  });
+  req.on('error', err => {
+    console.warn(`[Hub Scheduler] Error triggering routine '${routine.name}':`, err.message);
+  });
+  req.write(postData);
+  req.end();
+}
+
+function evaluateRoutinesTick() {
+  const now = new Date();
+  const currentDay = now.getDay();
+  const dayMask = 1 << currentDay;
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const currentSecond = now.getSeconds();
+
+  if (currentSecond !== 0) return;
+
+  for (const routine of hubMemoryState.standardRoutines.values()) {
+    if (!routine.enabled) continue;
+    if ((routine.daysMask & dayMask) === 0) continue;
+    if (routine.hour === currentHour && routine.minute === currentMinute) {
+      dispatchRoutineAction(routine);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Server Startup
 // ---------------------------------------------------------------------------
 
 server.listen(PORT, '0.0.0.0', () => {
@@ -315,6 +414,8 @@ server.listen(PORT, '0.0.0.0', () => {
     broadcastDiscovery();
     // Schedule periodic discovery every 60s
     setInterval(broadcastDiscovery, 60000);
+    // Start 24/7 in-RAM routine evaluation ticker (Zero flash wear)
+    setInterval(evaluateRoutinesTick, 1000);
   });
 });
 

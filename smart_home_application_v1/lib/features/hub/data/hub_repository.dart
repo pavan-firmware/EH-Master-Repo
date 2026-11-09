@@ -17,73 +17,45 @@ class LiveHubRepository implements HubRepository {
   LiveHubRepository({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
-  bool _mockLinked = false;
 
   @override
   Future<HubState> getHubState({String? homeId}) async {
-    try {
-      final uri = Uri.parse('http://eh-hub.local:4210/api/v1/hub/info');
-      final res = await _client.get(uri).timeout(const Duration(milliseconds: 1500));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        return HubState(
-          status: HubConnectionStatus.connected,
-          hubId: data['hubId'] as String? ?? 'eh-hub-pi3b',
-          hostname: data['hostname'] as String? ?? 'eh-hub.local',
-          ipAddress: data['ipAddress'] as String? ?? '192.168.0.174',
-          model: data['model'] as String? ?? 'EH-HUB-V1-PI (Raspberry Pi 3B+)',
-          firmwareVersion: data['version'] as String? ?? 'v1.0.0-phase51',
-          uptime: data['uptime'] as String? ?? 'Active',
-          latencyMs: (data['latencyMs'] as num?)?.toInt() ?? 3,
-          standardRoutinesCount: (data['standardRoutinesCount'] as num?)?.toInt() ?? 7,
-          criticalRoutinesCount: (data['criticalRoutinesCount'] as num?)?.toInt() ?? 1,
-          sdCardOverlayFsActive: data['overlayFs'] as bool? ?? true,
-          localNtpSynced: data['ntpSynced'] as bool? ?? true,
-        );
-      }
-    } catch (_) {
-      // Hub daemon may not be started yet or offline
-    }
+    for (final host in ['eh-hub.local', '192.168.0.174']) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/info');
+        final res = await _client.get(uri).timeout(const Duration(milliseconds: 1500));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final isLinked = data['isLinked'] as bool? ?? false;
 
-    if (_mockLinked) {
-      return const HubState(
-        status: HubConnectionStatus.connected,
-        connectedDevices: [
-          HubDeviceInfo(
-            id: 'sw_living_room_01',
-            name: 'Living Room 4-Gang',
-            ipAddress: '192.168.0.105',
-            macAddress: '24:D7:EB:12:44:A1',
-            roomName: 'Living Room',
-            online: true,
-            activeRoutinesCount: 2,
-            hasCriticalHardwareFallback: false,
-            latencyMs: 3,
-          ),
-          HubDeviceInfo(
-            id: 'sw_kitchen_02',
-            name: 'Kitchen Lights & Exhaust',
-            ipAddress: '192.168.0.108',
-            macAddress: '24:D7:EB:12:44:B2',
-            roomName: 'Kitchen',
-            online: true,
-            activeRoutinesCount: 1,
-            hasCriticalHardwareFallback: false,
-            latencyMs: 4,
-          ),
-          HubDeviceInfo(
-            id: 'sw_motor_03',
-            name: 'Main Water Motor Pump',
-            ipAddress: '192.168.0.112',
-            macAddress: '24:D7:EB:12:44:C3',
-            roomName: 'Utility / Yard',
-            online: true,
-            activeRoutinesCount: 1,
-            hasCriticalHardwareFallback: true,
-            latencyMs: 2,
-          ),
-        ],
-      );
+          List<HubDeviceInfo> devices = [];
+          try {
+            final devUri = Uri.parse('http://$host:4210/api/v1/hub/devices');
+            final devRes = await _client.get(devUri).timeout(const Duration(milliseconds: 1000));
+            if (devRes.statusCode == 200) {
+              final devJson = jsonDecode(devRes.body) as Map<String, dynamic>;
+              final rawList = devJson['devices'] as List<dynamic>? ?? [];
+              devices = rawList.map((d) => HubDeviceInfo.fromJson(d as Map<String, dynamic>)).toList();
+            }
+          } catch (_) {}
+
+          return HubState(
+            status: isLinked ? HubConnectionStatus.connected : HubConnectionStatus.notConfigured,
+            hubId: data['hubId'] as String? ?? 'eh-hub-pi3b',
+            hostname: host,
+            ipAddress: data['ipAddress'] as String? ?? host,
+            model: data['model'] as String? ?? 'EH-HUB-V1-PI (Raspberry Pi 3B+)',
+            firmwareVersion: data['version'] as String? ?? 'v1.0.0-phase51',
+            uptime: data['uptime'] as String? ?? 'Active',
+            latencyMs: (data['latencyMs'] as num?)?.toInt() ?? 3,
+            connectedDevices: devices,
+            standardRoutinesCount: (data['standardRoutinesCount'] as num?)?.toInt() ?? 0,
+            criticalRoutinesCount: (data['criticalRoutinesCount'] as num?)?.toInt() ?? 0,
+            sdCardOverlayFsActive: data['overlayFs'] as bool? ?? true,
+            localNtpSynced: data['ntpSynced'] as bool? ?? true,
+          );
+        }
+      } catch (_) {}
     }
 
     return const HubState(status: HubConnectionStatus.notConfigured);
@@ -91,18 +63,18 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> linkHub({required String hubHostname, required String homeId}) async {
-    _mockLinked = true;
-    try {
-      final uri = Uri.parse('http://$hubHostname:4210/api/v1/hub/link');
-      final res = await _client.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'homeId': homeId, 'token': 'eh_claim_token_phase51'}),
-      ).timeout(const Duration(seconds: 3));
-      return res.statusCode == 200;
-    } catch (_) {
-      return true;
+    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/link');
+        final res = await _client.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'homeId': homeId, 'token': 'eh_claim_token_phase51'}),
+        ).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
     }
+    return false;
   }
 
   @override
@@ -110,53 +82,35 @@ class LiveHubRepository implements HubRepository {
     required String hubHostname,
     required List<String> switchIds,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-    return [
-      const HubDeviceInfo(
-        id: 'sw_living_room_01',
-        name: 'Living Room 4-Gang',
-        ipAddress: '192.168.0.105',
-        macAddress: '24:D7:EB:12:44:A1',
-        roomName: 'Living Room',
-        online: true,
-        activeRoutinesCount: 2,
-        hasCriticalHardwareFallback: false,
-        latencyMs: 3,
-      ),
-      const HubDeviceInfo(
-        id: 'sw_kitchen_02',
-        name: 'Kitchen Lights & Exhaust',
-        ipAddress: '192.168.0.108',
-        macAddress: '24:D7:EB:12:44:B2',
-        roomName: 'Kitchen',
-        online: true,
-        activeRoutinesCount: 1,
-        hasCriticalHardwareFallback: false,
-        latencyMs: 4,
-      ),
-      const HubDeviceInfo(
-        id: 'sw_motor_03',
-        name: 'Main Water Motor Pump',
-        ipAddress: '192.168.0.112',
-        macAddress: '24:D7:EB:12:44:C3',
-        roomName: 'Utility / Yard',
-        online: true,
-        activeRoutinesCount: 1,
-        hasCriticalHardwareFallback: true,
-        latencyMs: 2,
-      ),
-    ];
+    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/adopt');
+        final res = await _client.post(uri).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final rawList = data['devices'] as List<dynamic>? ?? [];
+          return rawList.map((d) => HubDeviceInfo.fromJson(d as Map<String, dynamic>)).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
   }
 
   @override
   Future<bool> syncAutomations({required String hubHostname}) async {
-    await Future.delayed(const Duration(milliseconds: 500));
+    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/routines');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
     return true;
   }
 
   @override
   Future<bool> restartHubCore({required String hubHostname}) async {
-    await Future.delayed(const Duration(milliseconds: 800));
+    await Future.delayed(const Duration(milliseconds: 600));
     return true;
   }
 }
