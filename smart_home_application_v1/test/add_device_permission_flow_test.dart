@@ -19,7 +19,7 @@ void main() {
       expect(find.text('Add a device'), findsOneWidget);
       expect(find.text('Nearby devices'), findsOneWidget);
       expect(find.text('EH Smart Switch 3X'), findsOneWidget);
-      expect(find.text('EH Smart Switch 5X'), findsOneWidget);
+      expect(find.text('EH Smart Socket 2X'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Connect'), findsWidgets);
     });
   });

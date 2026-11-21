@@ -129,14 +129,14 @@ class ProductVariantDefinition {
   final String description;
 
   String? get heroImageUrl {
-    // 1. Exact bundled catalog asset from APK FIRST (for instant 100% offline support)
-    final bundled = resolveBundledProductAsset(productVariantId);
-    if (bundled != null && bundled.isNotEmpty) return bundled;
-
     final direct = images['hero'] ?? images['front'] ?? images['thumbnail'];
     if (direct != null && (direct.startsWith('http://') || direct.startsWith('https://') || direct.startsWith('/api/'))) {
       return direct;
     }
+
+    // 1. Exact bundled catalog asset from APK (for instant 100% offline support)
+    final bundled = resolveBundledProductAsset(productVariantId);
+    if (bundled != null && bundled.isNotEmpty) return bundled;
     // 2. Any non-empty direct image reference from API (e.g. already an asset path)
     if (direct != null && direct.isNotEmpty) return direct;
     // 3. Canonical catalog fallback using the known variant ID naming convention

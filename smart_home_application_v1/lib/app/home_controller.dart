@@ -2375,6 +2375,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         if (_isLocalMode) return;
       }
 
+      if (!_cloudEnabled) return;
+
       bool stateChanged = false;
       final rawDevices = await _repository.getDevices(homeId: _activeHomeId).timeout(const Duration(milliseconds: 3000));
       _consecutiveCloudFailures = 0;

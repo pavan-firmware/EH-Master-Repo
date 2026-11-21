@@ -37,7 +37,7 @@ void main() {
       // Devices list (Page 1 in PDF)
       expect(find.text('EH Smart Switch 3X'), findsOneWidget);
       expect(find.text('Strong signal'), findsOneWidget);
-      expect(find.text('EH Smart Switch 5X'), findsOneWidget);
+      expect(find.text('EH Smart Socket 2X'), findsOneWidget);
       expect(find.text('Good signal'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Connect'), findsNWidgets(2));
 
