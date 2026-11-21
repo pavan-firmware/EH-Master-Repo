@@ -1,12 +1,13 @@
 /**
  * EH Home - Smart Hub Core Engine & Local Mesh Coordinator
- * Node.js Zero-Dependency Daemon
+ * Node.js Power-Cut Safe Daemon with SQLite WAL / Atomic WAL Storage
  * 
  * Hardware Target: Raspberry Pi 3B+ / Low-Cost Embedded SBC
  * Features:
  *  - Port 4210 UDP Discovery & Zero-Touch LAN Switchover
  *  - Port 4210 Local HTTP Control (<5ms response time)
- *  - Priority-Tiered Routine Engine (100% RAM Scheduler)
+ *  - Power-Cut Safe SQLite WAL / Atomic WAL Storage Layer
+ *  - Resilient Timestamped Scheduler & Auto-Off Duration Timers
  *  - 4 Production Hardening Rules:
  *      1. HMAC-SHA256 Token Claim Handshake
  *      2. Non-Disruptive Read-Only Initial Sync (GET /api/v1/state)
@@ -19,6 +20,8 @@ const dgram = require('dgram');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { createStorageEngine } = require('./storage');
+const { HubScheduler } = require('./scheduler');
 
 const PORT = parseInt(process.env.HUB_PORT || '4210', 10);
 const UDP_PORT = 4210;
@@ -26,63 +29,24 @@ const HUB_ID = process.env.HUB_ID || 'eh-hub-pi3b';
 const HOSTNAME = process.env.HUB_HOSTNAME || 'eh-hub.local';
 const DATA_DIR = process.env.HUB_DATA_DIR || path.join(__dirname, '..', 'data');
 
-// Ensure persistent data directory exists (on WAL-safe storage)
-if (!fs.existsSync(DATA_DIR)) {
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  } catch (_) {}
-}
+// Initialize Power-Cut Safe Storage Engine (SQLite WAL or Atomic WAL fallback)
+const storage = createStorageEngine(DATA_DIR);
 
-const STATE_FILE = path.join(DATA_DIR, 'hub-state.json');
+// Ensure essential metadata keys exist in storage
+if (!storage.getMetadata('hubId')) storage.setMetadata('hubId', HUB_ID);
+if (!storage.getMetadata('hostname')) storage.setMetadata('hostname', HOSTNAME);
+if (!storage.getMetadata('model')) storage.setMetadata('model', 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)');
+if (!storage.getMetadata('version')) storage.setMetadata('version', '1.1.0-plan1-sqlite');
 
-// In-Memory Hub State (100% RAM execution to prevent flash wear)
-const hubMemoryState = {
-  hubId: HUB_ID,
-  hostname: HOSTNAME,
-  model: 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)',
-  version: '1.0.0-phase51',
-  homeId: null,
-  claimToken: null,
-  linkedAt: null,
+// Runtime Metrics in RAM
+const hubRuntimeState = {
   startTime: Date.now(),
   overlayFsActive: true,
   ntpSynced: true,
-  adoptedDevices: new Map(), // deviceId -> DeviceInfo
-  standardRoutines: new Map(), // routineId -> Routine
-  criticalRoutines: new Map(),
 };
 
-// Load saved state if present
-try {
-  if (fs.existsSync(STATE_FILE)) {
-    const raw = fs.readFileSync(STATE_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    hubMemoryState.homeId = parsed.homeId || null;
-    hubMemoryState.claimToken = parsed.claimToken || null;
-    hubMemoryState.linkedAt = parsed.linkedAt || null;
-    if (Array.isArray(parsed.devices)) {
-      for (const d of parsed.devices) {
-        hubMemoryState.adoptedDevices.set(d.id, d);
-      }
-    }
-  }
-} catch (e) {
-  console.warn('[Hub] Could not load previous state file, starting fresh:', e.message);
-}
-
-function persistState() {
-  try {
-    const serialized = {
-      homeId: hubMemoryState.homeId,
-      claimToken: hubMemoryState.claimToken,
-      linkedAt: hubMemoryState.linkedAt,
-      devices: Array.from(hubMemoryState.adoptedDevices.values()),
-    };
-    fs.writeFileSync(STATE_FILE, JSON.stringify(serialized, null, 2), 'utf8');
-  } catch (e) {
-    console.warn('[Hub] Failed to persist state:', e.message);
-  }
-}
+// Initialize Resilient Automation Scheduler & Auto-Off Engine
+const scheduler = new HubScheduler(storage, (deviceId) => storage.getDevice(deviceId));
 
 // ---------------------------------------------------------------------------
 // 1. HTTP Server API (Port 4210)
@@ -93,7 +57,7 @@ function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Length': Buffer.byteLength(payload),
   });
@@ -107,7 +71,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     });
     return res.end();
@@ -115,27 +79,48 @@ const server = http.createServer((req, res) => {
 
   // GET /api/v1/hub/info - Telemetry & Diagnostics
   if (req.method === 'GET' && pathname === '/api/v1/hub/info') {
-    const uptimeSec = Math.floor((Date.now() - hubMemoryState.startTime) / 1000);
+    const uptimeSec = Math.floor((Date.now() - hubRuntimeState.startTime) / 1000);
     const days = Math.floor(uptimeSec / 86400);
     const hours = Math.floor((uptimeSec % 86400) / 3600);
     const uptimeStr = days > 0 ? `${days} days, ${hours} hours` : `${hours} hours`;
 
+    const homeId = storage.getMetadata('homeId', null);
+    const devices = storage.getDevices();
+    const routines = storage.getRoutines();
+    const criticalRoutines = routines.filter(r => r.criticalHardwareFallback);
+    const standardRoutines = routines.filter(r => !r.criticalHardwareFallback);
+
     return sendJson(res, 200, {
       status: 'ok',
-      hubId: hubMemoryState.hubId,
-      hostname: hubMemoryState.hostname,
-      model: hubMemoryState.model,
-      version: hubMemoryState.version,
-      homeId: hubMemoryState.homeId,
-      isLinked: Boolean(hubMemoryState.homeId),
+      hubId: storage.getMetadata('hubId', HUB_ID),
+      hostname: storage.getMetadata('hostname', HOSTNAME),
+      model: storage.getMetadata('model', 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)'),
+      version: storage.getMetadata('version', '1.1.0-plan1-sqlite'),
+      homeId: homeId,
+      isLinked: Boolean(homeId),
       uptime: uptimeStr,
       latencyMs: 3,
-      devicesCount: hubMemoryState.adoptedDevices.size,
-      standardRoutinesCount: hubMemoryState.standardRoutines.size,
-      criticalRoutinesCount: hubMemoryState.criticalRoutines.size,
-      overlayFs: hubMemoryState.overlayFsActive,
-      ntpSynced: hubMemoryState.ntpSynced,
+      devicesCount: devices.length,
+      standardRoutinesCount: standardRoutines.length,
+      criticalRoutinesCount: criticalRoutines.length,
+      activeTimersCount: storage.getActiveTimers().length,
+      storageEngine: storage.type,
+      overlayFs: hubRuntimeState.overlayFsActive,
+      ntpSynced: hubRuntimeState.ntpSynced,
       memory: process.memoryUsage(),
+    });
+  }
+
+  // GET /api/v1/hub/storage/stats - Storage Engine Diagnostics
+  if (req.method === 'GET' && pathname === '/api/v1/hub/storage/stats') {
+    return sendJson(res, 200, {
+      status: 'ok',
+      engine: storage.type,
+      dataDir: DATA_DIR,
+      devicesCount: storage.getDevices().length,
+      routinesCount: storage.getRoutines().length,
+      activeTimersCount: storage.getActiveTimers().length,
+      metadata: storage.getAllMetadata(),
     });
   }
 
@@ -149,15 +134,14 @@ const server = http.createServer((req, res) => {
         if (!payload.homeId) {
           return sendJson(res, 400, { error: 'homeId is required' });
         }
-        hubMemoryState.homeId = payload.homeId;
-        hubMemoryState.claimToken = payload.token || crypto.randomBytes(16).toString('hex');
-        hubMemoryState.linkedAt = new Date().toISOString();
-        persistState();
-        console.log(`[Hub] Successfully linked to Home: ${payload.homeId}`);
+        storage.setMetadata('homeId', payload.homeId);
+        storage.setMetadata('claimToken', payload.token || crypto.randomBytes(16).toString('hex'));
+        storage.setMetadata('linkedAt', new Date().toISOString());
+        console.log(`[Hub] Successfully linked to Home: ${payload.homeId} (Storage: ${storage.type})`);
         return sendJson(res, 200, {
           status: 'ok',
           message: 'Hub successfully linked to Home',
-          homeId: hubMemoryState.homeId,
+          homeId: payload.homeId,
         });
       } catch (err) {
         return sendJson(res, 400, { error: 'Invalid JSON payload' });
@@ -168,7 +152,7 @@ const server = http.createServer((req, res) => {
 
   // GET /api/v1/hub/devices - List of adopted local devices
   if (req.method === 'GET' && pathname === '/api/v1/hub/devices') {
-    const list = Array.from(hubMemoryState.adoptedDevices.values());
+    const list = storage.getDevices();
     return sendJson(res, 200, { status: 'ok', devices: list });
   }
 
@@ -182,7 +166,7 @@ const server = http.createServer((req, res) => {
         if (payload.devices && Array.isArray(payload.devices)) {
           for (const d of payload.devices) {
             if (d.id && d.ipAddress) {
-              hubMemoryState.adoptedDevices.set(d.id, {
+              storage.upsertDevice({
                 id: d.id,
                 name: d.name || `Switch (${d.id.slice(-4)})`,
                 ipAddress: d.ipAddress,
@@ -195,12 +179,11 @@ const server = http.createServer((req, res) => {
               });
             }
           }
-          persistState();
         }
       } catch (_) {}
 
       broadcastDiscovery();
-      const list = Array.from(hubMemoryState.adoptedDevices.values());
+      const list = storage.getDevices();
       return sendJson(res, 200, {
         status: 'ok',
         message: 'Zero-touch discovery triggered',
@@ -220,16 +203,32 @@ const server = http.createServer((req, res) => {
 
   // POST /api/v1/hub/unlink - Unlink Hub from current home
   if (req.method === 'POST' && pathname === '/api/v1/hub/unlink') {
-    hubMemoryState.homeId = null;
-    hubMemoryState.claimToken = null;
-    persistState();
+    storage.setMetadata('homeId', null);
+    storage.setMetadata('claimToken', null);
+    storage.setMetadata('linkedAt', null);
     return sendJson(res, 200, { status: 'ok', message: 'Hub unlinked successfully' });
   }
 
-  // GET /api/v1/routines - List standard comfort routines running on Hub
+  // GET /api/v1/routines - List standard and critical routines running on Hub
   if (req.method === 'GET' && pathname === '/api/v1/routines') {
-    const routines = Array.from(hubMemoryState.standardRoutines.values());
+    const routines = storage.getRoutines();
     return sendJson(res, 200, { status: 'ok', routines });
+  }
+
+  // GET /api/v1/routines/timers - List active auto-off countdown timers
+  if (req.method === 'GET' && pathname === '/api/v1/routines/timers') {
+    const timers = storage.getActiveTimers();
+    return sendJson(res, 200, { status: 'ok', activeTimers: timers });
+  }
+
+  // DELETE /api/v1/routines/timers - Cancel an active auto-off countdown timer
+  if (req.method === 'DELETE' && pathname === '/api/v1/routines/timers') {
+    const id = url.searchParams.get('id');
+    if (id) {
+      storage.removeActiveTimer(id);
+      return sendJson(res, 200, { status: 'ok', message: `Timer ${id} cancelled` });
+    }
+    return sendJson(res, 400, { error: 'id parameter required' });
   }
 
   // POST /api/v1/routines/trigger - Immediate test trigger of a scheduled routine
@@ -239,11 +238,11 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body || '{}');
-        const routine = hubMemoryState.standardRoutines.get(payload.id);
+        const routine = storage.getRoutine(payload.id);
         if (!routine) {
           return sendJson(res, 404, { error: 'Routine not found' });
         }
-        dispatchRoutineAction(routine);
+        scheduler.dispatchRoutine(routine);
         return sendJson(res, 200, { status: 'ok', triggered: true, routine });
       } catch (err) {
         return sendJson(res, 400, { error: 'Invalid payload' });
@@ -274,8 +273,8 @@ const server = http.createServer((req, res) => {
           criticalHardwareFallback: Boolean(payload.criticalHardwareFallback),
           updatedAt: new Date().toISOString(),
         };
-        hubMemoryState.standardRoutines.set(id, routine);
-        persistState();
+
+        storage.upsertRoutine(routine);
 
         // If Critical Hardware Fallback, dual-sync directly to ESP32 switch NVS
         if (routine.criticalHardwareFallback) {
@@ -290,6 +289,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // DELETE /api/v1/routines - Delete a routine
+  if (req.method === 'DELETE' && pathname === '/api/v1/routines') {
+    const id = url.searchParams.get('id');
+    if (id) {
+      storage.deleteRoutine(id);
+      return sendJson(res, 200, { status: 'ok', message: `Routine ${id} deleted` });
+    }
+    return sendJson(res, 400, { error: 'id query parameter required' });
+  }
+
   // POST /api/v1/control - Actuator Proxy (<5ms LAN relay)
   if (req.method === 'POST' && pathname === '/api/v1/control') {
     let body = '';
@@ -301,7 +310,7 @@ const server = http.createServer((req, res) => {
         const channel = payload.channel ?? payload.channelIndex ?? 1;
         const state = payload.state ?? payload.power ?? payload.value ?? true;
 
-        const target = hubMemoryState.adoptedDevices.get(deviceId);
+        const target = storage.getDevice(deviceId);
         if (target && target.ipAddress) {
           // Forward directly to switch IP via local LAN HTTP in <5ms
           const postData = JSON.stringify({
@@ -326,6 +335,7 @@ const server = http.createServer((req, res) => {
           }, forwardRes => {
             target.channels = target.channels || {};
             target.channels[channel] = state;
+            storage.upsertDevice(target);
             sendJson(res, forwardRes.statusCode || 200, {
               status: 'forwarded',
               target: deviceId,
@@ -389,8 +399,7 @@ const server = http.createServer((req, res) => {
 
   // POST /api/v1/hub/network/reset - Reset Mesh Network & Trigger Subnet Re-scan
   if (req.method === 'POST' && pathname === '/api/v1/hub/network/reset') {
-    hubMemoryState.adoptedDevices.clear();
-    persistState();
+    storage.clearDevices();
     broadcastDiscovery();
     console.log('[Hub] Mesh network reset. Subnet re-scan broadcast initiated.');
     return sendJson(res, 200, {
@@ -407,7 +416,7 @@ const server = http.createServer((req, res) => {
       message: 'Hub Core reboot initiated. Daemon restarting...',
     });
     setTimeout(() => {
-      hubMemoryState.startTime = Date.now();
+      hubRuntimeState.startTime = Date.now();
       console.log('[Hub] Core reboot completed cleanly in-process.');
     }, 500);
     return;
@@ -415,18 +424,8 @@ const server = http.createServer((req, res) => {
 
   // POST /api/v1/hub/factory-reset - Factory Reset Hub (wipes tokens, devices, unlinks)
   if (req.method === 'POST' && pathname === '/api/v1/hub/factory-reset') {
-    hubMemoryState.homeId = null;
-    hubMemoryState.claimToken = null;
-    hubMemoryState.linkedAt = null;
-    hubMemoryState.adoptedDevices.clear();
-    hubMemoryState.standardRoutines.clear();
-    hubMemoryState.criticalRoutines.clear();
-    try {
-      if (fs.existsSync(STATE_FILE)) {
-        fs.unlinkSync(STATE_FILE);
-      }
-    } catch (_) {}
-    console.log('[Hub] Factory reset executed. All state wiped to out-of-box defaults.');
+    storage.wipeAll();
+    console.log('[Hub] Factory reset executed. All storage wiped to out-of-box defaults.');
     return sendJson(res, 200, {
       status: 'ok',
       message: 'Hub factory reset complete. Restored to out-of-box state.',
@@ -438,8 +437,8 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, {
       status: 'ok',
       hub: {
-        currentVersion: hubMemoryState.version,
-        latestVersion: hubMemoryState.version,
+        currentVersion: storage.getMetadata('version', '1.1.0-plan1-sqlite'),
+        latestVersion: storage.getMetadata('version', '1.1.0-plan1-sqlite'),
         updateAvailable: false,
         platform: 'Raspberry Pi 3B+ (Debian aarch64)',
         channel: 'stable',
@@ -498,7 +497,8 @@ udpSocket.on('message', (msg, rinfo) => {
 
       const devId = data.deviceId;
       if (devId) {
-        if (!hubMemoryState.adoptedDevices.has(devId)) {
+        const existing = storage.getDevice(devId);
+        if (!existing) {
           // Apply Jitter (Rule 3) before initial read-only probe
           const delay = Math.floor(Math.random() * 50) + 20;
           setTimeout(() => {
@@ -506,7 +506,6 @@ udpSocket.on('message', (msg, rinfo) => {
           }, delay);
         } else {
           // Update live IP and online status dynamically (DHCP shift resilience)
-          const existing = hubMemoryState.adoptedDevices.get(devId);
           existing.ipAddress = rinfo.address;
           existing.online = true;
           existing.lastSeenAt = new Date().toISOString();
@@ -518,6 +517,7 @@ udpSocket.on('message', (msg, rinfo) => {
               }
             }
           }
+          storage.upsertDevice(existing);
         }
       }
     }
@@ -537,7 +537,7 @@ function performNonDisruptiveStateSync(deviceId, ipAddress) {
     res.on('end', () => {
       try {
         const state = JSON.parse(body || '{}');
-        hubMemoryState.adoptedDevices.set(deviceId, {
+        storage.upsertDevice({
           id: deviceId,
           name: state.name || `EH Switch (${deviceId.slice(-4)})`,
           ipAddress: ipAddress,
@@ -546,8 +546,7 @@ function performNonDisruptiveStateSync(deviceId, ipAddress) {
           hasCriticalHardwareFallback: Boolean(state.hasCriticalRoutines),
           latencyMs: 3,
         });
-        persistState();
-        console.log(`[Hub Zero-Touch] Adopted device ${deviceId} at ${ipAddress} (Read-only sync OK)`);
+        console.log(`[Hub Zero-Touch] Adopted device ${deviceId} at ${ipAddress} (Read-only sync OK, saved in ${storage.type})`);
       } catch (_) {}
     });
   });
@@ -561,8 +560,8 @@ function broadcastDiscovery() {
   const epoch = Math.floor(Date.now() / 1000);
   const payload = JSON.stringify({
     cmd: 'EH_DISCOVER',
-    hubId: HUB_ID,
-    homeId: hubMemoryState.homeId || 'open',
+    hubId: storage.getMetadata('hubId', HUB_ID),
+    homeId: storage.getMetadata('homeId', 'open'),
     epoch: epoch,
     unix_time: epoch,
   });
@@ -573,11 +572,11 @@ function broadcastDiscovery() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Priority-Tiered 24/7 RAM Routine Scheduler (Zero Flash Wear)
+// 3. Priority-Tiered Routine Dual-Sync to ESP32 Flash
 // ---------------------------------------------------------------------------
 
 function pushRoutineToSwitchHardware(routine) {
-  const target = hubMemoryState.adoptedDevices.get(routine.deviceId);
+  const target = storage.getDevice(routine.deviceId);
   if (!target || !target.ipAddress) {
     console.warn(`[Hub] Cannot dual-sync routine to ${routine.deviceId}: IP not found`);
     return;
@@ -615,74 +614,22 @@ function pushRoutineToSwitchHardware(routine) {
   req.end();
 }
 
-function dispatchRoutineAction(routine) {
-  const target = hubMemoryState.adoptedDevices.get(routine.deviceId);
-  if (!target || !target.ipAddress) {
-    console.warn(`[Hub Scheduler] Target switch ${routine.deviceId} not reachable on LAN`);
-    return;
-  }
-  // ESP32 local_server.c expects channel, power, value, enabled
-  const postData = JSON.stringify({
-    channel: routine.channel,
-    channelIndex: routine.channel,
-    power: Boolean(routine.targetState),
-    value: Boolean(routine.targetState),
-    enabled: Boolean(routine.targetState),
-    state: Boolean(routine.targetState),
-  });
-  const req = http.request({
-    hostname: target.ipAddress,
-    port: 80,
-    path: '/api/v1/control',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(postData),
-    },
-    timeout: 800,
-  }, res => {
-    target.channels = target.channels || {};
-    target.channels[routine.channel] = Boolean(routine.targetState);
-    console.log(`[Hub Scheduler] Routine '${routine.name}' triggered on ${routine.deviceId} ch${routine.channel} -> ${routine.targetState} (HTTP ${res.statusCode}) in RAM`);
-  });
-  req.on('error', err => {
-    console.warn(`[Hub Scheduler] Error triggering routine '${routine.name}':`, err.message);
-  });
-  req.write(postData);
-  req.end();
-}
-
-function evaluateRoutinesTick() {
-  const now = new Date();
-  const currentDay = now.getDay();
-  const dayMask = 1 << currentDay;
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
-  const currentSecond = now.getSeconds();
-
-  if (currentSecond !== 0) return;
-
-  for (const routine of hubMemoryState.standardRoutines.values()) {
-    if (!routine.enabled) continue;
-    if ((routine.daysMask & dayMask) === 0) continue;
-    if (routine.hour === currentHour && routine.minute === currentMinute) {
-      dispatchRoutineAction(routine);
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
-// 4. Server Startup
+// 4. Server Startup & Scheduler Activation
 // ---------------------------------------------------------------------------
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
-  console.log(`  EH Home Smart Hub Core Engine v${hubMemoryState.version}`);
-  console.log(`  Target Hardware : ${hubMemoryState.model}`);
+  console.log(`  EH Home Smart Hub Core Engine v${storage.getMetadata('version', '1.1.0-plan1-sqlite')}`);
+  console.log(`  Storage Engine  : ${storage.type}`);
+  console.log(`  Target Hardware : ${storage.getMetadata('model', 'EH-HUB-V1-PI')}`);
   console.log(`  HTTP API        : http://0.0.0.0:${PORT}`);
   console.log(`  UDP Discovery   : Port ${UDP_PORT}`);
-  console.log(`  OverlayFS Safe  : 100% RAM Scheduler Active`);
+  console.log(`  OverlayFS Safe  : 100% RAM Scheduler + Power-Cut WAL`);
   console.log(`=======================================================`);
+
+  // Activate Resilient Scheduler
+  scheduler.start();
 
   udpSocket.bind(UDP_PORT, () => {
     try {
@@ -692,15 +639,14 @@ server.listen(PORT, '0.0.0.0', () => {
     broadcastDiscovery();
     // Schedule periodic discovery every 60s
     setInterval(broadcastDiscovery, 60000);
-    // Start 24/7 in-RAM routine evaluation ticker (Zero flash wear)
-    setInterval(evaluateRoutinesTick, 1000);
   });
 });
 
 process.on('SIGTERM', () => {
   console.log('[Hub] Shutting down gracefully...');
+  scheduler.stop();
   server.close();
   udpSocket.close();
+  storage.close();
   process.exit(0);
 });
-

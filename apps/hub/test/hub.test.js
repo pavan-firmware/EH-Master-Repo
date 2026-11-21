@@ -2,12 +2,20 @@ const http = require('http');
 const assert = require('assert');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const serverScript = path.join(__dirname, '..', 'src', 'server.js');
-const PORT = 4215; // Isolated test port
+const PORT = 4216; // Isolated test port
 
 process.env.HUB_PORT = String(PORT);
-process.env.HUB_DATA_DIR = path.join(__dirname, 'test-data');
+const testDataDir = path.join(__dirname, 'test-data');
+process.env.HUB_DATA_DIR = testDataDir;
+
+if (fs.existsSync(testDataDir)) {
+  try {
+    fs.rmSync(testDataDir, { recursive: true, force: true });
+  } catch (_) {}
+}
 
 const child = spawn(process.execPath, [serverScript], {
   env: process.env,
@@ -64,7 +72,8 @@ async function runTests() {
   assert.strictEqual(infoRes.body.status, 'ok');
   assert.strictEqual(typeof infoRes.body.latencyMs, 'number');
   assert.strictEqual(infoRes.body.overlayFs, true);
-  console.log('  ✓ GET /api/v1/hub/info passed');
+  assert(infoRes.body.storageEngine === 'sqlite-wal' || infoRes.body.storageEngine === 'atomic-wal');
+  console.log(`  ✓ GET /api/v1/hub/info passed (Storage Engine: ${infoRes.body.storageEngine})`);
 
   console.log('[Test 2] Testing POST /api/v1/hub/link (Rule 1: Claim Token)...');
   const linkRes = await request('POST', '/api/v1/hub/link', {
@@ -91,7 +100,7 @@ async function runTests() {
   assert.strictEqual(controlRes.body.status, 'ok');
   console.log('  ✓ POST /api/v1/control passed');
 
-  console.log('[Test 5] Testing POST /api/v1/routines (24/7 RAM Scheduler)...');
+  console.log('[Test 5] Testing POST /api/v1/routines (24/7 RAM Scheduler + Auto-Off duration)...');
   const routineRes = await request('POST', '/api/v1/routines', {
     name: 'Evening Porch Light',
     deviceId: 'test_dev_01',
@@ -99,11 +108,13 @@ async function runTests() {
     targetState: true,
     hour: 18,
     minute: 30,
+    durationSec: 1, // 1-second auto-off for test
     criticalHardwareFallback: false,
   });
   assert.strictEqual(routineRes.statusCode, 200);
   assert.strictEqual(routineRes.body.status, 'ok');
   assert.strictEqual(routineRes.body.routine.name, 'Evening Porch Light');
+  assert.strictEqual(routineRes.body.routine.durationSec, 1);
   const routineId = routineRes.body.routine.id;
 
   const listRoutinesRes = await request('GET', '/api/v1/routines');
@@ -112,11 +123,24 @@ async function runTests() {
   assert.strictEqual(listRoutinesRes.body.routines.length, 1);
   console.log('  ✓ POST & GET /api/v1/routines passed');
 
-  console.log('[Test 6] Testing POST /api/v1/routines/trigger (Manual test run)...');
+  console.log('[Test 6] Testing POST /api/v1/routines/trigger (Manual test run & Auto-Off timer)...');
   const triggerRes = await request('POST', '/api/v1/routines/trigger', { id: routineId });
   assert.strictEqual(triggerRes.statusCode, 200);
   assert.strictEqual(triggerRes.body.triggered, true);
-  console.log('  ✓ POST /api/v1/routines/trigger passed');
+
+  // Verify active auto-off countdown timer was armed
+  const timersRes = await request('GET', '/api/v1/routines/timers');
+  assert.strictEqual(timersRes.statusCode, 200);
+  assert(Array.isArray(timersRes.body.activeTimers));
+  assert(timersRes.body.activeTimers.length >= 1);
+  console.log('  ✓ POST /api/v1/routines/trigger and Auto-Off timer armed');
+
+  // Wait for 1.3s for countdown to expire and revert
+  await new Promise(r => setTimeout(r, 1300));
+  const timersAfterRes = await request('GET', '/api/v1/routines/timers');
+  assert.strictEqual(timersAfterRes.statusCode, 200);
+  assert.strictEqual(timersAfterRes.body.activeTimers.length, 0);
+  console.log('  ✓ Auto-Off timer expired and cleaned up cleanly');
 
   console.log('[Test 7] Testing POST /api/v1/hub/time/sync...');
   const timeRes = await request('POST', '/api/v1/hub/time/sync');
@@ -127,7 +151,7 @@ async function runTests() {
   console.log('[Test 8] Testing GET /api/v1/hub/updates...');
   const updateRes = await request('GET', '/api/v1/hub/updates');
   assert.strictEqual(updateRes.statusCode, 200);
-  assert.strictEqual(updateRes.body.hub.currentVersion, '1.0.0-phase51');
+  assert.strictEqual(updateRes.body.hub.currentVersion, '1.1.0-plan1-sqlite');
   assert.strictEqual(updateRes.body.deviceOtaCache.enabled, true);
   console.log('  ✓ GET /api/v1/hub/updates passed');
 
@@ -150,22 +174,39 @@ async function runTests() {
   assert.strictEqual(badAuthRes.statusCode, 401);
   console.log('  ✓ POST /api/v1/hub/auth/verify passed');
 
-  console.log('[Test 12] Testing POST /api/v1/hub/network/reset...');
+  console.log('[Test 12] Testing GET /api/v1/hub/storage/stats (Storage Diagnostics)...');
+  const statsRes = await request('GET', '/api/v1/hub/storage/stats');
+  assert.strictEqual(statsRes.statusCode, 200);
+  assert.strictEqual(statsRes.body.status, 'ok');
+  assert(statsRes.body.engine === 'sqlite-wal' || statsRes.body.engine === 'atomic-wal');
+  assert.strictEqual(typeof statsRes.body.routinesCount, 'number');
+  console.log(`  ✓ Storage stats verified (Engine: ${statsRes.body.engine})`);
+
+  console.log('[Test 13] Testing DELETE /api/v1/routines...');
+  const delRes = await request('DELETE', `/api/v1/routines?id=${routineId}`);
+  assert.strictEqual(delRes.statusCode, 200);
+  const listAfterDel = await request('GET', '/api/v1/routines');
+  assert.strictEqual(listAfterDel.body.routines.length, 0);
+  console.log('  ✓ DELETE /api/v1/routines passed');
+
+  console.log('[Test 14] Testing POST /api/v1/hub/network/reset...');
   const netResetRes = await request('POST', '/api/v1/hub/network/reset');
   assert.strictEqual(netResetRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/network/reset passed');
 
-  console.log('[Test 13] Testing POST /api/v1/hub/reboot...');
+  console.log('[Test 15] Testing POST /api/v1/hub/reboot...');
   const rebootRes = await request('POST', '/api/v1/hub/reboot');
   assert.strictEqual(rebootRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/reboot passed');
 
-  console.log('[Test 14] Testing POST /api/v1/hub/factory-reset...');
+  console.log('[Test 16] Testing POST /api/v1/hub/factory-reset...');
   const factoryRes = await request('POST', '/api/v1/hub/factory-reset');
   assert.strictEqual(factoryRes.statusCode, 200);
+  const infoAfterReset = await request('GET', '/api/v1/hub/info');
+  assert.strictEqual(infoAfterReset.body.isLinked, false);
   console.log('  ✓ POST /api/v1/hub/factory-reset passed');
 
-  console.log('\n[PASS] All 14 Hub Core Daemon Tests Succeeded!\n');
+  console.log('\n[PASS] All 16 Hub Core Daemon & Storage Engine Tests Succeeded!\n');
 }
 
 runTests()
@@ -175,5 +216,9 @@ runTests()
   })
   .finally(() => {
     child.kill('SIGTERM');
+    try {
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true, force: true });
+      }
+    } catch (_) {}
   });
-
