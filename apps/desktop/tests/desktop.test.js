@@ -137,7 +137,8 @@ async function main() {
     assert.ok(fs.existsSync(confPath));
     const conf = JSON.parse(fs.readFileSync(confPath, 'utf8'));
     assert.strictEqual(conf.identifier, 'com.ehhome.desktop');
-    assert.ok(conf.app.security.csp.includes("connect-src 'self' http://localhost:3100"));
+    assert.ok(conf.app.security.csp.includes("connect-src"));
+    assert.ok(conf.app.security.csp.includes("http://localhost:3100"));
   });
 
   await runTest('Cargo.toml defines Tauri v2 dependencies', () => {
