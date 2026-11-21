@@ -137,22 +137,23 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
       return (home, system);
     } catch (_) {
       if (_cachedData != null) return _cachedData!;
-      // Graceful offline fallback: Never lock user out of local settings
-      try {
-        var fallbackHome = await const PreviewSettingsRepository().getHome();
-        if (widget.homeController?.activeSpaceName != null &&
-            widget.homeController!.activeSpaceName.isNotEmpty) {
-          fallbackHome = fallbackHome.copyWith(name: widget.homeController!.activeSpaceName);
-        }
-        final conn = await const PreviewHomeConnectionRepository().getOverview(liveState: HomeConnectionState.offline);
-        final upd = await const PreviewUpdateRepository().getSummary();
-        final hlth = await const PreviewDeviceHealthRepository().getSummary();
-        final fallbackSystem = _SystemSummary(connection: conn, update: upd, health: hlth);
-        _cachedData = (fallbackHome, fallbackSystem);
-        return (fallbackHome, fallbackSystem);
-      } catch (_) {
-        rethrow;
+      // Graceful offline fallback in Local Wi-Fi Mode: Never lock user out of local settings
+      if (widget.homeController?.isLocalMode == true) {
+        try {
+          var fallbackHome = await const PreviewSettingsRepository().getHome();
+          if (widget.homeController?.activeSpaceName != null &&
+              widget.homeController!.activeSpaceName.isNotEmpty) {
+            fallbackHome = fallbackHome.copyWith(name: widget.homeController!.activeSpaceName);
+          }
+          final conn = await const PreviewHomeConnectionRepository().getOverview(liveState: HomeConnectionState.offline);
+          final upd = await const PreviewUpdateRepository().getSummary();
+          final hlth = await const PreviewDeviceHealthRepository().getSummary();
+          final fallbackSystem = _SystemSummary(connection: conn, update: upd, health: hlth);
+          _cachedData = (fallbackHome, fallbackSystem);
+          return (fallbackHome, fallbackSystem);
+        } catch (_) {}
       }
+      rethrow;
     }
   }
 

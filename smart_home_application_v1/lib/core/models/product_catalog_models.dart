@@ -122,15 +122,22 @@ class ProductCatalogEntry {
   });
 
   String? get imageUrl {
-    // 1. Exact bundled catalog asset from APK FIRST (for instant 100% offline support)
-    final bundled = resolveBundledProductAsset(variantId);
-    if (bundled != null && bundled.isNotEmpty) return bundled;
-
     final direct = images.hero.isNotEmpty
         ? images.hero
         : images.thumbnail.isNotEmpty
             ? images.thumbnail
             : images.front;
+    if (direct.isNotEmpty &&
+        (direct.startsWith('http://') ||
+            direct.startsWith('https://') ||
+            direct.startsWith('/api/'))) {
+      return direct;
+    }
+
+    // 1. Exact bundled catalog asset from APK (for instant 100% offline support)
+    final bundled = resolveBundledProductAsset(variantId);
+    if (bundled != null && bundled.isNotEmpty) return bundled;
+
     if (direct.isNotEmpty) return direct;
     if (icon != null && icon!.isNotEmpty) return icon;
     return null;

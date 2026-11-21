@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,7 +53,7 @@ class EnergyAutomationService extends ChangeNotifier {
     if (token == null && ApiClient.defaultTokenProvider != null) {
       token = await ApiClient.defaultTokenProvider!();
     }
-    if (token == null) {
+    if (token == null && httpClient == null && !Platform.environment.containsKey('FLUTTER_TEST')) {
       try {
         final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
         token = prefs.getString('auth_access_token');

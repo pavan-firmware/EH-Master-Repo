@@ -303,7 +303,7 @@ void main() {
         );
       };
       await controller.login('notfound@example.com', 'pass');
-      expect(controller.errorMessage, equals('Account not found. Please check your email or create an account.'));
+      expect(controller.errorMessage, equals('No account exists on this server for that email. Check the server URL or create an account.'));
     });
 
     test('3. Operation generation tracking prevents slow restoreSession from overwriting manual login', () async {

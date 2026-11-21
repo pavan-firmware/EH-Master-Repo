@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +14,7 @@ import '../models/connectivity_models.dart';
 class ConnectivityService extends ChangeNotifier {
   final String baseUrl;
   final http.Client _client;
+  final bool _hasCustomClient;
   final ApiClient? apiClient;
   String? _authToken;
 
@@ -22,6 +24,7 @@ class ConnectivityService extends ChangeNotifier {
     this.apiClient,
     String? authToken,
   })  : baseUrl = baseUrl ?? AppConfig.backendBaseUrl,
+        _hasCustomClient = client != null,
         _client = client ?? http.Client() {
     _authToken = authToken;
   }
@@ -38,7 +41,7 @@ class ConnectivityService extends ChangeNotifier {
         token = await apiClient!.getAccessToken!();
       } else if (ApiClient.defaultTokenProvider != null) {
         token = await ApiClient.defaultTokenProvider!();
-      } else {
+      } else if (!_hasCustomClient && !Platform.environment.containsKey('FLUTTER_TEST')) {
         try {
           final prefs = await SharedPreferences.getInstance().timeout(const Duration(milliseconds: 100));
           token = prefs.getString('auth_access_token');
