@@ -43,6 +43,7 @@ static const char* s_nvs_keys[EH_RELAY_CHANNEL_COUNT] = {
 };
 
 static bool s_relay_states[EH_RELAY_CHANNEL_COUNT] = { false };
+static uint8_t s_power_on_mode = EH_POWER_ON_RESTORE; // Default: Restore Last State
 static relay_state_change_cb_t s_change_cb = NULL;
 
 #ifdef ESP_PLATFORM
@@ -61,20 +62,53 @@ static void save_channel_state_nvs(uint8_t channel_index, bool power)
 }
 #endif
 
+void relay_manager_set_power_on_mode(uint8_t mode)
+{
+    if (mode > 2) mode = EH_POWER_ON_RESTORE;
+    s_power_on_mode = mode;
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(NVS_RELAY_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_u8(handle, "pwr_on_mode", mode);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+#endif
+    ESP_LOGI(TAG, "Configured power-on behavior: %d (0=OFF, 1=ON, 2=RESTORE)", mode);
+}
+
+uint8_t relay_manager_get_power_on_mode(void)
+{
+    return s_power_on_mode;
+}
+
 void relay_manager_init(void)
 {
 #ifdef ESP_PLATFORM
-    // 1. Read persisted relay states across power loss / reboot first
+    // 1. Read persisted power-on mode and relay states across power loss / reboot first
     nvs_handle_t handle;
     bool has_nvs = (nvs_open(NVS_RELAY_NAMESPACE, NVS_READONLY, &handle) == ESP_OK);
+    if (has_nvs) {
+        uint8_t stored_mode = EH_POWER_ON_RESTORE;
+        if (nvs_get_u8(handle, "pwr_on_mode", &stored_mode) == ESP_OK) {
+            s_power_on_mode = stored_mode;
+        }
+    }
 
     uint64_t pin_mask = 0;
     for (int i = 0; i < EH_RELAY_CHANNEL_COUNT; i++) {
-        uint8_t val = 0;
-        if (has_nvs && nvs_get_u8(handle, s_nvs_keys[i], &val) == ESP_OK) {
-            s_relay_states[i] = (val != 0);
-        } else {
+        if (s_power_on_mode == EH_POWER_ON_OFF) {
             s_relay_states[i] = false;
+        } else if (s_power_on_mode == EH_POWER_ON_ON) {
+            s_relay_states[i] = true;
+        } else {
+            // Default: RESTORE
+            uint8_t val = 0;
+            if (has_nvs && nvs_get_u8(handle, s_nvs_keys[i], &val) == ESP_OK) {
+                s_relay_states[i] = (val != 0);
+            } else {
+                s_relay_states[i] = false;
+            }
         }
         pin_mask |= (1ULL << s_relay_gpios[i]);
         gpio_set_level((gpio_num_t)s_relay_gpios[i], EH_RELAY_POWER_TO_LEVEL(s_relay_states[i]));

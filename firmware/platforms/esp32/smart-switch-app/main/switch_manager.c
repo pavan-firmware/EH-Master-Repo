@@ -32,6 +32,34 @@ static const int s_switch_gpios[EH_SWITCH_CHANNEL_COUNT] = {
 
 static uint32_t s_last_trigger_ms[EH_SWITCH_CHANNEL_COUNT] = { 0 };
 static switch_toggle_cb_t s_toggle_cb = NULL;
+static bool s_child_lock = false;
+
+#ifdef ESP_PLATFORM
+#include "nvs_flash.h"
+#include "nvs.h"
+#define NVS_SWITCH_NAMESPACE "switch_cfg"
+#endif
+
+void switch_manager_set_child_lock(bool enabled)
+{
+    s_child_lock = enabled;
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(NVS_SWITCH_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_u8(handle, "child_lock", enabled ? 1 : 0);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+#endif
+    ESP_LOGI(TAG, "Child Lock %s (physical switch inputs %s)",
+             enabled ? "ENABLED" : "DISABLED",
+             enabled ? "SUPPRESSED" : "ACTIVE");
+}
+
+bool switch_manager_get_child_lock(void)
+{
+    return s_child_lock;
+}
 
 #ifdef ESP_PLATFORM
 static QueueHandle_t s_switch_evt_queue = NULL;
@@ -97,6 +125,15 @@ void switch_manager_init(void)
     memset(s_last_trigger_ms, 0, sizeof(s_last_trigger_ms));
 
 #ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    if (nvs_open(NVS_SWITCH_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+        uint8_t lock_val = 0;
+        if (nvs_get_u8(handle, "child_lock", &lock_val) == ESP_OK) {
+            s_child_lock = (lock_val != 0);
+        }
+        nvs_close(handle);
+    }
+
     s_switch_evt_queue = xQueueCreate(16, sizeof(switch_event_t));
 
     uint64_t pin_mask = 0;
@@ -128,6 +165,11 @@ void switch_manager_init(void)
 bool switch_manager_feed_event(uint8_t channel_index, uint32_t current_time_ms)
 {
     if (channel_index < 1 || channel_index > EH_SWITCH_CHANNEL_COUNT) {
+        return false;
+    }
+
+    if (s_child_lock) {
+        ESP_LOGI(TAG, "Physical switch toggle suppressed (Child Lock active) on CH%d", channel_index);
         return false;
     }
 

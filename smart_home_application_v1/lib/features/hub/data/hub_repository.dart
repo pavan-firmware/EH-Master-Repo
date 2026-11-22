@@ -34,6 +34,11 @@ abstract class HubRepository {
   Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId});
   Future<Map<String, dynamic>?> testCrossDeviceRule({required String hubHostname, required String ruleId});
   Future<List<AutomationExecutionLog>> getExecutionLogs({required String hubHostname, int limit = 50});
+  Future<Map<String, dynamic>?> getHomeEnergySummary({required String hubHostname, String period = 'today'});
+  Future<Map<String, dynamic>?> getDeviceEnergyHistory({required String hubHostname, required String deviceId, int channel = 1, String period = 'today'});
+  Future<Map<String, dynamic>?> getDeviceSettings({required String deviceIp});
+  Future<bool> setDevicePowerOnMode({required String deviceIp, required int mode});
+  Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled});
 }
 
 class LiveHubRepository implements HubRepository {
@@ -458,5 +463,80 @@ class LiveHubRepository implements HubRepository {
       } catch (_) {}
     }
     return const [];
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getHomeEnergySummary({required String hubHostname, String period = 'today'}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/energy/home/summary?period=$period');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          return data['summary'] as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getDeviceEnergyHistory({
+    required String hubHostname,
+    required String deviceId,
+    int channel = 1,
+    String period = 'today',
+  }) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/energy/devices/$deviceId/history?channel=$channel&period=$period');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          return data['summary'] as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getDeviceSettings({required String deviceIp}) async {
+    try {
+      final uri = Uri.parse('http://$deviceIp:80/api/v1/settings');
+      final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>?;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  Future<bool> setDevicePowerOnMode({required String deviceIp, required int mode}) async {
+    try {
+      final uri = Uri.parse('http://$deviceIp:80/api/v1/settings/power-on');
+      final res = await _client.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'mode': mode}),
+      ).timeout(const Duration(seconds: 2));
+      return res.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  @override
+  Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled}) async {
+    try {
+      final uri = Uri.parse('http://$deviceIp:80/api/v1/settings/child-lock');
+      final res = await _client.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'enabled': enabled}),
+      ).timeout(const Duration(seconds: 2));
+      return res.statusCode == 200;
+    } catch (_) {}
+    return false;
   }
 }

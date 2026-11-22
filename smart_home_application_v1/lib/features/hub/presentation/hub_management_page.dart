@@ -27,6 +27,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
   List<Map<String, dynamic>> _hubRoutines = [];
   List<CrossDeviceRule> _crossDeviceRules = [];
   List<AutomationExecutionLog> _executionLogs = [];
+  Map<String, dynamic>? _localEnergySummary;
   bool _isAdopting = false;
   double _adoptionProgress = 0.0;
   String _adoptionStatusText = '';
@@ -56,6 +57,9 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
         _repo.getExecutionLogs(hubHostname: state.hostname).then((logs) {
           if (mounted) setState(() => _executionLogs = logs);
         });
+        _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
+          if (mounted && summary != null) setState(() => _localEnergySummary = summary);
+        });
       }
     });
   }
@@ -81,6 +85,9 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
         });
         _repo.getExecutionLogs(hubHostname: state.hostname).then((logs) {
           if (mounted) setState(() => _executionLogs = logs);
+        });
+        _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
+          if (mounted && summary != null) setState(() => _localEnergySummary = summary);
         });
       }
     });
@@ -1034,6 +1041,95 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
 
           const SizedBox(height: 24),
 
+          // 4.8 Local 365-Day Energy Telemetry (Plan 3)
+          SettingsSectionTitle(
+            'Local 365-Day Energy Telemetry',
+            trailing: TextButton.icon(
+              onPressed: () {
+                _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
+                  if (mounted && summary != null) setState(() => _localEnergySummary = summary);
+                });
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Refresh'),
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.bolt_rounded, color: const Color(0xFFF59E0B), size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Whole-Home Power Demand',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: tokens.successContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '100% Offline LAN Engine',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: tokens.success,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _buildMetricTile(
+                      tokens,
+                      'Live Power',
+                      '${_localEnergySummary?['currentPowerW'] ?? 0} W',
+                      Icons.speed_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Today Energy',
+                      '${_localEnergySummary?['totalEnergyKwh'] ?? 0} kWh',
+                      Icons.battery_charging_full_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Peak Load',
+                      '${_localEnergySummary?['peakPowerW'] ?? 0} W',
+                      Icons.trending_up_rounded,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
           // 5. Hub Maintenance, Core Controls & Hardware Operations
           const SettingsSectionTitle('Hub Operations & Maintenance'),
           SettingsSurface(
@@ -1397,6 +1493,11 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     ),
                   ],
                 ),
+              ),
+              IconButton(
+                icon: Icon(Icons.tune_rounded, color: tokens.textSecondary, size: 20),
+                tooltip: 'Hardware Settings (Power-On & Child Lock)',
+                onPressed: () => _showDeviceHardwareSettingsDialog(context, tokens, device),
               ),
             ],
           ),
@@ -1861,6 +1962,193 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showDeviceHardwareSettingsDialog(
+    BuildContext context,
+    EHThemeTokens tokens,
+    HubDeviceInfo device,
+  ) async {
+    int powerOnMode = 2;
+    bool childLock = false;
+    bool loading = true;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            if (loading) {
+              _repo.getDeviceSettings(deviceIp: device.ipAddress).then((settings) {
+                if (settings != null) {
+                  setModalState(() {
+                    powerOnMode = settings['powerOnMode'] as int? ?? 2;
+                    childLock = settings['childLock'] as bool? ?? false;
+                    loading = false;
+                  });
+                } else {
+                  setModalState(() => loading = false);
+                }
+              });
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Hardware Device Settings',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: tokens.textPrimary,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(modalCtx),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '${device.name} • ${device.ipAddress}',
+                    style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                  ),
+                  const SizedBox(height: 20),
+                  if (loading)
+                    const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
+                  else ...[
+                    Text(
+                      'Power-On Behavior (After Outage)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      child: Column(
+                        children: [
+                          RadioListTile<int>(
+                            title: const Text('Restore Last State (Recommended)'),
+                            subtitle: const Text('Restores state of relays before power failure'),
+                            value: 2,
+                            groupValue: powerOnMode,
+                            onChanged: (v) => setModalState(() => powerOnMode = v ?? 2),
+                          ),
+                          const Divider(height: 1),
+                          RadioListTile<int>(
+                            title: const Text('Always OFF (Safe Mode)'),
+                            subtitle: const Text('All relays stay turned off when power returns'),
+                            value: 0,
+                            groupValue: powerOnMode,
+                            onChanged: (v) => setModalState(() => powerOnMode = v ?? 0),
+                          ),
+                          const Divider(height: 1),
+                          RadioListTile<int>(
+                            title: const Text('Always ON'),
+                            subtitle: const Text('All relays immediately turn on when power returns'),
+                            value: 1,
+                            groupValue: powerOnMode,
+                            onChanged: (v) => setModalState(() => powerOnMode = v ?? 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.child_care_rounded, color: tokens.bluePrimary, size: 28),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Child Lock (Capacitive Touch)',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: tokens.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Physical wall touch toggles are locked. Mobile app and Hub schedules remain active.',
+                                  style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: childLock,
+                            activeColor: tokens.bluePrimary,
+                            onChanged: (v) => setModalState(() => childLock = v),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: tokens.bluePrimary,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(modalCtx);
+                          await _repo.setDevicePowerOnMode(deviceIp: device.ipAddress, mode: powerOnMode);
+                          await _repo.setDeviceChildLock(deviceIp: device.ipAddress, enabled: childLock);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Hardware settings updated for ${device.name}.'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                        child: const Text('Save Hardware Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -49,6 +49,22 @@ void relay_manager_init(void);
  */
 void relay_manager_clear_persisted_states(void);
 
+typedef enum {
+    EH_POWER_ON_OFF     = 0,  // Always off upon power restoration
+    EH_POWER_ON_ON      = 1,  // Always on upon power restoration
+    EH_POWER_ON_RESTORE = 2,  // Restore previous persisted state before power cut (default)
+} eh_power_on_mode_t;
+
+/**
+ * Configure power-on behavior mode (persisted to NVS).
+ */
+void relay_manager_set_power_on_mode(uint8_t mode);
+
+/**
+ * Get current configured power-on behavior mode.
+ */
+uint8_t relay_manager_get_power_on_mode(void);
+
 /**
  * Set power for a specific channel (1-indexed: 1..3).
  * Returns true if channel is valid and state applied.

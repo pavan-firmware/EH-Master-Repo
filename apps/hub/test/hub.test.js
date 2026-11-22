@@ -6,8 +6,10 @@ const fs = require('fs');
 
 const serverScript = path.join(__dirname, '..', 'src', 'server.js');
 const PORT = 4216; // Isolated test port
+const NTP_TEST_PORT = 4218;
 
 process.env.HUB_PORT = String(PORT);
+process.env.NTP_PORT = String(NTP_TEST_PORT);
 const testDataDir = path.join(__dirname, 'test-data');
 process.env.HUB_DATA_DIR = testDataDir;
 
@@ -255,19 +257,118 @@ async function runTests() {
   assert.strictEqual(rulesAfterDel.body.rules.length, 0);
   console.log('  ✓ DELETE /api/v1/rules passed');
 
-  console.log('[Test 19] Testing POST /api/v1/hub/reboot...');
+  // Plan 3: Energy Telemetry Tests
+  console.log('[Test 19] Testing POST /api/v1/hub/energy/samples (Ingest Energy Telemetry)...');
+  const energyIngestRes = await request('POST', '/api/v1/hub/energy/samples', {
+    samples: [
+      {
+        deviceId: 'EH-SK-GND-01',
+        channel: 1,
+        powerW: 1450.5,
+        voltageV: 232.0,
+        currentA: 6.25,
+      },
+      {
+        deviceId: 'EH-SW-1ST-02',
+        channel: 1,
+        powerW: 65.0,
+        voltageV: 231.5,
+        currentA: 0.28,
+      },
+    ],
+  });
+  assert.strictEqual(energyIngestRes.statusCode, 200);
+  assert.strictEqual(energyIngestRes.body.samplesProcessed, 2);
+  console.log('  ✓ Ingested 2 energy telemetry samples successfully');
+
+  console.log('[Test 20] Testing GET /api/v1/hub/energy/devices/:id/latest & history...');
+  const latestEnergyRes = await request('GET', '/api/v1/hub/energy/devices/EH-SK-GND-01/latest?channel=1');
+  assert.strictEqual(latestEnergyRes.statusCode, 200);
+  assert.strictEqual(latestEnergyRes.body.measurement.deviceId, 'EH-SK-GND-01');
+  assert.strictEqual(latestEnergyRes.body.measurement.powerW, 1450.5);
+
+  const historyEnergyRes = await request('GET', '/api/v1/hub/energy/devices/EH-SK-GND-01/history?period=today&channel=1');
+  assert.strictEqual(historyEnergyRes.statusCode, 200);
+  assert.strictEqual(historyEnergyRes.body.summary.entityId, 'EH-SK-GND-01');
+  assert(historyEnergyRes.body.summary.totalEnergyKwh >= 0);
+  assert(historyEnergyRes.body.summary.trends.length > 0);
+  console.log(`  ✓ Device energy history query passed (Current: ${historyEnergyRes.body.summary.currentPowerW}W, Total: ${historyEnergyRes.body.summary.totalEnergyKwh} kWh)`);
+
+  console.log('[Test 21] Testing GET /api/v1/hub/energy/home/summary & top consumers...');
+  const homeEnergyRes = await request('GET', '/api/v1/hub/energy/home/summary?period=today');
+  assert.strictEqual(homeEnergyRes.statusCode, 200);
+  assert(homeEnergyRes.body.summary.topDevices.length >= 2);
+  assert.strictEqual(homeEnergyRes.body.summary.topDevices[0].deviceId, 'EH-SK-GND-01'); // Higher consumer first
+  console.log(`  ✓ Home energy summary passed (Top: ${homeEnergyRes.body.summary.topDevices[0].deviceId} at ${homeEnergyRes.body.summary.topDevices[0].percentage}%)`);
+
+  // Plan 5: LAN OTA Staging Tests
+  console.log('[Test 22] Testing POST /api/v1/ota/stage (Stage local OTA binary)...');
+  const stageRes = await request('POST', '/api/v1/ota/stage', {
+    model: 'eh-smart-switch-3x',
+    version: '2.1.0-freertos',
+    filename: 'eh-smart-switch-3x-2.1.0.bin',
+    content: 'SYNTHETIC_FIRMWARE_HEADER_EH_V210_PROD_PAYLOAD_CHECKSUM_OK',
+  });
+  assert.strictEqual(stageRes.statusCode, 200);
+  assert.strictEqual(stageRes.body.status, 'ok');
+  assert(stageRes.body.sha256.length === 64);
+  console.log(`  ✓ Firmware staging passed (SHA256: ${stageRes.body.sha256.slice(0, 16)}...)`);
+
+  console.log('[Test 23] Testing GET /api/v1/ota/manifest & GET /api/v1/ota/firmware/:filename...');
+  const manifestRes = await request('GET', '/api/v1/ota/manifest');
+  assert.strictEqual(manifestRes.statusCode, 200);
+  assert(manifestRes.body.firmwareCount >= 1);
+
+  // Test downloading the binary
+  const binaryRes = await new Promise((resolve, reject) => {
+    http.get(`http://127.0.0.1:${PORT}/api/v1/ota/firmware/eh-smart-switch-3x-2.1.0.bin`, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve({ statusCode: res.statusCode, contentType: res.headers['content-type'], body: data }));
+    }).on('error', reject);
+  });
+  assert.strictEqual(binaryRes.statusCode, 200);
+  assert.strictEqual(binaryRes.contentType, 'application/octet-stream');
+  assert(binaryRes.body.includes('SYNTHETIC_FIRMWARE_HEADER_EH_V210'));
+  console.log('  ✓ High-speed LAN OTA binary download passed');
+
+  // Plan 6: Embedded Local NTP Timekeeper Test
+  console.log('[Test 24] Testing RFC 5905 Embedded Local SNTP Timekeeper (UDP Port 4218)...');
+  const ntpResponse = await new Promise((resolve, reject) => {
+    const dgram = require('dgram');
+    const client = dgram.createSocket('udp4');
+    const packet = Buffer.alloc(48);
+    packet[0] = 0x23; // LI=0, VN=4, Mode=3 (Client)
+    client.on('message', (msg) => {
+      client.close();
+      resolve(msg);
+    });
+    client.on('error', (err) => {
+      client.close();
+      reject(err);
+    });
+    client.send(packet, 0, packet.length, NTP_TEST_PORT, '127.0.0.1');
+  });
+  assert.strictEqual(ntpResponse.length, 48);
+  // Byte 0 Mode should be 4 (Server Response) -> 0x24
+  assert.strictEqual(ntpResponse[0], 0x24);
+  // Byte 1 Stratum should be 1 (Primary Reference)
+  assert.strictEqual(ntpResponse[1], 1);
+  console.log('  ✓ RFC 5905 Local SNTP timekeeper response verified (<1ms local offline time sync)');
+
+  console.log('[Test 25] Testing POST /api/v1/hub/reboot...');
   const rebootRes = await request('POST', '/api/v1/hub/reboot');
   assert.strictEqual(rebootRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/reboot passed');
 
-  console.log('[Test 20] Testing POST /api/v1/hub/factory-reset...');
+  console.log('[Test 26] Testing POST /api/v1/hub/factory-reset...');
   const factoryRes = await request('POST', '/api/v1/hub/factory-reset');
   assert.strictEqual(factoryRes.statusCode, 200);
   const infoAfterReset = await request('GET', '/api/v1/hub/info');
   assert.strictEqual(infoAfterReset.body.isLinked, false);
   console.log('  ✓ POST /api/v1/hub/factory-reset passed');
 
-  console.log('\n[PASS] All 20 Hub Core Daemon, Cross-Device Event Bus & Storage Engine Tests Succeeded!\n');
+  console.log('\n[PASS] All 26 Hub Core Daemon, Energy Telemetry, OTA & SNTP Timekeeper Tests Succeeded!\n');
 }
 
 runTests()

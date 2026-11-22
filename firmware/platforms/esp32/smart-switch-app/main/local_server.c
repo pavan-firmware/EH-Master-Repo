@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "cJSON.h"
 #include "relay_manager.h"
+#include "switch_manager.h"
 #include "factory_identity_v2.h"
 #include "lwip/err.h"
 #include "lwip/sockets.h"
@@ -777,6 +778,108 @@ static esp_err_t routines_stop_post_handler(httpd_req_t* req)
     return ESP_OK;
 }
 
+/* GET /api/v1/settings - Query device settings (Power-on behavior & Child Lock) */
+static esp_err_t settings_get_handler(httpd_req_t* req)
+{
+    set_cors_headers(req);
+    httpd_resp_set_type(req, "application/json");
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "status", "ok");
+    cJSON_AddNumberToObject(root, "powerOnMode", relay_manager_get_power_on_mode());
+    cJSON_AddBoolToObject(root, "childLock", switch_manager_get_child_lock());
+
+    const char* str = cJSON_PrintUnformatted(root);
+    httpd_resp_sendstr(req, str);
+    free((void*)str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+/* POST /api/v1/settings/power-on - Configure power-on behavior (0=OFF, 1=ON, 2=RESTORE) */
+static esp_err_t settings_power_on_handler(httpd_req_t* req)
+{
+    set_cors_headers(req);
+    httpd_resp_set_type(req, "application/json");
+
+    char buf[128];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    cJSON* root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON* mode_item = cJSON_GetObjectItem(root, "mode");
+    if (!mode_item || !cJSON_IsNumber(mode_item)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing mode");
+        return ESP_FAIL;
+    }
+
+    uint8_t mode = (uint8_t)mode_item->valueint;
+    relay_manager_set_power_on_mode(mode);
+    cJSON_Delete(root);
+
+    cJSON* resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "status", "ok");
+    cJSON_AddNumberToObject(resp, "powerOnMode", relay_manager_get_power_on_mode());
+    cJSON_AddStringToObject(resp, "message", "Power-on behavior updated");
+    const char* str = cJSON_PrintUnformatted(resp);
+    httpd_resp_sendstr(req, str);
+    free((void*)str);
+    cJSON_Delete(resp);
+    return ESP_OK;
+}
+
+/* POST /api/v1/settings/child-lock - Enable/disable physical switch lockout */
+static esp_err_t settings_child_lock_handler(httpd_req_t* req)
+{
+    set_cors_headers(req);
+    httpd_resp_set_type(req, "application/json");
+
+    char buf[128];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    cJSON* root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON* en_item = cJSON_GetObjectItem(root, "enabled");
+    if (!en_item || !cJSON_IsBool(en_item)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing enabled boolean");
+        return ESP_FAIL;
+    }
+
+    bool enabled = cJSON_IsTrue(en_item);
+    switch_manager_set_child_lock(enabled);
+    cJSON_Delete(root);
+
+    cJSON* resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "status", "ok");
+    cJSON_AddBoolToObject(resp, "childLock", switch_manager_get_child_lock());
+    cJSON_AddStringToObject(resp, "message", "Child lock configuration updated");
+    const char* str = cJSON_PrintUnformatted(resp);
+    httpd_resp_sendstr(req, str);
+    free((void*)str);
+    cJSON_Delete(resp);
+    return ESP_OK;
+}
+
 bool local_server_start(void)
 {
     if (s_server != NULL) {
@@ -788,7 +891,7 @@ bool local_server_start(void)
     config.server_port = 80;
     config.ctrl_port = 32768;
     config.max_open_sockets = 7;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 24;
     config.recv_wait_timeout = 3;
     config.send_wait_timeout = 3;
     config.stack_size = 8192; // 8KB stack prevents FreeRTOS stack overflow on JSON/NVS operations
@@ -905,6 +1008,39 @@ bool local_server_start(void)
         .user_ctx  = NULL,
     };
     httpd_register_uri_handler(s_server, &options_routines_stop_uri);
+
+    /* Device Settings (Power-on behavior & Child Lock) Endpoints */
+    httpd_uri_t settings_get_uri = {
+        .uri       = "/api/v1/settings",
+        .method    = HTTP_GET,
+        .handler   = settings_get_handler,
+        .user_ctx  = NULL,
+    };
+    httpd_register_uri_handler(s_server, &settings_get_uri);
+
+    httpd_uri_t settings_power_on_uri = {
+        .uri       = "/api/v1/settings/power-on",
+        .method    = HTTP_POST,
+        .handler   = settings_power_on_handler,
+        .user_ctx  = NULL,
+    };
+    httpd_register_uri_handler(s_server, &settings_power_on_uri);
+
+    httpd_uri_t settings_child_lock_uri = {
+        .uri       = "/api/v1/settings/child-lock",
+        .method    = HTTP_POST,
+        .handler   = settings_child_lock_handler,
+        .user_ctx  = NULL,
+    };
+    httpd_register_uri_handler(s_server, &settings_child_lock_uri);
+
+    httpd_uri_t options_settings_uri = {
+        .uri       = "/api/v1/settings",
+        .method    = HTTP_OPTIONS,
+        .handler   = options_handler,
+        .user_ctx  = NULL,
+    };
+    httpd_register_uri_handler(s_server, &options_settings_uri);
 
     // Start UDP auto-discovery responder task
     if (s_udp_task == NULL) {

@@ -163,6 +163,42 @@ class MockTestHubRepository implements HubRepository {
       timestamp: DateTime.now(),
     ),
   ];
+
+  @override
+  Future<Map<String, dynamic>?> getHomeEnergySummary({required String hubHostname, String period = 'today'}) async => {
+    'entityType': 'home',
+    'period': period,
+    'currentPowerW': 420.5,
+    'totalEnergyKwh': 12.8,
+    'peakPowerW': 1850.0,
+    'costEstimate': 1.92,
+  };
+
+  @override
+  Future<Map<String, dynamic>?> getDeviceEnergyHistory({
+    required String hubHostname,
+    required String deviceId,
+    int channel = 1,
+    String period = 'today',
+  }) async => {
+    'entityType': 'device',
+    'entityId': deviceId,
+    'currentPowerW': 65.0,
+    'totalEnergyKwh': 1.45,
+  };
+
+  @override
+  Future<Map<String, dynamic>?> getDeviceSettings({required String deviceIp}) async => {
+    'status': 'ok',
+    'powerOnMode': 2,
+    'childLock': false,
+  };
+
+  @override
+  Future<bool> setDevicePowerOnMode({required String deviceIp, required int mode}) async => true;
+
+  @override
+  Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled}) async => true;
 }
 
 void main() {

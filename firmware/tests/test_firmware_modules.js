@@ -398,6 +398,87 @@ test('18. GATT 6105: Read beyond EOF (offset > length) returns BLE_ATT_ERR_INVAL
   assert.strictEqual(res.status, BLE_ATT_ERR_INVALID_OFFSET);
 });
 
+// ---------------------------------------------------------------------------
+// 7. Power-On Behavior & Child Lock Logic Simulation
+// ---------------------------------------------------------------------------
+const POWER_ON_MODES = {
+  ALWAYS_OFF: 0,
+  ALWAYS_ON: 1,
+  RESTORE_LAST_STATE: 2,
+};
+
+class RelayPowerOnSimulator {
+  constructor(mode = POWER_ON_MODES.RESTORE_LAST_STATE, nvsStates = [true, false, true, false]) {
+    this.mode = mode;
+    this.nvsStates = nvsStates;
+    this.relays = [false, false, false, false];
+    this.init();
+  }
+
+  init() {
+    for (let i = 0; i < 4; i++) {
+      if (this.mode === POWER_ON_MODES.ALWAYS_OFF) {
+        this.relays[i] = false;
+      } else if (this.mode === POWER_ON_MODES.ALWAYS_ON) {
+        this.relays[i] = true;
+      } else {
+        this.relays[i] = Boolean(this.nvsStates[i]);
+      }
+    }
+  }
+}
+
+test('19. Power-On Behavior: ALWAYS_OFF initializes all relays strictly OFF', () => {
+  const sim = new RelayPowerOnSimulator(POWER_ON_MODES.ALWAYS_OFF, [true, true, true, true]);
+  assert.deepStrictEqual(sim.relays, [false, false, false, false]);
+});
+
+test('20. Power-On Behavior: ALWAYS_ON initializes all relays strictly ON', () => {
+  const sim = new RelayPowerOnSimulator(POWER_ON_MODES.ALWAYS_ON, [false, false, false, false]);
+  assert.deepStrictEqual(sim.relays, [true, true, true, true]);
+});
+
+test('21. Power-On Behavior: RESTORE_LAST_STATE accurately recovers persisted NVS channel states', () => {
+  const persisted = [true, false, true, false];
+  const sim = new RelayPowerOnSimulator(POWER_ON_MODES.RESTORE_LAST_STATE, persisted);
+  assert.deepStrictEqual(sim.relays, persisted);
+});
+
+class ChildLockSwitchSimulator {
+  constructor() {
+    this.childLock = false;
+    this.lastTriggerMs = [0, 0, 0, 0];
+  }
+
+  feedEvent(channelIndex, nowMs) {
+    if (this.childLock) {
+      return false; // Suppressed by child lock
+    }
+    const idx = channelIndex - 1;
+    if (nowMs - this.lastTriggerMs[idx] >= 200 || this.lastTriggerMs[idx] === 0) {
+      this.lastTriggerMs[idx] = nowMs;
+      return true;
+    }
+    return false;
+  }
+}
+
+test('22. Switch Child Lock: Active child lock suppresses physical touch inputs', () => {
+  const sw = new ChildLockSwitchSimulator();
+  sw.childLock = true;
+  assert.strictEqual(sw.feedEvent(1, 1000), false);
+  assert.strictEqual(sw.feedEvent(2, 1000), false);
+});
+
+test('23. Switch Child Lock: Deactivated child lock restores normal physical switch actuation', () => {
+  const sw = new ChildLockSwitchSimulator();
+  sw.childLock = true;
+  assert.strictEqual(sw.feedEvent(1, 1000), false);
+
+  sw.childLock = false;
+  assert.strictEqual(sw.feedEvent(1, 1000), true);
+});
+
 console.log(`\n────────────────────────────────────────────────────────────`);
 console.log(`  ALL ${passCount} FIRMWARE HOST TESTS PASSED ✅`);
 console.log(`────────────────────────────────────────────────────────────\n`);

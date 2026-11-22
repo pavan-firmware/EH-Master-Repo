@@ -23,16 +23,28 @@ const path = require('path');
 const { createStorageEngine } = require('./storage');
 const { HubScheduler } = require('./scheduler');
 const { RulesEngine } = require('./rules-engine');
+const { SntpTimeServer } = require('./time-server');
 
 const PORT = parseInt(process.env.HUB_PORT || '4210', 10);
 const UDP_PORT = 4210;
 const HUB_ID = process.env.HUB_ID || 'eh-hub-pi3b';
 const HOSTNAME = process.env.HUB_HOSTNAME || 'eh-hub.local';
 const DATA_DIR = process.env.HUB_DATA_DIR || path.join(__dirname, '..', 'data');
+const FIRMWARE_DIR = path.join(DATA_DIR, 'firmware');
+
+if (!fs.existsSync(FIRMWARE_DIR)) {
+  try {
+    fs.mkdirSync(FIRMWARE_DIR, { recursive: true });
+  } catch (_) {}
+}
 
 // Initialize Power-Cut Safe Storage Engine (SQLite WAL or Atomic WAL fallback)
 const storage = createStorageEngine(DATA_DIR);
 const rulesEngine = new RulesEngine(storage);
+
+// Initialize Embedded Local NTP Responder (Plan 6)
+const timeServer = new SntpTimeServer(parseInt(process.env.NTP_PORT || '123', 10));
+timeServer.start();
 
 // Ensure essential metadata keys exist in storage
 if (!storage.getMetadata('hubId')) storage.setMetadata('hubId', HUB_ID);
@@ -574,6 +586,191 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Local 365-Day Energy Telemetry Engine Endpoints (Plan 3)
+  // -------------------------------------------------------------------------
+
+  // POST /api/v1/hub/energy/samples or /api/v1/energy/samples - Ingest power measurements
+  if (req.method === 'POST' && (pathname === '/api/v1/hub/energy/samples' || pathname === '/api/v1/energy/samples')) {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        let samplesProcessed = 0;
+        if (Array.isArray(payload.samples)) {
+          for (const s of payload.samples) {
+            if (s.deviceId) {
+              storage.recordEnergySample(s);
+              samplesProcessed++;
+            }
+          }
+        } else if (payload.deviceId) {
+          storage.recordEnergySample(payload);
+          samplesProcessed++;
+        }
+        return sendJson(res, 200, {
+          status: 'ok',
+          samplesProcessed,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid energy samples payload' });
+      }
+    });
+    return;
+  }
+
+  // GET /api/v1/hub/energy/devices/:deviceId/latest or /api/v1/energy/devices/:deviceId/latest
+  const latestMatch = pathname.match(/^\/api\/v1\/(?:hub\/)?energy\/devices\/([^/]+)\/latest$/);
+  if (req.method === 'GET' && latestMatch) {
+    const deviceId = decodeURIComponent(latestMatch[1]);
+    const channel = parseInt(url.searchParams.get('channel') || url.searchParams.get('channelIndex') || '1', 10);
+    const sample = storage.getLatestEnergySample(deviceId, channel);
+    return sendJson(res, 200, {
+      status: 'ok',
+      data: sample,
+      measurement: sample,
+    });
+  }
+
+  // GET /api/v1/hub/energy/devices/:deviceId/history or /api/v1/energy/devices/:deviceId/history
+  const historyMatch = pathname.match(/^\/api\/v1\/(?:hub\/)?energy\/devices\/([^/]+)\/history$/);
+  if (req.method === 'GET' && historyMatch) {
+    const deviceId = decodeURIComponent(historyMatch[1]);
+    const channel = parseInt(url.searchParams.get('channel') || url.searchParams.get('channelIndex') || '1', 10);
+    const period = url.searchParams.get('period') || 'today';
+    const history = storage.getDeviceEnergyHistory({ deviceId, channel, period });
+    return sendJson(res, 200, {
+      status: 'ok',
+      summary: history,
+      trends: history.trends,
+    });
+  }
+
+  // GET /api/v1/hub/energy/home/summary or /api/v1/energy/summary
+  if (req.method === 'GET' && (pathname === '/api/v1/hub/energy/home/summary' || pathname === '/api/v1/energy/summary')) {
+    const period = url.searchParams.get('period') || 'today';
+    const summary = storage.getHomeEnergySummary({ period });
+    return sendJson(res, 200, {
+      status: 'ok',
+      summary,
+      period,
+    });
+  }
+
+  // GET /api/v1/hub/energy/trends or /api/v1/energy/trends
+  if (req.method === 'GET' && (pathname === '/api/v1/hub/energy/trends' || pathname === '/api/v1/energy/trends')) {
+    const period = url.searchParams.get('period') || 'today';
+    const summary = storage.getHomeEnergySummary({ period });
+    return sendJson(res, 200, {
+      status: 'ok',
+      trends: summary.trends,
+      period,
+    });
+  }
+
+  // GET /api/v1/hub/energy/top-consumers or /api/v1/energy/top-consumers
+  if (req.method === 'GET' && (pathname === '/api/v1/hub/energy/top-consumers' || pathname === '/api/v1/energy/top-consumers')) {
+    const period = url.searchParams.get('period') || 'today';
+    const summary = storage.getHomeEnergySummary({ period });
+    return sendJson(res, 200, {
+      status: 'ok',
+      topDevices: summary.topDevices,
+      period,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Local Firmware Staging & High-Speed LAN OTA (Plan 5)
+  // -------------------------------------------------------------------------
+
+  // POST /api/v1/ota/stage - Stage firmware binary for local LAN distribution
+  if (req.method === 'POST' && pathname === '/api/v1/ota/stage') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const model = payload.model || 'eh-smart-switch';
+        const version = payload.version || '1.0.0';
+        const filename = payload.filename || `${model}-${version}.bin`;
+        const filePath = path.join(FIRMWARE_DIR, filename);
+
+        let binaryBuffer;
+        if (payload.base64Data) {
+          binaryBuffer = Buffer.from(payload.base64Data, 'base64');
+        } else if (payload.content) {
+          binaryBuffer = Buffer.from(payload.content, 'utf8');
+        } else {
+          // Synthetic binary creation for testing staging
+          binaryBuffer = Buffer.alloc(1024, 0xAA);
+        }
+
+        fs.writeFileSync(filePath, binaryBuffer);
+        const hash = crypto.createHash('sha256').update(binaryBuffer).digest('hex');
+
+        console.log(`[Hub OTA] Staged firmware ${filename} (${binaryBuffer.length} bytes, SHA256: ${hash})`);
+        return sendJson(res, 200, {
+          status: 'ok',
+          filename,
+          model,
+          version,
+          sizeBytes: binaryBuffer.length,
+          sha256: hash,
+          downloadUrl: `/api/v1/ota/firmware/${filename}`,
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Failed staging firmware: ' + err.message });
+      }
+    });
+    return;
+  }
+
+  // GET /api/v1/ota/manifest - List all staged firmware binaries
+  if (req.method === 'GET' && pathname === '/api/v1/ota/manifest') {
+    try {
+      const files = fs.readdirSync(FIRMWARE_DIR);
+      const manifest = files.map(file => {
+        const filePath = path.join(FIRMWARE_DIR, file);
+        const stats = fs.statSync(filePath);
+        return {
+          filename: file,
+          sizeBytes: stats.size,
+          modifiedAt: stats.mtime.toISOString(),
+          downloadUrl: `/api/v1/ota/firmware/${file}`,
+        };
+      });
+      return sendJson(res, 200, {
+        status: 'ok',
+        manifest,
+        firmwareCount: manifest.length,
+      });
+    } catch (err) {
+      return sendJson(res, 500, { error: 'Failed scanning staged firmwares' });
+    }
+  }
+
+  // GET /api/v1/ota/firmware/:filename - High-speed binary delivery over local LAN
+  const otaMatch = pathname.match(/^\/api\/v1\/ota\/firmware\/([^/]+)$/);
+  if (req.method === 'GET' && otaMatch) {
+    const filename = decodeURIComponent(otaMatch[1]);
+    const filePath = path.join(FIRMWARE_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return sendJson(res, 404, { error: `Firmware binary ${filename} not found in local stage` });
+    }
+
+    const stat = fs.statSync(filePath);
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': stat.size,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Access-Control-Allow-Origin': '*',
+    });
+    const readStream = fs.createReadStream(filePath);
+    return readStream.pipe(res);
+  }
+
   // Fallback 404
   return sendJson(res, 404, { error: 'Endpoint not found' });
 });
@@ -747,6 +944,7 @@ process.on('SIGTERM', () => {
   console.log('[Hub] Shutting down gracefully...');
   scheduler.stop();
   rulesEngine.close();
+  timeServer.stop();
   server.close();
   udpSocket.close();
   storage.close();
