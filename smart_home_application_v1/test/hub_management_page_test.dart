@@ -118,6 +118,51 @@ class MockTestHubRepository implements HubRepository {
 
   @override
   Future<bool> checkForUpdates({required String hubHostname}) async => true;
+
+  @override
+  Future<List<CrossDeviceRule>> getCrossDeviceRules({required String hubHostname}) async => [
+    const CrossDeviceRule(
+      id: 'rule_test_01',
+      name: 'Hallway -> Porch Fast-Path',
+      triggerDeviceId: 'sw_test_01',
+      triggerChannel: 1,
+      triggerState: true,
+      actionDeviceId: 'sw_test_01',
+      actionDeviceIp: '192.168.0.101',
+      actionChannel: 2,
+      actionCommand: 'TOGGLE',
+    ),
+  ];
+
+  @override
+  Future<bool> saveCrossDeviceRule({required String hubHostname, required CrossDeviceRule rule}) async => true;
+
+  @override
+  Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId}) async => true;
+
+  @override
+  Future<Map<String, dynamic>?> testCrossDeviceRule({required String hubHostname, required String ruleId}) async => {
+    'status': 'ok',
+    'execution': {
+      'success': true,
+      'latencyMs': 2,
+      'method': 'FAST_PATH_UDP',
+    },
+  };
+
+  @override
+  Future<List<AutomationExecutionLog>> getExecutionLogs({required String hubHostname, int limit = 50}) async => [
+    AutomationExecutionLog(
+      id: 'log_01',
+      ruleId: 'rule_test_01',
+      ruleName: 'Hallway -> Porch Fast-Path',
+      triggerEvent: 'sw_test_01 CH1=ON',
+      actionSummary: 'sw_test_01 CH2 -> TOGGLE',
+      latencyMs: 2,
+      status: 'SUCCESS_FAST_PATH_UDP',
+      timestamp: DateTime.now(),
+    ),
+  ];
 }
 
 void main() {

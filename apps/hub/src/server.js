@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const { createStorageEngine } = require('./storage');
 const { HubScheduler } = require('./scheduler');
+const { RulesEngine } = require('./rules-engine');
 
 const PORT = parseInt(process.env.HUB_PORT || '4210', 10);
 const UDP_PORT = 4210;
@@ -31,6 +32,7 @@ const DATA_DIR = process.env.HUB_DATA_DIR || path.join(__dirname, '..', 'data');
 
 // Initialize Power-Cut Safe Storage Engine (SQLite WAL or Atomic WAL fallback)
 const storage = createStorageEngine(DATA_DIR);
+const rulesEngine = new RulesEngine(storage);
 
 // Ensure essential metadata keys exist in storage
 if (!storage.getMetadata('hubId')) storage.setMetadata('hubId', HUB_ID);
@@ -336,6 +338,8 @@ const server = http.createServer((req, res) => {
             target.channels = target.channels || {};
             target.channels[channel] = state;
             storage.upsertDevice(target);
+            // Trigger local cross-device Event Bus asynchronously
+            rulesEngine.evaluateStateChange(deviceId, channel, state).catch(() => {});
             sendJson(res, forwardRes.statusCode || 200, {
               status: 'forwarded',
               target: deviceId,
@@ -350,9 +354,106 @@ const server = http.createServer((req, res) => {
           forwardReq.end();
           return;
         }
+        // Even for local/simulated devices, evaluate cross-device rules
+        rulesEngine.evaluateStateChange(deviceId, channel, state).catch(() => {});
         return sendJson(res, 200, { status: 'ok', localExecuted: true, deviceId, channel, state });
       } catch (e) {
         return sendJson(res, 400, { error: 'Invalid control payload' });
+      }
+    });
+    return;
+  }
+
+  // GET /api/v1/rules - List all cross-device automation rules
+  if (req.method === 'GET' && pathname === '/api/v1/rules') {
+    const rules = storage.getRules();
+    return sendJson(res, 200, { status: 'ok', rules });
+  }
+
+  // POST /api/v1/rules - Create or update a cross-device automation rule
+  if (req.method === 'POST' && pathname === '/api/v1/rules') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const rule = JSON.parse(body || '{}');
+        if (!rule.id) rule.id = 'rule_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        storage.saveRule(rule);
+        return sendJson(res, 200, { status: 'ok', rule });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid rule payload' });
+      }
+    });
+    return;
+  }
+
+  // DELETE /api/v1/rules - Delete a cross-device rule
+  if (req.method === 'DELETE' && pathname === '/api/v1/rules') {
+    const id = url.searchParams.get('id');
+    if (id) {
+      storage.deleteRule(id);
+      return sendJson(res, 200, { status: 'ok', message: `Rule ${id} deleted` });
+    }
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        if (payload.id) {
+          storage.deleteRule(payload.id);
+          return sendJson(res, 200, { status: 'ok', message: `Rule ${payload.id} deleted` });
+        }
+        return sendJson(res, 400, { error: 'id required' });
+      } catch (_) {
+        return sendJson(res, 400, { error: 'Invalid body' });
+      }
+    });
+    return;
+  }
+
+  // POST /api/v1/rules/test - Manually test-fire a cross-device rule
+  if (req.method === 'POST' && pathname === '/api/v1/rules/test') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const ruleId = payload.id || url.searchParams.get('id');
+        const rule = storage.getRule(ruleId);
+        if (!rule) {
+          return sendJson(res, 404, { error: `Rule ${ruleId} not found` });
+        }
+        const execResult = await rulesEngine.executeAction(rule, 'MANUAL_TEST');
+        return sendJson(res, 200, { status: 'ok', execution: execResult });
+      } catch (err) {
+        return sendJson(res, 500, { error: err.message });
+      }
+    });
+    return;
+  }
+
+  // GET /api/v1/rules/logs - Query cross-device execution audit history
+  if (req.method === 'GET' && pathname === '/api/v1/rules/logs') {
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    const logs = storage.getExecutionLogs(limit);
+    return sendJson(res, 200, { status: 'ok', logs });
+  }
+
+  // POST /api/v1/hub/events - Incoming device state change for Event Bus
+  if (req.method === 'POST' && pathname === '/api/v1/hub/events') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const event = JSON.parse(body || '{}');
+        const { deviceId, channel, state } = event;
+        if (!deviceId || channel === undefined) {
+          return sendJson(res, 400, { error: 'deviceId and channel required' });
+        }
+        const triggered = await rulesEngine.evaluateStateChange(deviceId, channel, state);
+        return sendJson(res, 200, { status: 'ok', matchedRules: triggered.length, triggered });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid event payload' });
       }
     });
     return;
@@ -645,6 +746,7 @@ server.listen(PORT, '0.0.0.0', () => {
 process.on('SIGTERM', () => {
   console.log('[Hub] Shutting down gracefully...');
   scheduler.stop();
+  rulesEngine.close();
   server.close();
   udpSocket.close();
   storage.close();

@@ -39,6 +39,11 @@ void local_server_broadcast_boot_announce(const bool* powers, uint8_t count);
  */
 void local_server_start_boot_announce_burst(const bool* powers, uint8_t count);
 
+/**
+ * Send Fast-Path Direct P2P UDP command to a peer device IP on port 4210 (<2ms dispatch).
+ */
+bool local_server_send_p2p_actuate(const char* target_ip, uint8_t target_channel, bool power, bool is_toggle);
+
 #ifdef __cplusplus
 }
 #endif

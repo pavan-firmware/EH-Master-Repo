@@ -151,3 +151,113 @@ class HubState {
   }
 }
 
+@immutable
+class CrossDeviceRule {
+  const CrossDeviceRule({
+    required this.id,
+    required this.name,
+    this.enabled = true,
+    required this.triggerDeviceId,
+    required this.triggerChannel,
+    this.triggerState,
+    required this.actionDeviceId,
+    required this.actionDeviceIp,
+    required this.actionChannel,
+    this.actionCommand = 'TOGGLE',
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String name;
+  final bool enabled;
+  final String triggerDeviceId;
+  final int triggerChannel;
+  final bool? triggerState; // true = ON, false = OFF, null = Any
+  final String actionDeviceId;
+  final String actionDeviceIp;
+  final int actionChannel;
+  final String actionCommand; // 'ON', 'OFF', 'TOGGLE'
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory CrossDeviceRule.fromJson(Map<String, dynamic> json) {
+    return CrossDeviceRule(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? 'Cross-Device Rule',
+      enabled: json['enabled'] != false,
+      triggerDeviceId: json['triggerDeviceId'] as String? ?? '',
+      triggerChannel: (json['triggerChannel'] as num?)?.toInt() ?? 1,
+      triggerState: json['triggerState'] as bool?,
+      actionDeviceId: json['actionDeviceId'] as String? ?? '',
+      actionDeviceIp: json['actionDeviceIp'] as String? ?? '',
+      actionChannel: (json['actionChannel'] as num?)?.toInt() ?? 1,
+      actionCommand: json['actionCommand'] as String? ?? 'TOGGLE',
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'] as String) : null,
+      updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt'] as String) : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'enabled': enabled,
+        'triggerDeviceId': triggerDeviceId,
+        'triggerChannel': triggerChannel,
+        'triggerState': triggerState,
+        'actionDeviceId': actionDeviceId,
+        'actionDeviceIp': actionDeviceIp,
+        'actionChannel': actionChannel,
+        'actionCommand': actionCommand,
+        'createdAt': createdAt?.toIso8601String(),
+        'updatedAt': updatedAt?.toIso8601String(),
+      };
+}
+
+@immutable
+class AutomationExecutionLog {
+  const AutomationExecutionLog({
+    required this.id,
+    required this.ruleId,
+    required this.ruleName,
+    required this.triggerEvent,
+    required this.actionSummary,
+    required this.latencyMs,
+    required this.status,
+    required this.timestamp,
+  });
+
+  final String id;
+  final String ruleId;
+  final String ruleName;
+  final String triggerEvent;
+  final String actionSummary;
+  final int latencyMs;
+  final String status;
+  final DateTime timestamp;
+
+  factory AutomationExecutionLog.fromJson(Map<String, dynamic> json) {
+    return AutomationExecutionLog(
+      id: json['id'] as String? ?? '',
+      ruleId: json['ruleId'] as String? ?? '',
+      ruleName: json['ruleName'] as String? ?? '',
+      triggerEvent: json['triggerEvent'] as String? ?? '',
+      actionSummary: json['actionSummary'] as String? ?? '',
+      latencyMs: (json['latencyMs'] as num?)?.toInt() ?? 0,
+      status: json['status'] as String? ?? 'OK',
+      timestamp: DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'ruleId': ruleId,
+        'ruleName': ruleName,
+        'triggerEvent': triggerEvent,
+        'actionSummary': actionSummary,
+        'latencyMs': latencyMs,
+        'status': status,
+        'timestamp': timestamp.toIso8601String(),
+      };
+}
+

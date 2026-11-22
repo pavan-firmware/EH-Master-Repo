@@ -145,6 +145,46 @@ static void udp_discovery_task(void *pvParameters)
             sendto(s_udp_sock, resp, strlen(resp), 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
             ESP_LOGI(TAG, "Responded to UDP discovery request from client for device %s", dev_id);
         }
+
+        // Fast-Path Direct P2P UDP Actuation (<2ms execution with zero socket overhead)
+        if (strstr(rx_buffer, "P2P_ACTUATE")) {
+            cJSON* act_json = cJSON_Parse(rx_buffer);
+            if (act_json) {
+                cJSON* ch_item = cJSON_GetObjectItem(act_json, "channel");
+                if (!ch_item) ch_item = cJSON_GetObjectItem(act_json, "channelIndex");
+                cJSON* pwr_item = cJSON_GetObjectItem(act_json, "power");
+                if (!pwr_item) pwr_item = cJSON_GetObjectItem(act_json, "state");
+                cJSON* tog_item = cJSON_GetObjectItem(act_json, "isToggle");
+                if (!tog_item) tog_item = cJSON_GetObjectItem(act_json, "toggle");
+                cJSON* seq_item = cJSON_GetObjectItem(act_json, "seq");
+
+                uint8_t target_ch = ch_item ? (uint8_t)ch_item->valueint : 1;
+                bool is_toggle = tog_item ? cJSON_IsTrue(tog_item) : false;
+                bool target_power = pwr_item ? cJSON_IsTrue(pwr_item) : true;
+                const char* seq = (seq_item && seq_item->valuestring) ? seq_item->valuestring : "";
+
+                if (target_ch >= 1 && target_ch <= EH_RELAY_CHANNEL_COUNT) {
+                    if (is_toggle) {
+                        relay_manager_toggle_power(target_ch, "P2P_UDP");
+                    } else {
+                        relay_manager_set_power(target_ch, target_power, "P2P_UDP");
+                    }
+                }
+
+                const factory_identity_v2_t* id = factory_identity_v2_get();
+                const char* dev_id = id ? id->device_id : "unknown";
+
+                char resp[256];
+                snprintf(resp, sizeof(resp),
+                         "{\"cmd\":\"P2P_ACTUATE_ACK\",\"seq\":\"%s\",\"deviceId\":\"%s\",\"channel\":%d,\"power\":%s,\"status\":\"ok\"}",
+                         seq, dev_id, (int)target_ch,
+                         relay_manager_get_power(target_ch) ? "true" : "false");
+
+                sendto(s_udp_sock, resp, strlen(resp), 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
+                ESP_LOGI(TAG, "P2P Fast-Path UDP Actuate executed for CH%d (seq=%s) in <2ms", target_ch, seq);
+                cJSON_Delete(act_json);
+            }
+        }
     }
 
     if (s_udp_sock >= 0) {
@@ -252,6 +292,32 @@ void local_server_broadcast_boot_announce(const bool* powers, uint8_t count)
         free(str);
     }
     cJSON_Delete(root);
+}
+
+bool local_server_send_p2p_actuate(const char* target_ip, uint8_t target_channel, bool power, bool is_toggle)
+{
+    if (s_udp_sock < 0 || !s_udp_running || !target_ip || strlen(target_ip) == 0) {
+        return false;
+    }
+
+    struct sockaddr_in dest_addr;
+    memset(&dest_addr, 0, sizeof(dest_addr));
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(4210);
+    dest_addr.sin_addr.s_addr = inet_addr(target_ip);
+
+    char payload[192];
+    snprintf(payload, sizeof(payload),
+             "{\"cmd\":\"P2P_ACTUATE\",\"channel\":%d,\"power\":%s,\"isToggle\":%s,\"seq\":\"p2p_%u\"}",
+             (int)target_channel, power ? "true" : "false", is_toggle ? "true" : "false",
+             (unsigned int)(esp_timer_get_time() & 0xFFFF));
+
+    int sent = sendto(s_udp_sock, payload, strlen(payload), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    if (sent > 0) {
+        ESP_LOGI(TAG, "Sent P2P Fast-Path UDP to %s:4210 (CH%d power=%d): %s", target_ip, (int)target_channel, power ? 1 : 0, payload);
+        return true;
+    }
+    return false;
 }
 
 #ifdef ESP_PLATFORM

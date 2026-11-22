@@ -29,6 +29,11 @@ abstract class HubRepository {
   Future<bool> factoryResetHub({required String hubHostname});
   Future<Map<String, dynamic>> getHubUpdates({required String hubHostname});
   Future<bool> checkForUpdates({required String hubHostname});
+  Future<List<CrossDeviceRule>> getCrossDeviceRules({required String hubHostname});
+  Future<bool> saveCrossDeviceRule({required String hubHostname, required CrossDeviceRule rule});
+  Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId});
+  Future<Map<String, dynamic>?> testCrossDeviceRule({required String hubHostname, required String ruleId});
+  Future<List<AutomationExecutionLog>> getExecutionLogs({required String hubHostname, int limit = 50});
 }
 
 class LiveHubRepository implements HubRepository {
@@ -379,5 +384,79 @@ class LiveHubRepository implements HubRepository {
       } catch (_) {}
     }
     return true;
+  }
+
+  @override
+  Future<List<CrossDeviceRule>> getCrossDeviceRules({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final raw = data['rules'] as List<dynamic>? ?? [];
+          return raw.map((r) => CrossDeviceRule.fromJson(r as Map<String, dynamic>)).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
+  }
+
+  @override
+  Future<bool> saveCrossDeviceRule({required String hubHostname, required CrossDeviceRule rule}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules');
+        final res = await _client.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(rule.toJson()),
+        ).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules?id=$ruleId');
+        final res = await _client.delete(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> testCrossDeviceRule({required String hubHostname, required String ruleId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules/test?id=$ruleId');
+        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<List<AutomationExecutionLog>> getExecutionLogs({required String hubHostname, int limit = 50}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules/logs?limit=$limit');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final raw = data['logs'] as List<dynamic>? ?? [];
+          return raw.map((l) => AutomationExecutionLog.fromJson(l as Map<String, dynamic>)).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
   }
 }

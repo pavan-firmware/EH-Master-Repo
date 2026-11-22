@@ -63,6 +63,32 @@ class SQLiteWalEngine {
         fire_at_epoch INTEGER,
         created_at TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS rules (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        enabled INTEGER,
+        trigger_device_id TEXT,
+        trigger_channel INTEGER,
+        trigger_state INTEGER,
+        action_device_id TEXT,
+        action_device_ip TEXT,
+        action_channel INTEGER,
+        action_command TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS execution_logs (
+        id TEXT PRIMARY KEY,
+        rule_id TEXT,
+        rule_name TEXT,
+        trigger_event TEXT,
+        action_summary TEXT,
+        latency_ms INTEGER,
+        status TEXT,
+        timestamp TEXT
+      );
     `);
   }
 
@@ -290,12 +316,128 @@ class SQLiteWalEngine {
     this.db.exec('DELETE FROM active_timers;');
   }
 
+  getRules() {
+    const rows = this.db.prepare('SELECT * FROM rules').all();
+    return rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      enabled: Boolean(r.enabled),
+      triggerDeviceId: r.trigger_device_id,
+      triggerChannel: r.trigger_channel,
+      triggerState: r.trigger_state !== null ? Boolean(r.trigger_state) : null,
+      actionDeviceId: r.action_device_id,
+      actionDeviceIp: r.action_device_ip,
+      actionChannel: r.action_channel,
+      actionCommand: r.action_command,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  getRule(id) {
+    const r = this.db.prepare('SELECT * FROM rules WHERE id = ?').get(id);
+    if (!r) return null;
+    return {
+      id: r.id,
+      name: r.name,
+      enabled: Boolean(r.enabled),
+      triggerDeviceId: r.trigger_device_id,
+      triggerChannel: r.trigger_channel,
+      triggerState: r.trigger_state !== null ? Boolean(r.trigger_state) : null,
+      actionDeviceId: r.action_device_id,
+      actionDeviceIp: r.action_device_ip,
+      actionChannel: r.action_channel,
+      actionCommand: r.action_command,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  saveRule(rule) {
+    this.db.prepare(`
+      INSERT INTO rules (
+        id, name, enabled, trigger_device_id, trigger_channel, trigger_state,
+        action_device_id, action_device_ip, action_channel, action_command,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        enabled = excluded.enabled,
+        trigger_device_id = excluded.trigger_device_id,
+        trigger_channel = excluded.trigger_channel,
+        trigger_state = excluded.trigger_state,
+        action_device_id = excluded.action_device_id,
+        action_device_ip = excluded.action_device_ip,
+        action_channel = excluded.action_channel,
+        action_command = excluded.action_command,
+        updated_at = excluded.updated_at
+    `).run(
+      rule.id,
+      rule.name || 'Unnamed Rule',
+      rule.enabled !== false ? 1 : 0,
+      rule.triggerDeviceId,
+      rule.triggerChannel,
+      rule.triggerState !== null && rule.triggerState !== undefined ? (rule.triggerState ? 1 : 0) : null,
+      rule.actionDeviceId,
+      rule.actionDeviceIp,
+      rule.actionChannel,
+      rule.actionCommand || 'TOGGLE',
+      rule.createdAt || new Date().toISOString(),
+      rule.updatedAt || new Date().toISOString()
+    );
+  }
+
+  deleteRule(id) {
+    this.db.prepare('DELETE FROM rules WHERE id = ?').run(id);
+  }
+
+  clearRules() {
+    this.db.exec('DELETE FROM rules;');
+  }
+
+  addExecutionLog(log) {
+    this.db.prepare(`
+      INSERT INTO execution_logs (
+        id, rule_id, rule_name, trigger_event, action_summary, latency_ms, status, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      log.id || ('log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)),
+      log.ruleId,
+      log.ruleName,
+      log.triggerEvent,
+      log.actionSummary,
+      log.latencyMs || 0,
+      log.status || 'OK',
+      log.timestamp || new Date().toISOString()
+    );
+  }
+
+  getExecutionLogs(limit = 50) {
+    const rows = this.db.prepare('SELECT * FROM execution_logs ORDER BY timestamp DESC LIMIT ?').all(limit);
+    return rows.map(r => ({
+      id: r.id,
+      ruleId: r.rule_id,
+      ruleName: r.rule_name,
+      triggerEvent: r.trigger_event,
+      actionSummary: r.action_summary,
+      latencyMs: r.latency_ms,
+      status: r.status,
+      timestamp: r.timestamp,
+    }));
+  }
+
+  clearExecutionLogs() {
+    this.db.exec('DELETE FROM execution_logs;');
+  }
+
   wipeAll() {
     this.db.exec(`
       DELETE FROM metadata;
       DELETE FROM devices;
       DELETE FROM routines;
       DELETE FROM active_timers;
+      DELETE FROM rules;
+      DELETE FROM execution_logs;
     `);
   }
 
@@ -324,6 +466,8 @@ class AtomicWalEngine {
       devices: {},
       routines: {},
       activeTimers: {},
+      rules: {},
+      executionLogs: [],
     };
 
     this.loadAndReplay();
@@ -338,6 +482,8 @@ class AtomicWalEngine {
         this.state.devices = this.state.devices || {};
         this.state.routines = this.state.routines || {};
         this.state.activeTimers = this.state.activeTimers || {};
+        this.state.rules = this.state.rules || {};
+        this.state.executionLogs = this.state.executionLogs || [];
       } catch (e) {
         console.warn('[Storage:WAL] Corrupt master JSON detected, initializing clean baseline:', e.message);
       }
@@ -510,12 +656,61 @@ class AtomicWalEngine {
     this.checkpoint();
   }
 
+  getRules() {
+    return Object.values(this.state.rules || {});
+  }
+
+  getRule(id) {
+    return (this.state.rules || {})[id] || null;
+  }
+
+  saveRule(rule) {
+    this.state.rules = this.state.rules || {};
+    this.state.rules[rule.id] = rule;
+    this.appendWal('SET', 'rules', rule.id, rule);
+    this.checkpoint();
+  }
+
+  deleteRule(id) {
+    if (this.state.rules) {
+      delete this.state.rules[id];
+    }
+    this.appendWal('DEL', 'rules', id);
+    this.checkpoint();
+  }
+
+  clearRules() {
+    this.state.rules = {};
+    this.appendWal('CLEAR', 'rules', null);
+    this.checkpoint();
+  }
+
+  addExecutionLog(log) {
+    this.state.executionLogs = this.state.executionLogs || [];
+    this.state.executionLogs.unshift(log);
+    if (this.state.executionLogs.length > 50) this.state.executionLogs.pop();
+    this.appendWal('SET', 'executionLogs', log.id, log);
+    this.checkpoint();
+  }
+
+  getExecutionLogs(limit = 50) {
+    return (this.state.executionLogs || []).slice(0, limit);
+  }
+
+  clearExecutionLogs() {
+    this.state.executionLogs = [];
+    this.appendWal('CLEAR', 'executionLogs', null);
+    this.checkpoint();
+  }
+
   wipeAll() {
     this.state = {
       metadata: {},
       devices: {},
       routines: {},
       activeTimers: {},
+      rules: {},
+      executionLogs: [],
     };
     try {
       if (fs.existsSync(this.dbFile)) fs.unlinkSync(this.dbFile);

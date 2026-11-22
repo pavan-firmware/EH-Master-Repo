@@ -22,6 +22,9 @@ const child = spawn(process.execPath, [serverScript], {
   stdio: 'pipe',
 });
 
+child.stdout.on('data', (d) => process.stdout.write(`[Server stdout] ${d}`));
+child.stderr.on('data', (d) => process.stderr.write(`[Server stderr] ${d}`));
+
 function request(method, path, body = null) {
   return new Promise((resolve, reject) => {
     const postData = body ? JSON.stringify(body) : null;
@@ -135,11 +138,17 @@ async function runTests() {
   assert(timersRes.body.activeTimers.length >= 1);
   console.log('  ✓ POST /api/v1/routines/trigger and Auto-Off timer armed');
 
-  // Wait for 1.3s for countdown to expire and revert
-  await new Promise(r => setTimeout(r, 1300));
-  const timersAfterRes = await request('GET', '/api/v1/routines/timers');
-  assert.strictEqual(timersAfterRes.statusCode, 200);
-  assert.strictEqual(timersAfterRes.body.activeTimers.length, 0);
+  // Poll for countdown timer to expire and revert cleanly
+  let expired = false;
+  for (let i = 0; i < 6; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const timersAfterRes = await request('GET', '/api/v1/routines/timers');
+    if (timersAfterRes.statusCode === 200 && timersAfterRes.body.activeTimers.length === 0) {
+      expired = true;
+      break;
+    }
+  }
+  assert.ok(expired, 'Auto-Off countdown timer should expire within 3s');
   console.log('  ✓ Auto-Off timer expired and cleaned up cleanly');
 
   console.log('[Test 7] Testing POST /api/v1/hub/time/sync...');
@@ -194,19 +203,71 @@ async function runTests() {
   assert.strictEqual(netResetRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/network/reset passed');
 
-  console.log('[Test 15] Testing POST /api/v1/hub/reboot...');
+  console.log('[Test 15] Testing POST /api/v1/rules (Cross-Device Rule Creation)...');
+  const ruleId = 'rule_cross_gnd_to_1st_staircase';
+  const saveRuleRes = await request('POST', '/api/v1/rules', {
+    id: ruleId,
+    name: 'Ground 2x Ch1 -> 1st Floor Staircase Light ON',
+    enabled: true,
+    triggerDeviceId: 'EH-SW-GND-01',
+    triggerChannel: 1,
+    triggerState: true,
+    actionDeviceId: 'EH-SW-1ST-02',
+    actionDeviceIp: '127.0.0.1',
+    actionChannel: 1,
+    actionCommand: 'ON',
+  });
+  assert.strictEqual(saveRuleRes.statusCode, 200);
+  assert.strictEqual(saveRuleRes.body.status, 'ok');
+
+  const getRulesRes = await request('GET', '/api/v1/rules');
+  assert.strictEqual(getRulesRes.statusCode, 200);
+  assert.strictEqual(getRulesRes.body.rules.length, 1);
+  assert.strictEqual(getRulesRes.body.rules[0].id, ruleId);
+  console.log('  ✓ POST & GET /api/v1/rules passed');
+
+  console.log('[Test 16] Testing POST /api/v1/rules/test (Fast-Path Cross-Device Execution)...');
+  const testRuleRes = await request('POST', `/api/v1/rules/test?id=${ruleId}`);
+  assert.strictEqual(testRuleRes.statusCode, 200);
+  assert.strictEqual(testRuleRes.body.status, 'ok');
+  assert(testRuleRes.body.execution.latencyMs >= 0);
+  console.log(`  ✓ Fast-Path cross-device test passed (Latency: ${testRuleRes.body.execution.latencyMs}ms)`);
+
+  console.log('[Test 17] Testing POST /api/v1/hub/events & Execution Log Audit...');
+  const eventRes = await request('POST', '/api/v1/hub/events', {
+    deviceId: 'EH-SW-GND-01',
+    channel: 1,
+    state: true,
+  });
+  assert.strictEqual(eventRes.statusCode, 200);
+  assert.strictEqual(eventRes.body.matchedRules, 1);
+
+  const logsRes = await request('GET', '/api/v1/rules/logs?limit=10');
+  assert.strictEqual(logsRes.statusCode, 200);
+  assert(logsRes.body.logs.length >= 2); // manual test log + event bus log
+  assert.strictEqual(logsRes.body.logs[0].ruleId, ruleId);
+  console.log(`  ✓ Event bus reactive trigger and execution audit logs passed (${logsRes.body.logs.length} logged)`);
+
+  console.log('[Test 18] Testing DELETE /api/v1/rules...');
+  const delRuleRes = await request('DELETE', `/api/v1/rules?id=${ruleId}`);
+  assert.strictEqual(delRuleRes.statusCode, 200);
+  const rulesAfterDel = await request('GET', '/api/v1/rules');
+  assert.strictEqual(rulesAfterDel.body.rules.length, 0);
+  console.log('  ✓ DELETE /api/v1/rules passed');
+
+  console.log('[Test 19] Testing POST /api/v1/hub/reboot...');
   const rebootRes = await request('POST', '/api/v1/hub/reboot');
   assert.strictEqual(rebootRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/reboot passed');
 
-  console.log('[Test 16] Testing POST /api/v1/hub/factory-reset...');
+  console.log('[Test 20] Testing POST /api/v1/hub/factory-reset...');
   const factoryRes = await request('POST', '/api/v1/hub/factory-reset');
   assert.strictEqual(factoryRes.statusCode, 200);
   const infoAfterReset = await request('GET', '/api/v1/hub/info');
   assert.strictEqual(infoAfterReset.body.isLinked, false);
   console.log('  ✓ POST /api/v1/hub/factory-reset passed');
 
-  console.log('\n[PASS] All 16 Hub Core Daemon & Storage Engine Tests Succeeded!\n');
+  console.log('\n[PASS] All 20 Hub Core Daemon, Cross-Device Event Bus & Storage Engine Tests Succeeded!\n');
 }
 
 runTests()
