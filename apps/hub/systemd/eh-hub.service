@@ -12,6 +12,8 @@ Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
 Environment=HUB_PORT=4210
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 StandardOutput=journal
 StandardError=journal
 
