@@ -354,6 +354,86 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 _buildFeatureRow(tokens, Icons.memory_rounded, 'Flash Memory Preservation', 'Comfort routines live on Hub RAM, saving switch flash cycles.'),
                 const SizedBox(height: 12),
                 _buildFeatureRow(tokens, Icons.touch_app_rounded, 'Zero-Touch Adoption', 'No resetting switches or re-entering Wi-Fi credentials.'),
+                const SizedBox(height: 12),
+                _buildFeatureRow(tokens, Icons.query_stats_rounded, '365-Day Local Energy', 'On-premise hourly power rollups without cloud subscriptions.'),
+                const SizedBox(height: 12),
+                _buildFeatureRow(tokens, Icons.access_time_rounded, 'RFC 5905 NTP Timekeeper', 'Embedded port 123 clock sync prevents schedule drift in outages.'),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // 1.5 Honest Buyer Guide (Who Needs a Hub vs Who Doesn't)
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.help_outline_rounded, color: tokens.bluePrimary, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Do You Need a Hub?',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: tokens.successContainer.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: tokens.success.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Recommended for:',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.success),
+                      ),
+                      const SizedBox(height: 6),
+                      Text('• Multi-floor homes with concrete walls or multiple Wi-Fi extenders', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                      Text('• Large installations with 20+ devices or cross-room group automations', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                      Text('• Critical offline homes that need schedules running during prolonged fiber cuts', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                      Text('• Home Assistant, Matter, or local MQTT power users', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: tokens.surfaceCard,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: tokens.borderSubtle),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'NOT needed for:',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.textSecondary),
+                      ),
+                      const SizedBox(height: 6),
+                      Text('• 1-floor apartments with reliable single-router Wi-Fi coverage', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                      Text('• Direct switch-to-switch Fast-Path UDP (<3ms) is already built-in without a Hub', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                      Text('• On-chip NVS memory runs up to 16 standalone schedules per switch independently', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
