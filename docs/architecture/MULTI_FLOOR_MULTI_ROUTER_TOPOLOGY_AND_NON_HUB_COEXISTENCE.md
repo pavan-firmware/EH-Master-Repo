@@ -141,9 +141,43 @@ flowchart TD
 * The switch's internal FreeRTOS timer evaluates the schedule in RAM.
 * **If the internet goes down, on-chip routines fire on time with zero dependency on a hub or cloud.**
 
-#### 5. Cross-Device Automations in Non-Hub Mode
-* Because there is no local Hub to bridge Floor 1 and Floor 2, multi-device rules (*"Switch A turns on Socket B"*) are processed by the **EH Cloud Automation Worker**.
-* Requires active internet. If internet cuts, single-device routines continue firing, but cross-device rules pause until internet restores.
+#### 5. Cross-Device Automations in Non-Hub Mode (Local Priority First, Cloud Fallback)
+Even without an EH Hub, EH devices support **Direct Device-to-Device (D2D / P2P) Local Peer Binding**:
+
+```
+                 DIRECT P2P LOCAL AUTOMATION FLOW (NO HUB NEEDED)
+  [ Ground Floor 2X Switch ]                               [ 1st Floor 3X Switch ]
+  (Cap Touch Button Pressed)                                 (Staircase Light)
+              │                                                     ▲
+              │ 1. Local Priority: Direct HTTP POST (<10ms)         │
+              ├─────────────────────────────────────────────────────┘
+              │ (Traverses Ground Router -> 1st Floor Extender -> Switch)
+              │
+              │ 2. Cloud Fallback (Only if Local Peer Unreachable / Timeout >500ms)
+              ▼
+      [ EH Cloud Broker ] ──────── (MQTT ~100ms) ───────────────────┘
+```
+
+1. **How Local Peer Binding is Configured:**
+   When the user creates a cross-device rule in the app (*"When Ground Floor 2X Switch 1 is pressed -> Turn ON 1st Floor 3X Staircase Light"*):
+   - The app commits a **Local Peer Binding** into the Ground switch's NVS memory:
+     ```json
+     {
+       "triggerChannel": 1,
+       "triggerEvent": "PHYSICAL_BUTTON_PRESSED",
+       "targetDeviceId": "eh-sw3x-40022",
+       "targetIp": "192.168.1.50",
+       "targetChannel": 2,
+       "targetState": true
+     }
+     ```
+2. **Execution Hierarchy (Local Priority First):**
+   - **Step 1 (Local Priority):** When the physical button on the Ground 2X Switch is pressed, the switch immediately dispatches a non-blocking asynchronous local HTTP request:
+     `POST http://192.168.1.50/api/v1/control {"channel": 2, "power": true}`
+     The packet travels: `Ground Switch -> Main Router -> 1st Floor Extender -> 1st Floor Switch`.
+     **The staircase light clicks ON in $<10\text{ms}$ over local Wi-Fi without needing a Hub or Cloud!**
+   - **Step 2 (Dynamic IP Healing):** If the 1st Floor switch changed its IP via DHCP, the Ground switch resolves it via local mDNS (`eh-sw3x-40022.local`) or UDP beacon cache and updates its stored peer IP.
+   - **Step 3 (Cloud Fallback):** If the local HTTP request times out (e.g., local Wi-Fi router rebooting, or peer isolated on a guest VLAN), the Ground switch publishes the trigger to the secure EH Cloud MQTT broker (`eh/{deviceId}/evt/state`), and the Cloud Automation Worker delivers the command over the internet in ~100ms.
 
 ---
 
@@ -171,6 +205,11 @@ In this scenario, a single router on the Ground floor must reach devices across 
   3. The app displays an active **BLE Direct Link** badge.
   4. The user can toggle switches, view energy consumption, and edit schedules directly over Bluetooth with **zero Wi-Fi signal required**.
 
+#### 5. Cross-Device Automations in Topology C (Local Priority First, Cloud Fallback)
+Even with a single router and no extenders:
+* **Ground to 1st Floor:** Devices on the Ground and 1st floors that both connect to the Ground router communicate directly via **Local P2P HTTP** (`POST http://<peer_ip>/api/v1/control`) through the Ground router in **$<15\text{ms}$**. The staircase light turns on locally with zero internet!
+* **Ground to 2nd Floor (Dead Zone Handling):** If a 2nd-floor device has intermittent or zero Wi-Fi signal from the Ground router, the Ground switch tries the direct local IP first. If unreachable within 500ms, it falls back to Cloud MQTT, delivering the command as soon as the 2nd-floor device reconnects, or via Bluetooth Low Energy (BLE) direct link when the user approaches.
+
 ---
 
 ## 5. Comprehensive Feature & Coexistence Comparison Matrix
@@ -181,8 +220,8 @@ In this scenario, a single router on the Ground floor must reach devices across 
 | **In-Home Phone App Latency** | $<8\text{ms}$ (via Hub LAN proxy) | $10\text{--}15\text{ms}$ (direct switch IP) | $10\text{ms}$ on GF; BLE fallback on 2F |
 | **Out-of-Home Remote Control** | Cloud MQTT via Hub / Switch | Cloud MQTT direct to Switch | Cloud MQTT (where Wi-Fi reaches) |
 | **Single-Device Schedules** | Hub DB (comfort) + NVS (critical) | Stored directly in Switch NVS | Stored directly in Switch NVS |
-| **Cross-Device Automations** | **100% Offline via Hub ($<10\text{ms}$)** | Cloud-orchestrated (~100ms) | Cloud-orchestrated (requires Wi-Fi) |
-| **Internet Cable Cut Behavior** | **100% fully functional** | Local app & on-chip rules work | Local app & on-chip rules work |
+| **Cross-Device Automations** | **Local Hub Engine ($<5\text{ms}$)** | **Local P2P First ($<10\text{ms}$)**<br/>*(Cloud MQTT Fallback)* | **Local P2P First ($<15\text{ms}$)**<br/>*(Cloud MQTT Fallback)* |
+| **Internet Cable Cut Behavior** | **100% fully functional** | **Local app & Local P2P work** | **Local app & Local P2P work** |
 | **Timekeeper in Long Internet Outage**| **Local NTP Server on Hub** | Passive sync when phone connects | Passive sync when phone connects |
 | **365-Day Energy Telemetry** | **Stored locally on Hub SQLite** | Cloud-stored (when online) | Cloud-stored (when online) |
 | **Extender / Mesh Traversal** | Unicast HTTP reverse registration | Direct Unicast IP / Cloud MQTT | N/A (single router) |
