@@ -106,6 +106,29 @@ class SQLiteWalEngine {
       );
       CREATE INDEX IF NOT EXISTS idx_energy_dev_ch_epoch ON energy_telemetry_hourly(device_id, channel, hour_epoch);
     `);
+    this.migrateLegacyStateIfPresent();
+  }
+
+  migrateLegacyStateIfPresent() {
+    try {
+      const legacyFile = path.join(this.dataDir, 'hub-state.json');
+      if (fs.existsSync(legacyFile)) {
+        const content = fs.readFileSync(legacyFile, 'utf8');
+        const legacy = JSON.parse(content);
+        if (legacy.homeId && !this.getMetadata('homeId')) {
+          this.setMetadata('homeId', legacy.homeId);
+          if (legacy.claimToken) this.setMetadata('claimToken', legacy.claimToken);
+          if (legacy.linkedAt) this.setMetadata('linkedAt', legacy.linkedAt);
+        }
+        if (Array.isArray(legacy.devices)) {
+          for (const dev of legacy.devices) {
+            if (dev.id && !this.getDevice(dev.id)) {
+              this.upsertDevice(dev);
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   getMetadata(key, defaultVal = null) {
@@ -449,9 +472,9 @@ class SQLiteWalEngine {
   recordEnergySample(sample) {
     const deviceId = sample.deviceId;
     const channel = sample.channel ?? 1;
-    const powerW = Math.max(0, Number(sample.powerW || 0));
-    const voltageV = Number(sample.voltageV || 230);
-    const currentA = Number(sample.currentA || (powerW > 0 ? (powerW / voltageV) : 0));
+    const powerW = Math.max(0, Number(sample.powerW ?? sample.activePower ?? sample.power ?? 0));
+    const voltageV = Number(sample.voltageV ?? sample.voltage ?? 230);
+    const currentA = Number(sample.currentA ?? sample.current ?? (powerW > 0 ? (powerW / voltageV) : 0));
     const now = sample.timestamp ? new Date(sample.timestamp) : new Date();
     const epochSec = Math.floor(now.getTime() / 1000);
     const hourEpoch = Math.floor(epochSec / 3600) * 3600;
@@ -464,8 +487,12 @@ class SQLiteWalEngine {
       deviceId,
       channel,
       voltageV,
+      voltage: voltageV,
       currentA,
+      current: currentA,
       powerW,
+      activePower: powerW,
+      power: powerW,
       timestamp: isoString,
     };
 
@@ -518,8 +545,12 @@ class SQLiteWalEngine {
         deviceId,
         channel,
         voltageV: 230,
+        voltage: 230,
         currentA: 0,
+        current: 0,
         powerW: 0,
+        activePower: 0,
+        power: 0,
         timestamp: new Date().toISOString(),
       };
     }
@@ -527,8 +558,12 @@ class SQLiteWalEngine {
       deviceId: row.device_id,
       channel: row.channel,
       voltageV: row.voltage_v,
+      voltage: row.voltage_v,
       currentA: row.current_a,
+      current: row.current_a,
       powerW: row.avg_power_w,
+      activePower: row.avg_power_w,
+      power: row.avg_power_w,
       timestamp: row.updated_at,
     };
   }
@@ -674,6 +709,7 @@ class SQLiteWalEngine {
       period,
       currentPowerW: Number(homeCurrentPowerW.toFixed(1)),
       totalEnergyKwh: Number(homeTotalKwh.toFixed(3)),
+      totalKwhToday: Number(homeTotalKwh.toFixed(3)),
       peakPowerW: Number(homePeakPowerW.toFixed(1)),
       avgPowerW: trends.length > 0 ? Number((trends.reduce((acc, t) => acc + t.powerW, 0) / trends.length).toFixed(1)) : 0,
       costEstimate: Number((homeTotalKwh * 0.15).toFixed(2)),
@@ -770,6 +806,29 @@ class AtomicWalEngine {
         console.warn('[Storage:WAL] Failed replaying WAL file:', e.message);
       }
     }
+    this.migrateLegacyStateIfPresent();
+  }
+
+  migrateLegacyStateIfPresent() {
+    try {
+      const legacyFile = path.join(this.dataDir, 'hub-state.json');
+      if (fs.existsSync(legacyFile)) {
+        const content = fs.readFileSync(legacyFile, 'utf8');
+        const legacy = JSON.parse(content);
+        if (legacy.homeId && !this.getMetadata('homeId')) {
+          this.setMetadata('homeId', legacy.homeId);
+          if (legacy.claimToken) this.setMetadata('claimToken', legacy.claimToken);
+          if (legacy.linkedAt) this.setMetadata('linkedAt', legacy.linkedAt);
+        }
+        if (Array.isArray(legacy.devices)) {
+          for (const dev of legacy.devices) {
+            if (dev.id && !this.getDevice(dev.id)) {
+              this.upsertDevice(dev);
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   applyWalEntry(entry) {
@@ -972,9 +1031,9 @@ class AtomicWalEngine {
     this.state.energyTelemetry = this.state.energyTelemetry || {};
     const deviceId = sample.deviceId;
     const channel = sample.channel ?? 1;
-    const powerW = Math.max(0, Number(sample.powerW || 0));
-    const voltageV = Number(sample.voltageV || 230);
-    const currentA = Number(sample.currentA || (powerW > 0 ? (powerW / voltageV) : 0));
+    const powerW = Math.max(0, Number(sample.powerW ?? sample.activePower ?? sample.power ?? 0));
+    const voltageV = Number(sample.voltageV ?? sample.voltage ?? 230);
+    const currentA = Number(sample.currentA ?? sample.current ?? (powerW > 0 ? (powerW / voltageV) : 0));
     const now = sample.timestamp ? new Date(sample.timestamp) : new Date();
     const epochSec = Math.floor(now.getTime() / 1000);
     const hourEpoch = Math.floor(epochSec / 3600) * 3600;
@@ -986,8 +1045,12 @@ class AtomicWalEngine {
       deviceId,
       channel,
       voltageV,
+      voltage: voltageV,
       currentA,
+      current: currentA,
       powerW,
+      activePower: powerW,
+      power: powerW,
       timestamp: isoString,
     };
 
@@ -1050,8 +1113,12 @@ class AtomicWalEngine {
         deviceId,
         channel,
         voltageV: 230,
+        voltage: 230,
         currentA: 0,
+        current: 0,
         powerW: 0,
+        activePower: 0,
+        power: 0,
         timestamp: new Date().toISOString(),
       };
     }
@@ -1060,8 +1127,12 @@ class AtomicWalEngine {
       deviceId: row.device_id,
       channel: row.channel,
       voltageV: row.voltage_v,
+      voltage: row.voltage_v,
       currentA: row.current_a,
+      current: row.current_a,
       powerW: row.avg_power_w,
+      activePower: row.avg_power_w,
+      power: row.avg_power_w,
       timestamp: row.updated_at,
     };
   }
@@ -1202,6 +1273,7 @@ class AtomicWalEngine {
       period,
       currentPowerW: Number(homeCurrentPowerW.toFixed(1)),
       totalEnergyKwh: Number(homeTotalKwh.toFixed(3)),
+      totalKwhToday: Number(homeTotalKwh.toFixed(3)),
       peakPowerW: Number(homePeakPowerW.toFixed(1)),
       avgPowerW: trends.length > 0 ? Number((trends.reduce((acc, t) => acc + t.powerW, 0) / trends.length).toFixed(1)) : 0,
       costEstimate: Number((homeTotalKwh * 0.15).toFixed(2)),
