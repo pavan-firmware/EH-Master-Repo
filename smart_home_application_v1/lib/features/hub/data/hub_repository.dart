@@ -62,7 +62,7 @@ class LiveHubRepository implements HubRepository {
     if (customHost != null && customHost!.trim().isNotEmpty && !list.contains(customHost)) {
       list.add(customHost!.trim());
     }
-    for (final def in const ['eh-hub.local', '127.0.0.1', 'localhost']) {
+    for (final def in const ['192.168.0.174', 'eh-hub.local', '127.0.0.1', 'localhost']) {
       if (!list.contains(def)) list.add(def);
     }
     return list;

@@ -80,9 +80,10 @@ export const DashboardView: React.FC = () => {
         const customHost = typeof window !== 'undefined' ? localStorage.getItem('eh_desktop_hub_host') : null;
         const candidateHosts = [
           customHost,
+          'http://192.168.0.174:4210',
+          'http://eh-hub.local:4210',
           'http://localhost:4210',
           'http://127.0.0.1:4210',
-          'http://eh-hub.local:4210',
         ].filter(Boolean) as string[];
 
         let detectedHub: any = null;
