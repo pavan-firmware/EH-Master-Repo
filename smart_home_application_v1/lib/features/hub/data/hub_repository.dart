@@ -39,10 +39,28 @@ class LiveHubRepository implements HubRepository {
   static bool isLinked = false;
   static bool isHubActive = false;
   static String? activeHost;
+  static String? customHost;
+
+  static List<String> getCandidateHosts([String? overrideHost]) {
+    final list = <String>[];
+    if (overrideHost != null && overrideHost.trim().isNotEmpty) {
+      list.add(overrideHost.trim());
+    }
+    if (activeHost != null && activeHost!.trim().isNotEmpty && !list.contains(activeHost)) {
+      list.add(activeHost!.trim());
+    }
+    if (customHost != null && customHost!.trim().isNotEmpty && !list.contains(customHost)) {
+      list.add(customHost!.trim());
+    }
+    for (final def in const ['eh-hub.local', '127.0.0.1', 'localhost']) {
+      if (!list.contains(def)) list.add(def);
+    }
+    return list;
+  }
 
   @override
   Future<HubState> getHubState({String? homeId}) async {
-    for (final host in ['eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts()) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/info');
         final res = await _client.get(uri).timeout(const Duration(milliseconds: 1500));
@@ -71,7 +89,7 @@ class LiveHubRepository implements HubRepository {
             hostname: host,
             ipAddress: data['ipAddress'] as String? ?? host,
             model: data['model'] as String? ?? 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)',
-            firmwareVersion: data['version'] as String? ?? 'v1.0.0-phase51',
+            firmwareVersion: data['version'] as String? ?? 'v1.1.0-sqlite',
             uptime: data['uptime'] as String? ?? 'Active',
             latencyMs: (data['latencyMs'] as num?)?.toInt() ?? 3,
             connectedDevices: devices,
@@ -90,7 +108,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> linkHub({required String hubHostname, required String homeId}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/link');
         final res = await _client.post(
@@ -111,7 +129,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> unlinkHub({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/unlink');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -130,7 +148,7 @@ class LiveHubRepository implements HubRepository {
     required List<String> switchIds,
     List<Map<String, dynamic>>? devices,
   }) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/adopt');
         final payload = <String, dynamic>{
@@ -160,7 +178,7 @@ class LiveHubRepository implements HubRepository {
     required bool power,
     bool isToggle = false,
   }) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/control');
         final payload = {
@@ -185,7 +203,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<List<Map<String, dynamic>>> getRoutines({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines');
         final res = await _client.get(uri).timeout(const Duration(seconds: 2));
@@ -201,7 +219,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> triggerRoutine({required String hubHostname, required String routineId}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines/trigger');
         final res = await _client.post(
@@ -217,7 +235,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> syncTimeBroadcast({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/time/sync');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -229,7 +247,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> syncAutomations({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines');
         final res = await _client.get(uri).timeout(const Duration(seconds: 2));
@@ -241,7 +259,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> restartHubCore({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/reboot');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -254,7 +272,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> identifyHub({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/identify');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -266,7 +284,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> verifyHubPin({required String hubHostname, required String pin}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/auth/verify');
         final res = await _client.post(
@@ -287,7 +305,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> resetMeshNetwork({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/network/reset');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -299,7 +317,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> factoryResetHub({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/factory-reset');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -315,7 +333,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<Map<String, dynamic>> getHubUpdates({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/updates');
         final res = await _client.get(uri).timeout(const Duration(seconds: 2));
@@ -327,8 +345,8 @@ class LiveHubRepository implements HubRepository {
     return {
       'status': 'ok',
       'hub': {
-        'currentVersion': '1.0.0-phase51',
-        'latestVersion': '1.0.0-phase51',
+        'currentVersion': '1.1.0-sqlite',
+        'latestVersion': '1.1.0-sqlite',
         'updateAvailable': false,
         'platform': 'Raspberry Pi 3B+ (Debian aarch64)',
         'channel': 'stable',
@@ -353,7 +371,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> checkForUpdates({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/updates/check');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));

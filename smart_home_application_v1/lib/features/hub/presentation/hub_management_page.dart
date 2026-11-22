@@ -654,6 +654,38 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 1. Hero Coordinator Status Card
+          if (state.isLinked && !LiveHubRepository.isHubActive)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.wifi_tethering_off_rounded, color: Color(0xFFF59E0B), size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Hub Unreachable — Operating in Autonomous LAN Mode',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFFD97706)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'All switches continue executing schedules and physical touch normally without any interruption.',
+                          style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -733,7 +765,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     const SizedBox(width: 10),
                     _buildMetricTile(tokens, 'Scheduler', '${_hubRoutines.length} Rules', Icons.schedule_rounded),
                     const SizedBox(width: 10),
-                    _buildMetricTile(tokens, 'SD Health', 'Read-Only OK', Icons.security_rounded),
+                    _buildMetricTile(tokens, 'Storage', 'SQLite WAL', Icons.storage_rounded),
                   ],
                 ),
               ],
@@ -963,6 +995,63 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     _reload();
                   },
                 ),
+                const Divider(height: 1, indent: 56),
+                SettingsListItem(
+                  icon: Icons.settings_ethernet_rounded,
+                  title: 'Custom Hub Host / IP',
+                  subtitle: LiveHubRepository.customHost != null && LiveHubRepository.customHost!.isNotEmpty
+                      ? 'Custom Host: ${LiveHubRepository.customHost} (Active)'
+                      : 'Automatic mDNS (eh-hub.local). Tap to configure for multi-router setups.',
+                  onTap: () async {
+                    final controller = TextEditingController(text: LiveHubRepository.customHost ?? '');
+                    final newHost = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Custom Hub Host / IP'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Use this if your Hub is connected through an extender or secondary router where mDNS broadcast is blocked.',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                            const SizedBox(height: 14),
+                            TextField(
+                              controller: controller,
+                              decoration: const InputDecoration(
+                                labelText: 'Hub Hostname or IP',
+                                hintText: '192.168.1.100 or eh-hub.local',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () {
+                              LiveHubRepository.customHost = null;
+                              Navigator.pop(ctx, '');
+                            },
+                            child: const Text('Reset to Auto'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, null),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                            child: const Text('Save & Reconnect'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (newHost != null) {
+                      LiveHubRepository.customHost = newHost.isEmpty ? null : newHost;
+                      _reload();
+                    }
+                  },
+                ),
               ],
             ),
           ),
@@ -997,7 +1086,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 SettingsListItem(
                   icon: Icons.memory_rounded,
                   title: 'Hub Daemon Core v${state.firmwareVersion}',
-                  subtitle: 'Platform: Raspberry Pi 3B+ (Debian Linux aarch64) • Channel: Stable',
+                  subtitle: 'Platform: Raspberry Pi 3B+ (Debian Linux aarch64) • Storage: SQLite WAL',
                   onTap: () {},
                   trailing: SettingsStatusChip(
                     label: 'Up to Date',
@@ -1009,7 +1098,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 SettingsListItem(
                   icon: Icons.cached_rounded,
                   title: 'Local Device OTA Cache',
-                  subtitle: '2 production ESP32 images staged in Hub RAM for zero-WAN local flashing',
+                  subtitle: 'Production ESP32 firmware images staged in Hub memory for zero-WAN local flashing',
                   onTap: () {},
                   trailing: SettingsStatusChip(
                     label: 'Cache Active',
