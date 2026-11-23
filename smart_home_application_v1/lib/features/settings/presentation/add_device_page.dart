@@ -9,6 +9,7 @@ import '../../../core/repositories/settings_repository.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/product_image_widget.dart';
 import '../../connection/presentation/device_provisioning_page.dart';
+import '../../hub/presentation/hub_management_page.dart';
 import '../../onboarding/ble/ble_commissioning_channel.dart';
 import 'help/help_support_page.dart';
 
@@ -341,7 +342,67 @@ class _AddDevicePageState extends State<AddDevicePage>
           children: [
             // Scanning card with 0 -> 100% progress loader and radar animation
             _buildScanningCard(tokens),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+
+            // Smart Hub Setup Shortcut Card
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: tokens.surfaceCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: tokens.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: tokens.iconBgBlue,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Setting up a Smart Hub?',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          'Plug into router & link to your home',
+                          style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => HubManagementPage(
+                            homeId: widget.spaceId ?? 'home_default',
+                          ),
+                        ),
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: tokens.bluePrimary,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text('Set Up Hub'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
 
             // Nearby devices Header + Refresh
             Row(
