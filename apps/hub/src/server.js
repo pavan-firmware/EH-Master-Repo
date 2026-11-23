@@ -213,6 +213,112 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // POST /api/v1/hub/register-device - Unicast Device Self-Registration (Multi-floor / Extender fallback)
+  if (req.method === 'POST' && pathname === '/api/v1/hub/register-device') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const deviceId = payload.id || payload.deviceId;
+        if (!deviceId) {
+          return sendJson(res, 400, { error: 'Device id is required for unicast registration' });
+        }
+
+        const remoteIp = (req.socket.remoteAddress || '').replace(/^.*:/, '') || '127.0.0.1';
+        const ipAddress = payload.ipAddress || remoteIp;
+
+        const deviceRecord = {
+          id: deviceId,
+          name: payload.name || `Switch (${deviceId.slice(-4)})`,
+          ipAddress: ipAddress,
+          online: true,
+          channelCount: payload.channelCount || (payload.channels ? Object.keys(payload.channels).length : 3),
+          channels: payload.channels || { 1: false, 2: false, 3: false },
+          model: payload.model || 'EH-SW3',
+          macAddress: payload.macAddress || null,
+          activeRoutinesCount: payload.activeRoutinesCount || 0,
+          hasCriticalHardwareFallback: Boolean(payload.hasCriticalHardwareFallback),
+          latencyMs: payload.latencyMs || 2,
+          registeredVia: 'unicast',
+          lastSeen: new Date().toISOString(),
+        };
+
+        storage.upsertDevice(deviceRecord);
+        console.log(`[Hub] Unicast device registered: ${deviceId} (${ipAddress}) via multi-floor fallback`);
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          registered: true,
+          deviceId: deviceId,
+          device: deviceRecord,
+          message: 'Unicast device self-registration successful',
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid JSON payload', detail: err.message });
+      }
+    });
+    return;
+  }
+
+  // POST /api/v1/hub/webhook - Local Offline Webhook & Voice Assistant Bridge
+  if (req.method === 'POST' && pathname === '/api/v1/hub/webhook') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const event = payload.event || 'device.action';
+        let executed = false;
+        let details = {};
+
+        // 1. Routine triggering via webhook
+        if (payload.routineId) {
+          const routine = storage.getRoutine(payload.routineId);
+          if (routine) {
+            scheduler.dispatchRoutine(routine);
+            executed = true;
+            details.routineId = payload.routineId;
+          }
+        }
+
+        // 2. Direct device actuator command via webhook
+        if (payload.deviceId && payload.channel !== undefined && payload.state !== undefined) {
+          const deviceId = payload.deviceId;
+          const channel = Number(payload.channel);
+          const state = Boolean(payload.state);
+
+          // Update local device state cache if adopted
+          const devices = storage.getDevices();
+          const targetDevice = devices.find(d => d.id === deviceId);
+          if (targetDevice) {
+            targetDevice.channels = targetDevice.channels || {};
+            targetDevice.channels[channel] = state;
+            storage.upsertDevice(targetDevice);
+          }
+
+          // Evaluate cross-device rules
+          rulesEngine.evaluateStateChange(deviceId, channel, state).catch(() => {});
+          executed = true;
+          details.deviceId = deviceId;
+          details.channel = channel;
+          details.state = state;
+        }
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          executed: executed || true,
+          event,
+          ...details,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid webhook payload', detail: err.message });
+      }
+    });
+    return;
+  }
+
   // POST /api/v1/hub/time/sync - Broadcast real-time clock epoch to all switches
   if (req.method === 'POST' && pathname === '/api/v1/hub/time/sync') {
     broadcastDiscovery();

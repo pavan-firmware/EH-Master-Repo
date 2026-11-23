@@ -1820,33 +1820,6 @@ class _InsightLine extends StatelessWidget {
   }
 }
 
-class _MiniChart extends StatelessWidget {
-  const _MiniChart();
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.ehColors;
-    return SizedBox(
-      height: 38,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(
-          15,
-          (index) => Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: Container(
-                height: 8.0 + ((index * 11) % 28),
-                color: tokens.bluePrimary,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _HeaderButton extends StatelessWidget {
   const _HeaderButton({required this.icon, required this.onTap});
   final IconData icon;

@@ -398,19 +398,53 @@ async function runTests() {
   assert(Array.isArray(diagRes.body.devices));
   console.log('  ✓ One-Click diagnostics export verified');
 
-  console.log('[Test 29] Testing POST /api/v1/hub/reboot...');
+  console.log('[Test 29] Testing Unicast Device Self-Registration (POST /api/v1/hub/register-device)...');
+  const unicastRes = await request('POST', '/api/v1/hub/register-device', {
+    id: 'eh-switch-unicast-99',
+    name: '2nd Floor Balcony Switch',
+    ipAddress: '192.168.1.185',
+    channelCount: 3,
+    channels: { 1: false, 2: false, 3: false },
+    model: 'EH-SW3-EM',
+    macAddress: 'AA:BB:CC:DD:EE:99',
+    hasCriticalHardwareFallback: true,
+  });
+  assert.strictEqual(unicastRes.statusCode, 200);
+  assert.strictEqual(unicastRes.body.status, 'ok');
+  assert.strictEqual(unicastRes.body.registered, true);
+  assert.strictEqual(unicastRes.body.deviceId, 'eh-switch-unicast-99');
+
+  const devicesAfterUnicast = await request('GET', '/api/v1/hub/devices');
+  const foundRegistered = devicesAfterUnicast.body.devices.find(d => d.id === 'eh-switch-unicast-99');
+  assert(foundRegistered, 'Unicast device should be in Hub devices registry');
+  assert.strictEqual(foundRegistered.ipAddress, '192.168.1.185');
+  console.log('  ✓ POST /api/v1/hub/register-device passed and persisted');
+
+  console.log('[Test 30] Testing Local Offline Webhook & Voice Bridge (POST /api/v1/hub/webhook)...');
+  const webhookRes = await request('POST', '/api/v1/hub/webhook', {
+    event: 'voice.command.toggle',
+    deviceId: 'eh-switch-unicast-99',
+    channel: 1,
+    state: true,
+  });
+  assert.strictEqual(webhookRes.statusCode, 200);
+  assert.strictEqual(webhookRes.body.status, 'ok');
+  assert.strictEqual(webhookRes.body.executed, true);
+  console.log('  ✓ POST /api/v1/hub/webhook execution verified');
+
+  console.log('[Test 31] Testing POST /api/v1/hub/reboot...');
   const rebootRes = await request('POST', '/api/v1/hub/reboot');
   assert.strictEqual(rebootRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/reboot passed');
 
-  console.log('[Test 30] Testing POST /api/v1/hub/factory-reset...');
+  console.log('[Test 32] Testing POST /api/v1/hub/factory-reset...');
   const factoryRes = await request('POST', '/api/v1/hub/factory-reset');
   assert.strictEqual(factoryRes.statusCode, 200);
   const infoAfterReset = await request('GET', '/api/v1/hub/info');
   assert.strictEqual(infoAfterReset.body.isLinked, false);
   console.log('  ✓ POST /api/v1/hub/factory-reset passed');
 
-  console.log('\n[PASS] All 30 Hub Core Daemon, Home Assistant Discovery, Backup & Diagnostics Tests Succeeded!\n');
+  console.log('\n[PASS] All 32 Hub Core Daemon, Home Assistant Discovery, Backup & Diagnostics Tests Succeeded!\n');
 }
 
 runTests()
