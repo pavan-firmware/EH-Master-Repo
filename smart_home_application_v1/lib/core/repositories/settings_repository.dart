@@ -2,6 +2,7 @@ import '../capabilities/repositories/product_catalog_repository.dart';
 import '../models/settings_models.dart';
 import '../models/device_models.dart';
 import 'package:flutter/foundation.dart';
+import '../../app/home_controller.dart';
 import '../../features/onboarding/ble/ble_commissioning_channel.dart';
 import '../services/ble_preflight_service.dart';
 import '../services/product_asset_resolver.dart';
@@ -173,85 +174,44 @@ class PreviewSettingsRepository implements SettingsRepository {
       SettingsOperationResult.unsupported;
 
   @override
-  Future<HomeSettingsData> getHome() async => HomeSettingsData(
-    id: 'HN-7A28F91C',
-    name: 'Pavan’s home',
-    ownerName: 'Pavan',
-    location: 'Hyderabad, Telangana, India',
-    timezone: 'Asia/Kolkata',
-    createdAt: DateTime(2026, 8, 12),
-    preferences: const HomePreferences(
-      temperatureUnit: 'Celsius (°C)',
-      notificationsEnabled: true,
-      timeFormat: '12-hour',
-    ),
-    connectionAvailability: HomeConnectionAvailability.setupRequired,
-    connectionTransport: 'Bluetooth + Wi-Fi',
-    lastChecked: null,
-  );
+  Future<HomeSettingsData> getHome() async {
+    final ctrl = HomeController.instance;
+    final homeName = ctrl?.activeSpaceName ?? 'My Home';
+    return HomeSettingsData(
+      id: ctrl?.activeHomeId ?? 'HN-LOCAL-01',
+      name: homeName,
+      ownerName: 'Home Owner',
+      location: 'Local Home',
+      timezone: 'UTC',
+      createdAt: DateTime.now(),
+      preferences: const HomePreferences(
+        temperatureUnit: 'Celsius (°C)',
+        notificationsEnabled: true,
+        timeFormat: '12-hour',
+      ),
+      connectionAvailability: HomeConnectionAvailability.setupRequired,
+      connectionTransport: 'Bluetooth + Wi-Fi',
+      lastChecked: null,
+    );
+  }
 
   @override
   Future<List<HomeMember>> getMembers() async => const [
     HomeMember(
-      id: 'pavan',
-      displayName: 'Pavan (You)',
+      id: 'user_current',
+      displayName: 'You (Owner)',
       role: HomeMemberRole.owner,
       status: HomeMemberStatus.active,
-      initials: 'P',
-      lastActiveLabel: 'Home owner',
-    ),
-    HomeMember(
-      id: 'arun',
-      displayName: 'Arun',
-      role: HomeMemberRole.member,
-      status: HomeMemberStatus.active,
-      initials: 'A',
-      lastActiveLabel: 'Last active today',
-    ),
-    HomeMember(
-      id: 'priya',
-      displayName: 'Priya',
-      role: HomeMemberRole.member,
-      status: HomeMemberStatus.active,
-      initials: 'P',
-      lastActiveLabel: 'Last active yesterday',
+      initials: 'Y',
+      lastActiveLabel: 'Active now',
     ),
   ];
 
   @override
-  Future<List<HomeInvitation>> getPendingInvitations() async => const [
-    HomeInvitation(
-      id: 'rahul',
-      recipientName: 'Rahul',
-      initials: 'R',
-      invitedLabel: 'Invited 2 days ago',
-      expiresLabel: 'Expires in 5 days',
-    ),
-  ];
+  Future<List<HomeInvitation>> getPendingInvitations() async => const [];
 
   @override
-  Future<List<DiscoveredRoomDevice>> getNearbyDevices() async => const [
-    DiscoveredRoomDevice(
-      id: 'SH-8EF248',
-      name: 'EH Smart Switch 3X',
-      model: 'eh-smart-switch-3x',
-      signalLabel: 'Strong signal',
-      signal: DeviceConnection.online,
-      icon: 'switch',
-      imageUrl: 'assets/products/catalog/eh-smart-switch-3x/hero.webp',
-      productVariantId: 'eh-smart-switch-3x',
-    ),
-    DiscoveredRoomDevice(
-      id: 'SH-72A931',
-      name: 'EH Smart Socket 2X',
-      model: 'eh-smart-socket-2x',
-      signalLabel: 'Good signal',
-      signal: DeviceConnection.online,
-      icon: 'socket',
-      imageUrl: 'assets/products/catalog/eh-smart-socket-2x/hero.webp',
-      productVariantId: 'eh-smart-socket-2x',
-    ),
-  ];
+  Future<List<DiscoveredRoomDevice>> getNearbyDevices() async => const [];
 
   @override
   Future<SettingsOperationResult> cancelInvitation(String invitationId) async =>

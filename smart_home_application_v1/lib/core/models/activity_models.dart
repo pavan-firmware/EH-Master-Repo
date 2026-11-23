@@ -358,9 +358,7 @@ class PreviewActivityRepository implements ActivityRepository {
         ),
       );
     }
-    // If controller is present but empty, also fall back to static events so
-    // the preview UI is never blank.
-    if (list.isEmpty) return _staticPreviewEvents();
+    // When controller is present, return honest live activity list
     return list;
   }
 

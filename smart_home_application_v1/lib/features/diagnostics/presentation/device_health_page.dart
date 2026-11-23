@@ -158,8 +158,7 @@ class _DeviceHealthPageState extends State<DeviceHealthPage> {
 
   void _load() {
     setState(() {
-      if (widget.homeController != null &&
-          widget.homeController!.devices.isNotEmpty) {
+      if (widget.homeController != null) {
         _summary = Future.value(_buildRealSummary(widget.homeController!));
       } else {
         _summary = widget.repository.getSummary();

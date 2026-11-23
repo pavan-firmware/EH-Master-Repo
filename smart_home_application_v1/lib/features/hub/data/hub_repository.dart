@@ -319,9 +319,7 @@ class LiveHubRepository implements HubRepository {
         }
       } catch (_) {}
     }
-    // Fallback: accept 6 digits in offline/mock mode
-    final cleaned = pin.replaceAll(RegExp(r'[-\s]'), '');
-    return cleaned.length == 6;
+    return false;
   }
 
   @override

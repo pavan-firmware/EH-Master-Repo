@@ -61,20 +61,7 @@ class _MatterIntegrationPageState extends State<MatterIntegrationPage> {
     } catch (_) {
       if (mounted) {
         setState(() {
-          _devices = _devices.isNotEmpty ? _devices : [
-            MatterDeviceSummary(
-              id: 'mat_001',
-              deviceId: 'dev_001',
-              homeId: widget.homeId,
-              deviceName: 'Living Room Light',
-              nodeId: '0x0000000000000001',
-              isCommissioned: true,
-              activeFabricsCount: 1,
-              maxFabricsSupported: 5,
-              createdAt: DateTime.now(),
-              updatedAt: DateTime.now(),
-            )
-          ];
+          _devices = _devices.isNotEmpty ? _devices : const [];
           _certificationOverview = const MatterCertificationOverview();
           _isLoading = false;
         });

@@ -1414,8 +1414,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
                 energyKwh: '0.0 kWh',
                 energyChange: '0.0 kWh',
                 activeWindow: 'Today',
-                averageTemperature: '24°C',
-                averageHumidity: '55%',
+                averageTemperature: '--',
+                averageHumidity: '--',
               ),
             ),
           );
@@ -1443,8 +1443,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
                 energyKwh: '0.0 kWh',
                 energyChange: '0.0 kWh',
                 activeWindow: 'Today',
-                averageTemperature: '24°C',
-                averageHumidity: '55%',
+                averageTemperature: '--',
+                averageHumidity: '--',
               ),
             ),
           );
@@ -1551,8 +1551,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             energyKwh: '0.0 kWh',
             energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         );
       }).toList();
@@ -1915,8 +1915,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
               energyKwh: '0.0 kWh',
               energyChange: '0.0 kWh',
               activeWindow: 'Today',
-              averageTemperature: '24°C',
-              averageHumidity: '55%',
+              averageTemperature: '--',
+              averageHumidity: '--',
             ),
           );
         }).toList();
@@ -2746,11 +2746,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             );
           }).toList(),
           insights: const RoomInsights(
-            energyKwh: '1.2 kWh',
-            energyChange: '+0.1 kWh',
+            energyKwh: '0.0 kWh',
+            energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         );
       }));
@@ -3379,8 +3379,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             energyKwh: '0.0 kWh',
             energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         ),
       );
@@ -3900,8 +3900,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             energyKwh: '0.0 kWh',
             energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         ),
       );

@@ -110,7 +110,7 @@ class HubScheduler {
       req.write(postData);
       req.end();
     } else {
-      console.log(`[Hub Scheduler] Target switch ${routine.deviceId} dispatched (local simulated relay)`);
+      console.log(`[Hub Scheduler] Target switch ${routine.deviceId} has no local IP; evaluated locally`);
     }
 
     // If durationSec is set and turned ON, schedule automatic revert timer (Auto-Off)
@@ -171,7 +171,7 @@ class HubScheduler {
       req.write(postData);
       req.end();
     } else {
-      console.log(`[Hub Scheduler] Auto-Off completed for ${timer.deviceId} Ch ${timer.channel} (simulated revert to OFF)`);
+      console.log(`[Hub Scheduler] Auto-Off completed for ${timer.deviceId} Ch ${timer.channel} (reverted to OFF in local cache)`);
     }
   }
 

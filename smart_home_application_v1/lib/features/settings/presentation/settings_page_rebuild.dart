@@ -7,7 +7,6 @@ import '../../../core/config/app_config.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/models/health_models.dart';
-import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/models/update_models.dart';
 import '../../../core/repositories/connection_repository.dart';
@@ -350,13 +349,10 @@ class _SettingsContent extends StatelessWidget {
     final tokens = context.ehColors;
     final roomCount = homeController != null
         ? homeController!.rooms.length
-        : RoomCatalog.preview.length;
+        : 0;
     final deviceCount = homeController != null
         ? homeController!.devices.length
-        : RoomCatalog.preview.fold<int>(
-            0,
-            (sum, room) => sum + room.deviceCount,
-          );
+        : 0;
     final connection = _RootConnectionStatus.fromOverview(
       system.connection,
       tokens,

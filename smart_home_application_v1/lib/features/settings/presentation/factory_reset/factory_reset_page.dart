@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../app/home_controller.dart';
 import '../../../../core/models/factory_reset_models.dart';
 import '../../../../core/repositories/factory_reset_repository.dart';
 import '../../../activity/presentation/activity_page.dart';
@@ -84,16 +85,19 @@ class _FactoryResetPageState extends State<FactoryResetPage> {
                     subtitle: 'This device is in a room',
                     value: impact.roomName,
                     onTap: () {
-                      final room = RoomCatalog.preview.firstWhere(
-                        (r) => r.name == impact.roomName,
-                        orElse: () => RoomCatalog.preview.first,
+                      final availableRooms = HomeController.instance?.rooms ?? [];
+                      final room = availableRooms.cast<Room?>().firstWhere(
+                        (r) => r?.name == impact.roomName,
+                        orElse: () => null,
                       );
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => RoomContextPage(room: room),
-                        ),
-                      );
+                      if (room != null) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => RoomContextPage(room: room),
+                          ),
+                        );
+                      }
                     },
                     showDivider: true,
                   ),

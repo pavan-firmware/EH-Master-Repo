@@ -71,8 +71,7 @@ class MatterService extends ChangeNotifier {
 
     _loading = false;
     notifyListeners();
-    // Return mock devices if network not reached
-    return _getMockDevices(homeId);
+    return const [];
   }
 
   // ─── 2. Fetch Device Matter Details ──────────────────────────────────────
@@ -130,17 +129,7 @@ class MatterService extends ChangeNotifier {
       _error = e.toString();
     }
 
-    // Default simulated session
-    return MatterCommissioningSessionModel(
-      sessionId: 'sess_${DateTime.now().millisecondsSinceEpoch}',
-      deviceId: deviceId,
-      homeId: homeId,
-      manualPairingCode: '34970112345',
-      qrCodePayload: 'MT:Y.K9042C00KA0648G00',
-      pairingWindowSeconds: windowSeconds,
-      expiresAt: DateTime.now().add(Duration(seconds: windowSeconds)),
-      status: CommissioningSessionStatus.open,
-    );
+    throw Exception(_error ?? 'Matter commissioning session could not be established');
   }
 
   // ─── 4. Fetch External Platform Links ────────────────────────────────────
@@ -223,26 +212,5 @@ class MatterService extends ChangeNotifier {
 
     _certificationOverview = const MatterCertificationOverview();
     return _certificationOverview;
-  }
-
-  List<MatterDeviceSummary> _getMockDevices(String homeId) {
-    return [
-      MatterDeviceSummary(
-        id: 'mat_dev_001',
-        deviceId: 'dev_001',
-        homeId: homeId,
-        deviceName: 'Living Room Light',
-        vendorId: 4937,
-        productId: 1,
-        nodeId: '0x0000000000000001',
-        deviceType: 'ON_OFF_LIGHT',
-        deviceTypeId: 256,
-        isCommissioned: true,
-        activeFabricsCount: 1,
-        maxFabricsSupported: 5,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
-    ];
   }
 }

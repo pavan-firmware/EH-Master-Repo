@@ -477,7 +477,7 @@ const server = http.createServer((req, res) => {
           forwardReq.end();
           return;
         }
-        // Even for local/simulated devices, evaluate cross-device rules
+        // For local state or direct harness, evaluate cross-device rules
         rulesEngine.evaluateStateChange(deviceId, channel, state).catch(() => {});
         return sendJson(res, 200, { status: 'ok', localExecuted: true, deviceId, channel, state });
       } catch (e) {
