@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../../core/services/local_lan_device_service.dart';
 import '../domain/models/hub_models.dart';
 
 abstract class HubRepository {
@@ -55,6 +56,10 @@ class LiveHubRepository implements HubRepository {
     final list = <String>[];
     if (overrideHost != null && overrideHost.trim().isNotEmpty) {
       list.add(overrideHost.trim());
+    }
+    final udpDiscovered = LocalLanDeviceService.instance.cachedHubHost;
+    if (udpDiscovered != null && udpDiscovered.trim().isNotEmpty && !list.contains(udpDiscovered)) {
+      list.add(udpDiscovered.trim());
     }
     if (activeHost != null && activeHost!.trim().isNotEmpty && !list.contains(activeHost)) {
       list.add(activeHost!.trim());

@@ -40,6 +40,9 @@ class LocalLanDeviceService {
   String? _cachedHubHost;
   DateTime? _lastHubSeenAt;
 
+  String? get cachedHubHost => _cachedHubHost;
+  DateTime? get lastHubSeenAt => _lastHubSeenAt;
+
   /// Check whether a device has been verified live on LAN within the last 45 seconds
   bool isDeviceReachableOnLan(String deviceId) {
     if (deviceId.isEmpty) return false;
