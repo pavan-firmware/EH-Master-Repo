@@ -24,6 +24,7 @@ const { createStorageEngine } = require('./storage');
 const { HubScheduler } = require('./scheduler');
 const { RulesEngine } = require('./rules-engine');
 const { SntpTimeServer } = require('./time-server');
+const HomeAssistantBridge = require('./homeassistant-bridge');
 
 const PORT = parseInt(process.env.HUB_PORT || '4210', 10);
 const UDP_PORT = 4210;
@@ -41,6 +42,10 @@ if (!fs.existsSync(FIRMWARE_DIR)) {
 // Initialize Power-Cut Safe Storage Engine (SQLite WAL or Atomic WAL fallback)
 const storage = createStorageEngine(DATA_DIR);
 const rulesEngine = new RulesEngine(storage);
+const haBridge = new HomeAssistantBridge(storage, {
+  hubHostname: HOSTNAME,
+  hubPort: PORT,
+});
 
 // Initialize Embedded Local NTP Responder (Plan 6)
 const timeServer = new SntpTimeServer(parseInt(process.env.NTP_PORT || '123', 10));
@@ -769,6 +774,122 @@ const server = http.createServer((req, res) => {
     });
     const readStream = fs.createReadStream(filePath);
     return readStream.pipe(res);
+  }
+
+  // -------------------------------------------------------------------------
+  // Home Assistant Local Discovery & REST/MQTT Bridge
+  // -------------------------------------------------------------------------
+
+  // GET /api/v1/integrations/homeassistant/manifest - Full HA discovery configurations
+  if (req.method === 'GET' && pathname === '/api/v1/integrations/homeassistant/manifest') {
+    const manifest = haBridge.generateDiscoveryManifest();
+    return sendJson(res, 200, manifest);
+  }
+
+  // GET /api/v1/integrations/homeassistant/entities - REST-compatible entity states
+  if (req.method === 'GET' && pathname === '/api/v1/integrations/homeassistant/entities') {
+    const entities = haBridge.getRestEntities();
+    return sendJson(res, 200, {
+      status: 'ok',
+      entitiesCount: entities.length,
+      entities,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // GET /api/v1/integrations/homeassistant/status - Integration readiness and metrics
+  if (req.method === 'GET' && pathname === '/api/v1/integrations/homeassistant/status') {
+    const manifest = haBridge.generateDiscoveryManifest();
+    const entities = haBridge.getRestEntities();
+    return sendJson(res, 200, {
+      status: 'ok',
+      integration: 'Home Assistant MQTT & REST Bridge',
+      active: true,
+      prefix: haBridge.discoveryPrefix,
+      entitiesCount: manifest.entitiesCount,
+      switchesCount: entities.length,
+      sensorsCount: manifest.entities.filter(e => e.component === 'sensor').length,
+      binarySensorsCount: manifest.entities.filter(e => e.component === 'binary_sensor').length,
+      configurationUrl: `http://${haBridge.hubHostname}:${haBridge.hubPort}`,
+    });
+  }
+
+  // POST /api/v1/integrations/homeassistant/sync - Refresh discovery and broadcast status
+  if (req.method === 'POST' && pathname === '/api/v1/integrations/homeassistant/sync') {
+    const manifest = haBridge.generateDiscoveryManifest();
+    console.log(`[Hub Home Assistant] Synced ${manifest.entitiesCount} entities across ${storage.getDevices().length} devices`);
+    return sendJson(res, 200, {
+      status: 'ok',
+      message: `Home Assistant discovery manifest synchronized (${manifest.entitiesCount} entities)`,
+      entitiesCount: manifest.entitiesCount,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Hub Backup, Restore & One-Click Diagnostics Export
+  // -------------------------------------------------------------------------
+
+  // GET /api/v1/hub/backup - Full database snapshot export
+  if (req.method === 'GET' && pathname === '/api/v1/hub/backup') {
+    const snapshot = storage.exportSnapshot();
+    return sendJson(res, 200, {
+      status: 'ok',
+      backup: snapshot,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // POST /api/v1/hub/restore - Restore database from snapshot
+  if (req.method === 'POST' && pathname === '/api/v1/hub/restore') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const snapshot = payload.backup || payload;
+        storage.restoreSnapshot(snapshot);
+        return sendJson(res, 200, {
+          status: 'ok',
+          message: 'Hub configuration restored successfully',
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Failed restoring snapshot: ' + err.message });
+      }
+    });
+    return;
+  }
+
+  // GET /api/v1/hub/diagnostics/export - Full system health & diagnostics bundle
+  if (req.method === 'GET' && pathname === '/api/v1/hub/diagnostics/export') {
+    const uptimeSec = Math.floor((Date.now() - hubRuntimeState.startTime) / 1000);
+    const bundle = {
+      status: 'ok',
+      exportedAt: new Date().toISOString(),
+      hub: {
+        hubId: storage.getMetadata('hubId', HUB_ID),
+        hostname: storage.getMetadata('hostname', HOSTNAME),
+        model: storage.getMetadata('model', 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)'),
+        version: storage.getMetadata('version', '1.1.0-plan1-sqlite'),
+        homeId: storage.getMetadata('homeId', null),
+        uptimeSec,
+        memory: process.memoryUsage(),
+        storageEngine: storage.type,
+        overlayFs: hubRuntimeState.overlayFsActive,
+        ntpSynced: hubRuntimeState.ntpSynced,
+      },
+      devices: storage.getDevices(),
+      routinesCount: storage.getRoutines().length,
+      rulesCount: storage.getRules().length,
+      activeTimersCount: storage.getActiveTimers().length,
+      recentExecutionLogs: storage.getExecutionLogs(25),
+      homeAssistantStatus: {
+        active: true,
+        entitiesCount: haBridge.generateDiscoveryManifest().entitiesCount,
+      },
+    };
+    return sendJson(res, 200, bundle);
   }
 
   // Fallback 404

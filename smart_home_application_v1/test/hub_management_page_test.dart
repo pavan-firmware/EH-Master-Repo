@@ -199,6 +199,60 @@ class MockTestHubRepository implements HubRepository {
 
   @override
   Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled}) async => true;
+
+  @override
+  Future<Map<String, dynamic>?> getHomeAssistantStatus({required String hubHostname}) async => {
+    'status': 'ok',
+    'enabled': true,
+    'discoveryPrefix': 'homeassistant',
+    'entitiesCount': 4,
+    'summary': {
+      'switches': 1,
+      'sensors': 2,
+      'binarySensors': 1,
+    },
+  };
+
+  @override
+  Future<Map<String, dynamic>?> syncHomeAssistant({required String hubHostname}) async => {
+    'status': 'ok',
+    'discoveredEntitiesCount': 4,
+  };
+
+  @override
+  Future<Map<String, dynamic>?> getHomeAssistantManifest({required String hubHostname}) async => {
+    'status': 'ok',
+    'entitiesCount': 4,
+    'entities': [],
+  };
+
+  @override
+  Future<Map<String, dynamic>?> exportHubBackup({required String hubHostname}) async => {
+    'status': 'ok',
+    'metadata': {
+      'devicesCount': 1,
+      'routinesCount': 1,
+      'claimsCount': 1,
+      'timestamp': '2026-11-23T05:00:00.000Z',
+    },
+    'snapshot': {},
+  };
+
+  @override
+  Future<bool> restoreHubBackup({required String hubHostname, required Map<String, dynamic> backup}) async => true;
+
+  @override
+  Future<Map<String, dynamic>?> exportDiagnostics({required String hubHostname}) async => {
+    'status': 'ok',
+    'summary': {
+      'databaseEngine': 'sqlite',
+      'totalDevices': 1,
+      'totalClaims': 1,
+      'overlayFsActive': true,
+      'ntpSynced': true,
+      'uptimeSeconds': 120,
+    },
+  };
 }
 
 void main() {
@@ -264,6 +318,14 @@ void main() {
     expect(find.text('Critical NVS'), findsOneWidget);
     expect(find.text('Sync Automations'), findsOneWidget);
     expect(find.text('Restart Hub Core'), findsOneWidget);
+
+    // Verify Home Assistant Auto-Discovery Bridge and Maintenance Features
+    expect(find.text('HOME ASSISTANT AUTO-DISCOVERY', skipOffstage: false), findsOneWidget);
+    expect(find.text('Sync Entities', skipOffstage: false), findsOneWidget);
+    expect(find.text('Local MQTT / REST Bridge', skipOffstage: false), findsOneWidget);
+
+    expect(find.text('Backup Hub Configuration', skipOffstage: false), findsOneWidget);
+    expect(find.text('One-Click Diagnostics Export', skipOffstage: false), findsOneWidget);
   });
 }
 

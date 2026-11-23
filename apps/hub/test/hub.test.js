@@ -356,19 +356,61 @@ async function runTests() {
   assert.strictEqual(ntpResponse[1], 1);
   console.log('  ✓ RFC 5905 Local SNTP timekeeper response verified (<1ms local offline time sync)');
 
-  console.log('[Test 25] Testing POST /api/v1/hub/reboot...');
+  // Home Assistant Local Discovery Tests
+  console.log('[Test 25] Testing Home Assistant MQTT/REST Discovery Manifest...');
+  await request('POST', '/api/v1/hub/adopt', {
+    devices: [
+      { id: 'test_dev_01', name: 'Living Room Switch', ipAddress: '192.168.1.50', channelCount: 3 }
+    ]
+  });
+  const haManifestRes = await request('GET', '/api/v1/integrations/homeassistant/manifest');
+  assert.strictEqual(haManifestRes.statusCode, 200);
+  assert(haManifestRes.body.entitiesCount >= 1);
+  assert(haManifestRes.body.entities.some(e => e.component === 'switch'));
+  assert(haManifestRes.body.entities.some(e => e.component === 'sensor'));
+  assert(haManifestRes.body.entities.some(e => e.component === 'binary_sensor'));
+  console.log(`  ✓ Home Assistant Discovery Manifest generated (${haManifestRes.body.entitiesCount} entities)`);
+
+  console.log('[Test 26] Testing Home Assistant REST Entities & Status...');
+  const haStatusRes = await request('GET', '/api/v1/integrations/homeassistant/status');
+  assert.strictEqual(haStatusRes.statusCode, 200);
+  assert.strictEqual(haStatusRes.body.active, true);
+  const haEntitiesRes = await request('GET', '/api/v1/integrations/homeassistant/entities');
+  assert.strictEqual(haEntitiesRes.statusCode, 200);
+  assert(Array.isArray(haEntitiesRes.body.entities));
+  console.log('  ✓ Home Assistant REST entities & status verified');
+
+  console.log('[Test 27] Testing Hub Configuration Backup & Restore...');
+  const backupRes = await request('GET', '/api/v1/hub/backup');
+  assert.strictEqual(backupRes.statusCode, 200);
+  assert(backupRes.body.backup && Array.isArray(backupRes.body.backup.devices));
+  const backupPayload = backupRes.body.backup;
+  const restoreRes = await request('POST', '/api/v1/hub/restore', { backup: backupPayload });
+  assert.strictEqual(restoreRes.statusCode, 200);
+  assert.strictEqual(restoreRes.body.status, 'ok');
+  console.log('  ✓ Hub configuration backup snapshot and atomic restore verified');
+
+  console.log('[Test 28] Testing One-Click Diagnostics Export...');
+  const diagRes = await request('GET', '/api/v1/hub/diagnostics/export');
+  assert.strictEqual(diagRes.statusCode, 200);
+  assert.strictEqual(diagRes.body.status, 'ok');
+  assert(diagRes.body.hub && diagRes.body.hub.version);
+  assert(Array.isArray(diagRes.body.devices));
+  console.log('  ✓ One-Click diagnostics export verified');
+
+  console.log('[Test 29] Testing POST /api/v1/hub/reboot...');
   const rebootRes = await request('POST', '/api/v1/hub/reboot');
   assert.strictEqual(rebootRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/reboot passed');
 
-  console.log('[Test 26] Testing POST /api/v1/hub/factory-reset...');
+  console.log('[Test 30] Testing POST /api/v1/hub/factory-reset...');
   const factoryRes = await request('POST', '/api/v1/hub/factory-reset');
   assert.strictEqual(factoryRes.statusCode, 200);
   const infoAfterReset = await request('GET', '/api/v1/hub/info');
   assert.strictEqual(infoAfterReset.body.isLinked, false);
   console.log('  ✓ POST /api/v1/hub/factory-reset passed');
 
-  console.log('\n[PASS] All 26 Hub Core Daemon, Energy Telemetry, OTA & SNTP Timekeeper Tests Succeeded!\n');
+  console.log('\n[PASS] All 30 Hub Core Daemon, Home Assistant Discovery, Backup & Diagnostics Tests Succeeded!\n');
 }
 
 runTests()

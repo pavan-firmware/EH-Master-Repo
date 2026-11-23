@@ -727,6 +727,39 @@ class SQLiteWalEngine {
     this.db.prepare('DELETE FROM energy_telemetry_hourly WHERE hour_epoch < ?').run(cutoffSec);
   }
 
+  exportSnapshot() {
+    return {
+      version: '1.1.0',
+      exportedAt: new Date().toISOString(),
+      engine: this.type,
+      metadata: this.getAllMetadata(),
+      devices: this.getDevices(),
+      routines: this.getRoutines(),
+      activeTimers: this.getActiveTimers(),
+      rules: this.getRules(),
+      executionLogs: this.getExecutionLogs(100),
+    };
+  }
+
+  restoreSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') throw new Error('Invalid snapshot payload');
+    if (snapshot.metadata) {
+      for (const [k, v] of Object.entries(snapshot.metadata)) {
+        this.setMetadata(k, v);
+      }
+    }
+    if (Array.isArray(snapshot.devices)) {
+      for (const d of snapshot.devices) this.upsertDevice(d);
+    }
+    if (Array.isArray(snapshot.routines)) {
+      for (const r of snapshot.routines) this.upsertRoutine(r);
+    }
+    if (Array.isArray(snapshot.rules)) {
+      for (const ru of snapshot.rules) this.saveRule(ru);
+    }
+    return true;
+  }
+
   wipeAll() {
     this.db.exec(`
       DELETE FROM metadata;
@@ -1295,6 +1328,40 @@ class AtomicWalEngine {
       }
     }
     this.checkpoint();
+  }
+
+  exportSnapshot() {
+    return {
+      version: '1.1.0',
+      exportedAt: new Date().toISOString(),
+      engine: this.type,
+      metadata: this.getAllMetadata(),
+      devices: this.getDevices(),
+      routines: this.getRoutines(),
+      activeTimers: this.getActiveTimers(),
+      rules: this.getRules(),
+      executionLogs: this.getExecutionLogs(100),
+    };
+  }
+
+  restoreSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') throw new Error('Invalid snapshot payload');
+    if (snapshot.metadata) {
+      for (const [k, v] of Object.entries(snapshot.metadata)) {
+        this.setMetadata(k, v);
+      }
+    }
+    if (Array.isArray(snapshot.devices)) {
+      for (const d of snapshot.devices) this.upsertDevice(d);
+    }
+    if (Array.isArray(snapshot.routines)) {
+      for (const r of snapshot.routines) this.upsertRoutine(r);
+    }
+    if (Array.isArray(snapshot.rules)) {
+      for (const ru of snapshot.rules) this.saveRule(ru);
+    }
+    this.checkpoint();
+    return true;
   }
 
   wipeAll() {

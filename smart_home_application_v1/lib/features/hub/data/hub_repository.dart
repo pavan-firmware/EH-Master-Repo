@@ -40,6 +40,12 @@ abstract class HubRepository {
   Future<Map<String, dynamic>?> getDeviceSettings({required String deviceIp});
   Future<bool> setDevicePowerOnMode({required String deviceIp, required int mode});
   Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled});
+  Future<Map<String, dynamic>?> getHomeAssistantStatus({required String hubHostname});
+  Future<Map<String, dynamic>?> syncHomeAssistant({required String hubHostname});
+  Future<Map<String, dynamic>?> getHomeAssistantManifest({required String hubHostname});
+  Future<Map<String, dynamic>?> exportHubBackup({required String hubHostname});
+  Future<bool> restoreHubBackup({required String hubHostname, required Map<String, dynamic> backup});
+  Future<Map<String, dynamic>?> exportDiagnostics({required String hubHostname});
 }
 
 class LiveHubRepository implements HubRepository {
@@ -543,5 +549,91 @@ class LiveHubRepository implements HubRepository {
       return res.statusCode == 200;
     } catch (_) {}
     return false;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getHomeAssistantStatus({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/status');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> syncHomeAssistant({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/sync');
+        final res = await _client.post(uri).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getHomeAssistantManifest({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/manifest');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> exportHubBackup({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/backup');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<bool> restoreHubBackup({required String hubHostname, required Map<String, dynamic> backup}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/restore');
+        final res = await _client.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(backup),
+        ).timeout(const Duration(seconds: 5));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> exportDiagnostics({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/diagnostics/export');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 }

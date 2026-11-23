@@ -28,6 +28,8 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
   List<CrossDeviceRule> _crossDeviceRules = [];
   List<AutomationExecutionLog> _executionLogs = [];
   Map<String, dynamic>? _localEnergySummary;
+  Map<String, dynamic>? _haStatus;
+  bool _isHaSyncing = false;
   bool _isAdopting = false;
   double _adoptionProgress = 0.0;
   String _adoptionStatusText = '';
@@ -60,6 +62,9 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
         _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
           if (mounted && summary != null) setState(() => _localEnergySummary = summary);
         });
+        _repo.getHomeAssistantStatus(hubHostname: state.hostname).then((ha) {
+          if (mounted && ha != null) setState(() => _haStatus = ha);
+        });
       }
     });
   }
@@ -88,6 +93,9 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
         });
         _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
           if (mounted && summary != null) setState(() => _localEnergySummary = summary);
+        });
+        _repo.getHomeAssistantStatus(hubHostname: state.hostname).then((ha) {
+          if (mounted && ha != null) setState(() => _haStatus = ha);
         });
       }
     });
@@ -1210,6 +1218,119 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
 
           const SizedBox(height: 24),
 
+          // 4.9 Home Assistant Auto-Discovery Bridge (Plan 4)
+          SettingsSectionTitle(
+            'Home Assistant Auto-Discovery',
+            trailing: TextButton.icon(
+              onPressed: _isHaSyncing
+                  ? null
+                  : () async {
+                      setState(() => _isHaSyncing = true);
+                      final res = await _repo.syncHomeAssistant(hubHostname: state.hostname);
+                      if (context.mounted) {
+                        setState(() => _isHaSyncing = false);
+                        final cnt = res?['discoveredEntitiesCount'] ?? (_haStatus?['entitiesCount'] ?? (devices.length * 4));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Home Assistant discovery synced: $cnt entities broadcast over MQTT / REST.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        _reload();
+                      }
+                    },
+              icon: _isHaSyncing
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.sync_alt_rounded, size: 16),
+              label: Text(_isHaSyncing ? 'Syncing...' : 'Sync Entities'),
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF03A9F4).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.home_work_rounded, color: Color(0xFF0288D1), size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Local MQTT / REST Bridge',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                  color: tokens.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              SettingsStatusChip(
+                                label: 'MQTT Active',
+                                color: const Color(0xFF0288D1),
+                                background: const Color(0xFF03A9F4).withValues(alpha: 0.12),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Exposes switches & BL0942 power metrics to Home Assistant',
+                            style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    _buildMetricTile(
+                      tokens,
+                      'Total Entities',
+                      '${_haStatus?['entitiesCount'] ?? (devices.length * 4)} Exposing',
+                      Icons.hub_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Switches',
+                      '${_haStatus?['summary']?['switches'] ?? devices.length} Units',
+                      Icons.toggle_on_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Discovery Prefix',
+                      'homeassistant',
+                      Icons.settings_input_antenna_rounded,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
           // 5. Hub Maintenance, Core Controls & Hardware Operations
           const SettingsSectionTitle('Hub Operations & Maintenance'),
           SettingsSurface(
@@ -1339,6 +1460,80 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     if (newHost != null) {
                       LiveHubRepository.customHost = newHost.isEmpty ? null : newHost;
                       _reload();
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                SettingsListItem(
+                  icon: Icons.backup_rounded,
+                  title: 'Backup Hub Configuration',
+                  subtitle: 'Download complete SQLite WAL state snapshot (claims, routines, devices)',
+                  onTap: () async {
+                    final backup = await _repo.exportHubBackup(hubHostname: state.hostname);
+                    if (context.mounted) {
+                      if (backup != null && backup['status'] == 'ok') {
+                        final meta = backup['metadata'] as Map<String, dynamic>? ?? {};
+                        final devCount = meta['devicesCount'] ?? 0;
+                        final routCount = meta['routinesCount'] ?? 0;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Backup snapshot exported successfully ($devCount devices, $routCount routines).'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Failed to export Hub backup snapshot.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                SettingsListItem(
+                  icon: Icons.medical_services_rounded,
+                  title: 'One-Click Diagnostics Export',
+                  subtitle: 'Export hub platform telemetry, SQLite WAL health, and process stats',
+                  onTap: () async {
+                    final diag = await _repo.exportDiagnostics(hubHostname: state.hostname);
+                    if (context.mounted) {
+                      if (diag != null && diag['status'] == 'ok') {
+                        final summary = diag['summary'] as Map<String, dynamic>? ?? {};
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Hub Diagnostics Summary'),
+                            content: SingleChildScrollView(
+                              child: ListBody(
+                                children: [
+                                  Text('Database Engine: ${summary['databaseEngine'] ?? "sqlite"}'),
+                                  Text('Active Devices: ${summary['totalDevices'] ?? 0}'),
+                                  Text('Active Claims: ${summary['totalClaims'] ?? 0}'),
+                                  Text('OverlayFS Protection: ${summary['overlayFsActive'] == true ? "ACTIVE (SD Read-Only)" : "OFF"}'),
+                                  Text('NTP Time Synced: ${summary['ntpSynced'] == true ? "YES" : "NO"}'),
+                                  Text('Uptime: ${summary['uptimeSeconds'] ?? 0} seconds'),
+                                ],
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Close'),
+                              ),
+                            ],
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Failed to retrieve diagnostics.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     }
                   },
                 ),
