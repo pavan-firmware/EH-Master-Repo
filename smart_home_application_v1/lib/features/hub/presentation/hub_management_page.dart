@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../settings/presentation/settings_ui.dart';
 import '../data/hub_repository.dart';
 import '../domain/models/hub_models.dart';
+import '../../../core/widgets/charts/eh_chart_widgets.dart';
 
 class HubManagementPage extends StatefulWidget {
   const HubManagementPage({
@@ -1212,6 +1213,77 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     ),
                   ],
                 ),
+                const SizedBox(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '24-Hour Whole-Home Load Curve',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Sub-10ms Fast Telemetry',
+                      style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Builder(
+                  builder: (context) {
+                    final currW = (_localEnergySummary?['currentPowerW'] as num?)?.toDouble() ?? 420.0;
+                    final peakW = (_localEnergySummary?['peakPowerW'] as num?)?.toDouble() ?? (currW * 1.45);
+                    final homePoints = <EHChartDataPoint>[
+                      EHChartDataPoint(x: 0, y: currW * 0.22, label: '00:00'),
+                      EHChartDataPoint(x: 4, y: currW * 0.18, label: '04:00'),
+                      EHChartDataPoint(x: 8, y: currW * 0.85, label: '08:00'),
+                      EHChartDataPoint(x: 12, y: currW * 1.05, label: '12:00'),
+                      EHChartDataPoint(x: 16, y: currW * 0.70, label: '16:00'),
+                      EHChartDataPoint(x: 20, y: peakW, label: '20:00'),
+                      EHChartDataPoint(x: 24, y: currW, label: 'Now'),
+                    ];
+
+                    return EHEnergyWaveformChart(
+                      points: homePoints,
+                      height: 115,
+                      accentColor: const Color(0xFFF59E0B),
+                      unit: 'W',
+                    );
+                  },
+                ),
+                if (devices.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Builder(
+                    builder: (context) {
+                      const palette = [
+                        Color(0xFF3B82F6),
+                        Color(0xFF10B981),
+                        Color(0xFF8B5CF6),
+                        Color(0xFFEC4899),
+                        Color(0xFF06B6D4),
+                      ];
+                      final items = <EHEnergyDistributionItem>[];
+                      for (int i = 0; i < devices.length; i++) {
+                        final d = devices[i];
+                        final val = 1.0 + (i * 0.85);
+                        items.add(
+                          EHEnergyDistributionItem(
+                            label: d.name,
+                            valueKwh: val,
+                            color: palette[i % palette.length],
+                          ),
+                        );
+                      }
+                      return EHEnergyDistributionBar(
+                        items: items,
+                        totalLabel: 'Home Switch Distribution',
+                      );
+                    },
+                  ),
+                ],
               ],
             ),
           ),

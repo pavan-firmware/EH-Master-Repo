@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/energy_models.dart';
 import '../../../core/services/energy_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/charts/eh_chart_widgets.dart';
 import 'device_energy_details_page.dart';
 import 'energy_threshold_dialog.dart';
 
@@ -313,8 +314,20 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Consumption Trends', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.textPrimary)),
-            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Consumption Trends',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.textPrimary),
+                ),
+                Text(
+                  'Hourly Load Curve',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: tokens.bluePrimary),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
             if (points.isEmpty)
               Center(
                 child: Padding(
@@ -322,38 +335,34 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                   child: Text('No historical interval data available yet.', style: TextStyle(color: tokens.textSecondary)),
                 ),
               )
-            else
-              SizedBox(
-                height: 120,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: points.length,
-                  separatorBuilder: (context, index) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final p = points[index];
-                    return Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text('${p.energyKwh.toStringAsFixed(1)}k', style: TextStyle(fontSize: 10, color: tokens.textSecondary)),
-                        const SizedBox(height: 4),
-                        Container(
-                          width: 24,
-                          height: (p.energyKwh * 30).clamp(10, 80).toDouble(),
-                          decoration: BoxDecoration(
-                            color: tokens.bluePrimary,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${p.timestamp.hour}:00',
-                          style: TextStyle(fontSize: 10, color: tokens.textSecondary),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+            else ...[
+              EHEnergyWaveformChart(
+                points: points
+                    .map((p) => EHChartDataPoint(
+                          x: p.timestamp.hour.toDouble(),
+                          y: p.energyKwh,
+                          label: '${p.timestamp.hour}:00',
+                        ))
+                    .toList(),
+                height: 125,
+                accentColor: tokens.bluePrimary,
+                unit: 'k',
               ),
+              const SizedBox(height: 14),
+              EHEnergyBarChart(
+                bars: points
+                    .map((p) => EHChartDataPoint(
+                          x: p.timestamp.hour.toDouble(),
+                          y: p.energyKwh,
+                          label: '${p.timestamp.hour}h',
+                        ))
+                    .toList(),
+                height: 100,
+                barColor: tokens.bluePrimary.withValues(alpha: 0.35),
+                activeBarColor: tokens.bluePrimary,
+                unit: 'kWh',
+              ),
+            ],
           ],
         ),
       ),
@@ -361,6 +370,14 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
   }
 
   Widget _buildTopConsumersCard(List<TopEnergyConsumer> consumers, EHThemeTokens tokens) {
+    const palette = [
+      Color(0xFF3B82F6),
+      Color(0xFF10B981),
+      Color(0xFFF59E0B),
+      Color(0xFF8B5CF6),
+      Color(0xFFEC4899),
+    ];
+
     return Card(
       elevation: 2,
       color: tokens.surfaceCard,
@@ -382,7 +399,20 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                   child: Text('No device consumption data yet.', style: TextStyle(color: tokens.textSecondary)),
                 ),
               )
-            else
+            else ...[
+              EHEnergyDistributionBar(
+                items: consumers.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final c = entry.value;
+                  return EHEnergyDistributionItem(
+                    label: c.name,
+                    valueKwh: c.energyKwh,
+                    color: palette[idx % palette.length],
+                  );
+                }).toList(),
+                totalLabel: 'Device Share',
+              ),
+              const SizedBox(height: 16),
               ...consumers.map((c) {
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -416,6 +446,7 @@ class _HomeEnergyDashboardPageState extends State<HomeEnergyDashboardPage> {
                   },
                 );
               }),
+            ],
           ],
         ),
       ),

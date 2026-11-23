@@ -348,6 +348,29 @@ void main() {
       expect(find.text('230.0 V'), findsOneWidget);
     });
 
+    testWidgets('DeviceEnergyDetailsPage hides charts for non-EM variant', (tester) async {
+      final mockClient = MockClient((request) async => http.Response('{}', 200));
+      final service = EnergyService(httpClient: mockClient);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceEnergyDetailsPage(
+            energyService: service,
+            deviceId: 'sw_non_em_1',
+            deviceName: 'Porch Light (Non-EM)',
+            isEnergyMonitoringSupported: false,
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Porch Light (Non-EM)'), findsOneWidget);
+      expect(find.text('Non-EM Hardware Variant'), findsOneWidget);
+      expect(find.text('Live Telemetry'), findsNothing);
+      expect(find.text('Power Load Waveform'), findsNothing);
+    });
+
     testWidgets('EnergyThresholdDialog allows entering threshold values', (tester) async {
       final mockClient = MockClient((request) async {
         return http.Response(
