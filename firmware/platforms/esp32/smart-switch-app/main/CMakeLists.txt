@@ -102,6 +102,17 @@ if(DEFINED EH_MODEL_NAME OR DEFINED ENV{EH_MODEL_NAME})
     )
 endif()
 
+if(DEFINED EH_FIRMWARE_VERSION OR DEFINED ENV{EH_FIRMWARE_VERSION})
+    if(DEFINED EH_FIRMWARE_VERSION)
+        set(VAL_FW_VER "${EH_FIRMWARE_VERSION}")
+    else()
+        set(VAL_FW_VER "$ENV{EH_FIRMWARE_VERSION}")
+    endif()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        EH_FIRMWARE_VERSION="${VAL_FW_VER}"
+    )
+endif()
+
 # Export build-time family and target metadata to build directory
 file(WRITE "${CMAKE_BINARY_DIR}/firmware_family.json"
     "{\n  \"firmwareFamily\": \"${EH_FIRMWARE_FAMILY}\",\n  \"targetMcu\": \"${CONFIG_IDF_TARGET}\",\n  \"idfTarget\": \"${CONFIG_IDF_TARGET}\"\n}\n"

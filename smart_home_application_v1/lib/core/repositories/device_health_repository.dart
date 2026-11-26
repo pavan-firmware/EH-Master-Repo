@@ -9,6 +9,62 @@ abstract interface class DeviceHealthRepository {
 class PreviewDeviceHealthRepository implements DeviceHealthRepository {
   const PreviewDeviceHealthRepository();
 
+  static final _lastChecked = DateTime(2026, 8, 15, 9, 40);
+
+  static const _previewDevices = [
+    DeviceHealthEntry(
+      deviceId: 'living-light',
+      name: 'Living Room Light',
+      roomId: 'living-room',
+      roomName: 'Living Room',
+      state: DeviceHealthState.healthy,
+      signal: SignalStrength.strong,
+      lastSeen: null,
+      statusLine: 'Online · Updated just now',
+      iconKey: 'light',
+    ),
+    DeviceHealthEntry(
+      deviceId: 'temp-sensor',
+      name: 'Temperature Sensor',
+      roomId: 'living-room',
+      roomName: 'Living Room',
+      state: DeviceHealthState.healthy,
+      signal: SignalStrength.good,
+      lastSeen: null,
+      statusLine: 'Online · Updated just now',
+      iconKey: 'temperature',
+      reading: '24°',
+    ),
+    DeviceHealthEntry(
+      deviceId: 'kitchen-plug',
+      name: 'Smart Plug',
+      roomId: 'kitchen',
+      roomName: 'Kitchen',
+      state: DeviceHealthState.healthy,
+      signal: SignalStrength.strong,
+      lastSeen: null,
+      statusLine: 'Online · Updated just now',
+      iconKey: 'plug',
+    ),
+  ];
+
+  static const _previewRooms = [
+    RoomHealthSummary(
+      roomId: 'living-room',
+      roomName: 'Living Room',
+      deviceCount: 2,
+      issueCount: 0,
+      iconKey: 'sofa',
+    ),
+    RoomHealthSummary(
+      roomId: 'kitchen',
+      roomName: 'Kitchen',
+      deviceCount: 1,
+      issueCount: 0,
+      iconKey: 'kitchen',
+    ),
+  ];
+
   @override
   Future<HomeHealthSummary> getSummary() async {
     final ctrl = HomeController.instance;
@@ -44,7 +100,7 @@ class PreviewDeviceHealthRepository implements DeviceHealthRepository {
 
       return HomeHealthSummary(
         overall: offlineList.isEmpty ? HomeHealthOverall.healthy : HomeHealthOverall.attention,
-        title: offlineList.isEmpty ? 'All systems operational' : '${offlineList.length} device(s) offline',
+        title: offlineList.isEmpty ? 'All good!' : '${offlineList.length} device(s) offline',
         subtitle: offlineList.isEmpty ? 'All devices connected.' : 'Check power or Wi-Fi connection.',
         statusLabel: offlineList.isEmpty ? 'Healthy' : 'Attention needed',
         totalDevices: devices.length,
@@ -59,16 +115,16 @@ class PreviewDeviceHealthRepository implements DeviceHealthRepository {
 
     return HomeHealthSummary(
       overall: HomeHealthOverall.healthy,
-      title: 'No devices found',
-      subtitle: 'Add devices to your home to view health status.',
-      statusLabel: 'Standby',
-      totalDevices: 0,
-      onlineCount: 0,
+      title: 'All good!',
+      subtitle: 'All devices are online and working properly.',
+      statusLabel: 'Healthy',
+      totalDevices: _previewDevices.length,
+      onlineCount: _previewDevices.length,
       attentionCount: 0,
       offlineCount: 0,
-      lastChecked: DateTime.now(),
-      devices: const [],
-      rooms: const [],
+      lastChecked: _lastChecked,
+      devices: _previewDevices,
+      rooms: _previewRooms,
     );
   }
 

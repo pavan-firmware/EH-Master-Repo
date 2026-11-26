@@ -815,6 +815,12 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
                     separatorBuilder: (_, _) => Divider(height: 1, color: tokens.borderSubtle),
                     itemBuilder: (c, idx) {
                       final d = devices[idx];
+                      final ctrl = widget.homeController ?? HomeController.instance;
+                      final isOnline = ctrl?.isDeviceActiveOrOnline(d) ?? d.online;
+                      final rawVia = d.connectedVia.trim();
+                      final viaLabel = (isOnline && (rawVia.isEmpty || rawVia.toLowerCase() == 'offline'))
+                          ? (d.signalLabel.isNotEmpty && d.signalLabel != 'Offline' ? d.signalLabel : 'Wi-Fi (Local)')
+                          : (rawVia.isEmpty ? (isOnline ? 'Wi-Fi (Local)' : 'Offline') : rawVia);
                       return ListTile(
                         leading: ClipRRect(
                           borderRadius: BorderRadius.circular(10),
@@ -827,25 +833,25 @@ class _HomeDetailsPageState extends State<HomeDetailsPage> with WidgetsBindingOb
                             ) ?? resolveBundledProductAsset(d.model) ?? resolveBundledProductAsset(d.name),
                             size: 40,
                             borderRadius: BorderRadius.circular(10),
-                            fallbackIcon: d.online ? Icons.check_circle_rounded : Icons.sensors_off_rounded,
-                            placeholderColor: d.online ? tokens.iconBgGreen : tokens.iconBgOrange,
+                            fallbackIcon: isOnline ? Icons.check_circle_rounded : Icons.sensors_off_rounded,
+                            placeholderColor: isOnline ? tokens.iconBgGreen : tokens.iconBgOrange,
                           ),
                         ),
                         title: Text(d.name, style: TextStyle(color: tokens.textPrimary, fontWeight: FontWeight.w700)),
                         subtitle: Text(
-                          '${d.model} · ${d.roomName.isNotEmpty ? d.roomName : "Main Space"} · ${d.connectedVia}',
+                          '${d.model} · ${d.roomName.isNotEmpty ? d.roomName : "Main Space"} · $viaLabel',
                           style: TextStyle(color: tokens.textSecondary, fontSize: 13),
                         ),
                         trailing: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: d.online ? tokens.iconBgGreen : tokens.iconBgOrange,
+                            color: isOnline ? tokens.iconBgGreen : tokens.iconBgOrange,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            d.online ? 'Online' : 'Offline',
+                            isOnline ? 'Online' : 'Offline',
                             style: TextStyle(
-                              color: d.online ? tokens.success : tokens.warning,
+                              color: isOnline ? tokens.success : tokens.warning,
                               fontWeight: FontWeight.w700,
                               fontSize: 12,
                             ),

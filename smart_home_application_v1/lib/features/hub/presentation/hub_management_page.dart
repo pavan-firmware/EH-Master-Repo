@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../app/home_controller.dart';
 import '../../../core/services/device_storage_service.dart';
@@ -25,6 +26,7 @@ class HubManagementPage extends StatefulWidget {
 class _HubManagementPageState extends State<HubManagementPage> with SingleTickerProviderStateMixin {
   late final HubRepository _repo;
   late Future<HubState> _stateFuture;
+  HubState? _loadedState;
   List<Map<String, dynamic>> _hubRoutines = [];
   List<CrossDeviceRule> _crossDeviceRules = [];
   List<AutomationExecutionLog> _executionLogs = [];
@@ -37,67 +39,123 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
 
   // Pairing & Discovery Wizard State
   int _wizardStep = 0; // 0: Overview/Ready, 1: Radar Scanning, 2: Identify & PIN Handshake, 3: Adoption
+  String? _scanErrorMessage;
   bool _isBeaconActive = false;
-  final TextEditingController _pinController = TextEditingController(text: '842-109');
+  final TextEditingController _pinController = TextEditingController();
   String? _pinError;
 
   late AnimationController _radarAnim;
+  Timer? _livenessTimer;
+  HubConnectionStatus? _lastStatus;
+  bool? _lastIsLinked;
 
   @override
   void initState() {
     super.initState();
     _repo = widget.repository ?? LiveHubRepository();
-    _stateFuture = _repo.getHubState(homeId: widget.homeId);
+    _stateFuture = _repo.getHubState(homeId: widget.homeId).then((state) {
+      if (mounted) {
+        _loadedState = state;
+        _lastStatus = state.status;
+        _lastIsLinked = state.isLinked;
+      }
+      return state;
+    });
     _radarAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     );
-    _repo.getHubState(homeId: widget.homeId).then((state) {
-      if (state.isLinked && mounted) {
-        _repo.getCrossDeviceRules(hubHostname: state.hostname).then((rules) {
-          if (mounted) setState(() => _crossDeviceRules = rules);
-        });
-        _repo.getExecutionLogs(hubHostname: state.hostname).then((logs) {
-          if (mounted) setState(() => _executionLogs = logs);
-        });
-        _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
-          if (mounted && summary != null) setState(() => _localEnergySummary = summary);
-        });
-        _repo.getHomeAssistantStatus(hubHostname: state.hostname).then((ha) {
-          if (mounted && ha != null) setState(() => _haStatus = ha);
-        });
+    _startLivenessHeartbeat();
+    _stateFuture.then((state) {
+      if (!mounted) return;
+      if (state.isLinked) {
+        _loadHubSubResources(state.hostname);
+      }
+    });
+  }
+
+  void _loadHubSubResources(String hostname) {
+    _repo.getRoutines(hubHostname: hostname).then((routines) {
+      if (mounted) setState(() => _hubRoutines = routines);
+    });
+    _repo.getCrossDeviceRules(hubHostname: hostname).then((rules) {
+      if (mounted) setState(() => _crossDeviceRules = rules);
+    });
+    _repo.getExecutionLogs(hubHostname: hostname).then((logs) {
+      if (mounted) setState(() => _executionLogs = logs);
+    });
+    _repo.getHomeEnergySummary(hubHostname: hostname).then((summary) {
+      if (mounted && summary != null) setState(() => _localEnergySummary = summary);
+    });
+    _repo.getHomeAssistantStatus(hubHostname: hostname).then((ha) {
+      if (mounted && ha != null) setState(() => _haStatus = ha);
+    });
+  }
+
+  void _startLivenessHeartbeat() {
+    _livenessTimer?.cancel();
+    // Silent 5s liveness heartbeat for linked Hub so disconnects surface quickly without page flashes
+    _livenessTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!mounted) return;
+      if (_lastIsLinked != true) return;
+      try {
+        final state = await _repo.getHubState(homeId: widget.homeId);
+        if (!mounted) return;
+        if (_lastStatus != state.status ||
+            _lastIsLinked != state.isLinked ||
+            _loadedState?.connectedDevices.length != state.connectedDevices.length) {
+          _lastStatus = state.status;
+          _lastIsLinked = state.isLinked;
+          setState(() {
+            _loadedState = state;
+            _stateFuture = Future.value(state);
+          });
+        }
+      } catch (_) {
+        if (!mounted) return;
+        if (_lastStatus != HubConnectionStatus.unreachable) {
+          _lastStatus = HubConnectionStatus.unreachable;
+          const offlineState = HubState(status: HubConnectionStatus.unreachable);
+          setState(() {
+            _loadedState = offlineState;
+            _stateFuture = Future.value(offlineState);
+          });
+        }
       }
     });
   }
 
   @override
   void dispose() {
+    _livenessTimer?.cancel();
     _radarAnim.dispose();
     _pinController.dispose();
     super.dispose();
   }
 
-  void _reload() {
-    setState(() {
-      _stateFuture = _repo.getHubState(homeId: widget.homeId);
-    });
+  void _reload({bool forceSpinner = false}) {
+    if (forceSpinner || _loadedState == null) {
+      setState(() {
+        _stateFuture = _repo.getHubState(homeId: widget.homeId).then((state) {
+          if (mounted) {
+            _loadedState = state;
+            _lastStatus = state.status;
+            _lastIsLinked = state.isLinked;
+          }
+          return state;
+        });
+      });
+    }
     _repo.getHubState(homeId: widget.homeId).then((state) {
-      if (state.isLinked && mounted) {
-        _repo.getRoutines(hubHostname: state.hostname).then((routines) {
-          if (mounted) setState(() => _hubRoutines = routines);
-        });
-        _repo.getCrossDeviceRules(hubHostname: state.hostname).then((rules) {
-          if (mounted) setState(() => _crossDeviceRules = rules);
-        });
-        _repo.getExecutionLogs(hubHostname: state.hostname).then((logs) {
-          if (mounted) setState(() => _executionLogs = logs);
-        });
-        _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
-          if (mounted && summary != null) setState(() => _localEnergySummary = summary);
-        });
-        _repo.getHomeAssistantStatus(hubHostname: state.hostname).then((ha) {
-          if (mounted && ha != null) setState(() => _haStatus = ha);
-        });
+      if (!mounted) return;
+      setState(() {
+        _loadedState = state;
+        _lastStatus = state.status;
+        _lastIsLinked = state.isLinked;
+        _stateFuture = Future.value(state);
+      });
+      if (state.isLinked) {
+        _loadHubSubResources(state.hostname);
       }
     });
   }
@@ -210,7 +268,12 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
           IconButton(
             icon: Icon(Icons.refresh_rounded, color: tokens.headerAction),
             tooltip: 'Refresh Status',
-            onPressed: _reload,
+            onPressed: () => _reload(forceSpinner: false),
+          ),
+          IconButton(
+            icon: Icon(Icons.help_outline_rounded, color: tokens.headerAction),
+            tooltip: 'Hub Guide & FAQ',
+            onPressed: () => _showHubGuideModal(context, tokens),
           ),
         ],
       ),
@@ -221,11 +284,18 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
             return _buildAdoptionProgressView(tokens);
           }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting && _loadedState == null) {
             return const Center(child: CircularProgressIndicator.adaptive());
           }
 
-          final state = snapshot.data ?? const HubState(status: HubConnectionStatus.notConfigured);
+          final state = snapshot.data ??
+              _loadedState ??
+              const HubState(status: HubConnectionStatus.notConfigured);
+          _loadedState = state;
+
+          if (state.isLinked && state.status == HubConnectionStatus.unreachable) {
+            return _buildHubUnreachableView(context, tokens);
+          }
 
           if (!state.isLinked) {
             return _buildUnlinkedSetupWizard(context, tokens, state);
@@ -233,6 +303,57 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
 
           return _buildHubActiveDashboard(context, tokens, state);
         },
+      ),
+    );
+  }
+
+  Widget _buildHubUnreachableView(BuildContext context, EHThemeTokens tokens) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: tokens.errorContainer.withValues(alpha: 0.25),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.hub_outlined, size: 54, color: tokens.textSecondary),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Smart Hub Offline',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: tokens.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Cannot reach EH Hub on local network.\nCheck that your Raspberry Pi is powered on and connected to the same Wi-Fi router.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: tokens.textSecondary,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Retry Discovery'),
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -298,6 +419,281 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
     );
   }
 
+  void _showHubGuideModal(BuildContext context, EHThemeTokens tokens) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.75,
+          minChildSize: 0.5,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (ctx, scrollCtrl) {
+            return SingleChildScrollView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(22, 16, 22, 36),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: tokens.borderControl,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: tokens.iconBgBlue,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Smart Home Hub Architecture',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close_rounded, color: tokens.textSecondary),
+                        onPressed: () => Navigator.pop(sheetCtx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'The EH Smart Hub (Raspberry Pi Platform) acts as a local coordinator and intelligence accelerator for your home.',
+                    style: TextStyle(fontSize: 13, color: tokens.textSecondary, height: 1.45),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Capabilities Card
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: tokens.bgApp,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: tokens.borderSubtle),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Optional Smart Hub',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Key Capabilities',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: tokens.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildFeatureRow(tokens, Icons.bolt_rounded, 'Sub-5ms Execution', 'Multi-room automations execute instantly over LAN.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.wifi_off_rounded, '100% Offline Autonomy', 'Routines fire on time even if internet fiber is cut.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.memory_rounded, 'Flash Memory Preservation', 'Comfort routines live on Hub RAM, saving switch flash cycles.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.touch_app_rounded, 'Zero-Touch Adoption', 'No resetting switches or re-entering Wi-Fi credentials.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.query_stats_rounded, '365-Day Local Energy', 'On-premise hourly power rollups without cloud subscriptions.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.access_time_rounded, 'RFC 5905 NTP Timekeeper', 'Embedded port 123 clock sync prevents schedule drift in outages.'),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // Buyer Guide Card
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: tokens.bgApp,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: tokens.borderSubtle),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.help_outline_rounded, color: tokens.bluePrimary, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Do You Need a Hub?',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: tokens.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: tokens.successContainer.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: tokens.success.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Recommended for:',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.success),
+                              ),
+                              const SizedBox(height: 6),
+                              Text('• Multi-floor homes with concrete walls or Wi-Fi extenders', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                              Text('• Large installations with 20+ devices or cross-room group automations', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                              Text('• Critical offline homes needing schedules during fiber outages', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                              Text('• Home Assistant, Matter, or local MQTT power users', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: tokens.surfaceCard,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: tokens.borderSubtle),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'NOT needed for:',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.textSecondary),
+                              ),
+                              const SizedBox(height: 6),
+                              Text('• 1-floor apartments with reliable single-router Wi-Fi coverage', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                              Text('• Direct switch-to-switch Fast-Path UDP (<3ms) is already built-in without a Hub', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                              Text('• On-chip NVS memory runs up to 16 standalone schedules per switch independently', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showManualIpDialog(BuildContext context, EHThemeTokens tokens) async {
+    final ipCtrl = TextEditingController(text: LiveHubRepository.customHost ?? '192.168.0.');
+    final confirmed = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.settings_ethernet_rounded, color: Color(0xFF2563EB)),
+            SizedBox(width: 10),
+            Text('Connect by IP Address'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the local IP address or hostname of your Raspberry Pi Smart Hub (e.g. 192.168.0.174 or eh-hub.local):',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: ipCtrl,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                labelText: 'Hub Hostname / IP',
+                hintText: '192.168.0.174',
+                prefixIcon: const Icon(Icons.lan_rounded),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ipCtrl.text.trim()),
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != null && confirmed.isNotEmpty) {
+      LiveHubRepository.customHost = confirmed;
+      LiveHubRepository.activeHost = confirmed;
+      DeviceStorageService.setPersistedHubHost(confirmed);
+      setState(() {
+        _wizardStep = 1;
+        _scanErrorMessage = null;
+      });
+      _radarAnim.repeat();
+      try {
+        final probeState = await _repo.getHubState(homeId: widget.homeId);
+        if (!mounted) return;
+        _radarAnim.stop();
+        if (probeState.status != HubConnectionStatus.unreachable) {
+          setState(() {
+            _stateFuture = Future.value(probeState);
+            _wizardStep = 2;
+          });
+        } else {
+          setState(() {
+            _wizardStep = 0;
+            _scanErrorMessage = 'Cannot connect to Hub at $confirmed. Verify device IP address and port 4210.';
+          });
+        }
+      } catch (e) {
+        if (!mounted) return;
+        _radarAnim.stop();
+        setState(() {
+          _wizardStep = 0;
+          _scanErrorMessage = 'Connection error: $e';
+        });
+      }
+    }
+  }
+
   Widget _buildUnlinkedSetupWizard(
     BuildContext context,
     EHThemeTokens tokens,
@@ -308,204 +704,158 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Benefits Card
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: tokens.surfaceCard,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: tokens.borderSubtle),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: tokens.iconBgBlue,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 28),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Optional Smart Hub',
-                            style: TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.w800,
-                              color: tokens.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Local brain & accelerator for your home',
-                            style: TextStyle(fontSize: 13, color: tokens.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                const Divider(height: 1),
-                const SizedBox(height: 16),
-                _buildFeatureRow(tokens, Icons.bolt_rounded, 'Sub-5ms Execution', 'Multi-room automations execute instantly over LAN.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.wifi_off_rounded, '100% Offline Autonomy', 'Routines fire on time even if internet fiber is cut.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.memory_rounded, 'Flash Memory Preservation', 'Comfort routines live on Hub RAM, saving switch flash cycles.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.touch_app_rounded, 'Zero-Touch Adoption', 'No resetting switches or re-entering Wi-Fi credentials.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.query_stats_rounded, '365-Day Local Energy', 'On-premise hourly power rollups without cloud subscriptions.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.access_time_rounded, 'RFC 5905 NTP Timekeeper', 'Embedded port 123 clock sync prevents schedule drift in outages.'),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // 1.5 Honest Buyer Guide (Who Needs a Hub vs Who Doesn't)
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: tokens.surfaceCard,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: tokens.borderSubtle),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.help_outline_rounded, color: tokens.bluePrimary, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Do You Need a Hub?',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: tokens.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: tokens.successContainer.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: tokens.success.withValues(alpha: 0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Recommended for:',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.success),
-                      ),
-                      const SizedBox(height: 6),
-                      Text('• Multi-floor homes with concrete walls or multiple Wi-Fi extenders', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
-                      Text('• Large installations with 20+ devices or cross-room group automations', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
-                      Text('• Critical offline homes that need schedules running during prolonged fiber cuts', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
-                      Text('• Home Assistant, Matter, or local MQTT power users', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: tokens.surfaceCard,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: tokens.borderSubtle),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'NOT needed for:',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.textSecondary),
-                      ),
-                      const SizedBox(height: 6),
-                      Text('• 1-floor apartments with reliable single-router Wi-Fi coverage', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
-                      Text('• Direct switch-to-switch Fast-Path UDP (<3ms) is already built-in without a Hub', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
-                      Text('• On-chip NVS memory runs up to 16 standalone schedules per switch independently', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // 2. Setup Step Navigation Wizard
-          const SettingsSectionTitle('Hub Discovery & Security Setup'),
-
           if (_wizardStep == 0) ...[
-            // Discovery Ready
+            // Remodeled Sleek Hub Discovery Hero Section
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
                 color: tokens.surfaceCard,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: tokens.bluePrimary.withValues(alpha: 0.35)),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: tokens.borderSubtle),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: tokens.isDark ? 0.2 : 0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.radar_rounded, color: tokens.bluePrimary, size: 22),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Ready to Discover Hub',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: tokens.textPrimary,
-                          fontSize: 16,
-                        ),
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      color: tokens.bluePrimary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: tokens.bluePrimary.withValues(alpha: 0.35),
+                        width: 2,
                       ),
-                      const Spacer(),
+                    ),
+                    child: Center(
+                      child: Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 36),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'EH Smart Hub',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: tokens.textPrimary,
+                      fontSize: 20,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Connect your Raspberry Pi Hub for local sub-5ms routing, offline schedules, and energy intelligence.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: tokens.textSecondary,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                       SettingsStatusChip(
                         label: 'LAN Ready',
                         color: tokens.success,
                         background: tokens.successContainer,
                       ),
+                      const SizedBox(width: 8),
+                      SettingsStatusChip(
+                        label: 'Port 4210',
+                        color: tokens.bluePrimary,
+                        background: tokens.bluePrimary.withValues(alpha: 0.12),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Ensure your EH Smart Hub is plugged into the same Wi-Fi router. The app will search for mDNS broadcast on port 4210.',
-                    style: TextStyle(fontSize: 13, color: tokens.textSecondary, height: 1.4),
-                  ),
-                  const SizedBox(height: 18),
+                  if (_scanErrorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: tokens.errorContainer.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: tokens.error.withValues(alpha: 0.45)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.warning_amber_rounded, color: tokens.error, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _scanErrorMessage!,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: tokens.isDark ? const Color(0xFFFCA5A5) : const Color(0xFFB91C1C),
+                                    height: 1.4,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () => _showManualIpDialog(context, tokens),
+                              icon: const Icon(Icons.settings_ethernet_rounded, size: 16),
+                              label: const Text('Connect by IP Address', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                              style: TextButton.styleFrom(
+                                foregroundColor: tokens.bluePrimary,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: () {
+                      onPressed: () async {
                         setState(() {
                           _wizardStep = 1;
+                          _scanErrorMessage = null;
                         });
                         _radarAnim.repeat();
-                        Future.delayed(const Duration(milliseconds: 800), () {
-                          if (mounted) {
-                            _radarAnim.stop();
+                        try {
+                          await LocalLanDeviceService.instance.discoverHubNow(timeout: const Duration(milliseconds: 1500));
+                          final probeState = await _repo.getHubState(homeId: widget.homeId, allowSubnetSweep: true);
+                          if (!mounted) return;
+                          _radarAnim.stop();
+                          if (probeState.status == HubConnectionStatus.unreachable) {
                             setState(() {
+                              _wizardStep = 0;
+                              _scanErrorMessage =
+                                  'No Smart Hub detected automatically on local Wi-Fi. Ensure your Raspberry Pi is powered and connected to the same Wi-Fi network.';
+                            });
+                          } else {
+                            setState(() {
+                              _stateFuture = Future.value(probeState);
                               _wizardStep = 2;
                             });
                           }
-                        });
+                        } catch (e) {
+                          if (!mounted) return;
+                          _radarAnim.stop();
+                          setState(() {
+                            _wizardStep = 0;
+                            _scanErrorMessage = 'Scan failed: $e. Verify device network connection.';
+                          });
+                        }
                       },
                       icon: const Icon(Icons.search_rounded),
                       label: const Text('Scan Local Wi-Fi for Hub'),
@@ -521,14 +871,24 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => _startZeroTouchAdoption(state.hostname),
-                      icon: const Icon(Icons.link_rounded),
-                      label: const Text('Link Hub to My Home'),
+                      onPressed: () => _showManualIpDialog(context, tokens),
+                      icon: const Icon(Icons.settings_ethernet_rounded),
+                      label: const Text('Connect by IP Address'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: tokens.bluePrimary,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        foregroundColor: tokens.textPrimary,
+                        side: BorderSide(color: tokens.borderControl),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: () => _showHubGuideModal(context, tokens),
+                    icon: Icon(Icons.help_outline_rounded, size: 16, color: tokens.bluePrimary),
+                    label: Text(
+                      'Learn about Hub capabilities & requirements',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: tokens.bluePrimary),
                     ),
                   ),
                 ],
@@ -652,7 +1012,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                         const SizedBox(height: 6),
                         _buildInfoLine('IP Address', state.ipAddress, tokens),
                         const SizedBox(height: 6),
-                        _buildInfoLine('Hardware MAC', 'B8:27:EB:27:AD:62', tokens),
+                        _buildInfoLine('Hardware Platform', state.model, tokens),
                         const SizedBox(height: 6),
                         _buildInfoLine('Port', '4210 (HTTP REST & UDP)', tokens),
                       ],
@@ -746,12 +1106,24 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
   }
 
   Widget _buildInfoLine(String label, String value, EHThemeTokens tokens) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
-        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -862,11 +1234,20 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                         ],
                       ),
                     ),
-                    SettingsStatusChip(
-                      label: '${state.latencyMs}ms Direct',
-                      color: tokens.success,
-                      background: tokens.successContainer,
-                      leading: Icon(Icons.bolt_rounded, size: 14, color: tokens.success),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        SettingsStatusChip(
+                          label: '${state.latencyMs}ms Direct',
+                          color: tokens.success,
+                          background: tokens.successContainer,
+                          leading: Icon(Icons.bolt_rounded, size: 14, color: tokens.success),
+                        ),
+                        if (state.rssiDbm != null) ...[
+                          const SizedBox(height: 6),
+                          _buildRssiPill(tokens, state.rssiDbm, state.status == HubConnectionStatus.connected),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -1234,17 +1615,61 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 const SizedBox(height: 12),
                 Builder(
                   builder: (context) {
-                    final currW = (_localEnergySummary?['currentPowerW'] as num?)?.toDouble() ?? 420.0;
-                    final peakW = (_localEnergySummary?['peakPowerW'] as num?)?.toDouble() ?? (currW * 1.45);
-                    final homePoints = <EHChartDataPoint>[
-                      EHChartDataPoint(x: 0, y: currW * 0.22, label: '00:00'),
-                      EHChartDataPoint(x: 4, y: currW * 0.18, label: '04:00'),
-                      EHChartDataPoint(x: 8, y: currW * 0.85, label: '08:00'),
-                      EHChartDataPoint(x: 12, y: currW * 1.05, label: '12:00'),
-                      EHChartDataPoint(x: 16, y: currW * 0.70, label: '16:00'),
-                      EHChartDataPoint(x: 20, y: peakW, label: '20:00'),
-                      EHChartDataPoint(x: 24, y: currW, label: 'Now'),
-                    ];
+                    final hasRealData = _localEnergySummary != null &&
+                        _localEnergySummary?['hasData'] == true &&
+                        (_localEnergySummary?['samplesCount'] as num? ?? 0) > 0;
+                    if (!hasRealData) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: tokens.bgApp,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: tokens.borderSubtle),
+                        ),
+                        child: Center(
+                          child: Column(
+                            children: [
+                              Icon(Icons.bolt_outlined, color: tokens.textTertiary, size: 32),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Energy Telemetry Standby',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: tokens.textSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Requires EH Smart Switch/Socket with BL0942 power metering hardware.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: tokens.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    final currW = (_localEnergySummary?['currentPowerW'] as num?)?.toDouble() ?? 0.0;
+                    final rawTrends = _localEnergySummary?['trends'] as List<dynamic>? ?? [];
+                    final homePoints = <EHChartDataPoint>[];
+                    for (int i = 0; i < rawTrends.length; i++) {
+                      final item = rawTrends[i];
+                      if (item is Map) {
+                        homePoints.add(EHChartDataPoint(
+                          x: i.toDouble(),
+                          y: (item['powerW'] as num?)?.toDouble() ?? 0.0,
+                          label: item['hourLabel']?.toString() ?? '$i:00',
+                        ));
+                      }
+                    }
+                    if (homePoints.isEmpty) {
+                      homePoints.add(EHChartDataPoint(x: 0, y: currW, label: 'Now'));
+                    }
 
                     return EHEnergyWaveformChart(
                       points: homePoints,
@@ -1254,36 +1679,6 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     );
                   },
                 ),
-                if (devices.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Builder(
-                    builder: (context) {
-                      const palette = [
-                        Color(0xFF3B82F6),
-                        Color(0xFF10B981),
-                        Color(0xFF8B5CF6),
-                        Color(0xFFEC4899),
-                        Color(0xFF06B6D4),
-                      ];
-                      final items = <EHEnergyDistributionItem>[];
-                      for (int i = 0; i < devices.length; i++) {
-                        final d = devices[i];
-                        final val = 1.0 + (i * 0.85);
-                        items.add(
-                          EHEnergyDistributionItem(
-                            label: d.name,
-                            valueKwh: val,
-                            color: palette[i % palette.length],
-                          ),
-                        );
-                      }
-                      return EHEnergyDistributionBar(
-                        items: items,
-                        totalLabel: 'Home Switch Distribution',
-                      );
-                    },
-                  ),
-                ],
               ],
             ),
           ),
@@ -1814,10 +2209,13 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        Text(
-                          '${device.ipAddress} • ${device.latencyMs}ms mesh',
-                          style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                        Expanded(
+                          child: Text(
+                            '${device.ipAddress} • ${device.latencyMs}ms mesh',
+                            style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                          ),
                         ),
+                        _buildRssiPill(tokens, device.rssiDbm, device.online),
                         if (device.hasCriticalHardwareFallback) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -1864,6 +2262,60 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
     );
   }
 
+  Widget _buildRssiPill(EHThemeTokens tokens, int? rssiDbm, bool online) {
+    final String label;
+    final Color color;
+    final int bars;
+    if (!online) {
+      label = 'Offline';
+      color = tokens.textTertiary;
+      bars = 0;
+    } else if (rssiDbm == null) {
+      label = 'LAN OK';
+      color = tokens.success;
+      bars = 3;
+    } else if (rssiDbm >= -60) {
+      label = 'High ($rssiDbm dBm)';
+      color = tokens.success;
+      bars = 3;
+    } else if (rssiDbm >= -74) {
+      label = 'Med ($rssiDbm dBm)';
+      color = const Color(0xFFF59E0B);
+      bars = 2;
+    } else {
+      label = 'Low ($rssiDbm dBm)';
+      color = const Color(0xFFEF4444);
+      bars = 1;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (int b = 1; b <= 3; b++)
+            Container(
+              width: 2.5,
+              height: 3.0 + b * 2.5,
+              margin: const EdgeInsets.only(right: 1.5),
+              decoration: BoxDecoration(
+                color: b <= bars ? color : tokens.borderSubtle,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChannelButton(
     EHThemeTokens tokens,
     HubState state,
@@ -1894,13 +2346,39 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
       ),
       onPressed: () async {
         final newPower = !isPowered;
+        // Optimistic update so channel toggle never flashes a full-page loading spinner
+        final current = _loadedState ?? state;
+        final updatedDevices = current.connectedDevices.map((d) {
+          if (d.id != device.id) return d;
+          final newChannels = Map<int, bool>.from(d.channels);
+          newChannels[channelIndex] = newPower;
+          return HubDeviceInfo(
+            id: d.id,
+            name: d.name,
+            ipAddress: d.ipAddress,
+            macAddress: d.macAddress,
+            roomName: d.roomName,
+            online: d.online,
+            activeRoutinesCount: d.activeRoutinesCount,
+            hasCriticalHardwareFallback: d.hasCriticalHardwareFallback,
+            latencyMs: d.latencyMs,
+            channelCount: d.channelCount,
+            channels: newChannels,
+            rssiDbm: d.rssiDbm,
+          );
+        }).toList();
+        final optimistic = current.copyWith(connectedDevices: updatedDevices);
+        setState(() {
+          _loadedState = optimistic;
+          _stateFuture = Future.value(optimistic);
+        });
         await _repo.sendDeviceControl(
           hubHostname: state.hostname,
           deviceId: device.id,
           channel: channelIndex,
           power: newPower,
         );
-        _reload();
+        _reload(forceSpinner: false);
       },
     );
   }

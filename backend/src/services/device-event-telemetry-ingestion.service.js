@@ -50,7 +50,7 @@ class DeviceEventTelemetryIngestionService {
    * @param {Object}   [opts.healthRepo]     - DeviceHealthRepository instance
    * @param {Object}   [opts.energyService]  - EnergyService instance
    */
-  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null, energyService = null, eventBus = null, deviceRepo = null, redisStateCacheService = null, telemetryBatchWorker = null }) {
+  constructor({ deviceStateRepo, eventRepo, commandRepo, outboxRepo, auditRepo, activityLogRepo = null, healthRepo = null, energyService = null, eventBus = null, deviceRepo = null, redisStateCacheService = null, telemetryBatchWorker = null, automationRepo = null, automationService = null, deviceCommandService = null, mqttTransport = null }) {
     this.deviceStateRepo = deviceStateRepo;
     this.eventRepo       = eventRepo;
     this.commandRepo     = commandRepo;
@@ -63,7 +63,147 @@ class DeviceEventTelemetryIngestionService {
     this.deviceRepo      = deviceRepo;
     this.redisStateCacheService = redisStateCacheService;
     this.telemetryBatchWorker   = telemetryBatchWorker;
+    this.automationRepo  = automationRepo;
+    this.automationService = automationService;
+    this.deviceCommandService = deviceCommandService;
+    this.mqttTransport   = mqttTransport;
     this._telemetryLastSeqByDevice = new Map(); // deviceId -> { channelIndex -> lastSeq }
+    this._lastChannelPowerByDevice = new Map(); // `${deviceId}_${ch}` -> bool
+  }
+
+  async _evaluateDeviceStateAutomations({ deviceId, channelIndex, power }) {
+    if (!this.automationRepo && !this.automationService) return;
+
+    // Deduplication key within 250ms
+    const dedupKey = `${deviceId}_${channelIndex}_${power}`;
+    const now = Date.now();
+    if (this._lastRuleEval && this._lastRuleEval.key === dedupKey && (now - this._lastRuleEval.time) < 250) {
+      return;
+    }
+    this._lastRuleEval = { key: dedupKey, time: now };
+
+    try {
+      let automations = [];
+      if (this.automationRepo) {
+        if (typeof this.automationRepo.findByTriggerType === 'function') {
+          automations = await this.automationRepo.findByTriggerType('DEVICE_STATE');
+        } else if (typeof this.automationRepo.findEnabled === 'function') {
+          const all = await this.automationRepo.findEnabled('home_default');
+          automations = all.filter(a => (a.trigger_type || '').toUpperCase() === 'DEVICE_STATE');
+        }
+      }
+
+      for (const auto of automations) {
+        if (!auto.is_enabled) continue;
+        const trigCfg = auto.trigger_config || {};
+        const trigDev = trigCfg.deviceId || trigCfg.triggerDeviceId || trigCfg.device_id;
+        const trigCh = trigCfg.channel ?? trigCfg.channelIndex ?? trigCfg.triggerChannel;
+        const trigSt = trigCfg.state ?? trigCfg.power ?? trigCfg.triggerState;
+
+        // Match device ID with MAC punctuation normalization (e.g. 70:4b:... vs 704b...)
+        if (trigDev) {
+          const normTrigDev = String(trigDev).toLowerCase().replace(/[^a-z0-9]/g, '');
+          const normDevId = String(deviceId).toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (normTrigDev !== normDevId && !normDevId.includes(normTrigDev) && !normTrigDev.includes(normDevId)) {
+            continue;
+          }
+        }
+        if (trigCh != null && Number(trigCh) !== Number(channelIndex)) {
+          continue;
+        }
+        if (trigSt != null) {
+          const normTrigSt = (trigSt === true || trigSt === 'true' || trigSt === 1 || trigSt === '1');
+          if (normTrigSt !== Boolean(power)) {
+            continue;
+          }
+        }
+
+        console.log(`[Ingestion] Autonomous cross-device automation triggered: "${auto.name}" (dev=${deviceId} ch=${channelIndex} power=${power})`);
+
+        if (Array.isArray(auto.actions)) {
+          for (const action of auto.actions) {
+            const targetDevId = action.deviceId || action.targetDeviceId;
+            if (!targetDevId) continue;
+            const targetCh = action.channel ?? action.channelIndex ?? 1;
+            const upperCmd = String(action.command || action.action || '').toUpperCase();
+            const isToggle = action.isToggle === true || upperCmd === 'TOGGLE';
+            let targetPower = action.params?.value ?? action.params?.power ?? action.targetState ?? action.power;
+            if (upperCmd === 'ON' || upperCmd === 'TURN_ON') {
+              targetPower = true;
+            } else if (upperCmd === 'OFF' || upperCmd === 'TURN_OFF') {
+              targetPower = false;
+            } else if (targetPower === undefined) {
+              targetPower = power;
+            }
+
+            let commandDispatched = false;
+            if (this.deviceCommandService) {
+              const actorCtx = {
+                userId: auto.user_id || 'system_automation',
+                homeId: auto.home_id || 'home_default',
+                role: 'OWNER'
+              };
+              const cmdId = require('crypto').randomUUID();
+              const cmd = {
+                commandId: cmdId,
+                idempotencyKey: `auto_${cmdId}`,
+                deviceId: targetDevId,
+                channelIndex: Number(targetCh),
+                action: isToggle ? 'toggle' : 'setPower',
+                params: isToggle ? { toggle: true } : { value: Boolean(targetPower), power: Boolean(targetPower) },
+                source: 'CROSS_DEVICE_AUTOMATION'
+              };
+              try {
+                await this.deviceCommandService.sendCommand(actorCtx, cmd);
+                commandDispatched = true;
+              } catch (err) {
+                console.warn(`[Ingestion] DeviceCommandService failed to send cross-device command:`, err.message);
+              }
+            }
+
+            if (!commandDispatched && this.mqttTransport) {
+              const cmdPayload = {
+                commandId: require('crypto').randomUUID(),
+                deviceId: targetDevId,
+                channelIndex: Number(targetCh),
+                action: 'setPower',
+                params: { value: Boolean(targetPower), power: Boolean(targetPower) },
+                timestamp: new Date().toISOString()
+              };
+              await this.mqttTransport.sendCommand(cmdPayload).catch(err => {
+                console.warn(`[Ingestion] Direct MQTT sendCommand failed:`, err.message);
+              });
+            }
+
+            // Also attempt direct LAN HTTP actuation (port 80) if IP reachable
+            try {
+              const http = require('http');
+              const targetIp = (this.deviceRepo && typeof this.deviceRepo.getDeviceLanIp === 'function' ? await this.deviceRepo.getDeviceLanIp(targetDevId) : null) ||
+                               process.env.ESP32_LOCAL_IP ||
+                               (targetDevId.includes('.') ? targetDevId : null);
+              if (targetIp) {
+                const lanPayload = JSON.stringify({
+                  channel: Number(targetCh),
+                  power: Boolean(targetPower),
+                  value: Boolean(targetPower)
+                });
+                const req = http.request(`http://${targetIp}/api/v1/control`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(lanPayload) },
+                  timeout: 1000
+                }, () => {});
+                req.on('error', () => {});
+                req.on('timeout', () => req.destroy());
+                req.write(lanPayload);
+                req.end();
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Ingestion] Error evaluating DEVICE_STATE automations:', err.message);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -230,6 +370,20 @@ class DeviceEventTelemetryIngestionService {
               desiredState: ch.desiredState,
               confidence: ch.confidence || 'CONFIRMED'
             });
+            const pwr = ch.reportedState?.power ?? ch.reportedState?.value ?? ch.power;
+            if (pwr !== undefined) {
+              const pKey = `${stateMsg.deviceId}_${ch.channelIndex}`;
+              const nextPwr = Boolean(pwr);
+              const prevPwr = this._lastChannelPowerByDevice.get(pKey);
+              this._lastChannelPowerByDevice.set(pKey, nextPwr);
+              if (prevPwr !== undefined && prevPwr !== nextPwr) {
+                this._evaluateDeviceStateAutomations({
+                  deviceId: stateMsg.deviceId,
+                  channelIndex: ch.channelIndex,
+                  power: nextPwr
+                }).catch(() => {});
+              }
+            }
           }
         }
       }
@@ -299,6 +453,14 @@ class DeviceEventTelemetryIngestionService {
 
     // Physical switch authority: update reportedState to hardware truth
     if (eventMsg.source === 'PHYSICAL_SWITCH' && eventMsg.channelIndex && eventMsg.payload) {
+      const pwr = eventMsg.payload.power ?? eventMsg.payload.value ?? eventMsg.payload;
+      if (pwr !== undefined) {
+        this._evaluateDeviceStateAutomations({
+          deviceId: eventMsg.deviceId,
+          channelIndex: eventMsg.channelIndex,
+          power: Boolean(typeof pwr === 'object' ? (pwr.power ?? pwr.value) : pwr)
+        }).catch(() => {});
+      }
       try {
         await this.deviceStateRepo.updateChannelState(
           eventMsg.deviceId,

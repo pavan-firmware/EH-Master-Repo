@@ -5,6 +5,7 @@ import '../api/api_client.dart';
 import '../models/connection_models.dart';
 import '../models/routine_models.dart';
 import '../services/device_storage_service.dart';
+import '../services/edge_routine_sync_service.dart';
 import '../../app/home_controller.dart';
 
 class CloudRoutineRepository implements RoutineRepository {
@@ -45,18 +46,13 @@ class CloudRoutineRepository implements RoutineRepository {
 
   @override
   Future<List<Routine>> getRoutines() async {
-    final ctrl = HomeController.instance;
-    if (ctrl != null && ctrl.isLocalMode) {
-      return const PreviewRoutineRepository().getRoutines();
-    }
-
     final homeId = await _resolveHomeId();
     if (homeId == null || homeId.isEmpty) {
       return const PreviewRoutineRepository().getRoutines();
     }
 
     try {
-      final res = await _apiClient.get('/api/v1/homes/$homeId/automations');
+      final res = await _apiClient.get('/api/v1/homes/$homeId/automations').timeout(const Duration(milliseconds: 1500));
       List items = [];
       if (res is List) {
         items = res;
@@ -66,27 +62,35 @@ class CloudRoutineRepository implements RoutineRepository {
       final cloudRoutines = items
           .map<Routine>((item) => _mapToRoutine(item as Map<String, dynamic>))
           .where((r) => !DeviceStorageService.isRoutineDeleted(r.id, routineName: r.name))
+          .map((r) {
+            final pending = DeviceStorageService.getPendingRoutineToggle(r.id, routineName: r.name);
+            if (pending != null && pending != r.enabled) {
+              // Push pending local toggle up to backend so cloud converges to user's choice
+              unawaited(_pushToggleToCloud(homeId, r.id, pending, routineName: r.name));
+              return r.copyWith(enabled: pending);
+            } else if (pending != null && pending == r.enabled) {
+              unawaited(DeviceStorageService.clearPendingRoutineToggle(r.id, routineName: r.name));
+            }
+            return r;
+          })
           .toList();
-      await PreviewRoutineRepository.syncWithCloudRoutines(cloudRoutines);
-      return cloudRoutines;
+      if (cloudRoutines.isNotEmpty) {
+        await PreviewRoutineRepository.syncWithCloudRoutines(cloudRoutines, notifyHomeController: false);
+        return cloudRoutines;
+      }
     } catch (_) {}
     return const PreviewRoutineRepository().getRoutines();
   }
 
   @override
   Future<Routine?> getRoutine(String id) async {
-    final ctrl = HomeController.instance;
-    if (ctrl != null && ctrl.isLocalMode) {
-      return const PreviewRoutineRepository().getRoutine(id);
-    }
-
     final homeId = await _resolveHomeId();
     if (homeId == null || homeId.isEmpty) {
       return const PreviewRoutineRepository().getRoutine(id);
     }
 
     try {
-      final res = await _apiClient.get('/api/v1/homes/$homeId/automations/$id');
+      final res = await _apiClient.get('/api/v1/homes/$homeId/automations/$id').timeout(const Duration(milliseconds: 1500));
       if (res is Map<String, dynamic>) {
         final r = _mapToRoutine(res);
         PreviewRoutineRepository.registerCachedRoutines([r]);
@@ -308,32 +312,90 @@ class CloudRoutineRepository implements RoutineRepository {
   }
 
   Future<RepositoryResult> _toggleRoutine(String id, bool enabled) async {
+    final existing = await const PreviewRoutineRepository().getRoutine(id);
+    await DeviceStorageService.savePendingRoutineToggle(
+      id,
+      enabled,
+      routineName: existing?.name,
+    );
     if (enabled) {
       await const PreviewRoutineRepository().enableRoutine(id);
     } else {
       await const PreviewRoutineRepository().disableRoutine(id);
     }
     final homeId = await _resolveHomeId();
-    if (homeId == null || homeId.isEmpty) return RepositoryResult.success;
+    if (homeId == null || homeId.isEmpty) {
+      if (existing != null) {
+        await DeviceStorageService.clearPendingRoutineToggle(id, routineName: existing.name);
+      }
+      return RepositoryResult.success;
+    }
 
     final ctrl = HomeController.instance;
     if (ctrl != null && ctrl.isLocalMode) {
-      // In local LAN mode, don't block UI on remote cloud HTTP call
-      unawaited(
-        _apiClient
-            .patch('/api/v1/homes/$homeId/automations/$id/toggle', body: {'isEnabled': enabled})
-            .timeout(const Duration(milliseconds: 1500))
-            .catchError((_) => null),
-      );
+      // In local LAN mode, push in background without blocking UI, resolving core ID if needed
+      unawaited(_pushToggleToCloud(homeId, id, enabled, routineName: existing?.name));
       return RepositoryResult.success;
+    }
+
+    await _pushToggleToCloud(homeId, id, enabled, routineName: existing?.name);
+    return RepositoryResult.success;
+  }
+
+  Future<void> _pushToggleToCloud(
+    String homeId,
+    String id,
+    bool enabled, {
+    String? routineName,
+  }) async {
+    Future<void> pushEdgeThenClear() async {
+      final latest = await const PreviewRoutineRepository().getRoutine(id);
+      if (latest != null) {
+        await EdgeRoutineSyncService.instance.syncRoutineToEdge(
+          latest,
+          forceEnabled: enabled,
+        );
+      }
+      await DeviceStorageService.clearPendingRoutineToggle(id, routineName: routineName);
     }
 
     try {
       await _apiClient
           .patch('/api/v1/homes/$homeId/automations/$id/toggle', body: {'isEnabled': enabled})
           .timeout(const Duration(milliseconds: 2000));
+      await pushEdgeThenClear();
+      return;
     } catch (_) {}
-    return RepositoryResult.success;
+
+    // Fallback: if routine ID originated from edge (e.g. rt_...), look up matching backend automation ID
+    try {
+      final res = await _apiClient
+          .get('/api/v1/homes/$homeId/automations')
+          .timeout(const Duration(milliseconds: 2000));
+      List items = [];
+      if (res is List) {
+        items = res;
+      } else if (res is Map && res['data'] is List) {
+        items = res['data'] as List;
+      }
+      final targetCore = EdgeRoutineSyncService.extractCoreId(id);
+      final targetNormName = routineName?.trim().toLowerCase();
+      for (final raw in items) {
+        if (raw is! Map) continue;
+        final cId = raw['id']?.toString() ?? '';
+        final cName = raw['name']?.toString().trim().toLowerCase() ?? '';
+        final cCore = EdgeRoutineSyncService.extractCoreId(cId);
+        if (cId == id ||
+            (targetCore.isNotEmpty && targetCore != 'rt' && cCore == targetCore) ||
+            (targetNormName != null && targetNormName.isNotEmpty && cName == targetNormName)) {
+          await _apiClient
+              .patch('/api/v1/homes/$homeId/automations/$cId/toggle', body: {'isEnabled': enabled})
+              .timeout(const Duration(milliseconds: 2000));
+          await pushEdgeThenClear();
+          return;
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -392,15 +454,19 @@ class CloudRoutineRepository implements RoutineRepository {
 
     // Decode trigger kind
     final kindName = triggerConfig['kind']?.toString() ?? triggerType;
-    final kind = RoutineTriggerKind.values.firstWhere(
-      (k) => k.name.toLowerCase() == kindName.toLowerCase(),
-      orElse: () {
-        if (triggerType == 'device_state') return RoutineTriggerKind.soilMoisture;
-        if (triggerType == 'energy_threshold') return RoutineTriggerKind.powerThreshold;
-        if (triggerType == 'manual') return RoutineTriggerKind.manual;
-        return RoutineTriggerKind.timeSchedule;
-      },
-    );
+    final isDeviceState = triggerType.toLowerCase() == 'device_state' ||
+        kindName.toLowerCase() == 'devicestate' ||
+        kindName.toLowerCase() == 'device_state';
+    final kind = isDeviceState
+        ? RoutineTriggerKind.deviceState
+        : RoutineTriggerKind.values.firstWhere(
+            (k) => k.name.toLowerCase() == kindName.toLowerCase(),
+            orElse: () {
+              if (triggerType == 'energy_threshold') return RoutineTriggerKind.powerThreshold;
+              if (triggerType == 'manual') return RoutineTriggerKind.manual;
+              return RoutineTriggerKind.timeSchedule;
+            },
+          );
 
     final timeStr = triggerConfig['time']?.toString() ?? '';
     final labelStr = triggerConfig['label']?.toString() ?? map['description']?.toString() ?? '';

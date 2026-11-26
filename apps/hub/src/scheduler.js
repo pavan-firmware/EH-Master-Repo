@@ -75,7 +75,9 @@ class HubScheduler {
 
   dispatchRoutine(routine) {
     const target = this.getDeviceFn(routine.deviceId);
-    const targetPower = Boolean(routine.targetState);
+    const isToggle = Boolean(routine.isToggle || routine.toggle);
+    const curPower = Boolean(target?.channels?.[routine.channel]);
+    const targetPower = isToggle ? !curPower : Boolean(routine.targetState);
 
     if (target && target.ipAddress) {
       const postData = JSON.stringify({
@@ -85,6 +87,7 @@ class HubScheduler {
         value: targetPower,
         enabled: targetPower,
         state: targetPower,
+        ...(isToggle ? { toggle: true, action: 'toggle' } : {}),
       });
 
       const req = http.request({
@@ -110,11 +113,14 @@ class HubScheduler {
       req.write(postData);
       req.end();
     } else {
+      if (target && target.channels) {
+        target.channels[routine.channel] = targetPower;
+      }
       console.log(`[Hub Scheduler] Target switch ${routine.deviceId} has no local IP; evaluated locally`);
     }
 
-    // If durationSec is set and turned ON, schedule automatic revert timer (Auto-Off)
-    if (targetPower && routine.durationSec && routine.durationSec > 0) {
+    // If durationSec is set and turned ON (or toggled), always schedule automatic revert timer to OFF (never left HIGH)
+    if ((targetPower || isToggle) && routine.durationSec && routine.durationSec > 0) {
       const nowEpoch = Math.floor(Date.now() / 1000);
       const timerId = `tm_${crypto.randomBytes(6).toString('hex')}`;
       const activeTimer = {
@@ -122,12 +128,12 @@ class HubScheduler {
         routineId: routine.id,
         deviceId: routine.deviceId,
         channel: routine.channel,
-        targetState: false, // Revert to OFF
+        targetState: false, // Always end OFF even for toggle routines
         fireAtEpoch: nowEpoch + routine.durationSec,
         createdAt: new Date().toISOString(),
       };
       this.storage.addActiveTimer(activeTimer);
-      console.log(`[Hub Scheduler] Auto-Off timer armed: ${routine.name} will revert in ${routine.durationSec}s`);
+      console.log(`[Hub Scheduler] Auto-Off timer armed: ${routine.name} will turn OFF in ${routine.durationSec}s`);
     }
 
     if (typeof this.onRoutineDispatched === 'function') {
@@ -171,6 +177,9 @@ class HubScheduler {
       req.write(postData);
       req.end();
     } else {
+      if (target && target.channels) {
+        target.channels[timer.channel] = Boolean(timer.targetState);
+      }
       console.log(`[Hub Scheduler] Auto-Off completed for ${timer.deviceId} Ch ${timer.channel} (reverted to OFF in local cache)`);
     }
   }

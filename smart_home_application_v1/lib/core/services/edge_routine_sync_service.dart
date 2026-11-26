@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import '../models/routine_models.dart';
 import 'local_lan_device_service.dart';
 import '../../app/home_controller.dart';
@@ -17,6 +19,193 @@ import '../../features/hub/data/hub_repository.dart';
 class EdgeRoutineSyncService {
   EdgeRoutineSyncService._();
   static final EdgeRoutineSyncService instance = EdgeRoutineSyncService._();
+
+  static final Map<String, ({Routine routine, DateTime expiresAt})> _activeChannelRoutines = {};
+
+  static String _normId(String id) =>
+      id.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  void registerActiveRoutineExecution(
+    Routine routine, {
+    int? targetChannel,
+    int pulseDurationSeconds = 60,
+  }) {
+    final effectiveSec = pulseDurationSeconds > 0 ? pulseDurationSeconds : 60;
+    final expiresAt = DateTime.now().add(Duration(seconds: effectiveSec));
+    final chSet = <int>{};
+    if (targetChannel != null && targetChannel > 0) {
+      chSet.add(targetChannel);
+    } else if (targetChannel == 0) {
+      chSet.addAll([1, 2, 3, 4]);
+    } else if (routine.actions.isNotEmpty) {
+      for (final a in routine.actions) {
+        if (a.channelIndex == 0 || a.kind == RoutineActionKind.allChannels) {
+          chSet.addAll([1, 2, 3, 4]);
+        } else {
+          chSet.add(a.channelIndex.clamp(1, 4));
+        }
+      }
+    } else {
+      chSet.add(1);
+    }
+
+    final isGlobalTarget = routine.actions.any((a) =>
+        a.deviceId.isEmpty || a.deviceId == 'all' || a.deviceId == 'all_sockets');
+
+    for (final ch in chSet) {
+      for (final dev in routine.involvedDevices) {
+        _activeChannelRoutines['${dev.id}_$ch'] = (routine: routine, expiresAt: expiresAt);
+        _activeChannelRoutines['${dev.id.toLowerCase()}_$ch'] = (routine: routine, expiresAt: expiresAt);
+        final norm = _normId(dev.id);
+        if (norm.isNotEmpty) {
+          _activeChannelRoutines['${norm}_$ch'] = (routine: routine, expiresAt: expiresAt);
+        }
+      }
+      for (final a in routine.actions) {
+        if (a.deviceId.isNotEmpty && a.deviceId != 'all' && a.deviceId != 'all_sockets') {
+          _activeChannelRoutines['${a.deviceId}_$ch'] = (routine: routine, expiresAt: expiresAt);
+          _activeChannelRoutines['${a.deviceId.toLowerCase()}_$ch'] = (routine: routine, expiresAt: expiresAt);
+          final norm = _normId(a.deviceId);
+          if (norm.isNotEmpty) {
+            _activeChannelRoutines['${norm}_$ch'] = (routine: routine, expiresAt: expiresAt);
+          }
+        }
+      }
+      if (isGlobalTarget) {
+        _activeChannelRoutines['ALL_$ch'] = (routine: routine, expiresAt: expiresAt);
+      }
+    }
+    HomeController.instance?.refreshRoutineWarningState();
+  }
+
+  /// Returns an actively running routine override (e.g. from Test Run, schedule fire,
+  /// or live hardware RUNNING state) if one is currently active on [deviceId]/[channel].
+  Routine? getActiveOverrideRoutine(String deviceId, int channel) {
+    final now = DateTime.now();
+    final norm = _normId(deviceId);
+    final keysToCheck = <String>[
+      '${deviceId}_$channel',
+      '${deviceId.toLowerCase()}_$channel',
+      if (norm.isNotEmpty) '${norm}_$channel',
+      'ALL_$channel',
+    ];
+    for (final key in keysToCheck) {
+      final entry = _activeChannelRoutines[key];
+      if (entry != null) {
+        if (!now.isBefore(entry.expiresAt)) {
+          _activeChannelRoutines.remove(key);
+          continue;
+        }
+        // Check if routine was disabled in PreviewRoutineRepository after registration
+        final r = entry.routine;
+        if (!r.id.startsWith('test_')) {
+          final live = PreviewRoutineRepository.liveRoutines.cast<Routine?>().firstWhere(
+            (lr) => lr != null && (lr.id == r.id || extractCoreId(lr.id) == extractCoreId(r.id)),
+            orElse: () => null,
+          );
+          if (live != null && !live.enabled) {
+            _activeChannelRoutines.remove(key);
+            continue;
+          }
+        }
+        return r;
+      }
+    }
+    return null;
+  }
+
+  void clearActiveRoutineExecution(String deviceId, int channel) {
+    final norm = _normId(deviceId);
+    _activeChannelRoutines.remove('${deviceId}_$channel');
+    _activeChannelRoutines.remove('${deviceId.toLowerCase()}_$channel');
+    if (norm.isNotEmpty) {
+      _activeChannelRoutines.remove('${norm}_$channel');
+    }
+    _activeChannelRoutines.remove('ALL_$channel');
+    HomeController.instance?.refreshRoutineWarningState();
+  }
+
+  /// Applies live running routine state reported inside ESP32 UDP broadcasts.
+  void ingestHardwareActiveRoutines(
+    String deviceId,
+    List<Map<String, dynamic>>? activeList,
+  ) {
+    if (deviceId.isEmpty || activeList == null) return;
+    final normDev = _normId(deviceId);
+    final activeChannels = <int>{};
+    for (final item in activeList) {
+      final ch = (item['channelIndex'] as num?)?.toInt() ?? 1;
+      final remSec = (item['remainingSec'] as num?)?.toInt() ?? 60;
+      final rId = item['id']?.toString() ?? '';
+      final rName = item['name']?.toString() ?? 'Edge Routine';
+      activeChannels.add(ch);
+      final rCore = extractCoreId(rId);
+      final matched = PreviewRoutineRepository.liveRoutines.cast<Routine?>().firstWhere(
+        (lr) =>
+            lr != null &&
+            (lr.id == rId ||
+                (rCore.isNotEmpty && extractCoreId(lr.id) == rCore) ||
+                lr.name.trim().toLowerCase() == rName.trim().toLowerCase()),
+        orElse: () => null,
+      );
+      if (matched != null && !matched.enabled) {
+        continue;
+      }
+      final effectiveRoutine = matched ??
+          Routine(
+            id: rId.isNotEmpty ? rId : 'edge_${normDev}_ch$ch',
+            name: rName,
+            icon: 'timer',
+            isFavorite: false,
+            enabled: true,
+            availability: RoutineAvailability.available,
+            trigger: const RoutineTrigger(
+              kind: RoutineTriggerKind.timeSchedule,
+              title: 'Hardware Schedule',
+              detail: 'Active',
+            ),
+            conditions: const [],
+            actions: [
+              RoutineAction(
+                kind: RoutineActionKind.switchChannel,
+                title: 'Channel $ch',
+                detail: 'Hardware Routine',
+                deviceId: deviceId,
+                channelIndex: ch,
+                targetState: true,
+              ),
+            ],
+            schedule: const RoutineSchedule(label: 'Active', days: [], timezone: 'IST'),
+            involvedDevices: [
+              RoutineDevice(
+                id: deviceId,
+                name: deviceId,
+                room: '',
+                online: true,
+                capabilities: const [],
+              ),
+            ],
+            lastExecution: null,
+            nextRun: null,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            summary: rName,
+          );
+      registerActiveRoutineExecution(
+        effectiveRoutine,
+        targetChannel: ch,
+        pulseDurationSeconds: remSec > 0 ? remSec : 60,
+      );
+    }
+    for (int ch = 1; ch <= 4; ch++) {
+      if (!activeChannels.contains(ch)) {
+        final existing = getActiveOverrideRoutine(deviceId, ch);
+        if (existing != null && !existing.id.startsWith('test_')) {
+          clearActiveRoutineExecution(deviceId, ch);
+        }
+      }
+    }
+  }
 
   /// Converts days string list into ESP32 7-bit days mask:
   /// Standard POSIX tm_wday:
@@ -108,7 +297,7 @@ class EdgeRoutineSyncService {
 
   /// Generates a clean, unique, and deterministic ID for an action on the ESP32 (max 36 chars)
   static String extractCoreId(String routineId) {
-    var core = routineId.replaceAll(RegExp(r'^(rt_|routine_)+'), '');
+    var core = routineId.replaceAll(RegExp(r'^(rt_|routine_|auto_|xrule_)+'), '');
     core = core.replaceAll(RegExp(r'(_ch\d+|_a\d+_c\d+)+$'), '');
     core = core.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     if (core.length > 18) {
@@ -122,6 +311,68 @@ class EdgeRoutineSyncService {
     final core = extractCoreId(routineId);
     final id = 'rt_${core}_a${actionIndex}_c$channel';
     return id.length > 36 ? id.substring(0, 36) : id;
+  }
+
+  /// Syncs an entire Routine to the Smart Home Hub LAN scheduler API
+  Future<bool> syncRoutineToHub(Routine routine, {bool? forceEnabled}) async {
+    final isEnabled = forceEnabled ?? routine.enabled;
+    final (hour, minute) = parseTimeOfDay(routine.trigger, routine.schedule);
+    final daysMask = computeDaysMask(
+      routine.trigger.days.isNotEmpty ? routine.trigger.days : routine.schedule.days,
+    );
+    final triggerType = routine.trigger.kind == RoutineTriggerKind.manual ? 0 : 2;
+    final hostCandidates = LiveHubRepository.getCandidateHosts(LiveHubRepository.activeHost);
+    if (hostCandidates.isEmpty) return false;
+
+    bool anySuccess = false;
+    final client = http.Client();
+    try {
+      for (int i = 0; i < routine.actions.length; i++) {
+        final act = routine.actions[i];
+        if (act.deviceId.isEmpty) continue;
+        final pulseSec = (act.pulseDurationMinutes ?? 0) * 60;
+        final hubRoutineId = routine.actions.length == 1
+            ? routine.id
+            : '${routine.id}_a${i}_c${act.channelIndex}';
+        final payload = jsonEncode({
+          'id': hubRoutineId,
+          'name': routine.name,
+          'deviceId': act.deviceId,
+          'channel': act.channelIndex,
+          'targetState': act.targetState,
+          'power': act.targetState,
+          'value': act.targetState,
+          'isToggle': act.isToggle,
+          'toggle': act.isToggle,
+          'durationSec': pulseSec,
+          'triggerType': (pulseSec > 0 && triggerType != 2) ? 1 : triggerType,
+          'hour': hour,
+          'minute': minute,
+          'daysMask': daysMask,
+          'enabled': isEnabled,
+          'criticalHardwareFallback': routine.isCritical,
+        });
+
+        for (final host in hostCandidates.take(4)) {
+          try {
+            final res = await client
+                .post(
+                  Uri.parse('http://$host:4210/api/v1/routines'),
+                  headers: {'Content-Type': 'application/json'},
+                  body: payload,
+                )
+                .timeout(const Duration(milliseconds: 900));
+            if (res.statusCode == 200 || res.statusCode == 201) {
+              anySuccess = true;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+    } finally {
+      client.close();
+    }
+    return anySuccess;
   }
 
   /// Syncs an entire Routine to target physical ESP32 boards on local LAN
@@ -147,9 +398,6 @@ class EdgeRoutineSyncService {
       final ip = resolveDeviceIp(action.deviceId);
       if (ip != null && ip.isNotEmpty) {
         targetIps.add(ip);
-      } else {
-        debugPrint('[EDGE-SYNC] No IP found for device ${action.deviceId}. Triggering background discovery...');
-        unawaited(LocalLanDeviceService.instance.autoDiscoverDevices());
       }
     }
 
@@ -174,7 +422,8 @@ class EdgeRoutineSyncService {
       }
     }
 
-    // Clean up stale or obsolete routine IDs on target boards belonging to this routine
+    // Clean up stale or obsolete routine IDs on target boards belonging to this routine (or same-name duplicates)
+    final normRoutineName = routine.name.trim().toLowerCase();
     for (final ip in targetIps) {
       try {
         final existingOnBoard = await LocalLanDeviceService.instance.fetchLocalRoutines(
@@ -185,16 +434,19 @@ class EdgeRoutineSyncService {
           final expected = expectedEdgeIdsByIp[ip] ?? <String>{};
           for (final existing in existingOnBoard) {
             final eId = existing['id']?.toString() ?? '';
-            // If the routine ID on the board belongs to this routine core, but is NOT in the new expected set:
-            if (eId.contains(routineCore) || eId == routine.id || eId.startsWith('rt_$routineCore') || eId.contains(routine.id.replaceAll(RegExp(r'[^a-zA-Z0-9]'), ''))) {
-              if (!expected.contains(eId)) {
-                debugPrint('[EDGE-SYNC] Pruning stale edge routine "$eId" on $ip');
-                await LocalLanDeviceService.instance.sendLocalRoutineDelete(
-                  deviceId: '',
-                  routineId: eId,
-                  explicitIp: ip,
-                );
-              }
+            final eName = existing['name']?.toString().trim().toLowerCase() ?? '';
+            final matchesById = eId.contains(routineCore) ||
+                eId == routine.id ||
+                eId.startsWith('rt_$routineCore') ||
+                eId.contains(routine.id.replaceAll(RegExp(r'[^a-zA-Z0-9]'), ''));
+            final matchesByName = normRoutineName.isNotEmpty && eName == normRoutineName;
+            if ((matchesById || matchesByName) && !expected.contains(eId)) {
+              debugPrint('[EDGE-SYNC] Pruning stale/duplicate edge routine "$eId" ($eName) on $ip');
+              await LocalLanDeviceService.instance.sendLocalRoutineDelete(
+                deviceId: '',
+                routineId: eId,
+                explicitIp: ip,
+              );
             }
           }
         }
@@ -313,10 +565,43 @@ class EdgeRoutineSyncService {
 
   /// Reconciles all local routines in storage with connected edge boards on LAN
   /// Checks whether a routine is currently running or within its active execution/pulse window
-  /// Checks whether a routine is currently running or within its active execution/pulse window
   bool isRoutineCurrentlyActive(Routine routine, {int? targetChannel, bool? currentPower}) {
     if (!routine.enabled) return false;
     final now = DateTime.now();
+
+    // 0. Explicit in-memory active routine execution check (registered on schedule trigger, test run, or hardware RUNNING state)
+    final checkChannels = targetChannel != null ? [targetChannel] : [1, 2, 3, 4];
+    final isGlobalTarget = routine.actions.any((a) =>
+        a.deviceId.isEmpty || a.deviceId == 'all' || a.deviceId == 'all_sockets');
+    for (final ch in checkChannels) {
+      final keysToCheck = <String>[
+        if (isGlobalTarget) 'ALL_$ch',
+        for (final dev in routine.involvedDevices) ...[
+          '${dev.id}_$ch',
+          '${dev.id.toLowerCase()}_$ch',
+          if (_normId(dev.id).isNotEmpty) '${_normId(dev.id)}_$ch',
+        ],
+        for (final a in routine.actions)
+          if (a.deviceId.isNotEmpty && a.deviceId != 'all' && a.deviceId != 'all_sockets') ...[
+            '${a.deviceId}_$ch',
+            '${a.deviceId.toLowerCase()}_$ch',
+            if (_normId(a.deviceId).isNotEmpty) '${_normId(a.deviceId)}_$ch',
+          ],
+      ];
+      for (final key in keysToCheck) {
+        final active = _activeChannelRoutines[key];
+        if (active != null) {
+          if (now.isBefore(active.expiresAt)) {
+            if (active.routine.id == routine.id ||
+                extractCoreId(active.routine.id) == extractCoreId(routine.id)) {
+              return true;
+            }
+          } else {
+            _activeChannelRoutines.remove(key);
+          }
+        }
+      }
+    }
 
     // 1. Identify relevant actions
     final relevantActions = targetChannel != null
@@ -325,7 +610,7 @@ class EdgeRoutineSyncService {
 
     if (relevantActions.isEmpty) return false;
 
-    // 2. Check if any relevant action has an active pulse/auto-off timer
+    // 2. Check active pulse/execution duration window (60s window for no-timer ON/OFF/Toggle actions when triggered)
     int maxPulseSec = 0;
     for (final act in relevantActions) {
       if (act.pulseDurationMinutes != null && act.pulseDurationMinutes! > 0) {
@@ -335,20 +620,25 @@ class EdgeRoutineSyncService {
         }
       }
     }
+    final effectiveWindowSec = maxPulseSec > 0 ? maxPulseSec : 60;
 
-    // A routine without any auto-off timer (one-shot command) completes immediately
-    // and should not lock the channel UI with an active routine warning overlay.
-    if (maxPulseSec == 0) {
-      return false;
-    }
-
-    // 3. Physical hardware state validation:
-    // If the physical channel power is provided and is NOT in the target active state,
-    // the routine's pulse has already completed (e.g. turned OFF after 1-minute auto-off).
-    if (currentPower != null) {
-      final targetPwr = relevantActions.first.targetState;
-      if (currentPower != targetPwr) {
-        return false;
+    // 3. Physical hardware state check for timed ON/OFF pulses after 10s telemetry settling
+    // (Skip for Toggle since state flips, and skip for continuous ON/OFF actions without a pulse timer.)
+    if (currentPower != null && maxPulseSec > 0 && targetChannel != null) {
+      final act = relevantActions.first;
+      if (!act.isToggle) {
+        final (h, m) = parseTimeOfDay(routine.trigger, routine.schedule);
+        final scheduleStart = DateTime(now.year, now.month, now.day, h, m);
+        final elapsedFromSchedule = now.difference(scheduleStart).inSeconds;
+        final elapsedFromExec = routine.lastExecution != null
+            ? now.difference(routine.lastExecution!.completedAt).inSeconds
+            : 9999;
+        final withinSettlingGrace =
+            (elapsedFromSchedule >= 0 && elapsedFromSchedule < 10) ||
+            (elapsedFromExec >= 0 && elapsedFromExec < 10);
+        if (!withinSettlingGrace && currentPower != act.targetState) {
+          return false;
+        }
       }
     }
 
@@ -356,7 +646,6 @@ class EdgeRoutineSyncService {
     if (routine.trigger.kind == RoutineTriggerKind.timeSchedule) {
       final (h, m) = parseTimeOfDay(routine.trigger, routine.schedule);
       if (h >= 0 && m >= 0) {
-        // Check days match
         if (routine.trigger.days.isNotEmpty) {
           const dayMap = {1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat', 7: 'sun'};
           final curDay = dayMap[now.weekday] ?? '';
@@ -365,20 +654,19 @@ class EdgeRoutineSyncService {
         }
 
         final scheduleStart = DateTime(now.year, now.month, now.day, h, m);
-        final scheduleEnd = scheduleStart.add(Duration(seconds: maxPulseSec));
+        final scheduleEnd = scheduleStart.add(Duration(seconds: effectiveWindowSec));
 
-        // Active only strictly during the schedule pulse duration
-        if (now.isAfter(scheduleStart) && now.isBefore(scheduleEnd)) {
+        if (!now.isBefore(scheduleStart) && now.isBefore(scheduleEnd)) {
           return true;
         }
       }
     }
 
-    // 5. Recent execution within pulse duration window
+    // 5. Recent execution within pulse/execution window
     if (routine.lastExecution != null) {
       final execTime = routine.lastExecution!.completedAt;
       final diffSec = now.difference(execTime).inSeconds;
-      if (diffSec >= 0 && diffSec < maxPulseSec) {
+      if (diffSec >= 0 && diffSec < effectiveWindowSec) {
         return true;
       }
     }
@@ -394,6 +682,9 @@ class EdgeRoutineSyncService {
       final routines = await const PreviewRoutineRepository().getRoutines();
       debugPrint('[EDGE-SYNC] Reconciling ${routines.length} routines (isHubActive=$isHubActive)...');
       for (final routine in routines) {
+        if (routine.trigger.kind == RoutineTriggerKind.deviceState) {
+          continue; // Cross-device rules are synced via /api/v1/peer-rules, not timed 07:00 routines
+        }
         // CRITICAL FIX: If a routine is currently running on the board, DO NOT POST routine upsert
         // which resets the ESP32 on-chip timer and stops the routine mid-operation!
         if (!force && isRoutineCurrentlyActive(routine)) {
@@ -403,7 +694,11 @@ class EdgeRoutineSyncService {
         if (isHubActive && !routine.isCritical) {
           // Master spec: Hub is active and this routine is standard comfort -> MUST NOT exist on ESP32 flash!
           await deleteRoutineFromEdge(routine);
+          await syncRoutineToHub(routine);
           continue;
+        }
+        if (isHubActive) {
+          await syncRoutineToHub(routine);
         }
         if (routine.enabled) {
           await syncRoutineToEdge(routine);
@@ -431,21 +726,37 @@ class EdgeRoutineSyncService {
       
       // Clean up any test routines that were removed from the chip
       await repo.removeRoutineLocalOnly('test_sched_1');
+      await repo.removeRoutineLocalOnly('rt_1793441276621_a0_c1');
+      await repo.removeRoutineLocalOnly('1793441276621');
 
       int syncedCount = 0;
       final existingRoutines = await repo.getRoutines();
 
-      // Group edge raw items by logical routine (using core ID or name)
+      // Group edge raw items by logical routine (using core ID or normalized name)
       final groupedEdgeRoutines = <String, List<Map<String, dynamic>>>{};
       for (final raw in edgeRoutines) {
         final id = raw['id']?.toString() ?? '';
         if (id.isEmpty || id == 'test_sched_1') continue;
 
+        final rawName = raw['name']?.toString() ?? 'Edge Routine';
+        final lowerName = rawName.trim().toLowerCase();
+        // Clean up legacy bogus 07:00 Cross-Device entries that were erroneously pushed to /api/v1/routines
+        if (id.startsWith('xrule_') || lowerName.contains('cross-device rule')) {
+          unawaited(LocalLanDeviceService.instance.sendLocalRoutineDelete(
+            deviceId: devId,
+            routineId: id,
+          ));
+          continue;
+        }
+
         final core = extractCoreId(id);
-        final name = raw['name']?.toString() ?? 'Edge Routine';
-        final groupKey = core.isNotEmpty && core != 'rt' ? core : name.trim().toLowerCase();
+        final groupKey = core.isNotEmpty && core != 'rt'
+            ? core
+            : 'name:$lowerName';
         groupedEdgeRoutines.putIfAbsent(groupKey, () => []).add(raw);
       }
+
+      bool runningStateChanged = false;
 
       for (final entry in groupedEdgeRoutines.entries) {
         final groupKey = entry.key;
@@ -454,26 +765,65 @@ class EdgeRoutineSyncService {
 
         final firstRaw = items.first;
         final name = firstRaw['name']?.toString() ?? 'Edge Routine';
+        final normName = name.trim().toLowerCase();
 
-        // Check if this routine already exists in app storage
+        // Check if this routine already exists in app storage (by ID, core ID, or exact name)
         Routine? existing;
         for (final r in existingRoutines) {
           if (r.id == groupKey ||
               extractCoreId(r.id) == groupKey ||
-              r.name.trim().toLowerCase() == name.trim().toLowerCase()) {
+              (normName.isNotEmpty && r.name.trim().toLowerCase() == normName)) {
             existing = r;
             break;
           }
         }
 
         final anyEnabledOnHardware = items.any((it) => it['enabled'] == true);
+        final runningItem = items.cast<Map<String, dynamic>?>().firstWhere(
+          (it) => it != null && it['state']?.toString().toUpperCase() == 'RUNNING',
+          orElse: () => null,
+        );
 
         if (existing != null) {
-          // Routine already exists in app with full user-configured actions!
-          // NEVER overwrite or truncate the multi-action list!
-          if (existing.enabled != anyEnabledOnHardware) {
-            final updated = existing.copyWith(enabled: anyEnabledOnHardware);
-            await repo.upsertRoutineFromEdge(updated);
+          // App state is authoritative for user toggles: NEVER let stale/duplicate enabled NVS entries
+          // silently re-enable a disabled routine on pull-to-refresh!
+          final pendingToggle = DeviceStorageService.getPendingRoutineToggle(
+            existing.id,
+            routineName: existing.name,
+          );
+          final authoritativeEnabled = pendingToggle ?? existing.enabled;
+          var effectiveExisting = existing;
+          if (pendingToggle != null && existing.enabled != pendingToggle) {
+            effectiveExisting = existing.copyWith(enabled: pendingToggle);
+            await repo.upsertRoutineFromEdge(effectiveExisting);
+          }
+          if (anyEnabledOnHardware != authoritativeEnabled || items.length > 1) {
+            // Hardware has stale toggle state or duplicate slots -> push authoritative app state down
+            unawaited(syncRoutineToEdge(effectiveExisting, forceEnabled: authoritativeEnabled));
+          }
+          if (runningItem != null && effectiveExisting.enabled) {
+            final remSec = (runningItem['remainingSec'] as num?)?.toInt() ?? 0;
+            final ch = (runningItem['channelIndex'] as num?)?.toInt() ?? 1;
+            final prev = getActiveOverrideRoutine(devId, ch);
+            registerActiveRoutineExecution(
+              effectiveExisting,
+              targetChannel: ch,
+              pulseDurationSeconds: remSec > 0 ? remSec : 60,
+            );
+            if (prev == null || prev.id != effectiveExisting.id) {
+              runningStateChanged = true;
+            }
+          } else {
+            for (final it in items) {
+              final ch = (it['channelIndex'] as num?)?.toInt() ?? 1;
+              final prev = getActiveOverrideRoutine(devId, ch);
+              if (prev != null &&
+                  (prev.id == effectiveExisting.id ||
+                      extractCoreId(prev.id) == extractCoreId(effectiveExisting.id))) {
+                clearActiveRoutineExecution(devId, ch);
+                runningStateChanged = true;
+              }
+            }
           }
           syncedCount++;
           continue;
@@ -540,10 +890,22 @@ class EdgeRoutineSyncService {
         });
 
         await repo.upsertRoutineFromEdge(routine);
+        if (runningItem != null && routine.enabled) {
+          final remSec = (runningItem['remainingSec'] as num?)?.toInt() ?? 0;
+          final ch = (runningItem['channelIndex'] as num?)?.toInt() ?? 1;
+          registerActiveRoutineExecution(
+            routine,
+            targetChannel: ch,
+            pulseDurationSeconds: remSec > 0 ? remSec : 60,
+          );
+        }
         syncedCount++;
       }
 
       if (ctrl != null) {
+        if (runningStateChanged) {
+          ctrl.refreshRoutineWarningState();
+        }
         ctrl.notifyListeners();
       }
       return syncedCount;

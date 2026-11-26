@@ -58,6 +58,7 @@ class ConnectedDeviceSummary {
     required this.signalLabel,
     required this.roomName,
     required this.online,
+    this.rssiDbm,
   });
 
   final String id;
@@ -68,6 +69,7 @@ class ConnectedDeviceSummary {
   final String signalLabel;
   final String roomName;
   final bool online;
+  final int? rssiDbm;
 
   ConnectedDeviceSummary copyWith({
     String? id,
@@ -78,6 +80,7 @@ class ConnectedDeviceSummary {
     String? signalLabel,
     String? roomName,
     bool? online,
+    int? rssiDbm,
   }) {
     return ConnectedDeviceSummary(
       id: id ?? this.id,
@@ -88,6 +91,7 @@ class ConnectedDeviceSummary {
       signalLabel: signalLabel ?? this.signalLabel,
       roomName: roomName ?? this.roomName,
       online: online ?? this.online,
+      rssiDbm: rssiDbm ?? this.rssiDbm,
     );
   }
 }

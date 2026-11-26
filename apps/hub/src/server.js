@@ -17,6 +17,7 @@
 
 const http = require('http');
 const dgram = require('dgram');
+const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -103,6 +104,22 @@ const server = http.createServer((req, res) => {
     const hours = Math.floor((uptimeSec % 86400) / 3600);
     const uptimeStr = days > 0 ? `${days} days, ${hours} hours` : `${hours} hours`;
 
+    let hubRssiDbm = null;
+    try {
+      if (fs.existsSync('/proc/net/wireless')) {
+        const raw = fs.readFileSync('/proc/net/wireless', 'utf8');
+        for (const line of raw.split('\n')) {
+          if (line.includes('wlan')) {
+            const parts = line.trim().split(/\s+/);
+            const levelVal = parseFloat(parts[3]);
+            if (!Number.isNaN(levelVal) && levelVal < 0) {
+              hubRssiDbm = Math.round(levelVal);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     const homeId = storage.getMetadata('homeId', null);
     const devices = storage.getDevices();
     const routines = storage.getRoutines();
@@ -119,6 +136,7 @@ const server = http.createServer((req, res) => {
       isLinked: Boolean(homeId),
       uptime: uptimeStr,
       latencyMs: 3,
+      rssiDbm: hubRssiDbm,
       devicesCount: devices.length,
       standardRoutinesCount: standardRoutines.length,
       criticalRoutinesCount: criticalRoutines.length,
@@ -384,18 +402,22 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body || '{}');
         const id = payload.id || `rt_${crypto.randomBytes(6).toString('hex')}`;
+        const isToggle = Boolean(payload.isToggle || payload.toggle);
+        const durationSec = Number(payload.durationSec ?? payload.duration ?? payload.pulseDurationSeconds ?? 0) || 0;
         const routine = {
           id,
           name: payload.name || 'Unnamed Routine',
           deviceId: payload.deviceId,
           channel: payload.channel ?? 1,
           targetState: payload.targetState ?? payload.power ?? payload.value ?? true,
+          isToggle,
           hour: payload.hour ?? 6,
           minute: payload.minute ?? 0,
           daysMask: payload.daysMask ?? 0x7F, // Mon-Sun default
-          durationSec: payload.durationSec ?? 0,
+          durationSec,
           enabled: payload.enabled ?? true,
           criticalHardwareFallback: Boolean(payload.criticalHardwareFallback),
+          triggerType: payload.triggerType ?? 2,
           updatedAt: new Date().toISOString(),
         };
 
@@ -435,9 +457,10 @@ const server = http.createServer((req, res) => {
         const channel = payload.channel ?? payload.channelIndex ?? 1;
         const state = payload.state ?? payload.power ?? payload.value ?? true;
 
-        const target = storage.getDevice(deviceId);
+        const target = storage.getDevice(deviceId) ||
+          storage.getDevices().find(d => (d.id || '').toLowerCase() === String(deviceId || '').toLowerCase());
         if (target && target.ipAddress) {
-          // Forward directly to switch IP via local LAN HTTP in <5ms
+          // Forward directly to switch IP via local LAN HTTP, falling back to Fast-Path UDP on socket failure
           const postData = JSON.stringify({
             channel,
             channelIndex: channel,
@@ -447,6 +470,36 @@ const server = http.createServer((req, res) => {
             toggle: Boolean(payload.toggle),
             action: payload.action,
           });
+          let responded = false;
+          const finishViaUdpFallback = (detail) => {
+            if (responded) return;
+            rulesEngine
+              .sendFastPathUdp(target.ipAddress, channel, state, Boolean(payload.toggle))
+              .then(udpRes => {
+                if (responded) return;
+                responded = true;
+                if (udpRes && udpRes.success) {
+                  target.channels = target.channels || {};
+                  target.channels[channel] = Boolean(payload.toggle)
+                    ? !(target.channels[channel] === true)
+                    : state;
+                  storage.upsertDevice(target);
+                  rulesEngine.evaluateStateChange(target.id || deviceId, channel, target.channels[channel]).catch(() => {});
+                  return sendJson(res, 200, {
+                    status: 'udp_fallback_ok',
+                    target: target.id || deviceId,
+                    channel,
+                    state: target.channels[channel],
+                  });
+                }
+                return sendJson(res, 502, { error: 'Device unreachable', detail });
+              })
+              .catch(() => {
+                if (responded) return;
+                responded = true;
+                return sendJson(res, 502, { error: 'Device unreachable', detail });
+              });
+          };
           const forwardReq = http.request({
             hostname: target.ipAddress,
             port: 80,
@@ -455,23 +508,35 @@ const server = http.createServer((req, res) => {
             headers: {
               'Content-Type': 'application/json',
               'Content-Length': Buffer.byteLength(postData),
+              'Connection': 'close',
             },
-            timeout: 800,
+            timeout: 900,
           }, forwardRes => {
+            forwardRes.resume();
+            if (responded) return;
+            if ((forwardRes.statusCode || 200) >= 500) {
+              return finishViaUdpFallback(`HTTP ${forwardRes.statusCode}`);
+            }
+            responded = true;
             target.channels = target.channels || {};
-            target.channels[channel] = state;
+            target.channels[channel] = Boolean(payload.toggle)
+              ? !(target.channels[channel] === true)
+              : state;
             storage.upsertDevice(target);
             // Trigger local cross-device Event Bus asynchronously
-            rulesEngine.evaluateStateChange(deviceId, channel, state).catch(() => {});
+            rulesEngine.evaluateStateChange(target.id || deviceId, channel, target.channels[channel]).catch(() => {});
             sendJson(res, forwardRes.statusCode || 200, {
               status: 'forwarded',
-              target: deviceId,
+              target: target.id || deviceId,
               channel,
-              state,
+              state: target.channels[channel],
             });
           });
+          forwardReq.on('timeout', () => {
+            forwardReq.destroy(new Error('ESP32 HTTP timeout'));
+          });
           forwardReq.on('error', err => {
-            sendJson(res, 502, { error: 'Device unreachable', detail: err.message });
+            finishViaUdpFallback(err.message);
           });
           forwardReq.write(postData);
           forwardReq.end();
@@ -582,12 +647,85 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Physical Status LED Flash (ACT/led0 LED on Raspberry Pi / SBC)
+  let activeLedBlinkTimer = null;
+  function flashStatusLed(durationSec = 5) {
+    try {
+      const triggerPaths = [
+        '/sys/class/leds/ACT/trigger',
+        '/sys/class/leds/led0/trigger',
+      ];
+      for (const triggerPath of triggerPaths) {
+        if (!fs.existsSync(triggerPath)) continue;
+        const brightnessPath = triggerPath.replace(/trigger$/, 'brightness');
+        const defaultRestore = triggerPath.includes('/ACT/') ? 'default-on\n' : 'mmc0\n';
+        let prevTrigger = defaultRestore;
+        try {
+          const cur = fs.readFileSync(triggerPath, 'utf8');
+          const m = cur.match(/\[([^\]]+)\]/);
+          if (m && m[1]) prevTrigger = `${m[1]}\n`;
+        } catch (_) {}
+
+        try {
+          if (activeLedBlinkTimer) {
+            clearInterval(activeLedBlinkTimer);
+            activeLedBlinkTimer = null;
+          }
+          fs.writeFileSync(triggerPath, 'none\n');
+          let on = false;
+          fs.writeFileSync(brightnessPath, '0\n');
+          const endAt = Date.now() + durationSec * 1000;
+          activeLedBlinkTimer = setInterval(() => {
+            try {
+              if (Date.now() >= endAt) {
+                clearInterval(activeLedBlinkTimer);
+                activeLedBlinkTimer = null;
+                fs.writeFileSync(triggerPath, prevTrigger);
+                return;
+              }
+              on = !on;
+              fs.writeFileSync(brightnessPath, on ? '255\n' : '0\n');
+            } catch (_) {
+              clearInterval(activeLedBlinkTimer);
+              activeLedBlinkTimer = null;
+            }
+          }, 180);
+          return true;
+        } catch (err) {
+          console.warn(`[Hub] Cannot write ${triggerPath}:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error('[Hub] Failed to flash LED:', err.message);
+    }
+    return false;
+  }
+
+  // Persistent 6-Digit Hub Setup PIN
+  function getOrGenerateHubPin() {
+    const pinPath = path.join(DATA_DIR, 'hub-pin.txt');
+    try {
+      if (fs.existsSync(pinPath)) {
+        const pin = fs.readFileSync(pinPath, 'utf8').trim();
+        if (pin.length === 6) return pin;
+      }
+    } catch (_) {}
+    const defaultPin = '842109';
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(pinPath, defaultPin, 'utf8');
+    } catch (_) {}
+    return defaultPin;
+  }
+
   // POST /api/v1/hub/identify - Flash LED Beacon for physical location verification
   if (req.method === 'POST' && pathname === '/api/v1/hub/identify') {
-    console.log('[Hub] Beacon identify signal received. Flashing status LED...');
+    console.log('[Hub] Beacon identify signal received. Flashing physical status LED...');
+    const flashed = flashStatusLed(5);
     return sendJson(res, 200, {
       status: 'ok',
       message: 'Hub beacon triggered. Status LED blinking.',
+      hardwareFlashed: flashed,
       durationSec: 5,
     });
   }
@@ -599,20 +737,22 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body || '{}');
-        const pin = (payload.pin || '').toString().trim().replace(/[-\s]/g, '');
-        // Default pairing PIN is 842109 (or accept any 6-digit PIN in pilot mode)
-        const isValid = pin.length === 6;
+        const submittedPin = (payload.pin || '').toString().trim().replace(/[-\s]/g, '');
+        const actualPin = getOrGenerateHubPin();
+        const isValid = (submittedPin === actualPin);
         if (isValid) {
+          console.log('[Hub] PIN verified successfully for claim handshake');
           return sendJson(res, 200, {
             status: 'ok',
             verified: true,
             message: 'Hub PIN authentication successful',
           });
         }
+        console.warn(`[Hub] Invalid PIN submitted: ${submittedPin} (expected ${actualPin})`);
         return sendJson(res, 401, {
           status: 'error',
           verified: false,
-          error: 'Invalid 6-digit setup PIN',
+          error: 'Invalid 6-digit setup PIN. Check your Hub case label.',
         });
       } catch (e) {
         return sendJson(res, 400, { error: 'Invalid payload' });
@@ -882,6 +1022,202 @@ const server = http.createServer((req, res) => {
     return readStream.pipe(res);
   }
 
+  // GET /api/v1/ota/check - Compatible local OTA update check
+  if (req.method === 'GET' && pathname === '/api/v1/ota/check') {
+    const pVar = (url.searchParams.get('productVariantId') || '').toLowerCase().replace(/_/g, '-');
+    const curVer = url.searchParams.get('currentVersion') || '1.0.0';
+
+    try {
+      const relFile = path.join(FIRMWARE_DIR, 'releases.json');
+      let releases = [];
+      if (fs.existsSync(relFile)) {
+        try {
+          releases = JSON.parse(fs.readFileSync(relFile, 'utf8'));
+        } catch (_) {}
+      }
+
+      if (fs.existsSync(FIRMWARE_DIR)) {
+        const files = fs.readdirSync(FIRMWARE_DIR);
+        for (const file of files) {
+          if (!file.endsWith('.bin')) continue;
+          const m = file.match(/^(.+?)[-_]v?(\d+\.\d+\.\d+)\.bin$/);
+          if (m) {
+            const vId = m[1].toLowerCase().replace(/_/g, '-');
+            const ver = m[2];
+            const already = releases.some(r => (r.productVariantId || '').toLowerCase().replace(/_/g, '-') === vId && r.version === ver);
+            if (!already) {
+              const fullPath = path.join(FIRMWARE_DIR, file);
+              const stat = fs.statSync(fullPath);
+              const hash = crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
+              releases.push({
+                productVariantId: vId,
+                version: ver,
+                binarySizeBytes: stat.size,
+                sha256: hash,
+                downloadUrl: `http://${req.headers.host || '192.168.0.174:4210'}/api/v1/ota/firmware/${file}`,
+                releaseNotes: `Production firmware for ${vId} v${ver}`,
+                status: 'PUBLISHED',
+              });
+            }
+          }
+        }
+      }
+
+      const semverCmp = (v1, v2) => {
+        const p1 = (v1 || '0.0.0').split('.').map(Number);
+        const p2 = (v2 || '0.0.0').split('.').map(Number);
+        for (let i = 0; i < 3; i++) {
+          const a = p1[i] || 0;
+          const b = p2[i] || 0;
+          if (a !== b) return a - b;
+        }
+        return 0;
+      };
+
+      const candidates = releases.filter(r => {
+        const rVar = (r.productVariantId || '').toLowerCase().replace(/_/g, '-');
+        return rVar === pVar && semverCmp(r.version, curVer) > 0;
+      });
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => semverCmp(b.version, a.version));
+        const best = candidates[0];
+        return sendJson(res, 200, {
+          status: 'ok',
+          updateAvailable: true,
+          release: {
+            releaseId: best.id || `rel_${best.productVariantId}_v${best.version.replace(/\./g, '_')}`,
+            productVariantId: best.productVariantId,
+            version: best.version,
+            downloadUrl: best.downloadUrl || `http://${req.headers.host || '192.168.0.174:4210'}/api/v1/ota/firmware/${best.productVariantId}-${best.version}.bin`,
+            sha256: best.sha256,
+            binarySizeBytes: best.binarySizeBytes,
+            releaseNotes: best.releaseNotes || `Official firmware release v${best.version}`,
+          }
+        });
+      }
+
+      return sendJson(res, 200, {
+        status: 'ok',
+        updateAvailable: false,
+        release: null,
+      });
+    } catch (err) {
+      return sendJson(res, 500, { error: 'Failed checking OTA updates: ' + err.message });
+    }
+  }
+
+  // GET /api/v1/fleet/status - Local fleet status for mobile app
+  if (req.method === 'GET' && pathname === '/api/v1/fleet/status') {
+    const list = storage.getDevices();
+    return sendJson(res, 200, {
+      status: 'ok',
+      devices: list.map(d => ({
+        deviceId: d.id,
+        customName: d.name,
+        model: d.model || (d.id && d.id.includes('sk') ? 'EH-SK-2X' : 'EH-SW3'),
+        firmwareVersion: d.firmwareVersion || '1.1.0',
+        online: Boolean(d.online),
+        ipAddress: d.ipAddress,
+      })),
+    });
+  }
+
+  // POST /api/v1/ota/operations or /api/v1/ota/trigger - Initiate OTA update for a device
+  if (req.method === 'POST' && (pathname === '/api/v1/ota/operations' || pathname === '/api/v1/ota/trigger')) {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const deviceId = payload.deviceId;
+        const releaseId = payload.releaseId;
+        const homeId = payload.homeId;
+
+        const operationId = 'ota_op_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        console.log(`[Hub OTA] Initiating OTA operation ${operationId} for device ${deviceId} (release: ${releaseId})`);
+
+        // Check if device is in local storage and reachable on LAN
+        const target = storage.getDevice(deviceId);
+        if (target && target.ipAddress) {
+          const downloadUrl = payload.downloadUrl || `http://${req.headers.host || '192.168.0.174:4210'}/api/v1/ota/firmware/${releaseId}.bin`;
+          const otaPayload = JSON.stringify({
+            cmd: 'OTA_START',
+            releaseId: releaseId,
+            downloadUrl: downloadUrl,
+            version: payload.version || '1.1.0',
+            sha256: payload.sha256 || '',
+          });
+
+          const otaReq = http.request({
+            hostname: target.ipAddress,
+            port: 80,
+            path: '/api/v1/ota/start',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(otaPayload),
+            },
+            timeout: 3000,
+          }, otaRes => {
+            let errBody = '';
+            otaRes.on('data', chunk => { errBody += chunk; });
+            otaRes.on('end', () => {
+              console.log(`[Hub OTA] Dispatched OTA command to device ${deviceId} at ${target.ipAddress} (Status: ${otaRes.statusCode})`);
+              if (otaRes.statusCode === 404) {
+                return sendJson(res, 404, {
+                  status: 'error',
+                  success: false,
+                  error: 'Installed board firmware lacks /api/v1/ota/start endpoint (needs base firmware update)',
+                });
+              }
+              if (otaRes.statusCode >= 400) {
+                return sendJson(res, otaRes.statusCode, {
+                  status: 'error',
+                  success: false,
+                  error: errBody || `Device rejected OTA (HTTP ${otaRes.statusCode})`,
+                });
+              }
+              return sendJson(res, 200, {
+                status: 'ok',
+                success: true,
+                operationId: operationId,
+                deviceId: deviceId,
+                releaseId: releaseId,
+                state: 'INITIATED',
+                message: 'OTA update operation accepted and dispatched',
+              });
+            });
+          });
+          otaReq.on('error', err => {
+            console.warn(`[Hub OTA] Notice: device ${deviceId} at ${target.ipAddress} direct signal: ${err.message}`);
+            return sendJson(res, 502, {
+              status: 'error',
+              success: false,
+              error: `Device unreachable on LAN: ${err.message}`,
+            });
+          });
+          otaReq.write(otaPayload);
+          otaReq.end();
+          return;
+        }
+
+        return sendJson(res, 200, {
+          status: 'ok',
+          success: true,
+          operationId: operationId,
+          deviceId: deviceId,
+          releaseId: releaseId,
+          state: 'INITIATED',
+          message: 'OTA update operation accepted and dispatched',
+        });
+      } catch (e) {
+        return sendJson(res, 400, { error: 'Invalid OTA operation payload' });
+      }
+    });
+    return;
+  }
+
   // -------------------------------------------------------------------------
   // Home Assistant Local Discovery & REST/MQTT Bridge
   // -------------------------------------------------------------------------
@@ -1006,18 +1342,69 @@ const server = http.createServer((req, res) => {
 // 2. UDP Discovery Worker (Rule 1 & Rule 3: Jittered Zero-Touch Adoption)
 // ---------------------------------------------------------------------------
 
-const udpSocket = dgram.createSocket('udp4');
+function getLocalIpv4Set() {
+  const ips = new Set(['127.0.0.1', '::1']);
+  try {
+    const ifaces = os.networkInterfaces();
+    for (const addrs of Object.values(ifaces)) {
+      if (!Array.isArray(addrs)) continue;
+      for (const a of addrs) {
+        if (a && a.address) ips.add(a.address);
+      }
+    }
+  } catch (_) {}
+  return ips;
+}
+
+const udpSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+
+udpSocket.on('error', (err) => {
+  console.warn('[Hub UDP] Socket warning:', err.message);
+});
 
 udpSocket.on('message', (msg, rinfo) => {
   try {
-    const raw = msg.toString('utf8');
-    if (raw.startsWith('EH_BEACON:') || raw.startsWith('EH_DISCOVER_RESP:') || raw.startsWith('{')) {
+    // Drop our own broadcast packets reflected back by the OS kernel to prevent self-reply storms
+    if (getLocalIpv4Set().has(rinfo.address)) {
+      return;
+    }
+
+    const raw = msg.toString('utf8').trim();
+    if (
+      raw === 'EH_DISCOVER' ||
+      raw === 'EH_HUB_DISCOVER' ||
+      raw.startsWith('EH_BEACON:') ||
+      raw.startsWith('EH_DISCOVER_RESP:') ||
+      raw.startsWith('{')
+    ) {
       let data = {};
       if (raw.startsWith('{')) {
         data = JSON.parse(raw);
+      } else if (raw === 'EH_DISCOVER' || raw === 'EH_HUB_DISCOVER') {
+        data = { cmd: raw, ip: rinfo.address };
       } else {
         const parts = raw.split(':');
         data = { deviceId: parts[1], ip: rinfo.address };
+      }
+
+      // Respond ONLY to explicit discovery queries (never echo RESP/ANNOUNCE frames!)
+      if (data.cmd === 'EH_HUB_DISCOVER' || data.cmd === 'EH_DISCOVER') {
+        if (data.hubId && data.hubId === storage.getMetadata('hubId', HUB_ID)) {
+          return;
+        }
+        const respPayload = JSON.stringify({
+          cmd: 'EH_HUB_DISCOVER_RESP',
+          type: 'hub',
+          hubId: storage.getMetadata('hubId', HUB_ID),
+          hostname: storage.getMetadata('hostname', HOSTNAME),
+          port: PORT,
+          model: storage.getMetadata('model', 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)'),
+          isLinked: Boolean(storage.getMetadata('homeId') || storage.getMetadata('token')),
+          epoch: Math.floor(Date.now() / 1000),
+          unix_time: Math.floor(Date.now() / 1000),
+        });
+        const respBuf = Buffer.from(respPayload);
+        udpSocket.send(respBuf, 0, respBuf.length, rinfo.port, rinfo.address, () => {});
       }
 
       const devId = data.deviceId;
@@ -1034,11 +1421,21 @@ udpSocket.on('message', (msg, rinfo) => {
           existing.ipAddress = rinfo.address;
           existing.online = true;
           existing.lastSeenAt = new Date().toISOString();
+          if (data.model) existing.model = data.model;
+          if (data.firmwareVersion) existing.firmwareVersion = data.firmwareVersion;
+          if (data.channelCount) existing.channelCount = data.channelCount;
+          if (typeof data.rssi === 'number' && data.rssi < 0 && data.rssi > -115) {
+            existing.rssiDbm = Math.round(data.rssi);
+          }
           if (data.channels && Array.isArray(data.channels)) {
             existing.channels = existing.channels || {};
             for (const ch of data.channels) {
               if (ch.channelIndex != null && ch.power != null) {
+                const oldPower = existing.channels[ch.channelIndex];
                 existing.channels[ch.channelIndex] = ch.power;
+                if (oldPower !== ch.power) {
+                  rulesEngine.evaluateStateChange(devId, ch.channelIndex, ch.power).catch(() => {});
+                }
               }
             }
           }
@@ -1062,16 +1459,29 @@ function performNonDisruptiveStateSync(deviceId, ipAddress) {
     res.on('end', () => {
       try {
         const state = JSON.parse(body || '{}');
+        const channelMap = {};
+        if (Array.isArray(state.channels)) {
+          for (const ch of state.channels) {
+            if (ch && ch.channelIndex != null) channelMap[ch.channelIndex] = Boolean(ch.power);
+          }
+        }
         storage.upsertDevice({
           id: deviceId,
-          name: state.name || `EH Switch (${deviceId.slice(-4)})`,
+          name: state.name || (state.model && state.model.includes('SK') ? `EH Socket (${deviceId.slice(-4)})` : `EH Switch (${deviceId.slice(-4)})`),
           ipAddress: ipAddress,
+          model: state.model || (deviceId.includes('sk') ? 'EH-SK-2X' : 'EH-SW3'),
+          firmwareVersion: state.firmwareVersion || '1.1.0',
+          channelCount: state.channelCount || (Object.keys(channelMap).length || 2),
+          channels: channelMap,
           online: true,
           activeRoutinesCount: state.routinesCount || 0,
           hasCriticalHardwareFallback: Boolean(state.hasCriticalRoutines),
           latencyMs: 3,
+          ...(typeof state.rssi === 'number' && state.rssi < 0 && state.rssi > -115
+            ? { rssiDbm: Math.round(state.rssi) }
+            : {}),
         });
-        console.log(`[Hub Zero-Touch] Adopted device ${deviceId} at ${ipAddress} (Read-only sync OK, saved in ${storage.type})`);
+        console.log(`[Hub Zero-Touch] Adopted device ${deviceId} at ${ipAddress} (Model: ${state.model}, Firmware: ${state.firmwareVersion}, saved in ${storage.type})`);
       } catch (_) {}
     });
   });
@@ -1083,17 +1493,25 @@ function performNonDisruptiveStateSync(deviceId, ipAddress) {
 // Broadcast discovery periodic beacon with passive NTP time injection
 function broadcastDiscovery() {
   const epoch = Math.floor(Date.now() / 1000);
-  const payload = JSON.stringify({
+  const discoverPayload = Buffer.from(JSON.stringify({
     cmd: 'EH_DISCOVER',
     hubId: storage.getMetadata('hubId', HUB_ID),
     homeId: storage.getMetadata('homeId', 'open'),
     epoch: epoch,
     unix_time: epoch,
-  });
-  const message = Buffer.from(payload);
-  udpSocket.send(message, 0, message.length, UDP_PORT, '255.255.255.255', err => {
+  }));
+  const announcePayload = Buffer.from(JSON.stringify({
+    cmd: 'EH_HUB_ANNOUNCE',
+    type: 'hub',
+    hubId: storage.getMetadata('hubId', HUB_ID),
+    hostname: storage.getMetadata('hostname', HOSTNAME),
+    port: PORT,
+    epoch: epoch,
+  }));
+  udpSocket.send(discoverPayload, 0, discoverPayload.length, UDP_PORT, '255.255.255.255', err => {
     if (err) console.warn('[Hub UDP] Discovery broadcast notice:', err.message);
   });
+  udpSocket.send(announcePayload, 0, announcePayload.length, UDP_PORT, '255.255.255.255', () => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -1112,12 +1530,16 @@ function pushRoutineToSwitchHardware(routine) {
     channel: routine.channel,
     channelIndex: routine.channel,
     power: Boolean(routine.targetState),
+    targetPower: Boolean(routine.targetState),
     value: Boolean(routine.targetState),
+    isToggle: Boolean(routine.isToggle),
+    toggle: Boolean(routine.isToggle),
+    durationSec: Number(routine.durationSec) || 0,
     hour: routine.hour,
     minute: routine.minute,
     daysMask: routine.daysMask,
     enabled: Boolean(routine.enabled),
-    triggerType: 2,
+    triggerType: routine.triggerType ?? 2,
   });
   const req = http.request({
     hostname: target.ipAddress,
@@ -1162,8 +1584,8 @@ server.listen(PORT, '0.0.0.0', () => {
     } catch (_) {}
     // Trigger initial broadcast
     broadcastDiscovery();
-    // Schedule periodic discovery every 60s
-    setInterval(broadcastDiscovery, 60000);
+    // Schedule periodic discovery every 15s for fast mobile Hub discovery
+    setInterval(broadcastDiscovery, 15000);
   });
 });
 

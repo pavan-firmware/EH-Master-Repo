@@ -6,6 +6,7 @@ import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../devices/presentation/device_control_page.dart';
 import '../../automations/presentation/active_routine_guard.dart';
@@ -308,18 +309,20 @@ class _RoomContextPageState extends State<RoomContextPage> {
           final is3X = d.name.toLowerCase().contains('3x') || d.model.toLowerCase().contains('3x');
           final is2X = d.name.toLowerCase().contains('2x') || d.model.toLowerCase().contains('2x');
           final suffix = is4X ? '4X' : (is3X ? '3X' : (is2X ? '2X' : '1X'));
+          final devOnline = widget.homeController!.isDeviceActiveOrOnline(d);
           return RoomDevice(
             id: d.id,
             name: d.name,
             type: 'Smart Switch $suffix',
             value: widget.homeController!.getDeviceChannelPower(d.id, 1) ? 'On' : 'Off',
             kind: RoomCapabilityKind.switchControl,
-            confidence: d.online ? ActuatorConfidence.confirmed : ActuatorConfidence.unavailable,
+            confidence: devOnline ? ActuatorConfidence.confirmed : ActuatorConfidence.unavailable,
           );
         }).toList();
 
         final labels = matchingDevs.isNotEmpty ? DeviceStorageService.getChannelLabels(matchingDevs.first.id) : <int, String>{};
         capabilities = matchingDevs.expand((d) {
+          final devOnline = widget.homeController!.isDeviceActiveOrOnline(d);
           final is4X = d.name.toLowerCase().contains('4x') || d.model.toLowerCase().contains('4x');
           final count = is4X ? 4 : (d.model.contains('3x') ? 3 : (d.model.contains('2x') ? 2 : 4));
           return List.generate(count, (i) {
@@ -331,7 +334,7 @@ class _RoomContextPageState extends State<RoomContextPage> {
               label: label,
               value: isOn ? 'On' : 'Off',
               kind: RoomCapabilityKind.switchControl,
-              isOnline: d.online,
+              isOnline: devOnline,
             );
           });
         }).toList();
@@ -919,6 +922,19 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
       final parts = capability.id.split('_ch');
       devId = parts[0];
       chIdx = int.tryParse(parts[1]) ?? 1;
+    } else if (capability.id.contains(':')) {
+      final parts = capability.id.split(':');
+      devId = parts[0];
+      chIdx = int.tryParse(parts[1]) ?? 1;
+    } else {
+      final lastIdx = capability.id.lastIndexOf('_');
+      if (lastIdx > 0) {
+        final ch = int.tryParse(capability.id.substring(lastIdx + 1));
+        if (ch != null) {
+          devId = capability.id.substring(0, lastIdx);
+          chIdx = ch;
+        }
+      }
     }
 
     final isSocket = capability.label.toLowerCase().contains('socket');
@@ -929,7 +945,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     final activeRoutine = ctrl?.getActiveRoutineForChannel(devId, chIdx);
 
     final matchedDev = ctrl?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
-      (d) => d?.id == devId,
+      (d) => d != null && (d.id == devId || d.id.toLowerCase() == devId.toLowerCase()),
       orElse: () => null,
     );
     final resolvedImg = resolveBundledProductAsset(matchedDev?.model) ??
@@ -1230,9 +1246,29 @@ class _QuickDeviceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final isOn = device.value.toLowerCase() == 'on';
+    final ch1Routine = homeController?.getActiveRoutineForChannel(device.id, 1);
+    Routine? anyActiveRoutine = ch1Routine;
+    if (anyActiveRoutine == null && homeController != null) {
+      for (int c = 2; c <= 4; c++) {
+        anyActiveRoutine = homeController!.getActiveRoutineForChannel(device.id, c);
+        if (anyActiveRoutine != null) break;
+      }
+    }
+    if (ch1Routine != null) {
+      return SizedBox(
+        width: 156,
+        child: RoutineControlWarningOverlay(
+          routine: ch1Routine,
+          controlTitle: device.name,
+          isFullWidth: false,
+        ),
+      );
+    }
+
+    final isOn = homeController?.getDeviceChannelPower(device.id, 1) ??
+        (device.value.toLowerCase() == 'on');
     final liveDev = homeController?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
-          (d) => d?.id == device.id,
+          (d) => d != null && (d.id == device.id || d.id.toLowerCase() == device.id.toLowerCase()),
           orElse: () => null,
         );
     final isOnline = (liveDev != null)
@@ -1305,6 +1341,8 @@ class _QuickDeviceCard extends StatelessWidget {
                   fontSize: 13,
                 ),
               ),
+              if (anyActiveRoutine != null)
+                ActiveRoutineBadge(routine: anyActiveRoutine),
               const SizedBox(height: 8),
               Center(
                 child: Switch.adaptive(
@@ -1352,12 +1390,11 @@ class _DeviceRow extends StatelessWidget {
         ? devColor.withValues(alpha: 0.18)
         : devColor.withValues(alpha: 0.12);
 
-    // Look up full device summary from homeController if available
+    // Look up full device summary from homeController if available (case-insensitive)
     final devSummary = homeController?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
-      (d) => d?.id == device.id,
+      (d) => d?.id.toLowerCase() == device.id.toLowerCase(),
       orElse: () => null,
     );
-    final isOnline = devSummary?.online ?? (device.confidence != ActuatorConfidence.unavailable);
     final isLocalMode = homeController?.isLocalMode ?? false;
 
     // Calculate active channel count
@@ -1376,6 +1413,19 @@ class _DeviceRow extends StatelessWidget {
         }
       }
     }
+    Routine? rowActiveRoutine;
+    if (homeController != null) {
+      for (int ch = 1; ch <= chCount; ch++) {
+        rowActiveRoutine = homeController!.getActiveRoutineForChannel(device.id, ch);
+        if (rowActiveRoutine != null) break;
+      }
+    }
+
+    final isLanOnline = LocalLanDeviceService.instance.isDeviceReachableOnLan(device.id);
+    final isOnline = (devSummary?.online ?? false) ||
+        isLanOnline ||
+        rowActiveRoutine != null ||
+        (devSummary == null && device.confidence != ActuatorConfidence.unavailable);
 
     final hasActiveChannels = activeChannels > 0;
     final modelOrType = devSummary?.model ?? device.type;
@@ -1558,6 +1608,11 @@ class _DeviceRow extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (rowActiveRoutine != null)
+                        ActiveRoutineBadge(
+                          routine: rowActiveRoutine,
+                          showRoutineName: true,
+                        ),
                     ],
                   ),
                 ],

@@ -14,6 +14,7 @@ class DeviceHealthEntry {
     required this.statusLine,
     required this.iconKey,
     this.reading,
+    this.rssiDbm,
   });
 
   final String deviceId;
@@ -26,6 +27,7 @@ class DeviceHealthEntry {
   final String statusLine;
   final String iconKey;
   final String? reading;
+  final int? rssiDbm;
 
   int get sortPriority => switch (state) {
     DeviceHealthState.attention => 0,
@@ -36,12 +38,18 @@ class DeviceHealthEntry {
     DeviceHealthState.healthy => 5,
   };
 
-  String get signalLabel => switch (signal) {
-    SignalStrength.strong => 'Strong',
-    SignalStrength.good => 'Good',
-    SignalStrength.weak => 'Weak',
-    SignalStrength.unknown => 'Unknown',
-  };
+  String get signalLabel {
+    final base = switch (signal) {
+      SignalStrength.strong => 'High',
+      SignalStrength.good => 'Medium',
+      SignalStrength.weak => 'Low',
+      SignalStrength.unknown => 'Offline',
+    };
+    if (rssiDbm != null && signal != SignalStrength.unknown) {
+      return '$base ($rssiDbm dBm)';
+    }
+    return base;
+  }
 }
 
 class RoomHealthSummary {

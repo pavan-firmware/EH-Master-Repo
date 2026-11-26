@@ -215,7 +215,7 @@ function isPublicRoute(method, pathname) {
   const exactKey = `${method} ${pathname}`;
   if (PUBLIC_ROUTES.includes(exactKey)) return true;
 
-  if (method === 'GET' && (
+  if ((method === 'GET' || method === 'HEAD') && (
     pathname.startsWith('/api/v1/products/') ||
     pathname.startsWith('/api/v1/product-variants/') ||
     pathname.startsWith('/api/v1/capabilities/') ||
@@ -659,6 +659,9 @@ function createApp(options = {}) {
     homeAuthService
   });
 
+  // Activate MqttDeviceTransport if not explicitly supplied and not in test environment
+  let activeMqttTransport = mqttTransport;
+
   const ingestionService = new DeviceEventTelemetryIngestionService({
     deviceStateRepo,
     eventRepo,
@@ -671,11 +674,12 @@ function createApp(options = {}) {
     eventBus,
     deviceRepo,
     redisStateCacheService,
-    telemetryBatchWorker
+    telemetryBatchWorker,
+    automationRepo,
+    automationService,
+    deviceCommandService: commandService,
+    mqttTransport: activeMqttTransport
   });
-
-  // Activate MqttDeviceTransport if not explicitly supplied and not in test environment
-  let activeMqttTransport = mqttTransport;
   const isTestEnv = process.env.NODE_ENV === 'test' ||
                     Boolean(process.env.npm_lifecycle_event && process.env.npm_lifecycle_event.includes('test')) ||
                     process.execArgv.includes('--test') ||
@@ -693,6 +697,7 @@ function createApp(options = {}) {
         onAvailability: (id, av) => ingestionService.handleAvailability(id, av),
       });
       commandService.mqttTransport = activeMqttTransport;
+      ingestionService.mqttTransport = activeMqttTransport;
       console.log('[EH Home Server] MqttDeviceTransport initialized & connected to MQTT broker.');
     } catch (mqttErr) {
       console.warn('[EH Home Server] Failed to initialize MqttDeviceTransport:', mqttErr.message);
@@ -1215,7 +1220,7 @@ function createApp(options = {}) {
     }
 
     // 8.5. Route to OTA & Fleet Router
-    if (pathname.startsWith('/api/v1/ota/binaries/') && method === 'GET') {
+    if (pathname.startsWith('/api/v1/ota/binaries/') && (method === 'GET' || method === 'HEAD')) {
       return otaRouter.handleBinaryDownload(req, res, pathname);
     }
     if (pathname.startsWith('/api/v1/ota') || pathname.startsWith('/api/v1/fleet')) {

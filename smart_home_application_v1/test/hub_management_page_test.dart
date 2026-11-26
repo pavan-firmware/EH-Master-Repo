@@ -13,7 +13,7 @@ class MockTestHubRepository implements HubRepository {
   bool adoptCalled = false;
 
   @override
-  Future<HubState> getHubState({String? homeId}) async {
+  Future<HubState> getHubState({String? homeId, bool allowSubnetSweep = false}) async {
     return initialState ?? const HubState(status: HubConnectionStatus.notConfigured);
   }
 
@@ -271,12 +271,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Smart Home Hub'), findsOneWidget);
+    expect(find.text('EH Smart Hub'), findsOneWidget);
+    expect(find.text('Scan Local Wi-Fi for Hub'), findsOneWidget);
+
+    // Open Hub Guide modal sheet from AppBar action icon
+    await tester.tap(find.byIcon(Icons.help_outline_rounded).first);
+    await tester.pumpAndSettle();
+
     expect(find.text('Optional Smart Hub'), findsOneWidget);
     expect(find.text('Sub-5ms Execution'), findsOneWidget);
     expect(find.text('100% Offline Autonomy'), findsOneWidget);
     expect(find.text('Flash Memory Preservation'), findsOneWidget);
     expect(find.text('Zero-Touch Adoption'), findsOneWidget);
-    expect(find.text('Link Hub to My Home'), findsOneWidget);
   });
 
   testWidgets('HubManagementPage renders active dashboard when connected', (tester) async {

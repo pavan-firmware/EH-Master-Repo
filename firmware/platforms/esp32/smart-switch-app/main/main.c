@@ -311,13 +311,22 @@ static void on_mqtt_command_received(const eh_mqtt_command_t *cmd,
                               "Relay actuation error");
     }
   } else if (strcmp(cmd->action, "otaUpdate") == 0) {
-    ESP_LOGI(TAG, "Cloud MQTT otaUpdate received. Starting deterministic OTA upgrade...");
+    ESP_LOGI(TAG, "Cloud MQTT otaUpdate received: url=%s, version=%s",
+             cmd->ota_download_url, cmd->ota_version);
+    eh_ota_manifest_t manifest;
+    memset(&manifest, 0, sizeof(manifest));
+    strncpy(manifest.download_url, cmd->ota_download_url, sizeof(manifest.download_url) - 1);
+    strncpy(manifest.version, cmd->ota_version[0] ? cmd->ota_version : "1.1.0", sizeof(manifest.version) - 1);
+    strncpy(manifest.sha256, cmd->ota_sha256, sizeof(manifest.sha256) - 1);
+    manifest.binary_size_bytes = cmd->ota_binary_size_bytes;
+
+    bool started = ota_manager_start_update_async(&manifest);
     if (s_mqtt_client) {
       eh_mqtt_publish_receipt(s_mqtt_client, cmd->command_id,
-                              cmd->channel_index, EH_MQTT_RECEIPT_APPLIED,
-                              "OTA_INITIATED");
+                              cmd->channel_index,
+                              started ? EH_MQTT_RECEIPT_APPLIED : EH_MQTT_RECEIPT_FAILED,
+                              started ? "OTA_INITIATED" : ota_manager_get_last_error());
     }
-    // Manifest is downloaded and verified by ota_manager
   } else {
     ESP_LOGW(TAG, "Unsupported command action: %s", cmd->action);
     if (s_mqtt_client) {

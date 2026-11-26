@@ -22,6 +22,7 @@ class HubDeviceInfo {
     required this.latencyMs,
     this.channelCount = 3,
     this.channels = const {1: false, 2: false, 3: false},
+    this.rssiDbm,
   });
 
   final String id;
@@ -35,6 +36,7 @@ class HubDeviceInfo {
   final int latencyMs;
   final int channelCount;
   final Map<int, bool> channels;
+  final int? rssiDbm;
 
   factory HubDeviceInfo.fromJson(Map<String, dynamic> json) {
     final rawChannels = json['channels'];
@@ -63,6 +65,7 @@ class HubDeviceInfo {
       latencyMs: (json['latencyMs'] as num?)?.toInt() ?? 3,
       channelCount: (json['channelCount'] as num?)?.toInt() ?? (chMap.isNotEmpty ? chMap.length : 3),
       channels: chMap,
+      rssiDbm: (json['rssiDbm'] as num?)?.toInt() ?? (json['rssi'] as num?)?.toInt(),
     );
   }
 
@@ -78,6 +81,7 @@ class HubDeviceInfo {
         'latencyMs': latencyMs,
         'channelCount': channelCount,
         'channels': channels,
+        if (rssiDbm != null) 'rssiDbm': rssiDbm,
       };
 }
 
@@ -97,6 +101,7 @@ class HubState {
     this.criticalRoutinesCount = 1,
     this.sdCardOverlayFsActive = true,
     this.localNtpSynced = true,
+    this.rssiDbm,
   });
 
   final HubConnectionStatus status;
@@ -112,6 +117,7 @@ class HubState {
   final int criticalRoutinesCount;
   final bool sdCardOverlayFsActive;
   final bool localNtpSynced;
+  final int? rssiDbm;
 
   bool get isLinked => status == HubConnectionStatus.connected;
 
@@ -129,6 +135,7 @@ class HubState {
     int? criticalRoutinesCount,
     bool? sdCardOverlayFsActive,
     bool? localNtpSynced,
+    int? rssiDbm,
   }) {
     return HubState(
       status: status ?? this.status,
@@ -147,6 +154,7 @@ class HubState {
       sdCardOverlayFsActive:
           sdCardOverlayFsActive ?? this.sdCardOverlayFsActive,
       localNtpSynced: localNtpSynced ?? this.localNtpSynced,
+      rssiDbm: rssiDbm ?? this.rssiDbm,
     );
   }
 }

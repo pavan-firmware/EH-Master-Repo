@@ -66,6 +66,10 @@ class OtaApiRouter {
       'Access-Control-Allow-Origin': '*'
     });
 
+    if (req.method === 'HEAD') {
+      return res.end();
+    }
+
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
   }

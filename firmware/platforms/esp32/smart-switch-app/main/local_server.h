@@ -44,6 +44,11 @@ void local_server_start_boot_announce_burst(const bool* powers, uint8_t count);
  */
 bool local_server_send_p2p_actuate(const char* target_ip, uint8_t target_channel, bool power, bool is_toggle);
 
+/**
+ * Send Fast-Path Direct P2P UDP command with optional targetDeviceId verification.
+ */
+bool local_server_send_p2p_actuate_target(const char* target_ip, const char* target_device_id, uint8_t target_channel, bool power, bool is_toggle);
+
 #ifdef __cplusplus
 }
 #endif

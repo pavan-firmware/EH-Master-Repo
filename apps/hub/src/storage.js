@@ -110,25 +110,7 @@ class SQLiteWalEngine {
   }
 
   migrateLegacyStateIfPresent() {
-    try {
-      const legacyFile = path.join(this.dataDir, 'hub-state.json');
-      if (fs.existsSync(legacyFile)) {
-        const content = fs.readFileSync(legacyFile, 'utf8');
-        const legacy = JSON.parse(content);
-        if (legacy.homeId && !this.getMetadata('homeId')) {
-          this.setMetadata('homeId', legacy.homeId);
-          if (legacy.claimToken) this.setMetadata('claimToken', legacy.claimToken);
-          if (legacy.linkedAt) this.setMetadata('linkedAt', legacy.linkedAt);
-        }
-        if (Array.isArray(legacy.devices)) {
-          for (const dev of legacy.devices) {
-            if (dev.id && !this.getDevice(dev.id)) {
-              this.upsertDevice(dev);
-            }
-          }
-        }
-      }
-    } catch (_) {}
+    // Disabled: zero dummy/legacy data hydration to preserve clean out-of-box provisioning
   }
 
   getMetadata(key, defaultVal = null) {
@@ -843,25 +825,7 @@ class AtomicWalEngine {
   }
 
   migrateLegacyStateIfPresent() {
-    try {
-      const legacyFile = path.join(this.dataDir, 'hub-state.json');
-      if (fs.existsSync(legacyFile)) {
-        const content = fs.readFileSync(legacyFile, 'utf8');
-        const legacy = JSON.parse(content);
-        if (legacy.homeId && !this.getMetadata('homeId')) {
-          this.setMetadata('homeId', legacy.homeId);
-          if (legacy.claimToken) this.setMetadata('claimToken', legacy.claimToken);
-          if (legacy.linkedAt) this.setMetadata('linkedAt', legacy.linkedAt);
-        }
-        if (Array.isArray(legacy.devices)) {
-          for (const dev of legacy.devices) {
-            if (dev.id && !this.getDevice(dev.id)) {
-              this.upsertDevice(dev);
-            }
-          }
-        }
-      }
-    } catch (_) {}
+    // Disabled: zero dummy/legacy data hydration to preserve clean out-of-box provisioning
   }
 
   applyWalEntry(entry) {

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
 import '../../../core/models/routine_models.dart';
+import '../../../core/repositories/cloud_home_repository.dart';
+import '../../../core/repositories/cloud_routine_repository.dart';
+import '../../../core/services/edge_routine_sync_service.dart';
 import '../../../core/theme/app_theme.dart';
 import 'automations_page.dart';
 
@@ -38,11 +41,33 @@ Future<bool> confirmRoutineInterruption(BuildContext context, Routine routine) a
             await const PreviewRoutineRepository().disableRoutine(routine.id);
             final ctrl = HomeController.instance;
             if (ctrl != null) {
+              if (ctrl.repository is CloudHomeRepository) {
+                try {
+                  final cloudRepo = CloudRoutineRepository(
+                    (ctrl.repository as CloudHomeRepository).client,
+                    activeHomeId: ctrl.activeHomeId,
+                  );
+                  await cloudRepo.disableRoutine(routine.id);
+                } catch (_) {}
+              }
               for (final action in routine.actions) {
-                final devId = action.deviceId.isNotEmpty ? action.deviceId : (ctrl.devices.isNotEmpty ? ctrl.devices.first.id : '');
-                if (devId.isNotEmpty) {
-                  final ch = action.channelIndex == 0 ? 1 : action.channelIndex;
-                  await ctrl.setDeviceChannelPower(deviceId: devId, channelIndex: ch, value: false);
+                final devId = action.deviceId.isNotEmpty
+                    ? action.deviceId
+                    : (ctrl.devices.isNotEmpty ? ctrl.devices.first.id : '');
+                final channels = action.channelIndex == 0
+                    ? [1, 2, 3, 4]
+                    : [action.channelIndex];
+                for (final ch in channels) {
+                  if (devId.isNotEmpty) {
+                    if (action.targetState || action.isToggle) {
+                      await ctrl.setDeviceChannelPower(
+                        deviceId: devId,
+                        channelIndex: ch,
+                        value: false,
+                      );
+                    }
+                    EdgeRoutineSyncService.instance.clearActiveRoutineExecution(devId, ch);
+                  }
                 }
               }
               await ctrl.refreshUpcomingRoutines();
@@ -229,9 +254,9 @@ class RoutineControlWarningOverlay extends StatelessWidget {
       );
     }
 
-    // Compact Card Overlay (Half-width)
+    // Compact Card Overlay (Half-width / Favourite tile)
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: tokens.isDark
             ? const Color(0xFF231B0E)
@@ -256,19 +281,19 @@ class RoutineControlWarningOverlay extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 32,
-                height: 32,
+                width: 28,
+                height: 28,
                 decoration: BoxDecoration(
                   color: warningAmber.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(9),
                 ),
                 child: const Icon(
                   Icons.warning_amber_rounded,
                   color: warningAmber,
-                  size: 20,
+                  size: 18,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 7),
               Expanded(
                 child: Text(
                   controlTitle.replaceAll('\n', ' '),
@@ -276,29 +301,29 @@ class RoutineControlWarningOverlay extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: tokens.textPrimary,
-                    fontSize: 13,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             'This control is being operated by a routine right now.',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: tokens.isDark ? const Color(0xFFFCD34D) : warningText,
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.w600,
               height: 1.2,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           SizedBox(
             width: double.infinity,
-            height: 28,
+            height: 26,
             child: FilledButton(
               onPressed: onStopRoutinePressed,
               style: FilledButton.styleFrom(

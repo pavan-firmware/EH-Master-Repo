@@ -1,4 +1,3 @@
-import '../services/local_lan_device_service.dart';
 import '../services/product_asset_resolver.dart';
 import '../capabilities/repositories/product_catalog_repository.dart';
 
@@ -212,6 +211,7 @@ class UpcomingRoutineItem {
     required this.timeLabel,
     required this.iconKey,
     required this.isEnabled,
+    this.isAvailable = true,
     this.nextExecutionTime,
     this.roomName,
     this.channelLabel,
@@ -226,6 +226,7 @@ class UpcomingRoutineItem {
   final String timeLabel;
   final String iconKey;
   final bool isEnabled;
+  final bool isAvailable;
   final DateTime? nextExecutionTime;
   final String? roomName;
   final String? channelLabel;
@@ -615,6 +616,7 @@ class HomeDashboardData {
     required List<dynamic> devices,
     required bool lightOn,
     required ActuatorConfidence lightConfidence,
+    Map<String, ActuatorConfidence>? deviceConfidences,
     List<String>? selectedControlIds,
     Map<String, Map<int, bool>>? channelStates,
     Map<String, Map<int, String>>? channelLabels,
@@ -646,7 +648,7 @@ class HomeDashboardData {
       );
       int devicesOnCount = 0;
       for (final d in roomDevices) {
-        final isDevReachable = d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
+        final isDevReachable = d.online == true;
         if (!isDevReachable) continue;
         bool isDevOn = false;
         for (int ch = 1; ch <= 4; ch++) {
@@ -668,7 +670,7 @@ class HomeDashboardData {
         }
         if (isDevOn) devicesOnCount++;
       }
-      final allOffline = roomDevices.every((d) => d.online == false && !LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id));
+      final allOffline = roomDevices.every((d) => d.online != true);
       final effectiveDevicesOn = allOffline ? 0 : devicesOnCount;
       final anyChOnInRoom = effectiveDevicesOn > 0;
 
@@ -724,7 +726,7 @@ class HomeDashboardData {
       final is3X = nameStr.contains('3x') || modelStr.contains('3x') || normModel.contains('3x');
       final is2X = nameStr.contains('2x') || modelStr.contains('2x') || normModel.contains('2x');
       final channelCount = is4X ? 4 : (is3X ? 3 : (is2X ? 2 : (nameStr.contains('1x') || modelStr.contains('1x') ? 1 : (isSocket ? 3 : 4))));
-      final isDevOnline = d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
+      final isDevOnline = d.online == true;
 
       for (int ch = 1; ch <= channelCount; ch++) {
         bool isChOn = channelStates?[d.id]?[ch] == true;
@@ -751,7 +753,9 @@ class HomeDashboardData {
             kind: kind,
             title: title,
             value: isDevOnline ? (isChOn ? 'On' : 'Off') : 'Offline',
-            confidence: isDevOnline ? lightConfidence : ActuatorConfidence.unavailable,
+            confidence: isDevOnline
+                ? (deviceConfidences?[d.id] ?? lightConfidence)
+                : ActuatorConfidence.unavailable,
             isEnabled: isDevOnline,
             roomName: d.roomName,
             imageUrl: resolveBundledProductAsset(
@@ -781,7 +785,7 @@ class HomeDashboardData {
       controls.addAll(allControls);
     }
 
-    final onlineCount = devices.where((d) => d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)).length;
+    final onlineCount = devices.where((d) => d.online == true).length;
     final isAnyOnline = onlineCount > 0;
     final isTransportOnline = isCloudReachable || isLocalMode || isAnyOnline;
 

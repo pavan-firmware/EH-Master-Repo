@@ -153,6 +153,44 @@ async function runTests() {
   assert.ok(expired, 'Auto-Off countdown timer should expire within 3s');
   console.log('  ✓ Auto-Off timer expired and cleaned up cleanly');
 
+  console.log('[Test 6b] Testing Toggle + 1s Auto-Off arms targetState=false and finishes OFF...');
+  const toggleRoutineRes = await request('POST', '/api/v1/routines', {
+    id: 'rt_toggle_auto_off',
+    name: 'Toggle 1s Auto Off',
+    deviceId: 'test_dev_01',
+    channel: 1,
+    targetState: true,
+    isToggle: true,
+    hour: 22,
+    minute: 41,
+    durationSec: 1,
+    criticalHardwareFallback: false,
+  });
+  assert.strictEqual(toggleRoutineRes.statusCode, 200);
+  assert.strictEqual(toggleRoutineRes.body.routine.isToggle, true);
+  assert.strictEqual(toggleRoutineRes.body.routine.durationSec, 1);
+
+  const trigToggle = await request('POST', '/api/v1/routines/trigger', { id: 'rt_toggle_auto_off' });
+  assert.strictEqual(trigToggle.statusCode, 200);
+  const toggleTimersRes = await request('GET', '/api/v1/routines/timers');
+  assert.strictEqual(toggleTimersRes.statusCode, 200);
+  const toggleTimer = toggleTimersRes.body.activeTimers.find(t => t.routineId === 'rt_toggle_auto_off');
+  assert.ok(toggleTimer, 'Toggle Auto-Off timer should be armed');
+  assert.strictEqual(toggleTimer.targetState, false, 'Timed toggle routine must always revert to OFF (false)');
+
+  let toggleExpired = false;
+  for (let i = 0; i < 6; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const timersAfterRes = await request('GET', '/api/v1/routines/timers');
+    if (timersAfterRes.statusCode === 200 && timersAfterRes.body.activeTimers.length === 0) {
+      toggleExpired = true;
+      break;
+    }
+  }
+  assert.ok(toggleExpired, 'Toggle Auto-Off countdown timer should expire within 3s');
+  await request('DELETE', '/api/v1/routines?id=rt_toggle_auto_off');
+  console.log('  ✓ Toggle + Auto-Off guaranteed OFF completion passed');
+
   console.log('[Test 7] Testing POST /api/v1/hub/time/sync...');
   const timeRes = await request('POST', '/api/v1/hub/time/sync');
   assert.strictEqual(timeRes.statusCode, 200);

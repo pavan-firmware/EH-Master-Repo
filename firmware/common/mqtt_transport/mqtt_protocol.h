@@ -111,6 +111,11 @@ typedef struct {
     uint8_t  routine_days_mask;
     bool     routine_target_power;
     bool     routine_enabled;
+    /* OTA Upgrade fields */
+    char     ota_download_url[256];
+    char     ota_version[32];
+    char     ota_sha256[65];
+    size_t   ota_binary_size_bytes;
 } eh_mqtt_command_t;
 
 /* ========================================================================

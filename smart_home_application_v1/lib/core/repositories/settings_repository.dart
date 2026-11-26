@@ -176,14 +176,16 @@ class PreviewSettingsRepository implements SettingsRepository {
   @override
   Future<HomeSettingsData> getHome() async {
     final ctrl = HomeController.instance;
-    final homeName = ctrl?.activeSpaceName ?? 'My Home';
+    final homeName = (ctrl != null && ctrl.activeSpaceName.isNotEmpty && ctrl.activeSpaceName != 'My Home')
+        ? ctrl.activeSpaceName
+        : 'Pavan’s home';
     return HomeSettingsData(
-      id: ctrl?.activeHomeId ?? 'HN-LOCAL-01',
+      id: ctrl?.activeHomeId ?? 'HN-7A28F91C',
       name: homeName,
-      ownerName: 'Home Owner',
-      location: 'Local Home',
-      timezone: 'UTC',
-      createdAt: DateTime.now(),
+      ownerName: 'Pavan',
+      location: 'Hyderabad, Telangana, India',
+      timezone: 'Asia/Kolkata',
+      createdAt: DateTime(2026, 8, 12),
       preferences: const HomePreferences(
         temperatureUnit: 'Celsius (°C)',
         notificationsEnabled: true,
@@ -198,20 +200,65 @@ class PreviewSettingsRepository implements SettingsRepository {
   @override
   Future<List<HomeMember>> getMembers() async => const [
     HomeMember(
-      id: 'user_current',
-      displayName: 'You (Owner)',
+      id: 'pavan',
+      displayName: 'Pavan (You)',
       role: HomeMemberRole.owner,
       status: HomeMemberStatus.active,
-      initials: 'Y',
-      lastActiveLabel: 'Active now',
+      initials: 'P',
+      lastActiveLabel: 'Home owner',
+    ),
+    HomeMember(
+      id: 'arun',
+      displayName: 'Arun',
+      role: HomeMemberRole.member,
+      status: HomeMemberStatus.active,
+      initials: 'A',
+      lastActiveLabel: 'Last active today',
+    ),
+    HomeMember(
+      id: 'priya',
+      displayName: 'Priya',
+      role: HomeMemberRole.member,
+      status: HomeMemberStatus.active,
+      initials: 'P',
+      lastActiveLabel: 'Last active yesterday',
     ),
   ];
 
   @override
-  Future<List<HomeInvitation>> getPendingInvitations() async => const [];
+  Future<List<HomeInvitation>> getPendingInvitations() async => const [
+    HomeInvitation(
+      id: 'rahul',
+      recipientName: 'Rahul',
+      initials: 'R',
+      invitedLabel: 'Invited 2 days ago',
+      expiresLabel: 'Expires in 5 days',
+    ),
+  ];
 
   @override
-  Future<List<DiscoveredRoomDevice>> getNearbyDevices() async => const [];
+  Future<List<DiscoveredRoomDevice>> getNearbyDevices() async => const [
+    DiscoveredRoomDevice(
+      id: 'SH-8EF248',
+      name: 'EH Smart Switch 3X',
+      model: 'eh-smart-switch-3x',
+      signalLabel: 'Strong signal',
+      signal: DeviceConnection.online,
+      icon: 'switch',
+      imageUrl: 'assets/products/catalog/eh-smart-switch-3x/hero.webp',
+      productVariantId: 'eh-smart-switch-3x',
+    ),
+    DiscoveredRoomDevice(
+      id: 'SH-72A931',
+      name: 'EH Smart Socket 2X',
+      model: 'eh-smart-socket-2x',
+      signalLabel: 'Good signal',
+      signal: DeviceConnection.online,
+      icon: 'socket',
+      imageUrl: 'assets/products/catalog/eh-smart-socket-2x/hero.webp',
+      productVariantId: 'eh-smart-socket-2x',
+    ),
+  ];
 
   @override
   Future<SettingsOperationResult> cancelInvitation(String invitationId) async =>

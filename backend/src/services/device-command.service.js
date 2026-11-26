@@ -141,7 +141,7 @@ class DeviceCommandService {
         await this.deviceStateRepo.updateChannelState(cmd.deviceId, cmd.channelIndex, {
           desiredState: { power: powerVal },
           reportedState: { power: powerVal },
-          confidence: 'COMMANDED'
+          confidence: 'PENDING'
         });
         if (this.redisStateCacheService && typeof this.redisStateCacheService.updateDeviceState === 'function') {
           await this.redisStateCacheService.updateDeviceState(cmd.deviceId, {
@@ -150,7 +150,7 @@ class DeviceCommandService {
               channelIndex: cmd.channelIndex,
               desiredState: { power: powerVal },
               reportedState: { power: powerVal },
-              confidence: 'COMMANDED'
+              confidence: 'PENDING'
             }]
           });
         }

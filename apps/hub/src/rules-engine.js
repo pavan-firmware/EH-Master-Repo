@@ -25,7 +25,7 @@ class RulesEngine {
       this.udpSocket.on('message', (msg, rinfo) => {
         try {
           const parsed = JSON.parse(msg.toString());
-          if (parsed.cmd === 'P2P_ACTUATE_ACK' && parsed.seq) {
+          if ((parsed.cmd === 'P2P_ACK' || parsed.cmd === 'P2P_ACTUATE_ACK') && parsed.seq) {
             const pending = this.pendingUdpAcks.get(parsed.seq);
             if (pending) {
               clearTimeout(pending.timer);
@@ -101,7 +101,7 @@ class RulesEngine {
       const req = http.request(
         {
           hostname: ip,
-          port: 4210,
+          port: 80,
           path: '/api/v1/control',
           method: 'POST',
           headers: {

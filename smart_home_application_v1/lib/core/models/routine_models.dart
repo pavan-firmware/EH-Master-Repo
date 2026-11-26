@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/home_controller.dart';
 import '../models/connection_models.dart';
 import '../services/device_storage_service.dart';
+import '../services/local_lan_device_service.dart';
 import '../services/edge_routine_sync_service.dart';
 import '../services/change_tracking_service.dart';
 import '../../features/hub/data/hub_repository.dart';
@@ -414,10 +415,44 @@ class Routine {
     );
   }
 
-  String get availabilityLabel => switch (availability) {
+  RoutineAvailability get effectiveAvailability {
+    final ctrl = HomeController.instance;
+    if (ctrl == null) return availability;
+    final involvedIds = <String>{
+      ...involvedDevices.map((d) => d.id.trim()),
+      ...actions.map((a) => a.deviceId.trim()),
+      if (trigger.sourceDeviceId != null && trigger.sourceDeviceId!.isNotEmpty) trigger.sourceDeviceId!.trim(),
+    }.where((id) => id.isNotEmpty).toSet();
+
+    if (involvedIds.isEmpty) return RoutineAvailability.unavailable;
+
+    int onlineCount = 0;
+    for (final id in involvedIds) {
+      final cleanId = id.toLowerCase();
+      final dev = ctrl.devices.cast<ConnectedDeviceSummary?>().firstWhere(
+        (d) => d != null && (d.id == id || d.id.toLowerCase() == cleanId),
+        orElse: () => null,
+      );
+      final isOnline = dev != null && (dev.online ||
+          LocalLanDeviceService.instance.isDeviceReachableOnLan(id) ||
+          LocalLanDeviceService.instance.isDeviceReachableOnLan(cleanId));
+      if (isOnline) {
+        onlineCount++;
+      }
+    }
+
+    if (onlineCount == 0) {
+      return RoutineAvailability.unavailable;
+    } else if (onlineCount < involvedIds.length) {
+      return RoutineAvailability.partiallyAvailable;
+    }
+    return RoutineAvailability.available;
+  }
+
+  String get availabilityLabel => switch (effectiveAvailability) {
     RoutineAvailability.available => 'Ready to run',
-    RoutineAvailability.partiallyAvailable => 'Some devices unavailable',
-    RoutineAvailability.unavailable => 'Device unavailable',
+    RoutineAvailability.partiallyAvailable => 'Some devices offline',
+    RoutineAvailability.unavailable => 'Device offline',
   };
 
   String get statusLabel => enabled ? 'Enabled' : 'Disabled';
@@ -570,31 +605,63 @@ class PreviewRoutineRepository implements RoutineRepository {
     }
   }
 
-  static Future<void> syncWithCloudRoutines(List<Routine> routines) async {
+  static Future<void> syncWithCloudRoutines(List<Routine> routines, {bool notifyHomeController = true}) async {
     await _ensureHydrated();
-    final validRoutines = routines.where((r) => !DeviceStorageService.isRoutineDeleted(r.id, routineName: r.name)).toList();
+    final seenIds = <String>{};
+    final seenNames = <String>{};
+    final validRoutines = <Routine>[];
+    for (final r in routines) {
+      if (DeviceStorageService.isRoutineDeleted(r.id, routineName: r.name)) continue;
+      final normName = r.name.trim().toLowerCase();
+      if (!seenIds.add(r.id)) continue;
+      if (normName.isNotEmpty && !seenNames.add(normName)) continue;
+
+      final pending = DeviceStorageService.getPendingRoutineToggle(r.id, routineName: r.name);
+      Routine? existingMatch;
+      for (final er in _routines) {
+        if (er.id == r.id || (normName.isNotEmpty && er.name.trim().toLowerCase() == normName)) {
+          existingMatch = er;
+          break;
+        }
+      }
+      final effectiveEnabled = pending ??
+          ((existingMatch != null && !existingMatch.enabled && existingMatch.updatedAt.isAfter(r.updatedAt))
+              ? existingMatch.enabled
+              : r.enabled);
+      validRoutines.add(effectiveEnabled != r.enabled ? r.copyWith(enabled: effectiveEnabled) : r);
+    }
     _routines.clear();
     _routines.addAll(validRoutines);
     _cachedRoutines.clear();
     _cachedRoutines.addAll(validRoutines);
     await _persist();
+    if (notifyHomeController) {
+      final ctrl = HomeController.instance;
+      if (ctrl != null) {
+        unawaited(ctrl.refreshUpcomingRoutines());
+      }
+    }
   }
 
   static Future<void> addOrUpdateRoutine(Routine routine) async {
     await _ensureHydrated();
-    final idx = _routines.indexWhere((r) => r.id == routine.id || r.name.toLowerCase() == routine.name.toLowerCase());
+    final idx = _routines.indexWhere((r) => r.id == routine.id);
     if (idx >= 0) {
       _routines[idx] = routine;
     } else {
       _routines.insert(0, routine);
     }
-    final cIdx = _cachedRoutines.indexWhere((r) => r.id == routine.id || r.name.toLowerCase() == routine.name.toLowerCase());
+    final cIdx = _cachedRoutines.indexWhere((r) => r.id == routine.id);
     if (cIdx >= 0) {
       _cachedRoutines[cIdx] = routine;
     } else {
       _cachedRoutines.insert(0, routine);
     }
     await _persist();
+    final ctrl = HomeController.instance;
+    if (ctrl != null) {
+      unawaited(ctrl.refreshUpcomingRoutines());
+    }
   }
 
   static Future<void> _ensureHydrated() async {
@@ -726,6 +793,10 @@ class PreviewRoutineRepository implements RoutineRepository {
     } else {
       unawaited(EdgeRoutineSyncService.instance.deleteRoutineFromEdge(newRoutine));
     }
+    final ctrlInstance = HomeController.instance;
+    if (ctrlInstance != null) {
+      unawaited(ctrlInstance.refreshUpcomingRoutines());
+    }
     return RepositoryResult.success;
   }
 
@@ -809,6 +880,10 @@ class PreviewRoutineRepository implements RoutineRepository {
       } else {
         unawaited(EdgeRoutineSyncService.instance.deleteRoutineFromEdge(_routines[idx]));
       }
+      final ctrlInstance = HomeController.instance;
+      if (ctrlInstance != null) {
+        unawaited(ctrlInstance.refreshUpcomingRoutines());
+      }
     }
     return RepositoryResult.success;
   }
@@ -822,8 +897,6 @@ class PreviewRoutineRepository implements RoutineRepository {
     _cachedRoutines.removeWhere((r) => r.id == id);
     for (final r in toRemove) {
       await DeviceStorageService.markRoutineDeleted(r.id, routineName: r.name);
-      _routines.removeWhere((x) => x.name.toLowerCase() == r.name.toLowerCase());
-      _cachedRoutines.removeWhere((x) => x.name.toLowerCase() == r.name.toLowerCase());
       try {
         await EdgeRoutineSyncService.instance.deleteRoutineFromEdge(r);
       } catch (_) {}
@@ -831,6 +904,10 @@ class PreviewRoutineRepository implements RoutineRepository {
     await DeviceStorageService.markRoutineDeleted(id);
     _history.remove(id);
     await _persist();
+    final ctrlInstance = HomeController.instance;
+    if (ctrlInstance != null) {
+      unawaited(ctrlInstance.refreshUpcomingRoutines());
+    }
     await ChangeTrackingService.instance.recordChange(
       entityType: 'routine',
       entityId: id,
@@ -854,10 +931,13 @@ class PreviewRoutineRepository implements RoutineRepository {
     final idx = _routines.indexWhere((r) {
       if (r.id == routine.id) return true;
       final rCore = EdgeRoutineSyncService.extractCoreId(r.id);
-      if (rCore == routineCore) return true;
+      if (rCore.isNotEmpty && rCore != 'rt' && rCore == routineCore) return true;
       if (r.name.trim().toLowerCase() == routine.name.trim().toLowerCase()) return true;
       return false;
     });
+
+    final pending = DeviceStorageService.getPendingRoutineToggle(routine.id, routineName: routine.name);
+    final effectiveEnabled = pending ?? routine.enabled;
 
     if (idx >= 0) {
       final existing = _routines[idx];
@@ -865,13 +945,13 @@ class PreviewRoutineRepository implements RoutineRepository {
       // from the edge overwrite all actions! Preserve rich multi-action composition.
       if (existing.actions.length >= routine.actions.length && existing.actions.isNotEmpty) {
         _routines[idx] = existing.copyWith(
-          enabled: routine.enabled,
+          enabled: effectiveEnabled,
         );
       } else {
-        _routines[idx] = routine;
+        _routines[idx] = routine.copyWith(enabled: effectiveEnabled);
       }
     } else {
-      _routines.add(routine);
+      _routines.add(routine.copyWith(enabled: effectiveEnabled));
     }
     await _persist();
   }
@@ -908,7 +988,9 @@ class PreviewRoutineRepository implements RoutineRepository {
         createdAt: old.createdAt,
         updatedAt: DateTime.now(),
         summary: old.summary,
+        isCritical: old.isCritical,
       );
+      await DeviceStorageService.savePendingRoutineToggle(id, true, routineName: old.name);
       await _persist();
       await ChangeTrackingService.instance.recordChange(
         entityType: 'routine',
@@ -919,6 +1001,10 @@ class PreviewRoutineRepository implements RoutineRepository {
         changeType: ChangeType.modified,
       );
       unawaited(EdgeRoutineSyncService.instance.syncRoutineToEdge(_routines[idx]));
+      final ctrlInstance = HomeController.instance;
+      if (ctrlInstance != null) {
+        unawaited(ctrlInstance.refreshUpcomingRoutines());
+      }
     }
     return RepositoryResult.success;
   }
@@ -946,7 +1032,9 @@ class PreviewRoutineRepository implements RoutineRepository {
         createdAt: old.createdAt,
         updatedAt: DateTime.now(),
         summary: old.summary,
+        isCritical: old.isCritical,
       );
+      await DeviceStorageService.savePendingRoutineToggle(id, false, routineName: old.name);
       await _persist();
       await ChangeTrackingService.instance.recordChange(
         entityType: 'routine',
@@ -957,6 +1045,10 @@ class PreviewRoutineRepository implements RoutineRepository {
         changeType: ChangeType.modified,
       );
       unawaited(EdgeRoutineSyncService.instance.disableRoutineOnEdge(_routines[idx]));
+      final ctrlInstance = HomeController.instance;
+      if (ctrlInstance != null) {
+        unawaited(ctrlInstance.refreshUpcomingRoutines());
+      }
     }
     return RepositoryResult.success;
   }
@@ -980,6 +1072,18 @@ class PreviewRoutineRepository implements RoutineRepository {
     try {
       final ctrl = HomeController.instance;
       if (ctrl != null) {
+        int maxPulseSec = 60;
+        for (final act in routine.actions) {
+          if (act.pulseDurationMinutes != null && act.pulseDurationMinutes! > 0) {
+            final sec = act.pulseDurationMinutes! * 60;
+            if (sec > maxPulseSec) maxPulseSec = sec;
+          }
+        }
+        EdgeRoutineSyncService.instance.registerActiveRoutineExecution(
+          routine,
+          pulseDurationSeconds: maxPulseSec,
+        );
+
         for (final action in routine.actions) {
           final targetDevId = action.deviceId.isNotEmpty &&
                   action.deviceId != 'default' &&
@@ -1014,16 +1118,19 @@ class PreviewRoutineRepository implements RoutineRepository {
             );
           }
 
-          if (action.pulseDurationMinutes != null && action.pulseDurationMinutes! > 0 && finalValue == true) {
+          if (action.pulseDurationMinutes != null && action.pulseDurationMinutes! > 0) {
             final pulseMins = action.pulseDurationMinutes!;
             Future.delayed(Duration(minutes: pulseMins), () {
               if (action.channelIndex == 0 || action.kind == RoutineActionKind.allChannels) {
                 for (int ch = 1; ch <= 4; ch++) {
                   ctrl.setDeviceChannelPower(deviceId: targetDevId, channelIndex: ch, value: false);
+                  EdgeRoutineSyncService.instance.clearActiveRoutineExecution(targetDevId, ch);
                 }
               } else {
                 ctrl.setDeviceChannelPower(deviceId: targetDevId, channelIndex: action.channelIndex, value: false);
+                EdgeRoutineSyncService.instance.clearActiveRoutineExecution(targetDevId, action.channelIndex);
               }
+              ctrl.notifyListeners();
             });
           }
         }
@@ -1056,6 +1163,13 @@ class PreviewRoutineRepository implements RoutineRepository {
         updatedAt: DateTime.now(),
       );
       await _persist();
+    }
+    final cIdx = _cachedRoutines.indexWhere((r) => r.id == id);
+    if (cIdx >= 0) {
+      _cachedRoutines[cIdx] = _cachedRoutines[cIdx].copyWith(
+        lastExecution: execution,
+        updatedAt: DateTime.now(),
+      );
     }
 
     return RepositoryResult.success;

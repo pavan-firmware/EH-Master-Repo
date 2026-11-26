@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/connection_models.dart';
 import '../models/home_dashboard_models.dart';
+import '../../features/hub/domain/models/hub_models.dart';
 import 'change_tracking_service.dart';
 
 /// Persistent storage service for multiple commissioned EH Home devices and rooms.
@@ -25,13 +26,16 @@ class DeviceStorageService {
   static const String _keyDeletedDeviceIds = 'eh_deleted_devices_v2';
   static const String _keyDeletedRooms = 'eh_deleted_rooms_v1';
   static const String _keyDeletedRoutineIds = 'eh_deleted_routines_v1';
+  static const String _keyPendingRoutineToggles = 'eh_pending_routine_toggles_v1';
   static const String _keyActivityAlerts = 'eh_activity_alerts_v2';
+  static const String _keyPersistedHubHost = 'eh_persisted_hub_host_v1';
   static const String _keySavedEmail = 'eh_saved_login_email_v1';
   static const String _keySavedPassword = 'eh_saved_login_password_v1';
   static const String _keyRememberMe = 'eh_remember_me_v1';
 
   // In-memory cache for synchronous reads and instant startup
   static String? _cachedBackendUrl;
+  static String? _cachedPersistedHubHost;
   static String? _cachedSavedEmail;
   static String? _cachedSavedPassword;
   static bool _cachedRememberMe = true;
@@ -43,6 +47,7 @@ class DeviceStorageService {
   static final Set<String> _cachedDeletedDeviceIds = {};
   static final Set<String> _cachedDeletedRooms = {};
   static final Set<String> _cachedDeletedRoutineIds = {};
+  static final Map<String, bool> _cachedPendingRoutineToggles = {};
   static final List<String> _cachedQuickControls = [];
   static final Map<String, List<String>> _cachedRoomQuickControls = {};
   static final Map<String, Map<int, String>> _cachedChannelLabels = {};
@@ -57,8 +62,53 @@ class DeviceStorageService {
   };
   static const String _keyDeletedNotifIds = 'eh_deleted_notif_ids';
   static const String _keyReadNotifIds = 'eh_read_notif_ids';
+  static const String _keyStandaloneRules = 'eh_standalone_rules_v1';
+  static const String _keyDeviceFirmwareVersions = 'eh_device_firmware_versions_v1';
   static final Set<String> _cachedDeletedNotifIds = {};
   static final Set<String> _cachedReadNotifIds = {};
+  static final List<CrossDeviceRule> _cachedStandaloneRules = [];
+  static final Map<String, String> _cachedFirmwareVersions = {};
+
+  static String? getDeviceFirmwareVersion(String deviceId) =>
+      _cachedFirmwareVersions[deviceId] ?? _cachedFirmwareVersions[deviceId.toLowerCase()];
+
+  static Future<void> saveDeviceFirmwareVersion(String deviceId, String version) async {
+    _cachedFirmwareVersions[deviceId] = version;
+    _cachedFirmwareVersions[deviceId.toLowerCase()] = version;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('$_keyDeviceFirmwareVersions:$deviceId', version);
+      await prefs.setString('$_keyDeviceFirmwareVersions:${deviceId.toLowerCase()}', version);
+    } catch (_) {}
+  }
+
+  static Future<List<CrossDeviceRule>> loadStandaloneRules() async {
+    if (_cachedStandaloneRules.isNotEmpty) return List.unmodifiable(_cachedStandaloneRules);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_keyStandaloneRules);
+      if (list != null) {
+        _cachedStandaloneRules.clear();
+        for (final item in list) {
+          try {
+            _cachedStandaloneRules.add(CrossDeviceRule.fromJson(jsonDecode(item)));
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return List.unmodifiable(_cachedStandaloneRules);
+  }
+
+  static Future<void> saveStandaloneRules(List<CrossDeviceRule> rules) async {
+    _cachedStandaloneRules
+      ..clear()
+      ..addAll(rules);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = rules.map((r) => jsonEncode(r.toJson())).toList();
+      await prefs.setStringList(_keyStandaloneRules, list);
+    } catch (_) {}
+  }
   static final List<String> _cachedRooms = [
     'Living Room',
   ];
@@ -110,6 +160,16 @@ class DeviceStorageService {
     } catch (_) {}
   }
 
+  static String? get persistedHubHost => _cachedPersistedHubHost;
+
+  static Future<void> setPersistedHubHost(String host) async {
+    _cachedPersistedHubHost = host;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyPersistedHubHost, host);
+    } catch (_) {}
+  }
+
 
   static ConnectedDeviceSummary? get primaryDevice =>
       _cachedDevices.isNotEmpty ? _cachedDevices.first : null;
@@ -128,6 +188,7 @@ class DeviceStorageService {
     try {
       final prefs = await SharedPreferences.getInstance();
       _cachedBackendUrl = prefs.getString(_keyBackendUrl);
+      _cachedPersistedHubHost = prefs.getString(_keyPersistedHubHost);
       _cachedSavedEmail = prefs.getString(_keySavedEmail);
       _cachedSavedPassword = prefs.getString(_keySavedPassword);
       _cachedRememberMe = prefs.getBool(_keyRememberMe) ?? true;
@@ -177,6 +238,20 @@ class DeviceStorageService {
         _cachedDeletedRoutineIds.clear();
         _cachedDeletedRoutineIds.addAll(deletedRoutinesList);
       }
+      final pendingTogglesStr = prefs.getString(_keyPendingRoutineToggles);
+      if (pendingTogglesStr != null && pendingTogglesStr.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(pendingTogglesStr);
+          if (decoded is Map) {
+            _cachedPendingRoutineToggles.clear();
+            decoded.forEach((k, v) {
+              if (v is bool) {
+                _cachedPendingRoutineToggles[k.toString()] = v;
+              }
+            });
+          }
+        } catch (_) {}
+      }
       final list = prefs.getStringList(_keyRooms);
       if (list != null && list.isNotEmpty) {
         _cachedRooms.clear();
@@ -219,6 +294,15 @@ class DeviceStorageService {
         });
       }
       final alertsStr = prefs.getString(_keyChannelAlerts);
+      for (final key in prefs.getKeys()) {
+        if (key.startsWith('$_keyDeviceFirmwareVersions:')) {
+          final devId = key.substring('$_keyDeviceFirmwareVersions:'.length);
+          final ver = prefs.getString(key);
+          if (ver != null && ver.isNotEmpty) {
+            _cachedFirmwareVersions[devId] = ver;
+          }
+        }
+      }
       if (alertsStr != null && alertsStr.isNotEmpty) {
         final Map<String, dynamic> decoded = jsonDecode(alertsStr);
         _cachedChannelAlerts.clear();
@@ -541,6 +625,64 @@ class DeviceStorageService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(_keyDeletedRoutineIds, _cachedDeletedRoutineIds.toList());
+    } catch (_) {}
+  }
+
+  static String _extractRoutineCore(String routineId) {
+    var core = routineId.replaceAll(RegExp(r'^(rt_|routine_|auto_|xrule_)+'), '');
+    core = core.replaceAll(RegExp(r'(_ch\d+|_a\d+_c\d+)+$'), '');
+    core = core.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    if (core.length > 18) core = core.substring(core.length - 18);
+    return core.toLowerCase();
+  }
+
+  static Future<void> savePendingRoutineToggle(
+    String routineId,
+    bool enabled, {
+    String? routineName,
+  }) async {
+    final cleanId = routineId.trim().toLowerCase();
+    if (cleanId.isNotEmpty) _cachedPendingRoutineToggles[cleanId] = enabled;
+    final core = _extractRoutineCore(routineId);
+    if (core.isNotEmpty) _cachedPendingRoutineToggles['core:$core'] = enabled;
+    if (routineName != null && routineName.trim().isNotEmpty) {
+      _cachedPendingRoutineToggles['name:${routineName.trim().toLowerCase()}'] = enabled;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyPendingRoutineToggles, jsonEncode(_cachedPendingRoutineToggles));
+    } catch (_) {}
+  }
+
+  static bool? getPendingRoutineToggle(String routineId, {String? routineName}) {
+    final cleanId = routineId.trim().toLowerCase();
+    if (_cachedPendingRoutineToggles.containsKey(cleanId)) {
+      return _cachedPendingRoutineToggles[cleanId];
+    }
+    final core = _extractRoutineCore(routineId);
+    if (core.isNotEmpty && _cachedPendingRoutineToggles.containsKey('core:$core')) {
+      return _cachedPendingRoutineToggles['core:$core'];
+    }
+    if (routineName != null && routineName.trim().isNotEmpty) {
+      final nKey = 'name:${routineName.trim().toLowerCase()}';
+      if (_cachedPendingRoutineToggles.containsKey(nKey)) {
+        return _cachedPendingRoutineToggles[nKey];
+      }
+    }
+    return null;
+  }
+
+  static Future<void> clearPendingRoutineToggle(String routineId, {String? routineName}) async {
+    final cleanId = routineId.trim().toLowerCase();
+    _cachedPendingRoutineToggles.remove(cleanId);
+    final core = _extractRoutineCore(routineId);
+    if (core.isNotEmpty) _cachedPendingRoutineToggles.remove('core:$core');
+    if (routineName != null && routineName.trim().isNotEmpty) {
+      _cachedPendingRoutineToggles.remove('name:${routineName.trim().toLowerCase()}');
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyPendingRoutineToggles, jsonEncode(_cachedPendingRoutineToggles));
     } catch (_) {}
   }
 

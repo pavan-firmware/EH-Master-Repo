@@ -488,6 +488,7 @@ class _DeviceProvisioningPageState extends State<DeviceProvisioningPage> {
             final disc = await LocalLanDeviceService.instance.autoDiscoverDevices(
               expectedDeviceIds: [targetDevId],
               timeout: const Duration(seconds: 2),
+              allowSubnetSweep: true,
             );
             if (disc.containsKey(targetDevId)) {
               verifiedOnLan = true;
