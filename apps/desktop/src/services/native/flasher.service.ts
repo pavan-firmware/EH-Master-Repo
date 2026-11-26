@@ -374,10 +374,21 @@ export class PythonSidecarFlasher implements IFlasherService {
         }
       }
     } catch (err: any) {
-      logger.warn('[PythonSidecarFlasher] Tauri flashFirmware fallback to mock', err);
+      logger.error('[PythonSidecarFlasher] Tauri flashFirmware failed:', err);
+      return {
+        success: false,
+        durationMs: 0,
+        errorMessage: `Flash execution failed: ${err.message || 'Tauri sidecar error'}. Ensure device is connected via USB-UART.`,
+        flashLog: err.message || 'Execution error',
+      };
     }
 
-    return this.fallbackMock.flashFirmware(params, onProgress);
+    return {
+      success: false,
+      durationMs: 0,
+      errorMessage: 'Flash execution requires native desktop environment with physical USB-UART connection.',
+      flashLog: 'Native sidecar unavailable outside Tauri desktop shell.',
+    };
   }
 
   public async verifyDevice(port: string, productVariantId: string): Promise<VerifyResult> {
@@ -399,10 +410,19 @@ export class PythonSidecarFlasher implements IFlasherService {
         };
       }
     } catch (err: any) {
-      logger.warn('[PythonSidecarFlasher] Tauri verifyDevice fallback to mock', err);
+      logger.error('[PythonSidecarFlasher] Tauri verifyDevice failed:', err);
+      return {
+        success: false,
+        verified: false,
+        errorMessage: `Verification failed: ${err.message || 'Tauri error'}`,
+      };
     }
 
-    return this.fallbackMock.verifyDevice(port, productVariantId);
+    return {
+      success: false,
+      verified: false,
+      errorMessage: 'Device verification requires physical USB-UART connection inside native desktop application.',
+    };
   }
 
   public async provisionBenchDevice(

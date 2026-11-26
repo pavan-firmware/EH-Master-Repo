@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
+import '../../../app/home_controller.dart';
 import '../../../core/models/update_models.dart';
 import '../../../core/repositories/cloud_update_repository.dart';
 import '../../../core/repositories/update_repository.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
 
 class UpdateTargetDetailPage extends StatefulWidget {
@@ -24,11 +27,139 @@ class UpdateTargetDetailPage extends StatefulWidget {
 class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
   bool _isInitiating = false;
   late UpdateTarget _currentTarget;
+  Timer? _progressTimer;
+  int? _liveProgressPct;
+  String _otaStatusDetail = 'Dispatching firmware update to device...';
 
   @override
   void initState() {
     super.initState();
     _currentTarget = widget.target;
+    if (_currentTarget.status == UpdateTargetStatus.updating) {
+      _startHardwareStatusPolling();
+    }
+  }
+
+  @override
+  void dispose() {
+    _progressTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startHardwareStatusPolling() {
+    final devId = _currentTarget.deviceId;
+    if (devId == null || devId.isEmpty) return;
+
+    int polls = 0;
+    _progressTimer?.cancel();
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      polls++;
+      final statusMap = await LocalLanDeviceService.instance.fetchLocalOtaStatus(deviceId: devId);
+      if (!mounted) return;
+
+      if (statusMap != null) {
+        final hwState = (statusMap['state'] ?? 'IDLE').toString().toUpperCase();
+        final pct = (statusMap['progressPercent'] as num?)?.toInt();
+        final reportedVer = statusMap['firmwareVersion']?.toString().trim() ?? '';
+        final targetVer = (_currentTarget.availableVersion ?? '').replaceAll('Version ', '').trim();
+        final lastErr = statusMap['lastError']?.toString() ?? '';
+
+        if (targetVer.isNotEmpty && reportedVer == targetVer) {
+          timer.cancel();
+          setState(() {
+            _liveProgressPct = 100;
+            _currentTarget = UpdateTarget(
+              kind: _currentTarget.kind,
+              name: _currentTarget.name,
+              currentVersion: 'Firmware $reportedVer',
+              status: UpdateTargetStatus.upToDate,
+              availableVersion: null,
+              releaseNotes: _currentTarget.releaseNotes,
+              releaseId: _currentTarget.releaseId,
+              deviceId: _currentTarget.deviceId,
+              homeId: _currentTarget.homeId,
+              iconKey: _currentTarget.iconKey,
+            );
+          });
+          HomeController.instance?.updateDeviceFirmwareVersion(devId, reportedVer);
+          widget.onUpdateInitiated?.call();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Hardware verified Firmware $reportedVer running on ${_currentTarget.name}!'),
+              backgroundColor: const Color(0xFF10B981),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+
+        if (hwState == 'FAILED' || hwState == 'ROLLED_BACK') {
+          timer.cancel();
+          setState(() {
+            _liveProgressPct = null;
+            _currentTarget = UpdateTarget(
+              kind: _currentTarget.kind,
+              name: _currentTarget.name,
+              currentVersion: _currentTarget.currentVersion,
+              status: UpdateTargetStatus.updateAvailable,
+              availableVersion: _currentTarget.availableVersion,
+              releaseNotes: _currentTarget.releaseNotes,
+              releaseId: _currentTarget.releaseId,
+              downloadUrl: _currentTarget.downloadUrl,
+              sha256: _currentTarget.sha256,
+              binarySizeBytes: _currentTarget.binarySizeBytes,
+              deviceId: _currentTarget.deviceId,
+              homeId: _currentTarget.homeId,
+              iconKey: _currentTarget.iconKey,
+            );
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Hardware OTA failed${lastErr.isNotEmpty ? ": $lastErr" : ""}'),
+              backgroundColor: const Color(0xFFDC2626),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          return;
+        }
+
+        setState(() {
+          if (pct != null && pct > 0) _liveProgressPct = pct;
+          switch (hwState) {
+            case 'DOWNLOADING':
+              _otaStatusDetail = 'Board downloading firmware binary...';
+              break;
+            case 'INSTALLING':
+              _otaStatusDetail = 'Writing OTA flash partition (LED rapid blink)...';
+              break;
+            case 'VERIFYING':
+              _otaStatusDetail = 'Verifying SHA-256 checksum on chip...';
+              break;
+            case 'REBOOTING':
+              _otaStatusDetail = 'Rebooting hardware into new firmware...';
+              break;
+            default:
+              if (polls > 4 && (pct == null || pct == 0)) {
+                _otaStatusDetail = 'Waiting for hardware to start OTA download...';
+              }
+              break;
+          }
+        });
+      } else {
+        setState(() {
+          _otaStatusDetail = 'Device rebooting or applying OTA flash...';
+        });
+      }
+
+      if (polls >= 80) {
+        timer.cancel();
+      }
+    });
   }
 
   Future<void> _handleInitiateUpdate() async {
@@ -39,19 +170,58 @@ class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
         ? _currentTarget.homeId!
         : 'home_local_primary';
 
-    if (repo is! CloudUpdateRepository || deviceId == null || releaseId == null) {
+    // 1. Hardware Reachability Pre-Check
+    // Validate if the physical device is reachable on local LAN or registered as online
+    final ctrl = HomeController.instance;
+    final isReachableOnLan = deviceId != null &&
+        (LocalLanDeviceService.instance.isDeviceReachableOnLan(deviceId) ||
+            (ctrl != null && ctrl.devices.any((d) => (d.id == deviceId || d.id.toLowerCase() == deviceId.toLowerCase()) && d.online)));
+
+    if (!isReachableOnLan) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.wifi_off_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Device "${_currentTarget.name}" is offline on local Wi-Fi. Ensure power is ON and switch is connected before installing firmware.',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFFDC2626),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+
+    if (repo is! CloudUpdateRepository || releaseId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cannot initiate update: Missing release metadata')),
       );
       return;
     }
 
-    setState(() => _isInitiating = true);
+    final targetDevId = deviceId;
+
+    setState(() {
+      _isInitiating = true;
+      _otaStatusDetail = 'Handshaking with target switch over LAN...';
+    });
 
     final success = await repo.initiateUpdate(
-      deviceId: deviceId,
+      deviceId: targetDevId,
       releaseId: releaseId,
       homeId: homeId,
+      downloadUrl: _currentTarget.downloadUrl,
+      version: _currentTarget.availableVersion?.replaceAll('Version ', ''),
+      sha256: _currentTarget.sha256,
+      binarySizeBytes: _currentTarget.binarySizeBytes,
     );
 
     if (!mounted) return;
@@ -60,12 +230,13 @@ class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('OTA update dispatched to ${_currentTarget.name}!'),
+          content: Text('OTA directive sent to ${_currentTarget.name}. Polling live hardware status...'),
           backgroundColor: const Color(0xFF10B981),
           behavior: SnackBarBehavior.floating,
         ),
       );
       setState(() {
+        _liveProgressPct = null;
         _currentTarget = UpdateTarget(
           kind: _currentTarget.kind,
           name: _currentTarget.name,
@@ -75,18 +246,24 @@ class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
           releaseNotes: _currentTarget.releaseNotes,
           releaseId: _currentTarget.releaseId,
           downloadUrl: _currentTarget.downloadUrl,
+          sha256: _currentTarget.sha256,
+          binarySizeBytes: _currentTarget.binarySizeBytes,
           deviceId: _currentTarget.deviceId,
           homeId: _currentTarget.homeId,
           iconKey: _currentTarget.iconKey,
         );
+        _otaStatusDetail = 'Waiting for hardware to begin download...';
       });
+      _startHardwareStatusPolling();
       widget.onUpdateInitiated?.call();
     } else {
+      final errDetail = CloudUpdateRepository.lastInitiateError ?? 'Check device & server connection.';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to trigger update. Check device network connection.'),
+        SnackBar(
+          content: Text('OTA failed to start: $errDetail'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
         ),
       );
     }
@@ -97,6 +274,12 @@ class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
     final tokens = context.ehColors;
     final isAvailable = _currentTarget.status == UpdateTargetStatus.updateAvailable;
     final isUpdating = _currentTarget.status == UpdateTargetStatus.updating;
+    final ctrl = HomeController.instance;
+    final devId = _currentTarget.deviceId;
+    final isDeviceOnline = devId == null ||
+        LocalLanDeviceService.instance.isDeviceReachableOnLan(devId) ||
+        (ctrl != null && ctrl.devices.any((d) => (d.id == devId || d.id.toLowerCase() == devId.toLowerCase()) && d.online)) ||
+        (devId == 'dev_switch_3x' && (LocalLanDeviceService.instance.isAnyDeviceReachableOnLan() || (ctrl != null && ctrl.devices.any((d) => d.online))));
 
     return Scaffold(
       backgroundColor: tokens.bgApp,
@@ -177,6 +360,28 @@ class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
                       Text(
                         'Installed: ${_currentTarget.currentVersion}',
                         style: TextStyle(fontSize: 13, color: tokens.textSecondary),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: isDeviceOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isDeviceOnline ? 'Online (Local Wi-Fi)' : 'Offline (Power ON device)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isDeviceOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -338,16 +543,18 @@ class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
               width: double.infinity,
               height: 52,
               child: ElevatedButton.icon(
-                onPressed: _isInitiating ? null : _handleInitiateUpdate,
+                onPressed: (_isInitiating || !isDeviceOnline) ? null : _handleInitiateUpdate,
                 icon: _isInitiating
                     ? const SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : const Icon(Icons.system_update_rounded),
+                    : Icon(!isDeviceOnline ? Icons.wifi_off_rounded : Icons.system_update_rounded),
                 label: Text(
-                  _isInitiating ? 'Initiating Safe OTA...' : 'Install Firmware Update',
+                  _isInitiating
+                      ? 'Initiating Safe OTA...'
+                      : (!isDeviceOnline ? 'Device Offline (Power ON Switch)' : 'Install Firmware Update'),
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -368,21 +575,42 @@ class _UpdateTargetDetailPageState extends State<UpdateTargetDetailPage> {
               ),
               child: Column(
                 children: [
-                  const SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: CircularProgressIndicator(strokeWidth: 3),
+                  SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3.5,
+                      color: tokens.bluePrimary,
+                    ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
                   Text(
-                    'Downloading & Writing Partition',
+                    _otaStatusDetail,
+                    textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.textPrimary),
+                  ),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: _liveProgressPct != null ? (_liveProgressPct! / 100.0).clamp(0.0, 1.0) : null,
+                      backgroundColor: tokens.borderControl,
+                      valueColor: AlwaysStoppedAnimation<Color>(tokens.bluePrimary),
+                      minHeight: 6,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _liveProgressPct != null
+                        ? '$_liveProgressPct% · Hardware OTA Active'
+                        : 'OTA Flashing in Progress · Safe Bootloader Active',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.bluePrimary),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Device is streaming the image from your PC over LAN. It will reboot automatically upon checksum verification.',
+                    'The switch is verifying SHA-256 and flashing the alternate partition. Live firmware version will update automatically once device restarts.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: tokens.textSecondary, height: 1.4),
+                    style: TextStyle(fontSize: 12, color: tokens.textSecondary, height: 1.35),
                   ),
                 ],
               ),

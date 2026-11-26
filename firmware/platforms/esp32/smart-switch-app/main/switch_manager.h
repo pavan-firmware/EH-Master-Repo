@@ -50,6 +50,18 @@ void switch_manager_init(void);
 void switch_manager_register_cb(switch_toggle_cb_t cb);
 
 /**
+ * Enable or disable child lock.
+ * When enabled, physical wall switch/touch pad presses are ignored,
+ * while app, hub, and automated routine control remain fully active.
+ */
+void switch_manager_set_child_lock(bool enabled);
+
+/**
+ * Check if child lock is currently active.
+ */
+bool switch_manager_get_child_lock(void);
+
+/**
  * Process debounce logic (callable in test or FreeRTOS task loop).
  * Returns true if a valid toggle was detected on channel_index after debounce.
  */

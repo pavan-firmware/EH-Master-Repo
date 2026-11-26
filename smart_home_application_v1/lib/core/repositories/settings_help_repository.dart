@@ -188,6 +188,24 @@ class SettingsHelpRepository {
         'Estimates depend on entered rates and available telemetry; they are not utility bills.',
       ],
     ),
+    'device_health': SettingsHelpContent(
+      id: 'device_health',
+      title: 'Device Health & Wi-Fi Diagnostics',
+      purpose:
+          'Monitor real-time online state, Wi-Fi signal strength (RSSI dBm), Hub coordinator health, and room-by-room device reliability.',
+      usefulBecause:
+          'Identifying weak Wi-Fi signal spots helps you reposition devices or your router before latency spikes or disconnections occur.',
+      howItWorks:
+          'Devices running v1.3.0+ report live Wi-Fi RSSI in dBm over local LAN and Hub probes: High (3 bars, >= -60 dBm), Medium (2 bars, -61 to -74 dBm), Low (1 bar, <= -75 dBm), and Empty (0 bars) when Offline. Offline detection transitions within ~6 seconds of missed hardware heartbeats.',
+      actions: [
+        'Review each device card and Hub gateway row for High, Medium, Low, or Offline signal bars.',
+        'Tap Check again for a quick LAN & Hub refresh, or open Run full health check for live visual RSSI/latency charts and step-by-step terminal diagnostics ([OK] / [WARN] / [ERR]).',
+        'Relocate Low-signal switches/sockets closer to your Wi-Fi router or Hub if RSSI stays <= -75 dBm.',
+      ],
+      limitations: [
+        'Signal dBm readings require Wi-Fi/Hub firmware telemetry; devices only seen via cloud fallback display inferred connectivity until probed on LAN.',
+      ],
+    ),
   };
 
   static SettingsHelpContent forScreen(String id) {
@@ -196,6 +214,7 @@ class SettingsHelpRepository {
   }
 
   static String _alias(String id) {
+    if (id.contains('health')) return 'device_health';
     if (id.contains('privacy')) return 'privacy';
     if (id.contains('security')) return 'security';
     if (id.contains('terms')) return 'terms_of_service';

@@ -283,7 +283,8 @@ eh_mqtt_err_t eh_mqtt_parse_command(
     bool is_device_action = (strcmp(out_cmd->action, "emergencyStop") == 0 ||
                              strcmp(out_cmd->action, "upsertRoutine") == 0 ||
                              strcmp(out_cmd->action, "deleteRoutine") == 0 ||
-                             strcmp(out_cmd->action, "syncRoutines") == 0);
+                             strcmp(out_cmd->action, "syncRoutines") == 0 ||
+                             strcmp(out_cmd->action, "otaUpdate") == 0);
 
     if (is_device_action && ch_raw == INT64_MIN) {
         ch_raw = 0;
@@ -361,6 +362,30 @@ eh_mqtt_err_t eh_mqtt_parse_command(
 
         int en = _json_get_bool(json_payload, payload_len, "enabled");
         out_cmd->routine_enabled = (en < 0 || en == 1);
+    }
+
+    /* OTA Upgrade fields (otaUpdate) */
+    if (strcmp(out_cmd->action, "otaUpdate") == 0) {
+        size_t o_len = 0;
+        const char *o_str = _json_get_string(json_payload, payload_len, "downloadUrl", &o_len);
+        if (o_str && o_len > 0 && o_len < sizeof(out_cmd->ota_download_url)) {
+            memcpy(out_cmd->ota_download_url, o_str, o_len);
+            out_cmd->ota_download_url[o_len] = '\0';
+        }
+        o_str = _json_get_string(json_payload, payload_len, "version", &o_len);
+        if (o_str && o_len > 0 && o_len < sizeof(out_cmd->ota_version)) {
+            memcpy(out_cmd->ota_version, o_str, o_len);
+            out_cmd->ota_version[o_len] = '\0';
+        }
+        o_str = _json_get_string(json_payload, payload_len, "sha256", &o_len);
+        if (o_str && o_len > 0 && o_len < sizeof(out_cmd->ota_sha256)) {
+            memcpy(out_cmd->ota_sha256, o_str, o_len);
+            out_cmd->ota_sha256[o_len] = '\0';
+        }
+        int64_t bsz = _json_get_int64(json_payload, payload_len, "binarySizeBytes");
+        if (bsz > 0) {
+            out_cmd->ota_binary_size_bytes = (size_t)bsz;
+        }
     }
 
     return EH_MQTT_OK;

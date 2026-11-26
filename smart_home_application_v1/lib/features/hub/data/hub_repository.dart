@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../domain/models/hub_models.dart';
 
 abstract class HubRepository {
-  Future<HubState> getHubState({String? homeId});
+  Future<HubState> getHubState({String? homeId, bool allowSubnetSweep = false});
   Future<bool> linkHub({required String hubHostname, required String homeId});
   Future<bool> unlinkHub({required String hubHostname});
   Future<List<HubDeviceInfo>> adoptDiscoveredSwitches({
@@ -29,68 +32,236 @@ abstract class HubRepository {
   Future<bool> factoryResetHub({required String hubHostname});
   Future<Map<String, dynamic>> getHubUpdates({required String hubHostname});
   Future<bool> checkForUpdates({required String hubHostname});
+  Future<List<CrossDeviceRule>> getCrossDeviceRules({required String hubHostname});
+  Future<bool> saveCrossDeviceRule({required String hubHostname, required CrossDeviceRule rule});
+  Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId});
+  Future<Map<String, dynamic>?> testCrossDeviceRule({required String hubHostname, required String ruleId});
+  Future<List<AutomationExecutionLog>> getExecutionLogs({required String hubHostname, int limit = 50});
+  Future<Map<String, dynamic>?> getHomeEnergySummary({required String hubHostname, String period = 'today'});
+  Future<Map<String, dynamic>?> getDeviceEnergyHistory({required String hubHostname, required String deviceId, int channel = 1, String period = 'today'});
+  Future<Map<String, dynamic>?> getDeviceSettings({required String deviceIp});
+  Future<bool> setDevicePowerOnMode({required String deviceIp, required int mode});
+  Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled});
+  Future<Map<String, dynamic>?> getHomeAssistantStatus({required String hubHostname});
+  Future<Map<String, dynamic>?> syncHomeAssistant({required String hubHostname});
+  Future<Map<String, dynamic>?> getHomeAssistantManifest({required String hubHostname});
+  Future<Map<String, dynamic>?> exportHubBackup({required String hubHostname});
+  Future<bool> restoreHubBackup({required String hubHostname, required Map<String, dynamic> backup});
+  Future<Map<String, dynamic>?> exportDiagnostics({required String hubHostname});
 }
 
 class LiveHubRepository implements HubRepository {
-  LiveHubRepository({http.Client? client}) : _client = client ?? http.Client();
+  LiveHubRepository({http.Client? client})
+      : _hasInjectedClient = client != null,
+        _client = client ?? http.Client();
 
+  final bool _hasInjectedClient;
   final http.Client _client;
 
   static bool isLinked = false;
   static bool isHubActive = false;
   static String? activeHost;
+  static String? customHost;
+
+  static List<String> getCandidateHosts([String? overrideHost]) {
+    final list = <String>[];
+    if (overrideHost != null && overrideHost.trim().isNotEmpty) {
+      list.add(overrideHost.trim());
+    }
+    final udpDiscovered = LocalLanDeviceService.instance.cachedHubHost;
+    if (udpDiscovered != null && udpDiscovered.trim().isNotEmpty && !list.contains(udpDiscovered)) {
+      list.add(udpDiscovered.trim());
+    }
+    final persisted = DeviceStorageService.persistedHubHost;
+    if (persisted != null && persisted.trim().isNotEmpty && !list.contains(persisted)) {
+      list.add(persisted.trim());
+    }
+    if (activeHost != null && activeHost!.trim().isNotEmpty && !list.contains(activeHost)) {
+      list.add(activeHost!.trim());
+    }
+    if (customHost != null && customHost!.trim().isNotEmpty && !list.contains(customHost)) {
+      list.add(customHost!.trim());
+    }
+    for (final def in const ['192.168.0.174', '192.168.0.100', '192.168.0.2', 'eh-hub.local', 'raspberrypi.local', '127.0.0.1', 'localhost']) {
+      if (!list.contains(def)) list.add(def);
+    }
+    return list;
+  }
+
+  Future<HubState?> _probeSingleHost(String host) async {
+    try {
+      // Fast TCP pre-check (350ms) when using real sockets so dead LAN IPs never stall auto-promotion.
+      if (!_hasInjectedClient) {
+        final s = await Socket.connect(host, 4210, timeout: const Duration(milliseconds: 350));
+        s.destroy();
+      }
+      final uri = Uri.parse('http://$host:4210/api/v1/hub/info');
+      final res = await _client.get(uri).timeout(const Duration(milliseconds: 1200));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final linked = data['isLinked'] as bool? ?? false;
+
+        List<HubDeviceInfo> devices = [];
+        try {
+          final devUri = Uri.parse('http://$host:4210/api/v1/hub/devices');
+          final devRes = await _client.get(devUri).timeout(const Duration(milliseconds: 500));
+          if (devRes.statusCode == 200) {
+            final devJson = jsonDecode(devRes.body) as Map<String, dynamic>;
+            final rawList = devJson['devices'] as List<dynamic>? ?? [];
+            devices = rawList.map((d) => HubDeviceInfo.fromJson(d as Map<String, dynamic>)).toList();
+          }
+        } catch (_) {}
+
+        return HubState(
+          status: linked ? HubConnectionStatus.connected : HubConnectionStatus.notConfigured,
+          hubId: data['hubId'] as String? ?? 'eh-hub-pi3b',
+          hostname: host,
+          ipAddress: data['ipAddress'] as String? ?? host,
+          model: data['model'] as String? ?? 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)',
+          firmwareVersion: data['version'] as String? ?? 'v1.1.0-sqlite',
+          uptime: data['uptime'] as String? ?? 'Active',
+          latencyMs: (data['latencyMs'] as num?)?.toInt() ?? 3,
+          connectedDevices: devices,
+          standardRoutinesCount: (data['standardRoutinesCount'] as num?)?.toInt() ?? 0,
+          criticalRoutinesCount: (data['criticalRoutinesCount'] as num?)?.toInt() ?? 0,
+          sdCardOverlayFsActive: data['overlayFs'] as bool? ?? true,
+          localNtpSynced: data['ntpSynced'] as bool? ?? true,
+          rssiDbm: (data['rssiDbm'] as num?)?.toInt() ?? (data['rssi'] as num?)?.toInt(),
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
 
   @override
-  Future<HubState> getHubState({String? homeId}) async {
-    for (final host in ['eh-hub.local', '192.168.0.174']) {
-      try {
-        final uri = Uri.parse('http://$host:4210/api/v1/hub/info');
-        final res = await _client.get(uri).timeout(const Duration(milliseconds: 1500));
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body) as Map<String, dynamic>;
-          final linked = data['isLinked'] as bool? ?? false;
+  Future<HubState> getHubState({String? homeId, bool allowSubnetSweep = false}) async {
+    final candidateHosts = getCandidateHosts();
+    if (candidateHosts.isEmpty) {
+      isHubActive = false;
+      LocalLanDeviceService.instance.cachedHubHost = null;
+      return const HubState(status: HubConnectionStatus.unreachable);
+    }
 
-          List<HubDeviceInfo> devices = [];
-          try {
-            final devUri = Uri.parse('http://$host:4210/api/v1/hub/devices');
-            final devRes = await _client.get(devUri).timeout(const Duration(milliseconds: 1000));
-            if (devRes.statusCode == 200) {
-              final devJson = jsonDecode(devRes.body) as Map<String, dynamic>;
-              final rawList = devJson['devices'] as List<dynamic>? ?? [];
-              devices = rawList.map((d) => HubDeviceInfo.fromJson(d as Map<String, dynamic>)).toList();
-            }
-          } catch (_) {}
-
-          isLinked = linked;
+    try {
+      final results = await Future.wait(candidateHosts.map(_probeSingleHost));
+      for (final state in results) {
+        if (state != null) {
+          isLinked = (state.status == HubConnectionStatus.connected);
           isHubActive = true;
-          activeHost = host;
+          activeHost = state.hostname;
+          DeviceStorageService.setPersistedHubHost(state.hostname);
+          LocalLanDeviceService.instance.cachedHubHost = state.hostname;
+          return state;
+        }
+      }
+    } catch (_) {}
 
-          return HubState(
-            status: linked ? HubConnectionStatus.connected : HubConnectionStatus.notConfigured,
-            hubId: data['hubId'] as String? ?? 'eh-hub-pi3b',
-            hostname: host,
-            ipAddress: data['ipAddress'] as String? ?? host,
-            model: data['model'] as String? ?? 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)',
-            firmwareVersion: data['version'] as String? ?? 'v1.0.0-phase51',
-            uptime: data['uptime'] as String? ?? 'Active',
-            latencyMs: (data['latencyMs'] as num?)?.toInt() ?? 3,
-            connectedDevices: devices,
-            standardRoutinesCount: (data['standardRoutinesCount'] as num?)?.toInt() ?? 0,
-            criticalRoutinesCount: (data['criticalRoutinesCount'] as num?)?.toInt() ?? 0,
-            sdCardOverlayFsActive: data['overlayFs'] as bool? ?? true,
-            localNtpSynced: data['ntpSynced'] as bool? ?? true,
-          );
+    if (!_hasInjectedClient && LocalLanDeviceService.instance.cachedHubHost == null) {
+      try {
+        final discoveredHost = await LocalLanDeviceService.instance.discoverHubNow(
+          timeout: const Duration(milliseconds: 500),
+        );
+        if (discoveredHost != null && discoveredHost.isNotEmpty) {
+          final discoveredState = await _probeSingleHost(discoveredHost);
+          if (discoveredState != null) {
+            isLinked = (discoveredState.status == HubConnectionStatus.connected);
+            isHubActive = true;
+            activeHost = discoveredState.hostname;
+            DeviceStorageService.setPersistedHubHost(discoveredState.hostname);
+            LocalLanDeviceService.instance.cachedHubHost = discoveredState.hostname;
+            return discoveredState;
+          }
         }
       } catch (_) {}
     }
 
+    // Dynamic fallback: only scan the full 254-IP subnet when explicitly requested (e.g. Hub Setup Scan).
+    if (allowSubnetSweep) {
+      final sweptHost = await _findHubOnSubnet();
+      if (sweptHost != null) {
+        activeHost = sweptHost;
+        final sweptState = await _probeSingleHost(sweptHost);
+        if (sweptState != null) {
+          isLinked = (sweptState.status == HubConnectionStatus.connected);
+          isHubActive = true;
+          activeHost = sweptState.hostname;
+          DeviceStorageService.setPersistedHubHost(sweptState.hostname);
+          return sweptState;
+        }
+      }
+    }
+
     isHubActive = false;
-    return const HubState(status: HubConnectionStatus.notConfigured);
+    LocalLanDeviceService.instance.cachedHubHost = null;
+    return const HubState(status: HubConnectionStatus.unreachable);
+  }
+
+  static Future<String?> _findHubOnSubnet() async {
+    try {
+      final subnets = <String>{};
+      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4, includeLoopback: false);
+      for (final iface in interfaces) {
+        final name = iface.name.toLowerCase();
+        if (name.startsWith('rmnet') ||
+            name.startsWith('ccmni') ||
+            name.startsWith('tun') ||
+            name.startsWith('ppp') ||
+            name.startsWith('dummy') ||
+            name.startsWith('pdp')) {
+          continue;
+        }
+        for (final addr in iface.addresses) {
+          final ip = addr.address;
+          if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+            final parts = ip.split('.');
+            if (parts.length == 4) subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
+          }
+        }
+      }
+      if (subnets.isEmpty) subnets.add('192.168.0');
+
+      for (final subnet in subnets) {
+        const batchSize = 64;
+        for (int b = 1; b <= 254; b += batchSize) {
+          final end = (b + batchSize > 255) ? 255 : b + batchSize;
+          final batchIps = [for (int i = b; i < end; i++) '$subnet.$i'];
+          final results = await Future.wait(batchIps.map((ip) async {
+            try {
+              final s = await Socket.connect(ip, 4210, timeout: const Duration(milliseconds: 250));
+              s.destroy();
+              final client = http.Client();
+              try {
+                final uri = Uri.parse('http://$ip:4210/api/v1/hub/info');
+                final res = await client.get(uri).timeout(const Duration(milliseconds: 500));
+                if (res.statusCode == 200) {
+                  final data = jsonDecode(res.body);
+                  if (data is Map && (data['hubId'] != null || data['model'] != null)) {
+                    return ip;
+                  }
+                }
+              } finally {
+                client.close();
+              }
+            } catch (_) {}
+            return null;
+          }));
+
+          for (final found in results) {
+            if (found != null) {
+              DeviceStorageService.setPersistedHubHost(found);
+              LocalLanDeviceService.instance.cachedHubHost = found;
+              return found;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   @override
   Future<bool> linkHub({required String hubHostname, required String homeId}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/link');
         final res = await _client.post(
@@ -111,7 +282,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> unlinkHub({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/unlink');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -130,7 +301,7 @@ class LiveHubRepository implements HubRepository {
     required List<String> switchIds,
     List<Map<String, dynamic>>? devices,
   }) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/adopt');
         final payload = <String, dynamic>{
@@ -160,8 +331,14 @@ class LiveHubRepository implements HubRepository {
     required bool power,
     bool isToggle = false,
   }) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    bool anyHubResponded = false;
+    final candidates = getCandidateHosts(hubHostname).take(3).toList();
+    for (final host in candidates) {
       try {
+        if (!_hasInjectedClient) {
+          final s = await Socket.connect(host, 4210, timeout: const Duration(milliseconds: 350));
+          s.destroy();
+        }
         final uri = Uri.parse('http://$host:4210/api/v1/control');
         final payload = {
           'deviceId': deviceId,
@@ -171,21 +348,42 @@ class LiveHubRepository implements HubRepository {
           'value': power,
           'state': power,
           if (isToggle) 'toggle': true,
+          if (isToggle) 'action': 'toggle',
         };
-        final res = await _client.post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(payload),
-        ).timeout(const Duration(seconds: 1));
-        if (res.statusCode == 200) return true;
+        final res = await _client
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Connection': 'close',
+              },
+              body: jsonEncode(payload),
+            )
+            .timeout(const Duration(milliseconds: 1600));
+        if (res.statusCode == 200) {
+          anyHubResponded = true;
+          try {
+            final parsed = jsonDecode(res.body);
+            if (parsed is Map && parsed['status'] == 'ok' && parsed['localExecuted'] == true) {
+              return false;
+            }
+          } catch (_) {}
+          isHubActive = true;
+          activeHost = host;
+          LocalLanDeviceService.instance.cachedHubHost = host;
+          return true;
+        }
       } catch (_) {}
+    }
+    if (!anyHubResponded) {
+      isHubActive = false;
     }
     return false;
   }
 
   @override
   Future<List<Map<String, dynamic>>> getRoutines({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines');
         final res = await _client.get(uri).timeout(const Duration(seconds: 2));
@@ -201,7 +399,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> triggerRoutine({required String hubHostname, required String routineId}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines/trigger');
         final res = await _client.post(
@@ -217,7 +415,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> syncTimeBroadcast({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/time/sync');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -229,7 +427,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> syncAutomations({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines');
         final res = await _client.get(uri).timeout(const Duration(seconds: 2));
@@ -241,7 +439,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> restartHubCore({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/reboot');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -254,7 +452,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> identifyHub({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/identify');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -266,7 +464,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> verifyHubPin({required String hubHostname, required String pin}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/auth/verify');
         final res = await _client.post(
@@ -280,14 +478,12 @@ class LiveHubRepository implements HubRepository {
         }
       } catch (_) {}
     }
-    // Fallback: accept 6 digits in offline/mock mode
-    final cleaned = pin.replaceAll(RegExp(r'[-\s]'), '');
-    return cleaned.length == 6;
+    return false;
   }
 
   @override
   Future<bool> resetMeshNetwork({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/network/reset');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -299,7 +495,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> factoryResetHub({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/factory-reset');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -315,7 +511,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<Map<String, dynamic>> getHubUpdates({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/updates');
         final res = await _client.get(uri).timeout(const Duration(seconds: 2));
@@ -327,8 +523,8 @@ class LiveHubRepository implements HubRepository {
     return {
       'status': 'ok',
       'hub': {
-        'currentVersion': '1.0.0-phase51',
-        'latestVersion': '1.0.0-phase51',
+        'currentVersion': '1.1.0-sqlite',
+        'latestVersion': '1.1.0-sqlite',
         'updateAvailable': false,
         'platform': 'Raspberry Pi 3B+ (Debian aarch64)',
         'channel': 'stable',
@@ -353,7 +549,7 @@ class LiveHubRepository implements HubRepository {
 
   @override
   Future<bool> checkForUpdates({required String hubHostname}) async {
-    for (final host in [hubHostname, 'eh-hub.local', '192.168.0.174']) {
+    for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/updates/check');
         final res = await _client.post(uri).timeout(const Duration(seconds: 2));
@@ -361,5 +557,240 @@ class LiveHubRepository implements HubRepository {
       } catch (_) {}
     }
     return true;
+  }
+
+  @override
+  Future<List<CrossDeviceRule>> getCrossDeviceRules({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final raw = data['rules'] as List<dynamic>? ?? [];
+          return raw.map((r) => CrossDeviceRule.fromJson(r as Map<String, dynamic>)).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
+  }
+
+  @override
+  Future<bool> saveCrossDeviceRule({required String hubHostname, required CrossDeviceRule rule}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules');
+        final res = await _client.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(rule.toJson()),
+        ).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules?id=$ruleId');
+        final res = await _client.delete(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> testCrossDeviceRule({required String hubHostname, required String ruleId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules/test?id=$ruleId');
+        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<List<AutomationExecutionLog>> getExecutionLogs({required String hubHostname, int limit = 50}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/rules/logs?limit=$limit');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final raw = data['logs'] as List<dynamic>? ?? [];
+          return raw.map((l) => AutomationExecutionLog.fromJson(l as Map<String, dynamic>)).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getHomeEnergySummary({required String hubHostname, String period = 'today'}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/energy/home/summary?period=$period');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          return data['summary'] as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getDeviceEnergyHistory({
+    required String hubHostname,
+    required String deviceId,
+    int channel = 1,
+    String period = 'today',
+  }) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/energy/devices/$deviceId/history?channel=$channel&period=$period');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          return data['summary'] as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getDeviceSettings({required String deviceIp}) async {
+    try {
+      final uri = Uri.parse('http://$deviceIp:80/api/v1/settings');
+      final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>?;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  Future<bool> setDevicePowerOnMode({required String deviceIp, required int mode}) async {
+    try {
+      final uri = Uri.parse('http://$deviceIp:80/api/v1/settings/power-on');
+      final res = await _client.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'mode': mode}),
+      ).timeout(const Duration(seconds: 2));
+      return res.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  @override
+  Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled}) async {
+    try {
+      final uri = Uri.parse('http://$deviceIp:80/api/v1/settings/child-lock');
+      final res = await _client.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'enabled': enabled}),
+      ).timeout(const Duration(seconds: 2));
+      return res.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getHomeAssistantStatus({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/status');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> syncHomeAssistant({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/sync');
+        final res = await _client.post(uri).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getHomeAssistantManifest({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/manifest');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> exportHubBackup({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/backup');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<bool> restoreHubBackup({required String hubHostname, required Map<String, dynamic> backup}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/restore');
+        final res = await _client.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(backup),
+        ).timeout(const Duration(seconds: 5));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> exportDiagnostics({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/diagnostics/export');
+        final res = await _client.get(uri).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 }

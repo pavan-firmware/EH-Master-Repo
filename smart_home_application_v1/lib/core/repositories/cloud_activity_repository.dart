@@ -91,40 +91,6 @@ class CloudActivityRepository implements ActivityRepository {
       }
     }
 
-    // 3. Fallback to realistic current device events if no history yet
-    if (events.isEmpty) {
-      final devName = ctrl?.connectedDeviceSummary?.name ?? (ctrl?.devices.isNotEmpty == true ? ctrl!.devices.first.name : 'EH Smart Switch');
-      final isOnline = ctrl?.devices.any((d) => d.online) ?? true;
-      events.addAll([
-        ActivityEvent(
-          id: 'evt_dev_live_1',
-          type: ActivityEventType.deviceStateChanged,
-          severity: ActivitySeverity.success,
-          source: ActivitySource.device,
-          title: '$devName Connected',
-          description: isOnline ? '$devName is online and ready for automation.' : '$devName is in standby mode.',
-          timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
-          eventTimezone: 'Local',
-          eventData: const {'status': 'active'},
-          navigationTarget: const ActivityNavigationTarget.none(),
-          roomId: ctrl?.activeSpaceName ?? 'Living Room',
-        ),
-        ActivityEvent(
-          id: 'evt_routing_live_2',
-          type: ActivityEventType.deviceStateChanged,
-          severity: ActivitySeverity.info,
-          source: ActivitySource.system,
-          title: 'Connection Mode Active',
-          description: 'Network operating on ${ctrl?.isLocalMode == true ? "Local LAN" : "Cloud Remote"} mode.',
-          timestamp: DateTime.now().subtract(const Duration(minutes: 20)),
-          eventTimezone: 'Local',
-          eventData: const {},
-          navigationTarget: const ActivityNavigationTarget.none(),
-          roomId: ctrl?.activeSpaceName ?? 'Living Room',
-        ),
-      ]);
-    }
-
     // Apply search filter
     final filtered = events.where((e) {
       if (query.search.isEmpty) return true;

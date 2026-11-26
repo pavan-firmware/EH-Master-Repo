@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/home_controller.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/models/update_models.dart';
@@ -400,9 +401,20 @@ class _SystemUpdatePageState extends State<SystemUpdatePage>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    '${deviceTargets.length} ${deviceTargets.length == 1 ? 'node' : 'nodes'} active',
-                    style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                  Builder(
+                    builder: (context) {
+                      final ctrl = widget.homeController ?? HomeController.instance;
+                      final onlineNodes = deviceTargets.where((t) {
+                        final devId = t.deviceId ?? '';
+                        return devId.isNotEmpty &&
+                            (LocalLanDeviceService.instance.isDeviceReachableOnLan(devId) ||
+                             (ctrl?.devices.any((d) => (d.id == devId || d.id.toLowerCase() == devId.toLowerCase()) && d.online) ?? false));
+                      }).length;
+                      return Text(
+                        '$onlineNodes of ${deviceTargets.length} online',
+                        style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -713,25 +725,33 @@ class _SystemUpdatePageState extends State<SystemUpdatePage>
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1.5,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(
-                                  0xFF10B981,
-                                ).withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Text(
-                                'Active',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Color(0xFF10B981),
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                            Builder(
+                              builder: (context) {
+                                final ctrl = widget.homeController ?? HomeController.instance;
+                                final devId = target.deviceId ?? '';
+                                final isNodeOnline = devId.isNotEmpty &&
+                                    (LocalLanDeviceService.instance.isDeviceReachableOnLan(devId) ||
+                                     (ctrl?.devices.any((d) => (d.id == devId || d.id.toLowerCase() == devId.toLowerCase()) && d.online) ?? false));
+                                final badgeColor = isNodeOnline ? const Color(0xFF10B981) : tokens.textTertiary;
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 1.5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: badgeColor.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    isNodeOnline ? 'Online' : 'Offline',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: badgeColor,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),

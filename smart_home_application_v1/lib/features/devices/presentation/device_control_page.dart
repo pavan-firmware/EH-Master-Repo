@@ -1208,11 +1208,16 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
       animation: widget.homeController,
       builder: (context, _) {
         final liveDevice = widget.homeController.devices.firstWhere(
-          (d) => d.id == widget.device.id,
+          (d) => d.id.toLowerCase() == widget.device.id.toLowerCase(),
           orElse: () => widget.device,
         );
         _checkAndRefreshVariant(liveDevice.model);
-        final isOnline = liveDevice.online;
+        final hasActiveRoutine = [1, 2, 3, 4].any(
+          (ch) => widget.homeController.getActiveRoutineForChannel(liveDevice.id, ch) != null,
+        );
+        final isOnline = liveDevice.online ||
+            LocalLanDeviceService.instance.isDeviceReachableOnLan(liveDevice.id) ||
+            hasActiveRoutine;
         final channelCount = _channelCountFor(liveDevice);
         final isSocket = _isSocketFor(liveDevice);
         final hasEnergyMonitoring = _hasEnergyMonitoringFor(liveDevice);
@@ -1755,6 +1760,7 @@ class _DeviceControlPageState extends State<DeviceControlPage> {
                   liveDevice.id.isNotEmpty ? liveDevice.id : widget.device.id,
                   channelIdx,
                 );
+
                 if (activeRoutine != null) {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),

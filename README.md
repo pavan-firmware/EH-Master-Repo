@@ -92,7 +92,7 @@ SMART_HOME_V1/
    ```bash
    cp .env.example .env
    ```
-2. Start local infrastructure services:
+2. Start local infrastructure services (optional if running offline/local hub):
    ```bash
    docker compose up -d
    ```
@@ -100,12 +100,164 @@ SMART_HOME_V1/
    ```bash
    node scripts/validate-repo.js
    ```
-4. Run Flutter mobile application analyzer and tests:
-   ```bash
-   cd smart_home_application_v1
-   flutter analyze
-   flutter test
-   ```
+
+---
+
+### Running the Services & Applications
+
+The EH Home platform architecture consists of **3 backend tiers** plus the client applications:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  Tier 1: Infrastructure Stack (Docker Compose)                         │
+│  PostgreSQL (5432) • Redis (6379) • EMQX MQTT (1883/8883) • MinIO (9000)│
+└────────────────────────────────────────────────────────────────────────┘
+                                   ▲
+                                   │
+┌────────────────────────────────────────────────────────────────────────┐
+│  Tier 2: Core Cloud Application Backend (`backend/src/server.js`)       │
+│  REST API • SSE Real-Time Engine • Auth & RBAC • Fleet OTA • Port 3000 │
+└────────────────────────────────────────────────────────────────────────┘
+                                   ▲
+                                   │ (Local Home Subnet)
+┌────────────────────────────────────────────────────────────────────────┐
+│  Tier 3: Local Smart Hub Backend (`apps/hub/src/server.js`)             │
+│  Raspberry Pi 3B+ Edge Coordinator • Offline WAL • LAN OTA • Port 4210  │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+#### Tier 1: Infrastructure Backend Stack (Database, Cache, MQTT, S3)
+Starts PostgreSQL 16, Redis 7, EMQX 5.8.0 enterprise MQTT broker, and MinIO S3 object storage:
+
+```bash
+# Start all 4 infrastructure engines in the background:
+docker compose up -d
+
+# Verify all services are healthy:
+docker compose ps
+```
+
+| Service | Container Name | Port | Purpose in Production |
+| :--- | :--- | :--- | :--- |
+| **PostgreSQL 16** | `eh_postgres` | `5432` | Relational storage for users, homes, RBAC, devices, routines & audit logs |
+| **Redis 7** | `eh_redis` | `6379` | Real-time state cache and instant pub/sub event bus |
+| **EMQX 5.8.0** | `eh_emqx` | `1883`, `8883`, `18083` | Industrial MQTT broker for device mTLS telemetry & control |
+| **MinIO S3** | `eh_minio` | `9000`, `9001` | S3-compatible storage for firmware `.bin` blobs and database backups |
+
+---
+
+#### Tier 2: Core Application Backend (`backend/src/server.js`)
+This runs the primary Node.js server that powers the mobile app, device fleet management, authentication, routines, and telemetry.
+
+##### 1. Database Migrations (Run once when database is initialized):
+```powershell
+node backend/scripts/migrate.js up
+```
+
+##### 2. Starting in Production Mode:
+In production, strict pre-flight validation is enforced (`throwOnFailure: true`), and test mock seed data injection is automatically bypassed:
+
+* **On Windows (PowerShell):**
+  ```powershell
+  $env:NODE_ENV="production"; node backend/src/server.js
+  ```
+
+* **On Linux / Cloud Production Server (with PM2 supervisor for 24/7 uptime):**
+  ```bash
+  # Launch with automated restart on crash / reboot:
+  NODE_ENV=production pm2 start backend/src/server.js --name "eh-core-backend" -i max
+  pm2 save
+  pm2 startup
+  ```
+
+* **Development Mode (with auto-seeding):**
+  ```powershell
+  node backend/src/server.js
+  ```
+
+*Default URL:* `http://localhost:3000`  
+*Health Check:* `curl http://localhost:3000/api/v1/health/liveness`
+
+---
+
+#### Tier 3: Local Smart Hub Backend (`apps/hub/src/server.js`)
+The edge coordinator daemon that runs inside the home on the **Raspberry Pi 3B+** (`192.168.0.174`). It handles 100% offline rule evaluation, zero-touch LAN device discovery, local SNTP timekeeping (UDP port 123/4218), and high-speed LAN OTA firmware delivery.
+
+##### Production Mode on Physical Raspberry Pi (systemd daemon):
+The Raspberry Pi manages this daemon automatically as a background service (`eh-hub.service`):
+```bash
+# Check status on Pi:
+sudo systemctl status eh-hub
+
+# Restart daemon:
+sudo systemctl restart eh-hub
+
+# Enable auto-start on boot:
+sudo systemctl enable eh-hub
+
+# View live system logs:
+journalctl -u eh-hub -f --no-pager
+```
+
+##### Running the Hub Backend on Local PC (for simulation / testing):
+```powershell
+# From repository root:
+node apps/hub/src/server.js
+```
+*Default URL:* `http://localhost:4210` (or `http://192.168.0.174:4210` on physical Pi)  
+*Storage Engine:* Embedded `atomic-wal` in `data/` (zero external database required)  
+*Health Check:* `curl http://localhost:4210/api/v1/hub/info`
+
+---
+
+#### Desktop Application (`apps/desktop`)
+Tauri v2 + Rust native desktop suite with React 18 UI (Bench Provisioner, Hardware Flasher, TSPL Thermal Printing, and QC Packing Station).
+
+##### Option A: Run Pre-Built Executable (.exe) directly
+```powershell
+# From repository root:
+.\apps\desktop\src-tauri\target\release\eh-home-desktop.exe
+
+# Or run the Windows NSIS Setup Wizard installer:
+.\apps\desktop\src-tauri\target\release\bundle\nsis\"EH Home Desktop_1.0.1_x64-setup.exe"
+```
+
+##### Option B: Run in Development Mode (Live Hot-Reload UI)
+```powershell
+cd apps/desktop
+npx @tauri-apps/cli dev
+```
+
+##### Option C: Rebuild from Source
+```powershell
+cd apps/desktop
+npm run build
+npx @tauri-apps/cli build --ignore-version-mismatches
+```
+*Generated Artifacts:*
+- Standalone `.exe`: `apps/desktop/src-tauri/target/release/eh-home-desktop.exe`
+- NSIS Setup Installer: `apps/desktop/src-tauri/target/release/bundle/nsis/EH Home Desktop_1.0.1_x64-setup.exe`
+- MSI Enterprise Package: `apps/desktop/src-tauri/target/release/bundle/msi/EH Home Desktop_1.0.1_x64_en-US.msi`
+
+---
+
+#### Mobile Application (`smart_home_application_v1`)
+Flutter mobile application with zero-touch LAN auto-discovery, live device telemetry, and cloud synchronization:
+```powershell
+cd smart_home_application_v1
+
+# Run in debug mode on connected phone / emulator:
+flutter run
+
+# Build production Android release APK:
+flutter build apk --release
+
+# Install release APK onto connected Android phone via ADB:
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+```
+*Generated APK:* `smart_home_application_v1/build/app/outputs/flutter-apk/app-release.apk`
 
 ---
 

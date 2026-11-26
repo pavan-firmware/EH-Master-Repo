@@ -58,6 +58,7 @@ export const DashboardView: React.FC = () => {
     latencyMs: number;
     devicesCount: number;
     model: string;
+    storageEngine?: string;
   } | null>(null);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
 
@@ -74,24 +75,55 @@ export const DashboardView: React.FC = () => {
         apiClient.listCartons().catch(() => ({ success: false, data: [] })),
       ]);
 
-      // Check Hub status on LAN concurrently
+      // Check Hub status dynamically on LAN (Port 4210) across local candidates
       try {
-        const hubController = new AbortController();
-        const hubTimer = setTimeout(() => hubController.abort(), 1200);
-        const hubRes = await fetch('http://192.168.0.174:4210/api/v1/hub/info', {
-          signal: hubController.signal,
-        }).catch(() => null);
-        clearTimeout(hubTimer);
-        if (hubRes && hubRes.ok) {
-          const hubJson = await hubRes.json();
-          setHubStatus({
-            isOnline: true,
-            hostname: hubJson.hostname || 'eh-hub.local',
-            uptime: hubJson.uptime || 'Active',
-            latencyMs: hubJson.latencyMs || 3,
-            devicesCount: hubJson.devicesCount || 0,
-            model: hubJson.model || 'EH-HUB-V1-PI (Raspberry Pi 3B+)',
-          });
+        const customHost = typeof window !== 'undefined' ? localStorage.getItem('eh_desktop_hub_host') : null;
+        const candidateHosts = [
+          customHost,
+          'http://192.168.0.174:4210',
+          'http://eh-hub.local:4210',
+          'http://localhost:4210',
+          'http://127.0.0.1:4210',
+        ].filter(Boolean) as string[];
+
+        let detectedHub: any = null;
+        for (const rawHost of candidateHosts) {
+          const base = rawHost.startsWith('http') ? rawHost : `http://${rawHost}:4210`;
+          try {
+            const hubController = new AbortController();
+            const hubTimer = setTimeout(() => hubController.abort(), 1000);
+            const hubRes = await fetch(`${base}/api/v1/hub/info`, {
+              signal: hubController.signal,
+            }).catch(() => null);
+            clearTimeout(hubTimer);
+            if (hubRes && hubRes.ok) {
+              const hubJson = await hubRes.json();
+              // Check storage engine stats if online
+              let storageEngine = 'SQLite WAL (Power-Cut Safe)';
+              try {
+                const sRes = await fetch(`${base}/api/v1/hub/storage/stats`).catch(() => null);
+                if (sRes && sRes.ok) {
+                  const sJson = await sRes.json();
+                  if (sJson.engine) storageEngine = `${sJson.engine} (WAL)`;
+                }
+              } catch (_) {}
+
+              detectedHub = {
+                isOnline: true,
+                hostname: hubJson.hostname || base.replace(/^https?:\/\//, ''),
+                uptime: hubJson.uptime || 'Active',
+                latencyMs: hubJson.latencyMs || 3,
+                devicesCount: hubJson.devicesCount || 0,
+                model: hubJson.model || 'EH-HUB-V1-PI (Raspberry Pi 3B+)',
+                storageEngine,
+              };
+              break;
+            }
+          } catch (_) {}
+        }
+
+        if (detectedHub) {
+          setHubStatus(detectedHub);
         } else {
           setHubStatus({
             isOnline: false,
@@ -100,6 +132,7 @@ export const DashboardView: React.FC = () => {
             latencyMs: 0,
             devicesCount: 0,
             model: 'EH-HUB-V1-PI (Optional Gateway)',
+            storageEngine: 'Edge Micro (Standalone)',
           });
         }
       } catch {
@@ -110,6 +143,7 @@ export const DashboardView: React.FC = () => {
           latencyMs: 0,
           devicesCount: 0,
           model: 'EH-HUB-V1-PI (Optional Gateway)',
+          storageEngine: 'Edge Micro (Standalone)',
         });
       }
 
@@ -324,7 +358,7 @@ export const DashboardView: React.FC = () => {
             </div>
             <div className="flex justify-between">
               <span>Engine Mode:</span>
-              <span className="text-[#4EC9B0]">{hubStatus?.isOnline ? '100% RAM Scheduler' : 'Edge Micro (Standalone)'}</span>
+              <span className="text-[#4EC9B0]">{hubStatus?.isOnline ? (hubStatus.storageEngine || 'SQLite WAL Engine') : 'Edge Micro (Standalone)'}</span>
             </div>
             <div className="flex justify-between">
               <span>Subnet Latency:</span>

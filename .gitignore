@@ -141,6 +141,7 @@ build/
 # 9. ESP-IDF & EMBEDDED FIRMWARE BUILD OUTPUTS
 # ------------------------------------------------------------------------------
 **/firmware/**/build/
+**/firmware/**/build_*/
 **/firmware/**/managed_components/
 **/firmware/**/sdkconfig
 **/firmware/**/sdkconfig.local

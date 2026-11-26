@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'device_storage_service.dart';
+import '../../features/hub/data/hub_repository.dart';
+import '../../features/hub/domain/models/hub_models.dart';
 
 class LanDeviceState {
   final String deviceId;
@@ -11,6 +13,9 @@ class LanDeviceState {
   final int? channelCount;
   final bool? hasEnergyMetering;
   final Map<int, bool> channels;
+  final String? firmwareVersion;
+  final List<Map<String, dynamic>>? activeRoutines;
+  final int? rssiDbm;
 
   const LanDeviceState({
     required this.deviceId,
@@ -18,6 +23,9 @@ class LanDeviceState {
     this.channelCount,
     this.hasEnergyMetering,
     required this.channels,
+    this.firmwareVersion,
+    this.activeRoutines,
+    this.rssiDbm,
   });
 }
 
@@ -36,19 +44,49 @@ class LocalLanDeviceService {
   final Map<String, String> _deviceIpMap = {};
   final Map<String, int> _deviceIpFailureCount = {};
   final Map<String, DateTime> _verifiedLiveAt = {};
+  final Map<String, int> _deviceRssiMap = {};
+
+  int? getDeviceRssi(String deviceId) {
+    final direct = _deviceRssiMap[deviceId];
+    if (direct != null) return direct;
+    return _deviceRssiMap[deviceId.trim().toLowerCase()];
+  }
+
+  void setDeviceRssi(String deviceId, int? rssi) {
+    if (rssi == null || rssi >= 0 || rssi <= -115) return;
+    _deviceRssiMap[deviceId] = rssi;
+    _deviceRssiMap[deviceId.trim().toLowerCase()] = rssi;
+  }
   bool _isDiscovering = false;
   String? _cachedHubHost;
   DateTime? _lastHubSeenAt;
 
-  /// Check whether a device has been verified live on LAN within the last 45 seconds
+  String? get cachedHubHost => _cachedHubHost;
+  set cachedHubHost(String? host) {
+    _cachedHubHost = host;
+    if (host != null) {
+      _lastHubSeenAt = DateTime.now();
+    } else {
+      _lastHubSeenAt = null;
+    }
+  }
+  DateTime? get lastHubSeenAt => _lastHubSeenAt;
+
+  static bool _isValidSwitchDeviceId(String? id) {
+    if (id == null) return false;
+    final clean = id.trim().toLowerCase();
+    return clean.isNotEmpty && clean != 'unknown' && clean != 'null';
+  }
+
+  /// Check whether a device has been verified live on LAN within the last 90 seconds
   bool isDeviceReachableOnLan(String deviceId) {
-    if (deviceId.isEmpty) return false;
+    if (!_isValidSwitchDeviceId(deviceId)) return false;
     final now = DateTime.now();
     final cleanId = deviceId.trim().toLowerCase();
     for (final entry in _verifiedLiveAt.entries) {
       final key = entry.key.trim().toLowerCase();
       if (key == cleanId) {
-        if (now.difference(entry.value).inSeconds <= 45) {
+        if (now.difference(entry.value).inSeconds <= 90) {
           return true;
         }
       }
@@ -56,11 +94,26 @@ class LocalLanDeviceService {
     return false;
   }
 
+  /// Check whether any device has been verified live on LAN within the last 90 seconds
+  bool isAnyDeviceReachableOnLan() {
+    final now = DateTime.now();
+    for (final entry in _verifiedLiveAt.entries) {
+      if (!_isValidSwitchDeviceId(entry.key)) continue;
+      if (now.difference(entry.value).inSeconds <= 90) {
+        return true;
+      }
+    }
+    return false;
+  }
+
 
   void markDeviceReachableOnLan(String deviceId, {String? ip}) {
+    if (!_isValidSwitchDeviceId(deviceId)) return;
     final now = DateTime.now();
     _verifiedLiveAt[deviceId] = now;
     _verifiedLiveAt[deviceId.toLowerCase()] = now;
+    _deviceIpFailureCount[deviceId] = 0;
+    _deviceIpFailureCount[deviceId.toLowerCase()] = 0;
     if (ip != null && ip.trim().isNotEmpty) {
       registerDeviceIp(deviceId, ip.trim());
     }
@@ -114,12 +167,16 @@ class LocalLanDeviceService {
                 final model = map['model']?.toString();
                 final channelCount = (map['channelCount'] as num?)?.toInt();
                 final hasEnergy = map['hasEnergyMetering'] as bool?;
-                if (devId != null && devId.isNotEmpty) {
-                  registerDeviceIp(devId, devIp);
-                  markDeviceReachableOnLan(devId);
+                final fwVersion = (map['firmwareVersion'] ?? map['firmware'])?.toString();
+                final rawRssi = (map['rssi'] as num?)?.toInt() ?? (map['rssiDbm'] as num?)?.toInt();
+                if (_isValidSwitchDeviceId(devId)) {
+                  registerDeviceIp(devId!, devIp);
+                  markDeviceReachableOnLan(devId, ip: devIp);
+                  setDeviceRssi(devId, rawRssi);
                 }
-                if ((map['cmd'] == 'EH_STATE_CHANGED' || map['cmd'] == 'EH_BOOT_ANNOUNCE') && devId != null && map['channels'] is List) {
-                  markDeviceReachableOnLan(devId);
+                if ((map['cmd'] == 'EH_STATE_CHANGED' || map['cmd'] == 'EH_BOOT_ANNOUNCE') && _isValidSwitchDeviceId(devId) && map['channels'] is List) {
+                  markDeviceReachableOnLan(devId!);
+                  setDeviceRssi(devId, rawRssi);
                   final channels = map['channels'] as List;
                   final chMap = <int, bool>{};
                   for (final ch in channels) {
@@ -130,24 +187,37 @@ class LocalLanDeviceService {
                     }
                   }
                   if (chMap.isNotEmpty) {
+                    List<Map<String, dynamic>>? activeRoutines;
+                    if (map['activeRoutines'] is List) {
+                      activeRoutines = (map['activeRoutines'] as List)
+                          .whereType<Map>()
+                          .map((e) => Map<String, dynamic>.from(e))
+                          .toList();
+                    }
                     _stateBroadcastController.add(LanDeviceState(
                       deviceId: devId,
                       model: model,
                       channelCount: channelCount ?? chMap.length,
                       hasEnergyMetering: hasEnergy,
                       channels: chMap,
+                      firmwareVersion: fwVersion,
+                      activeRoutines: activeRoutines,
+                      rssiDbm: getDeviceRssi(devId),
                     ));
-                    debugPrint('[LAN-UDP] Real-time state announcement received for $devId: $chMap (model=$model, channels=$channelCount)');
+                    debugPrint('[LAN-UDP] Real-time state announcement received for $devId: $chMap (model=$model, channels=$channelCount, fw=$fwVersion, rssi=$rawRssi)');
                   }
                 } else if (map['cmd'] == 'EH_DISCOVER_RESP' && devId != null) {
                   registerDeviceIp(devId, devIp);
                   markDeviceReachableOnLan(devId, ip: devIp);
+                  setDeviceRssi(devId, rawRssi);
                   _stateBroadcastController.add(LanDeviceState(
                     deviceId: devId,
                     model: model,
                     channelCount: channelCount,
                     hasEnergyMetering: hasEnergy,
                     channels: const {},
+                    firmwareVersion: fwVersion,
+                    rssiDbm: getDeviceRssi(devId),
                   ));
                 }
               }
@@ -167,6 +237,115 @@ class LocalLanDeviceService {
     } catch (_) {}
     _listenerSocket = null;
     await startUdpListener();
+  }
+
+  /// Actively broadcasts a UDP query for the Smart Home Hub and returns discovered IP
+  Future<String?> discoverHubNow({Duration timeout = const Duration(milliseconds: 1500)}) async {
+    RawDatagramSocket? socket;
+    try {
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      socket.broadcastEnabled = true;
+      final completer = Completer<String?>();
+
+      socket.listen((event) {
+        if (event == RawSocketEvent.read) {
+          final datagram = socket?.receive();
+          if (datagram != null) {
+            try {
+              final text = utf8.decode(datagram.data);
+              final map = json.decode(text);
+              if (map is Map && (map['hubId'] != null || map['type'] == 'hub' || map['cmd'] == 'EH_HUB_ANNOUNCE' || map['cmd'] == 'EH_HUB_DISCOVER_RESP')) {
+                final hubIp = datagram.address.address;
+                _cachedHubHost = hubIp;
+                _lastHubSeenAt = DateTime.now();
+                DeviceStorageService.setPersistedHubHost(hubIp);
+                if (!completer.isCompleted) completer.complete(hubIp);
+              }
+            } catch (_) {}
+          }
+        }
+      });
+
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final probeMsg = utf8.encode(json.encode({
+        'cmd': 'EH_HUB_DISCOVER',
+        'type': 'hub',
+        'unix_time': nowSec,
+      }));
+      final legacyProbeMsg = utf8.encode(json.encode({
+        'cmd': 'EH_DISCOVER',
+        'unix_time': nowSec,
+      }));
+
+      try {
+        socket.send(probeMsg, InternetAddress('255.255.255.255'), 4210);
+        socket.send(legacyProbeMsg, InternetAddress('255.255.255.255'), 4210);
+      } catch (_) {}
+
+      // Directed subnet broadcasts
+      try {
+        final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4, includeLoopback: false);
+        for (final iface in interfaces) {
+          for (final addr in iface.addresses) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              final bcast = '${parts[0]}.${parts[1]}.${parts[2]}.255';
+              try {
+                socket.send(probeMsg, InternetAddress(bcast), 4210);
+                socket.send(legacyProbeMsg, InternetAddress(bcast), 4210);
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {
+        try {
+          socket.send(probeMsg, InternetAddress('192.168.0.255'), 4210);
+          socket.send(legacyProbeMsg, InternetAddress('192.168.0.255'), 4210);
+        } catch (_) {}
+      }
+
+      Timer(timeout, () {
+        if (!completer.isCompleted) completer.complete(_cachedHubHost);
+      });
+
+      final result = await completer.future;
+      return result;
+    } catch (e) {
+      debugPrint('[LAN] discoverHubNow error: $e');
+      return _cachedHubHost;
+    } finally {
+      socket?.close();
+    }
+  }
+
+  /// Sends a direct P2P Fast-Path UDP actuation packet (<3ms) to a smart device on port 4210.
+  Future<bool> sendFastPathUdpActuate(
+    String targetIp,
+    int channel,
+    bool power, {
+    bool isToggle = false,
+  }) async {
+    RawDatagramSocket? socket;
+    try {
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      final seq = 'p2p_${DateTime.now().millisecondsSinceEpoch}';
+      final payload = utf8.encode(jsonEncode({
+        'cmd': 'P2P_ACTUATE',
+        'channel': channel,
+        'power': power,
+        'isToggle': isToggle,
+        'seq': seq,
+      }));
+      final dest = InternetAddress(targetIp);
+      socket.send(payload, dest, 4210);
+      debugPrint('[LAN-FAST-PATH] Sent P2P UDP actuate to $targetIp:4210 CH$channel (power=$power, toggle=$isToggle)');
+      return true;
+    } catch (e) {
+      debugPrint('[LAN-FAST-PATH] UDP actuate failed: $e');
+      return false;
+    } finally {
+      socket?.close();
+    }
   }
 
   void registerDeviceIp(String deviceId, String ip) {
@@ -232,19 +411,20 @@ class LocalLanDeviceService {
   /// Uses a multi-tier strategy:
   /// 0. Fast-Path: Ping previously known / cached IPs (with fast TCP pre-check)
   /// 1. UDP Discovery on Port 4210 (broadcast & directed, safe on Android)
-  /// 2. Ultra-Fast Parallel TCP Port 80 Sweep (prioritizing phone's DHCP neighborhood)
+  /// 2. Ultra-Fast Parallel TCP Port 80 Sweep (only when [allowSubnetSweep] is true, e.g. explicit user scan)
   Future<Map<String, String>> autoDiscoverDevices({
     Duration timeout = const Duration(seconds: 4),
     String? targetDeviceId,
     int? expectedCount,
     List<String>? expectedDeviceIds,
+    bool allowSubnetSweep = false,
   }) async {
     if (_isDiscovering) return Map.unmodifiable(_deviceIpMap);
     _isDiscovering = true;
     final discovered = <String, String>{};
 
     try {
-      debugPrint('[LAN] Starting automated device discovery on local Wi-Fi...');
+      debugPrint('[LAN] Starting automated device discovery on local Wi-Fi (sweepEnabled=$allowSubnetSweep)...');
 
       // Fast-Path 0: Check all previously known / cached IPs
       final cachedIps = DeviceStorageService.getAllCachedDeviceIps();
@@ -253,8 +433,8 @@ class LocalLanDeviceService {
         final ip = entry.value;
         if (ip.isNotEmpty) {
           try {
-            // Fast TCP socket pre-check (200ms) to avoid HTTP client stall if IP changed
-            final s = await Socket.connect(ip, 80, timeout: const Duration(milliseconds: 600));
+            // Fast TCP socket pre-check (150ms) to immediately bail if device is powered off
+            final s = await Socket.connect(ip, 80, timeout: const Duration(milliseconds: 150));
             s.destroy();
             final uri = Uri.parse('http://$ip/api/v1/ping');
             final resp = await _client.get(uri).timeout(const Duration(milliseconds: 1200));
@@ -272,7 +452,8 @@ class LocalLanDeviceService {
               debugPrint('[LAN] Fast-path ping confirmed cached device: $resolvedId at $ip');
             }
           } catch (_) {
-            debugPrint('[LAN] Fast-path ping missed cached IP $ip for $devId. Retaining IP for full scan verification.');
+            markDeviceOfflineOnLan(devId);
+            debugPrint('[LAN] Fast-path ping missed cached IP $ip for $devId. Marked offline pending UDP response.');
           }
         }
       }
@@ -317,11 +498,9 @@ class LocalLanDeviceService {
         debugPrint('[LAN] Error querying network interfaces: $e');
       }
 
-      // Always include 192.168.0 (active subnet) and common subnets as fallbacks
-      subnets.add('192.168.0');
-      subnets.add('192.168.55');
+      // If no Wi-Fi interface was detected, use 192.168.0 as fallback only
       if (subnets.isEmpty) {
-        subnets.addAll(['192.168.1', '192.168.0', '192.168.4']);
+        subnets.add('192.168.0');
       }
 
       // Strategy 1: UDP Broadcast / Directed Discovery on Port 4210
@@ -346,12 +525,14 @@ class LocalLanDeviceService {
                   final message = utf8.decode(datagram.data);
                   final jsonMap = json.decode(message);
                   if (jsonMap is Map) {
-                    final devId = jsonMap['deviceId']?.toString() ?? 'unknown';
+                    final devId = jsonMap['deviceId']?.toString();
                     final devIp = datagram.address.address;
-                    discovered[devId] = devIp;
-                    registerDeviceIp(devId, devIp);
-                    markDeviceReachableOnLan(devId, ip: devIp);
-                    debugPrint('[LAN] UDP Discovered Device: $devId at $devIp');
+                    if (_isValidSwitchDeviceId(devId)) {
+                      discovered[devId!] = devIp;
+                      registerDeviceIp(devId, devIp);
+                      markDeviceReachableOnLan(devId, ip: devIp);
+                      debugPrint('[LAN] UDP Discovered Device: $devId at $devIp');
+                    }
                   }
                 } catch (_) {}
               }
@@ -391,12 +572,12 @@ class LocalLanDeviceService {
         }
       }
 
-      // Strategy 2: Ultra-Fast Parallel TCP Port 80 Sweep (Prioritizing phone's DHCP neighborhood)
-      final bool needsSweep = discovered.isEmpty ||
+      // Strategy 2: Ultra-Fast Parallel TCP Port 80 Sweep (ONLY when allowSubnetSweep is explicitly true)
+      final bool needsSweep = allowSubnetSweep && (discovered.isEmpty ||
           (expectedCount != null && discovered.length < expectedCount) ||
           (targetDeviceId != null && !discovered.containsKey(targetDeviceId)) ||
           (expectedDeviceIds != null &&
-              expectedDeviceIds.any((id) => !discovered.containsKey(id) && getDeviceIp(id) == null));
+              expectedDeviceIds.any((id) => !discovered.containsKey(id) && getDeviceIp(id) == null)));
 
       if (needsSweep) {
         for (final subnet in subnets) {
@@ -484,20 +665,94 @@ class LocalLanDeviceService {
   }
 
   /// Sends a direct Local LAN control packet to the ESP32 embedded web server
+  /// Sends direct local actuation via UDP P2P (:4210) and waits up to 650ms for P2P_ACK.
+  Future<bool> _sendUdpP2pActuateWithAck({
+    required String ip,
+    required String deviceId,
+    required int channelIndex,
+    required bool power,
+    bool isToggle = false,
+  }) async {
+    RawDatagramSocket? sock;
+    try {
+      sock = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      final seq = 'app_${DateTime.now().microsecondsSinceEpoch}';
+      final msg = utf8.encode(json.encode({
+        'cmd': 'P2P_ACTUATE',
+        'seq': seq,
+        'targetDeviceId': deviceId,
+        'channel': channelIndex,
+        'channelIndex': channelIndex,
+        'power': power,
+        'state': power,
+        'toggle': isToggle,
+        'isToggle': isToggle,
+      }));
+      final completer = Completer<bool>();
+      sock.listen((event) {
+        if (event == RawSocketEvent.read) {
+          final dg = sock?.receive();
+          if (dg != null) {
+            try {
+              final map = json.decode(utf8.decode(dg.data));
+              if (map is Map && map['cmd'] == 'P2P_ACK') {
+                final ackSeq = map['seq']?.toString() ?? '';
+                final ackDev = map['deviceId']?.toString() ?? '';
+                if (ackSeq == seq || ackDev.trim().toLowerCase() == deviceId.trim().toLowerCase()) {
+                  if (!completer.isCompleted) completer.complete(true);
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      });
+
+      final targetAddr = InternetAddress(ip);
+      sock.send(msg, targetAddr, 4210);
+      Timer(const Duration(milliseconds: 220), () {
+        if (!completer.isCompleted) {
+          try {
+            sock?.send(msg, targetAddr, 4210);
+          } catch (_) {}
+        }
+      });
+      Timer(const Duration(milliseconds: 650), () {
+        if (!completer.isCompleted) completer.complete(false);
+      });
+      final acked = await completer.future;
+      if (acked) {
+        markDeviceReachableOnLan(deviceId, ip: ip);
+        debugPrint('[LAN] UDP P2P_ACK confirmed for device $deviceId ch$channelIndex at $ip');
+      }
+      return acked;
+    } catch (e) {
+      debugPrint('[LAN] UDP P2P_ACTUATE error for $ip: $e');
+      return false;
+    } finally {
+      sock?.close();
+    }
+  }
+
   Future<bool> sendLocalControl({
     required String deviceId,
     required int channelIndex,
     required bool power,
     bool isToggle = false,
     String? explicitIp,
+    bool tryHubProxy = true,
   }) async {
-    // Section 4.1 & Rule 4: If Hub is active, forward via Local Hub Coordinator first (<5ms sub-net mesh)
-    final isHubActive = _cachedHubHost != null &&
+    // Section 4.1 & Rule 4: If Hub is active and not already attempted by caller, forward via Hub first (<5ms)
+    final isHubActive = tryHubProxy &&
+        LiveHubRepository.isLinked &&
+        LiveHubRepository.isHubActive &&
+        _cachedHubHost != null &&
         _lastHubSeenAt != null &&
-        DateTime.now().difference(_lastHubSeenAt!).inSeconds < 120;
+        DateTime.now().difference(_lastHubSeenAt!).inSeconds < 60;
 
     if (isHubActive) {
       try {
+        final s = await Socket.connect(_cachedHubHost!, 4210, timeout: const Duration(milliseconds: 350));
+        s.destroy();
         final hubUri = Uri.parse('http://$_cachedHubHost:4210/api/v1/control');
         final hubPayload = json.encode({
           'deviceId': deviceId,
@@ -512,15 +767,28 @@ class LocalLanDeviceService {
         final hubResponse = await _client
             .post(
               hubUri,
-              headers: {'Content-Type': 'application/json'},
+              headers: {
+                'Content-Type': 'application/json',
+                'Connection': 'close',
+              },
               body: hubPayload,
             )
-            .timeout(const Duration(milliseconds: 1000));
+            .timeout(const Duration(milliseconds: 1600));
 
         if (hubResponse.statusCode == 200) {
-          debugPrint('[LAN-HUB] Direct local command executed via Hub Coordinator for $deviceId ch$channelIndex');
-          markDeviceReachableOnLan(deviceId);
-          return true;
+          bool actuallyForwarded = true;
+          try {
+            final parsed = json.decode(hubResponse.body);
+            if (parsed is Map && parsed['status'] == 'ok' && parsed['localExecuted'] == true) {
+              // Hub didn't have the device's LAN IP yet; still fall through to direct LAN actuation
+              actuallyForwarded = false;
+            }
+          } catch (_) {}
+          if (actuallyForwarded) {
+            debugPrint('[LAN-HUB] Direct local command executed via Hub Coordinator for $deviceId ch$channelIndex');
+            markDeviceReachableOnLan(deviceId);
+            return true;
+          }
         }
       } catch (e) {
         debugPrint('[LAN-HUB] Hub coordinator proxy failed or timed out: $e. Falling back to direct switch IP');
@@ -529,10 +797,16 @@ class LocalLanDeviceService {
 
     String? ip = explicitIp ?? getDeviceIp(deviceId);
     if (ip == null || ip.isEmpty) {
-      debugPrint('[LAN] No local IP known for device $deviceId. Fast-checking UDP broadcast...');
-      // Run auto-discovery in background without blocking this actuation turn
-      unawaited(autoDiscoverDevices());
-      return false;
+      await autoDiscoverDevices(
+        targetDeviceId: deviceId,
+        timeout: const Duration(milliseconds: 550),
+        allowSubnetSweep: false,
+      );
+      ip = explicitIp ?? getDeviceIp(deviceId);
+      if (ip == null || ip.isEmpty) {
+        debugPrint('[LAN] No local IP known for device $deviceId.');
+        return false;
+      }
     }
 
     final targetUri = Uri.parse('http://$ip/api/v1/control');
@@ -549,67 +823,84 @@ class LocalLanDeviceService {
     }
     final payload = json.encode(payloadMap);
 
-    try {
-      debugPrint('[LAN] Sending direct local command to $targetUri: $payload');
-      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final response = await _client
-          .post(
-            targetUri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Connection': 'close',
-              'X-Client-Epoch-Sec': nowSec.toString(),
-            },
-            body: payload,
-          )
-          .timeout(const Duration(milliseconds: 2500));
+    final maxHttpAttempts = isToggle ? 1 : 2;
+    for (int attempt = 0; attempt < maxHttpAttempts; attempt++) {
+      try {
+        debugPrint('[LAN] Sending direct local command to $targetUri (attempt ${attempt + 1}): $payload');
+        final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        final response = await _client
+            .post(
+              targetUri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Connection': 'close',
+                'X-Client-Epoch-Sec': nowSec.toString(),
+              },
+              body: payload,
+            )
+            .timeout(Duration(milliseconds: attempt == 0 ? 1800 : 1500));
 
-      if (response.statusCode == 200) {
-        try {
-          final body = json.decode(response.body);
-          if (body is Map) {
-            final returnedDevId = body['deviceId']?.toString();
-            if (returnedDevId != null && returnedDevId.isNotEmpty && returnedDevId != deviceId) {
-              debugPrint('[LAN] Response deviceId ($returnedDevId) mismatch requested ($deviceId). Rejecting cross-talk.');
-              registerDeviceIp(returnedDevId, ip);
-              markDeviceReachableOnLan(returnedDevId);
-              if (_deviceIpMap[deviceId] == ip) {
-                _deviceIpMap.remove(deviceId);
-                DeviceStorageService.removeDeviceIp(deviceId);
+        if (response.statusCode == 200) {
+          try {
+            final body = json.decode(response.body);
+            if (body is Map) {
+              final returnedDevId = body['deviceId']?.toString();
+              if (returnedDevId != null &&
+                  returnedDevId.isNotEmpty &&
+                  returnedDevId.trim().toLowerCase() != deviceId.trim().toLowerCase()) {
+                debugPrint('[LAN] Response deviceId ($returnedDevId) mismatch requested ($deviceId). Rejecting cross-talk.');
+                registerDeviceIp(returnedDevId, ip);
+                markDeviceReachableOnLan(returnedDevId);
+                if (_deviceIpMap[deviceId] == ip) {
+                  _deviceIpMap.remove(deviceId);
+                  DeviceStorageService.removeDeviceIp(deviceId);
+                }
+                return false;
               }
-              return false;
+              if (body['success'] == true || body['status'] == 'ok' || body['power'] != null) {
+                markDeviceReachableOnLan(deviceId, ip: ip);
+                debugPrint('[LAN] Direct local command SUCCESS for device $deviceId ch$channelIndex');
+                return true;
+              }
             }
-            if (body['success'] == true || body['status'] == 'ok' || body['power'] != null) {
-              markDeviceReachableOnLan(deviceId);
-              registerDeviceIp(deviceId, ip);
-              debugPrint('[LAN] Direct local command SUCCESS for device $deviceId ch$channelIndex');
-              return true;
-            }
+          } catch (_) {
+            // If response body is not JSON but returned HTTP 200 OK
+            markDeviceReachableOnLan(deviceId, ip: ip);
+            return true;
           }
-        } catch (_) {
-          // If response body is not JSON but returned HTTP 200 OK
-          markDeviceReachableOnLan(deviceId);
-          registerDeviceIp(deviceId, ip);
+          markDeviceReachableOnLan(deviceId, ip: ip);
           return true;
         }
-        markDeviceReachableOnLan(deviceId);
-        registerDeviceIp(deviceId, ip);
-        return true;
+        debugPrint('[LAN] Direct local command failed with status ${response.statusCode} for $targetUri');
+      } catch (e) {
+        debugPrint('[LAN] Direct local command attempt ${attempt + 1} error for $targetUri: $e');
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 80));
+        }
       }
-      debugPrint('[LAN] Direct local command failed with status ${response.statusCode} for $targetUri');
+    }
+
+    // Resilient fallback: bypass busy TCP/80 sockets using direct UDP P2P_ACTUATE + P2P_ACK (<5ms)
+    final p2pOk = await _sendUdpP2pActuateWithAck(
+      ip: ip,
+      deviceId: deviceId,
+      channelIndex: channelIndex,
+      power: power,
+      isToggle: isToggle,
+    );
+    if (p2pOk) {
+      return true;
+    }
+
+    final cleanId = deviceId.trim().toLowerCase();
+    final failures = (_deviceIpFailureCount[cleanId] ?? 0) + 1;
+    _deviceIpFailureCount[cleanId] = failures;
+    _deviceIpFailureCount[deviceId] = failures;
+    if (failures >= 6 && ip.isNotEmpty) {
+      debugPrint('[LAN] 6 consecutive failures for $deviceId. Purging stale IP $ip.');
+      _deviceIpMap.remove(deviceId);
+      DeviceStorageService.removeDeviceIp(deviceId);
       markDeviceOfflineOnLan(deviceId);
-      debugPrint('[LAN] Direct local command returned HTTP ${response.statusCode}');
-      markDeviceOfflineOnLan(deviceId);
-    } catch (e) {
-      debugPrint('[LAN] Direct local command error for $targetUri: $e');
-      markDeviceOfflineOnLan(deviceId);
-      if (ip.isNotEmpty) {
-        debugPrint('[LAN] Purging stale IP $ip for device $deviceId due to error: $e');
-        _deviceIpMap.remove(deviceId);
-        DeviceStorageService.removeDeviceIp(deviceId);
-      }
-      // If error occurs, schedule quiet rediscovery in background so next command gets fresh IP
-      unawaited(autoDiscoverDevices());
     }
     return false;
   }
@@ -624,6 +915,25 @@ class LocalLanDeviceService {
       return null;
     }
 
+    // Fast socket pre-check only when device isn't already known live on LAN (avoids RST churn while active)
+    if (!isDeviceReachableOnLan(deviceId)) {
+      bool tcpReachable = false;
+      try {
+        final s = await Socket.connect(ip, 80, timeout: const Duration(milliseconds: 350));
+        s.destroy();
+        tcpReachable = true;
+      } catch (_) {}
+      if (!tcpReachable) {
+        final cleanId = deviceId.trim().toLowerCase();
+        final failures = (_deviceIpFailureCount[cleanId] ?? 0) + 1;
+        _deviceIpFailureCount[cleanId] = failures;
+        if (failures >= 3) {
+          markDeviceOfflineOnLan(deviceId);
+        }
+        return null;
+      }
+    }
+
     final targetUri = Uri.parse('http://$ip/api/v1/state');
     try {
       final response = await _client
@@ -631,7 +941,7 @@ class LocalLanDeviceService {
             targetUri,
             headers: {'Connection': 'close'},
           )
-          .timeout(const Duration(milliseconds: 2000));
+          .timeout(const Duration(milliseconds: 1200));
 
       if (response.statusCode == 200) {
         final body = json.decode(response.body);
@@ -640,6 +950,7 @@ class LocalLanDeviceService {
           final model = body['model']?.toString();
           final channelCount = (body['channelCount'] as num?)?.toInt();
           final hasEnergy = body['hasEnergyMetering'] as bool?;
+          final rawRssi = (body['rssi'] as num?)?.toInt() ?? (body['rssiDbm'] as num?)?.toInt();
           final result = <int, bool>{};
 
           if (body['channels'] is List) {
@@ -653,10 +964,11 @@ class LocalLanDeviceService {
             }
           }
 
-          if (resolvedId != deviceId) {
+          if (resolvedId.trim().toLowerCase() != deviceId.trim().toLowerCase()) {
             debugPrint('[LAN] fetchLocalDeviceState: device at $ip is $resolvedId, but requested $deviceId. Purging mismatched mapping for $deviceId.');
             registerDeviceIp(resolvedId, ip);
             markDeviceReachableOnLan(resolvedId);
+            setDeviceRssi(resolvedId, rawRssi);
             if (_deviceIpMap[deviceId] == ip) {
               _deviceIpMap.remove(deviceId);
               DeviceStorageService.removeDeviceIp(deviceId);
@@ -667,7 +979,19 @@ class LocalLanDeviceService {
 
           registerDeviceIp(deviceId, ip);
           _deviceIpFailureCount[deviceId] = 0;
+          _deviceIpFailureCount[deviceId.trim().toLowerCase()] = 0;
           markDeviceReachableOnLan(deviceId);
+          setDeviceRssi(deviceId, rawRssi);
+          setDeviceRssi(resolvedId, rawRssi);
+
+          final fwVersion = (body['firmwareVersion'] ?? body['firmware'])?.toString();
+          List<Map<String, dynamic>>? activeRoutines;
+          if (body['activeRoutines'] is List) {
+            activeRoutines = (body['activeRoutines'] as List)
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
+          }
 
           return LanDeviceState(
             deviceId: resolvedId,
@@ -675,20 +999,29 @@ class LocalLanDeviceService {
             channelCount: channelCount ?? (result.isNotEmpty ? result.length : 4),
             hasEnergyMetering: hasEnergy,
             channels: result,
+            firmwareVersion: fwVersion,
+            activeRoutines: activeRoutines,
+            rssiDbm: getDeviceRssi(resolvedId) ?? getDeviceRssi(deviceId),
           );
         }
       }
-      markDeviceOfflineOnLan(deviceId);
+      final cleanId = deviceId.trim().toLowerCase();
+      final failures = (_deviceIpFailureCount[cleanId] ?? 0) + 1;
+      _deviceIpFailureCount[cleanId] = failures;
+      if (failures >= 3) {
+        markDeviceOfflineOnLan(deviceId);
+      }
     } catch (e) {
       debugPrint('[LAN] fetchLocalDeviceState error on $targetUri: $e');
-      markDeviceOfflineOnLan(deviceId);
-      final failures = (_deviceIpFailureCount[deviceId] ?? 0) + 1;
+      final cleanId = deviceId.trim().toLowerCase();
+      final failures = (_deviceIpFailureCount[cleanId] ?? 0) + 1;
+      _deviceIpFailureCount[cleanId] = failures;
       _deviceIpFailureCount[deviceId] = failures;
+      if (failures >= 3) {
+        markDeviceOfflineOnLan(deviceId);
+      }
       if (failures >= 5 && ip.isNotEmpty) {
-        debugPrint('[LAN] 5 consecutive failures for $deviceId. Purging stale IP $ip and rediscovering.');
-        _deviceIpMap.remove(deviceId);
-        DeviceStorageService.removeDeviceIp(deviceId);
-        unawaited(autoDiscoverDevices());
+        debugPrint('[LAN] 5 consecutive failures for $deviceId at $ip. Marking offline.');
       }
     }
     return null;
@@ -717,14 +1050,24 @@ class LocalLanDeviceService {
           .get(targetUri)
           .timeout(const Duration(milliseconds: 1200));
       if (response.statusCode == 200) {
-        markDeviceReachableOnLan(deviceId);
+        markDeviceReachableOnLan(deviceId, ip: ip);
         return true;
       }
-      markDeviceOfflineOnLan(deviceId);
+      final cleanId = deviceId.trim().toLowerCase();
+      final failures = (_deviceIpFailureCount[cleanId] ?? 0) + 1;
+      _deviceIpFailureCount[cleanId] = failures;
+      if (failures >= 3) {
+        markDeviceOfflineOnLan(deviceId);
+      }
       return false;
     } catch (_) {
-      markDeviceOfflineOnLan(deviceId);
-      if (ip.isNotEmpty) {
+      final cleanId = deviceId.trim().toLowerCase();
+      final failures = (_deviceIpFailureCount[cleanId] ?? 0) + 1;
+      _deviceIpFailureCount[cleanId] = failures;
+      if (failures >= 3) {
+        markDeviceOfflineOnLan(deviceId);
+      }
+      if (failures >= 6 && ip.isNotEmpty) {
         _deviceIpMap.remove(deviceId);
         DeviceStorageService.removeDeviceIp(deviceId);
       }
@@ -907,6 +1250,207 @@ class LocalLanDeviceService {
       debugPrint('[LAN] fetchLocalRoutines error on $targetUri: $e');
     }
     return null;
+  }
+
+  /// Dispatches a real firmware OTA update directly to the device (Port 80) or via Hub (Port 4210).
+  Future<({bool ok, int statusCode, String? error})> startLocalOtaUpdate({
+    required String deviceId,
+    required String downloadUrl,
+    String? version,
+    String? sha256,
+    String? releaseId,
+    int? binarySizeBytes,
+    String? explicitIp,
+  }) async {
+    final payloadMap = <String, dynamic>{
+      'deviceId': deviceId,
+      'downloadUrl': downloadUrl,
+      if (version != null && version.isNotEmpty) 'version': version,
+      if (sha256 != null && sha256.isNotEmpty) 'sha256': sha256,
+      if (releaseId != null && releaseId.isNotEmpty) 'releaseId': releaseId,
+      if (binarySizeBytes != null && binarySizeBytes > 0) 'binarySizeBytes': binarySizeBytes,
+    };
+    final body = json.encode(payloadMap);
+
+    final isHubActive = _cachedHubHost != null &&
+        _lastHubSeenAt != null &&
+        DateTime.now().difference(_lastHubSeenAt!).inSeconds < 120;
+
+    if (isHubActive) {
+      try {
+        final hubUri = Uri.parse('http://$_cachedHubHost:4210/api/v1/ota/trigger');
+        final hubRes = await _client
+            .post(hubUri, headers: {'Content-Type': 'application/json'}, body: body)
+            .timeout(const Duration(milliseconds: 2500));
+        if (hubRes.statusCode == 200 || hubRes.statusCode == 201) {
+          return (ok: true, statusCode: hubRes.statusCode, error: null);
+        }
+      } catch (e) {
+        debugPrint('[LAN-HUB] Hub OTA trigger notice: $e');
+      }
+    }
+
+    final ip = explicitIp ?? getDeviceIp(deviceId);
+    if (ip == null || ip.isEmpty) {
+      return (ok: false, statusCode: 0, error: 'Device IP unknown on local Wi-Fi');
+    }
+
+    try {
+      final uri = Uri.parse('http://$ip/api/v1/ota/start');
+      final res = await _client
+          .post(uri, headers: {'Content-Type': 'application/json', 'Connection': 'close'}, body: body)
+          .timeout(const Duration(milliseconds: 3000));
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return (ok: true, statusCode: res.statusCode, error: null);
+      }
+      String errMsg = 'HTTP ${res.statusCode}';
+      try {
+        final decoded = json.decode(res.body);
+        if (decoded is Map && decoded['error'] != null) {
+          errMsg = decoded['error'].toString();
+        }
+      } catch (_) {}
+      if (res.statusCode == 404) {
+        errMsg = 'Installed board firmware lacks /api/v1/ota/start endpoint (needs base firmware update)';
+      }
+      return (ok: false, statusCode: res.statusCode, error: errMsg);
+    } catch (e) {
+      return (ok: false, statusCode: 0, error: e.toString());
+    }
+  }
+
+  /// Polls live OTA flashing progress and running firmware version directly from the ESP32.
+  Future<Map<String, dynamic>?> fetchLocalOtaStatus({
+    required String deviceId,
+    String? explicitIp,
+  }) async {
+    final ip = explicitIp ?? getDeviceIp(deviceId);
+    if (ip == null || ip.isEmpty) return null;
+
+    try {
+      final res = await _client
+          .get(Uri.parse('http://$ip/api/v1/ota/status'), headers: {'Connection': 'close'})
+          .timeout(const Duration(milliseconds: 1500));
+      if (res.statusCode == 200) {
+        final decoded = json.decode(res.body);
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      }
+    } catch (_) {}
+
+    // Fallback: read firmwareVersion from /api/v1/ping after reboot
+    try {
+      final pingRes = await _client
+          .get(Uri.parse('http://$ip/api/v1/ping'), headers: {'Connection': 'close'})
+          .timeout(const Duration(milliseconds: 1500));
+      if (pingRes.statusCode == 200) {
+        final decoded = json.decode(pingRes.body);
+        if (decoded is Map) {
+          return {
+            'state': 'IDLE',
+            'firmwareVersion': decoded['firmwareVersion']?.toString(),
+          };
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Pushes a cross-device P2P automation rule directly to a device's NVS flash
+  /// over port 80 so it executes autonomously over UDP without the mobile app or cloud.
+  Future<bool> syncPeerRuleToDevice({
+    required String deviceId,
+    required CrossDeviceRule rule,
+    String? explicitIp,
+  }) async {
+    final ip = explicitIp ?? getDeviceIp(deviceId) ?? DeviceStorageService.getAllCachedDeviceIps()[deviceId];
+    if (ip == null || ip.isEmpty || ip == '127.0.0.1') {
+      return false;
+    }
+
+    final cachedActionIp = getDeviceIp(rule.actionDeviceId) ??
+        DeviceStorageService.getAllCachedDeviceIps()[rule.actionDeviceId];
+    final actionIp = (cachedActionIp != null && cachedActionIp.isNotEmpty)
+        ? cachedActionIp
+        : rule.actionDeviceIp;
+    final cmdUpper = rule.actionCommand.toUpperCase();
+    final isToggle = cmdUpper == 'TOGGLE';
+    final actionPower = cmdUpper != 'OFF' && cmdUpper != 'TURN_OFF';
+
+    final body = json.encode({
+      'id': rule.id,
+      'triggerDeviceId': rule.triggerDeviceId,
+      'triggerChannel': rule.triggerChannel,
+      'triggerState': rule.triggerState,
+      'actionDeviceId': rule.actionDeviceId,
+      'actionDeviceIp': actionIp,
+      'actionChannel': rule.actionChannel,
+      'actionCommand': cmdUpper,
+      'actionPower': actionPower,
+      'isToggle': isToggle,
+      'enabled': rule.enabled,
+    });
+
+    try {
+      final res = await _client
+          .post(
+            Uri.parse('http://$ip/api/v1/peer-rules'),
+            headers: {'Content-Type': 'application/json', 'Connection': 'close'},
+            body: body,
+          )
+          .timeout(const Duration(milliseconds: 2000));
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        _peerRuleSyncedDevices.add(deviceId.toLowerCase());
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('[LAN-P2P] Failed syncing peer rule ${rule.id} to $deviceId ($ip): $e');
+      return false;
+    }
+  }
+
+  final Set<String> _peerRuleSyncedDevices = {};
+
+  bool hasSyncedPeerRulesOnDevice(String deviceId) =>
+      _peerRuleSyncedDevices.contains(deviceId.toLowerCase());
+
+  /// Removes a persisted P2P cross-device rule from an ESP32 device.
+  Future<bool> deletePeerRuleFromDevice({
+    required String deviceId,
+    required String ruleId,
+    String? explicitIp,
+  }) async {
+    final ip = explicitIp ?? getDeviceIp(deviceId) ?? DeviceStorageService.getAllCachedDeviceIps()[deviceId];
+    if (ip == null || ip.isEmpty || ip == '127.0.0.1') {
+      return false;
+    }
+    try {
+      final uri = Uri.parse('http://$ip/api/v1/peer-rules?id=${Uri.encodeQueryComponent(ruleId)}');
+      final res = await _client
+          .delete(uri, headers: {'Connection': 'close'})
+          .timeout(const Duration(milliseconds: 2000));
+      return res.statusCode == 200 || res.statusCode == 204;
+    } catch (e) {
+      debugPrint('[LAN-P2P] Failed deleting peer rule $ruleId from $deviceId ($ip): $e');
+      return false;
+    }
+  }
+
+  /// Pushes all standalone cross-device rules referencing [deviceId] (either as
+  /// trigger or action device) to its NVS over LAN so physical switches always run them.
+  Future<void> syncAllPeerRulesForDevice(String deviceId) async {
+    final rules = await DeviceStorageService.loadStandaloneRules();
+    if (rules.isEmpty) return;
+    final normSelf = deviceId.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    for (final rule in rules) {
+      final normTrig = rule.triggerDeviceId.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final normAct = rule.actionDeviceId.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (normTrig == normSelf || normAct == normSelf) {
+        await syncPeerRuleToDevice(deviceId: deviceId, rule: rule);
+      }
+    }
   }
 }
 

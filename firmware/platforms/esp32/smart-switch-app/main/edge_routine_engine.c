@@ -114,15 +114,16 @@ static void routine_tick_timer_cb(void* arg)
             if (r->remaining_sec > 0) {
                 r->remaining_sec--;
                 if (r->remaining_sec == 0) {
-                    // Timer expired: perform pulse completion (e.g. auto-off after motor runtime)
-                    ESP_LOGI(TAG, "Routine [%s] duration elapsed. Restoring opposite power on CH%d (is_toggle=%d)",
+                    // Mark COMPLETED BEFORE restoring relay so UDP EH_STATE_CHANGED clears activeRoutines immediately
+                    r->runtime_state = ROUTINE_STATE_COMPLETED;
+                    ESP_LOGI(TAG, "Routine [%s] duration elapsed. Ending in safe OFF state on CH%d (is_toggle=%d)",
                              r->name, r->channel_index, r->is_toggle);
                     if (r->is_toggle) {
-                        relay_manager_toggle_power(r->channel_index, "EDGE_ROUTINE_AUTO_OFF");
+                        // Timed toggle routines must always finish OFF, never left HIGH
+                        relay_manager_set_power(r->channel_index, false, "EDGE_ROUTINE_AUTO_OFF");
                     } else {
                         relay_manager_set_power(r->channel_index, !r->target_power, "EDGE_ROUTINE_AUTO_OFF");
                     }
-                    r->runtime_state = ROUTINE_STATE_COMPLETED;
                 }
             }
         }
@@ -190,6 +191,12 @@ bool edge_routine_engine_start_routine(const char* routine_id)
     for (size_t i = 0; i < MAX_EDGE_ROUTINES; i++) {
         edge_routine_t* r = &s_routines[i];
         if (strcmp(r->id, routine_id) == 0) {
+            // Set RUNNING state BEFORE relay actuation so UDP EH_STATE_CHANGED immediately
+            // includes this routine in activeRoutines without requiring a manual app refresh.
+            if (r->duration_sec > 0) {
+                r->remaining_sec = r->duration_sec;
+                r->runtime_state = ROUTINE_STATE_RUNNING;
+            }
             // Apply initial target power or toggle
             bool ok;
             if (r->is_toggle) {
@@ -197,11 +204,13 @@ bool edge_routine_engine_start_routine(const char* routine_id)
             } else {
                 ok = relay_manager_set_power(r->channel_index, r->target_power, "EDGE_ROUTINE");
             }
-            if (!ok) return false;
+            if (!ok) {
+                r->remaining_sec = 0;
+                r->runtime_state = ROUTINE_STATE_IDLE;
+                return false;
+            }
 
             if (r->duration_sec > 0) {
-                r->remaining_sec = r->duration_sec;
-                r->runtime_state = ROUTINE_STATE_RUNNING;
                 ESP_LOGI(TAG, "Started routine [%s] on CH%d for %u seconds (toggle=%d)",
                          r->name, r->channel_index, (unsigned int)r->duration_sec, r->is_toggle);
             } else {

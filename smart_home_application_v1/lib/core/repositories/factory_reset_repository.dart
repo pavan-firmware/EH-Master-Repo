@@ -1,4 +1,6 @@
+import '../../app/home_controller.dart';
 import '../models/factory_reset_models.dart';
+import '../models/routine_models.dart';
 
 abstract interface class FactoryResetRepository {
   Future<FactoryResetImpact> getImpact();
@@ -10,27 +12,35 @@ class PreviewFactoryResetRepository implements FactoryResetRepository {
   const PreviewFactoryResetRepository();
 
   @override
-  Future<FactoryResetImpact> getImpact() async => const FactoryResetImpact(
-    deviceId: 'SH-8EF248',
-    deviceName: 'Smart Mist Maker',
-    deviceModel: 'SH-8EF248',
-    roomName: 'Plant Corner',
-    online: true,
-    routineCount: 2,
-    routineNames: ['Plant care', 'Evening mist refresh'],
-    activityPreserved: true,
-    willHappen: [
-      'The device\'s home configuration will be removed.',
-      'Wi-Fi and network settings will be cleared.',
-      'The device will return to setup mode.',
-      'You will need to set up the device again.',
-    ],
-    willNotHappen: [
-      'Your EH account will not be deleted.',
-      'Other devices and homes will not be affected.',
-      'Activity history will remain unless you delete it.',
-    ],
-  );
+  Future<FactoryResetImpact> getImpact() async {
+    final ctrl = HomeController.instance;
+    final homeName = ctrl?.activeSpaceName ?? 'Current Home';
+    final primary = ctrl?.connectedDeviceSummary ??
+        (ctrl?.devices.isNotEmpty == true ? ctrl!.devices.first : null);
+    final routines = PreviewRoutineRepository.liveRoutines;
+
+    return FactoryResetImpact(
+      deviceId: primary?.id ?? (ctrl?.activeHomeId ?? 'home_main'),
+      deviceName: primary?.name ?? homeName,
+      deviceModel: primary?.model ?? 'EH-HOME-HUB',
+      roomName: primary?.roomName.isNotEmpty == true ? primary!.roomName : 'All Rooms',
+      online: primary?.online ?? true,
+      routineCount: routines.length,
+      routineNames: routines.map((r) => r.name).take(3).toList(),
+      activityPreserved: true,
+      willHappen: const [
+        'The device\'s home configuration will be removed.',
+        'Wi-Fi and network settings will be cleared.',
+        'The device will return to setup mode.',
+        'You will need to set up the device again.',
+      ],
+      willNotHappen: const [
+        'Your EH account will not be deleted.',
+        'Other devices and homes will not be affected.',
+        'Activity history will remain unless you delete it.',
+      ],
+    );
+  }
 
   @override
   Future<FactoryResetResult> executeReset({

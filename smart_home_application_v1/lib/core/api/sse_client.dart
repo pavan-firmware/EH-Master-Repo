@@ -20,7 +20,7 @@ class SseClient {
   String _lastEventId = '';
   bool _isConnecting = false;
   bool _isConnected = false;
-  int _retryDelayMs = 1000;
+  int _retryDelayMs = 5000;
   Timer? _reconnectTimer;
 
   String? _currentHomeId;
@@ -48,7 +48,8 @@ class SseClient {
         ? await _apiClient.getAccessToken!()
         : null;
     if (token == null) {
-      _scheduleReconnect();
+      _isConnected = false;
+      _isConnecting = false;
       return;
     }
 
@@ -70,7 +71,7 @@ class SseClient {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         _isConnected = true;
         _isConnecting = false;
-        _retryDelayMs = 1000; // Reset backoff
+        _retryDelayMs = 5000; // Reset backoff
 
         String buffer = '';
         _subscription = response.stream
@@ -104,6 +105,9 @@ class SseClient {
         } else {
           _handleDisconnect(fatal: true);
         }
+      } else if (response.statusCode == 403 || response.statusCode == 404) {
+        // Mismatched home or missing stream route: do not retry endlessly
+        _handleDisconnect(fatal: true);
       } else {
         _handleDisconnect();
       }
@@ -157,7 +161,7 @@ class SseClient {
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(Duration(milliseconds: _retryDelayMs), () {
-      _retryDelayMs = (_retryDelayMs * 2).clamp(1000, 30000);
+      _retryDelayMs = (_retryDelayMs * 2).clamp(5000, 60000);
       _connectInternal();
     });
   }

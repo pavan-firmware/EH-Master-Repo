@@ -7,7 +7,6 @@ import '../../../core/config/app_config.dart';
 import '../../../core/models/connection_models.dart';
 import '../../../core/models/device_models.dart';
 import '../../../core/models/health_models.dart';
-import '../../../core/models/room_models.dart';
 import '../../../core/models/settings_models.dart';
 import '../../../core/models/update_models.dart';
 import '../../../core/repositories/connection_repository.dart';
@@ -120,7 +119,11 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
   }
 
   Future<(HomeSettingsData, _SystemSummary)> _fetchData() async {
+    final preferFastOffline = widget.homeController != null && !widget.homeController!.isCloudReachable;
     try {
+      if (preferFastOffline) {
+        return await _buildOfflineSettingsSnapshot();
+      }
       final homeFuture = widget.repository
           .getHome()
           .timeout(const Duration(seconds: 3));
@@ -135,48 +138,86 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
       final system = results[1] as _SystemSummary;
       _cachedData = (home, system);
       return (home, system);
-    } catch (_) {
+    } catch (e) {
       if (_cachedData != null) return _cachedData!;
-      // Graceful offline fallback in Local Wi-Fi Mode: Never lock user out of local settings
-      if (widget.homeController?.isLocalMode == true) {
+      final msg = e.toString().toLowerCase();
+      final isNetworkError = msg.contains('socketexception') ||
+          msg.contains('unreachable') ||
+          msg.contains('timed out') ||
+          msg.contains('connection refused') ||
+          (e is ApiException && e.statusCode == 0);
+      if (isNetworkError || (widget.homeController != null && !widget.homeController!.isCloudReachable)) {
         try {
-          var fallbackHome = await const PreviewSettingsRepository().getHome();
-          if (widget.homeController?.activeSpaceName != null &&
-              widget.homeController!.activeSpaceName.isNotEmpty) {
-            fallbackHome = fallbackHome.copyWith(name: widget.homeController!.activeSpaceName);
-          }
-          final conn = await const PreviewHomeConnectionRepository().getOverview(liveState: HomeConnectionState.offline);
-          final upd = await const PreviewUpdateRepository().getSummary();
-          final hlth = await const PreviewDeviceHealthRepository().getSummary();
-          final fallbackSystem = _SystemSummary(connection: conn, update: upd, health: hlth);
-          _cachedData = (fallbackHome, fallbackSystem);
-          return (fallbackHome, fallbackSystem);
+          return await _buildOfflineSettingsSnapshot();
         } catch (_) {}
       }
       rethrow;
     }
   }
 
-  Future<_SystemSummary> _loadSystemSummary() async {
+  Future<(HomeSettingsData, _SystemSummary)> _buildOfflineSettingsSnapshot() async {
+    var fallbackHome = await const PreviewSettingsRepository().getHome();
+    if (widget.homeController?.activeSpaceName != null &&
+        widget.homeController!.activeSpaceName.isNotEmpty) {
+      fallbackHome = fallbackHome.copyWith(name: widget.homeController!.activeSpaceName);
+    }
+    final conn = await _loadConnectionOverviewSafe();
+    final upd = await _loadUpdateSummarySafe();
+    final hlth = await _loadHealthSummarySafe();
+    final fallbackSystem = _SystemSummary(connection: conn, update: upd, health: hlth);
+    _cachedData = (fallbackHome, fallbackSystem);
+    return (fallbackHome, fallbackSystem);
+  }
+
+  Future<HomeConnectionOverview> _loadConnectionOverviewSafe() async {
     final authoritative = widget.homeController?.authoritativeConnectionState;
     final effectiveState = authoritative != null
         ? (authoritative.isOnline ? HomeConnectionState.connected : HomeConnectionState.offline)
         : (widget.homeController?.connectionState ?? widget.connectionState);
-    final connection = await widget.connectionRepository
-        .getOverview(
-          liveState: effectiveState,
-        )
-        .timeout(const Duration(seconds: 3));
-    final update = await widget.updateRepository
-        .getSummary()
-        .timeout(const Duration(seconds: 3));
-    final health = await widget.healthRepository
-        .getSummary()
-        .timeout(const Duration(seconds: 3));
+    final timeout = (widget.homeController != null && !widget.homeController!.isCloudReachable)
+        ? const Duration(milliseconds: 500)
+        : const Duration(seconds: 3);
+    try {
+      return await widget.connectionRepository
+          .getOverview(liveState: effectiveState)
+          .timeout(timeout);
+    } catch (_) {
+      return await const PreviewHomeConnectionRepository().getOverview(liveState: effectiveState);
+    }
+  }
+
+  Future<UpdateSummary> _loadUpdateSummarySafe() async {
+    final timeout = (widget.homeController != null && !widget.homeController!.isCloudReachable)
+        ? const Duration(milliseconds: 500)
+        : const Duration(seconds: 3);
+    try {
+      return await widget.updateRepository.getSummary().timeout(timeout);
+    } catch (_) {
+      return await const PreviewUpdateRepository().getSummary();
+    }
+  }
+
+  Future<HomeHealthSummary> _loadHealthSummarySafe() async {
+    final timeout = (widget.homeController != null && !widget.homeController!.isCloudReachable)
+        ? const Duration(milliseconds: 500)
+        : const Duration(seconds: 3);
+    try {
+      return await widget.healthRepository.getSummary().timeout(timeout);
+    } catch (_) {
+      return await const PreviewDeviceHealthRepository().getSummary();
+    }
+  }
+
+  Future<_SystemSummary> _loadSystemSummary() async {
+    final results = await Future.wait([
+      _loadConnectionOverviewSafe(),
+      _loadUpdateSummarySafe(),
+      _loadHealthSummarySafe(),
+    ]);
     return _SystemSummary(
-      connection: connection,
-      update: update,
-      health: health,
+      connection: results[0] as HomeConnectionOverview,
+      update: results[1] as UpdateSummary,
+      health: results[2] as HomeHealthSummary,
     );
   }
 
@@ -350,13 +391,10 @@ class _SettingsContent extends StatelessWidget {
     final tokens = context.ehColors;
     final roomCount = homeController != null
         ? homeController!.rooms.length
-        : RoomCatalog.preview.length;
+        : 0;
     final deviceCount = homeController != null
         ? homeController!.devices.length
-        : RoomCatalog.preview.fold<int>(
-            0,
-            (sum, room) => sum + room.deviceCount,
-          );
+        : 0;
     final connection = _RootConnectionStatus.fromOverview(
       system.connection,
       tokens,

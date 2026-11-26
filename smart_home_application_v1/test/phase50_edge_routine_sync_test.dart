@@ -123,12 +123,14 @@ void main() {
     });
 
     test('4. isRoutineCurrentlyActive returns true during pulse when channel is ON and false once channel turns OFF', () {
+      // Shift schedule 1m earlier within a 2m pulse so test never lands inside the 10s settling grace window.
       final now = DateTime.now();
-      final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final schedTime = now.subtract(const Duration(minutes: 1));
+      final timeStr = '${schedTime.hour.toString().padLeft(2, '0')}:${schedTime.minute.toString().padLeft(2, '0')}';
       const dayMap = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'};
-      final currentDay = dayMap[now.weekday]!;
+      final currentDay = dayMap[schedTime.weekday]!;
 
-      final routine1MinAutoOff = Routine(
+      final routine2MinAutoOff = Routine(
         id: 'rt_switch2_auto_off',
         name: 'Switch 2 Auto Off',
         icon: 'timer',
@@ -147,19 +149,19 @@ void main() {
           RoutineAction(
             kind: RoutineActionKind.switchChannel,
             title: 'Switch 2',
-            detail: 'Turn On (1m timer)',
+            detail: 'Turn On (2m timer)',
             deviceId: 'test_dev_1',
             channelIndex: 2,
             targetState: true,
-            pulseDurationMinutes: 1,
+            pulseDurationMinutes: 2,
           ),
         ],
         schedule: RoutineSchedule(label: timeStr, timezone: 'IST'),
         involvedDevices: const [],
         lastExecution: null,
         nextRun: 'Scheduled',
-        createdAt: now,
-        updatedAt: now,
+        createdAt: schedTime,
+        updatedAt: schedTime,
         summary: 'Test summary',
       );
 
@@ -168,7 +170,7 @@ void main() {
       // When channel is ON during active pulse -> active
       expect(
         service.isRoutineCurrentlyActive(
-          routine1MinAutoOff,
+          routine2MinAutoOff,
           targetChannel: 2,
           currentPower: true,
         ),
@@ -178,7 +180,7 @@ void main() {
       // When routine finishes and channel is OFF -> must NOT be active!
       expect(
         service.isRoutineCurrentlyActive(
-          routine1MinAutoOff,
+          routine2MinAutoOff,
           targetChannel: 2,
           currentPower: false,
         ),
@@ -188,7 +190,7 @@ void main() {
       // For another channel (e.g. channel 1) -> must NOT be active
       expect(
         service.isRoutineCurrentlyActive(
-          routine1MinAutoOff,
+          routine2MinAutoOff,
           targetChannel: 1,
           currentPower: true,
         ),
@@ -196,49 +198,58 @@ void main() {
       );
     });
 
-    test('5. isRoutineCurrentlyActive returns false for one-shot actions without auto-off timer', () {
+    test('5. isRoutineCurrentlyActive shows warning only within 60s window for non-timed actions and clears afterwards', () {
       final now = DateTime.now();
-      final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final activeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final expiredTime = now.subtract(const Duration(minutes: 2));
+      final expiredStr = '${expiredTime.hour.toString().padLeft(2, '0')}:${expiredTime.minute.toString().padLeft(2, '0')}';
 
-      final oneShotRoutine = Routine(
-        id: 'rt_oneshot',
-        name: 'One-shot Toggle',
-        icon: 'toggle_on',
-        isFavorite: false,
-        enabled: true,
-        availability: RoutineAvailability.available,
-        trigger: RoutineTrigger(
-          kind: RoutineTriggerKind.timeSchedule,
-          title: 'Schedule: $timeStr',
-          detail: timeStr,
-          timeOfDay: timeStr,
-          days: const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-        ),
-        conditions: const [],
-        actions: const [
-          RoutineAction(
-            kind: RoutineActionKind.switchChannel,
-            title: 'Fan',
-            detail: 'Turn On',
-            deviceId: 'test_dev_1',
-            channelIndex: 1,
-            targetState: true,
-            pulseDurationMinutes: null, // No pulse duration
+      Routine buildNoTimerRoutine(String timeStr) {
+        return Routine(
+          id: 'rt_oneshot',
+          name: 'One-shot Toggle',
+          icon: 'toggle_on',
+          isFavorite: false,
+          enabled: true,
+          availability: RoutineAvailability.available,
+          trigger: RoutineTrigger(
+            kind: RoutineTriggerKind.timeSchedule,
+            title: 'Schedule: $timeStr',
+            detail: timeStr,
+            timeOfDay: timeStr,
+            days: const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
           ),
-        ],
-        schedule: RoutineSchedule(label: timeStr, timezone: 'IST'),
-        involvedDevices: const [],
-        lastExecution: null,
-        nextRun: 'Scheduled',
-        createdAt: now,
-        updatedAt: now,
-        summary: 'Test summary',
-      );
+          conditions: const [],
+          actions: const [
+            RoutineAction(
+              kind: RoutineActionKind.switchChannel,
+              title: 'Fan',
+              detail: 'Turn On',
+              deviceId: 'test_dev_1',
+              channelIndex: 1,
+              targetState: true,
+              pulseDurationMinutes: null,
+            ),
+          ],
+          schedule: RoutineSchedule(label: timeStr, timezone: 'IST'),
+          involvedDevices: const [],
+          lastExecution: null,
+          nextRun: 'Scheduled',
+          createdAt: now,
+          updatedAt: now,
+          summary: 'Test summary',
+        );
+      }
 
       final service = EdgeRoutineSyncService.instance;
-      // Momentary command without auto-off timer must NOT lock the UI
+      // Within the 60s active execution window, ON/OFF/Toggle routines show the warning overlay
       expect(
-        service.isRoutineCurrentlyActive(oneShotRoutine, targetChannel: 1, currentPower: true),
+        service.isRoutineCurrentlyActive(buildNoTimerRoutine(activeStr), targetChannel: 1, currentPower: true),
+        isTrue,
+      );
+      // Outside the 60s window without a pulse timer, UI warning clears automatically
+      expect(
+        service.isRoutineCurrentlyActive(buildNoTimerRoutine(expiredStr), targetChannel: 1, currentPower: true),
         isFalse,
       );
     });

@@ -13,7 +13,11 @@ import 'control_group_editor_sheet.dart';
 import 'other_spaces_devices_sheet.dart';
 import 'space_management_sheet.dart';
 import '../../automations/presentation/active_routine_guard.dart';
+import '../../automations/presentation/automations_page.dart' show RoutineDetailPage;
 import '../../../core/models/routine_models.dart';
+import '../../../core/repositories/cloud_home_repository.dart';
+import '../../../core/repositories/cloud_routine_repository.dart';
+import '../../../core/services/edge_routine_sync_service.dart';
 import '../../hub/data/hub_repository.dart';
 
 class HomePage extends StatelessWidget {
@@ -504,21 +508,23 @@ class _HomeHeader extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: tokens.borderSubtle),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              activeSpaceName.toLowerCase().contains('office')
-                                  ? Icons.business_rounded
-                                  : activeSpaceName.toLowerCase().contains('shop')
-                                      ? Icons.storefront_rounded
-                                      : Icons.home_rounded,
-                              color: tokens.bluePrimary,
-                              size: 15,
-                            ),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                activeSpaceName.toLowerCase().contains('office')
+                                    ? Icons.business_rounded
+                                    : activeSpaceName.toLowerCase().contains('shop')
+                                        ? Icons.storefront_rounded
+                                        : Icons.home_rounded,
+                                color: tokens.bluePrimary,
+                                size: 15,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
                                 activeSpaceName,
                                 style: TextStyle(
                                   color: tokens.textPrimary,
@@ -527,14 +533,14 @@ class _HomeHeader extends StatelessWidget {
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            const SizedBox(width: 2),
-                            Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              color: tokens.textSecondary,
-                              size: 14,
-                            ),
-                          ],
+                              const SizedBox(width: 2),
+                              Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: tokens.textSecondary,
+                                size: 14,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -561,20 +567,27 @@ class _HomeHeader extends StatelessWidget {
                           builder: (context) {
                           final activeRouting = homeController?.routingMode ??
                               (isLocalMode ? ConnectionRoutingMode.localOnly : ConnectionRoutingMode.auto);
-                          final isCloudMode = activeRouting == ConnectionRoutingMode.cloudOnly ||
-                              (activeRouting == ConnectionRoutingMode.auto && !isLocalMode && isCloudReachable);
-                          final isLanMode = activeRouting == ConnectionRoutingMode.localOnly ||
-                              (activeRouting == ConnectionRoutingMode.auto && isLocalMode);
-
                           final isHubActive = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+                          final hasVerifiedLan = homeController == null
+                              ? isLocalMode
+                              : (homeController!.devices.any((d) => LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)) ||
+                                  LocalLanDeviceService.instance.isAnyDeviceReachableOnLan());
+                          final isHubMode = isHubActive && activeRouting != ConnectionRoutingMode.cloudOnly;
+                          final isLanMode = !isHubMode &&
+                              ((activeRouting == ConnectionRoutingMode.auto && (isLocalMode || hasVerifiedLan)) ||
+                                  (activeRouting == ConnectionRoutingMode.localOnly && hasVerifiedLan));
+                          final isCloudMode = !isHubMode &&
+                              !isLanMode &&
+                              isCloudReachable &&
+                              activeRouting != ConnectionRoutingMode.localOnly;
 
                           final Color badgeColor;
                           final String badgeText;
                           final IconData badgeIcon;
 
-                          if (isHubActive) {
+                          if (isHubMode) {
                             badgeColor = tokens.success;
-                            badgeText = 'Hub Gateway (3ms)';
+                            badgeText = 'Hub';
                             badgeIcon = Icons.hub_rounded;
                           } else if (isLanMode) {
                             badgeColor = tokens.success;
@@ -992,6 +1005,62 @@ class _QuickControlsSection extends StatelessWidget {
       );
     }
 
+    final effectiveCtrl = homeController ?? HomeController.instance;
+    (String devId, int chIdx) parseTarget(String id) {
+      if (id.contains('_ch')) {
+        final parts = id.split('_ch');
+        return (parts[0], int.tryParse(parts[1]) ?? 1);
+      }
+      if (id.contains(':')) {
+        final parts = id.split(':');
+        return (parts[0], int.tryParse(parts[1]) ?? 1);
+      }
+      final lastIdx = id.lastIndexOf('_');
+      if (lastIdx > 0) {
+        final ch = int.tryParse(id.substring(lastIdx + 1));
+        if (ch != null) return (id.substring(0, lastIdx), ch);
+      }
+      if (id == 'main_light' && effectiveCtrl != null && effectiveCtrl.devices.isNotEmpty) {
+        return (effectiveCtrl.devices.first.id, 1);
+      }
+      return (id, 1);
+    }
+
+    bool isCtrlOnline(QuickControlPreview c) {
+      final (devId, chIdx) = parseTarget(c.id);
+      if (effectiveCtrl != null) {
+        if (effectiveCtrl.getActiveRoutineForChannel(devId, chIdx) != null) {
+          return true;
+        }
+        final matches = effectiveCtrl.devices.where(
+          (d) => d.id == devId || d.id.toLowerCase() == devId.toLowerCase(),
+        );
+        if (matches.isNotEmpty) {
+          return matches.first.online || LocalLanDeviceService.instance.isDeviceReachableOnLan(matches.first.id);
+        }
+        if (LocalLanDeviceService.instance.isDeviceReachableOnLan(devId)) return true;
+      }
+      return c.isAvailable;
+    }
+
+    final sortedGroups = List<GroupControlItem>.from(groupControls)..sort((a, b) {
+      final aAvail = controls.any((c) => a.targetControlIds.contains(c.id) && isCtrlOnline(c));
+      final bAvail = controls.any((c) => b.targetControlIds.contains(c.id) && isCtrlOnline(c));
+      if (aAvail != bAvail) return aAvail ? -1 : 1;
+      final labelCmp = a.label.compareTo(b.label);
+      if (labelCmp != 0) return labelCmp;
+      return a.id.compareTo(b.id);
+    });
+
+    final sortedControls = List<QuickControlPreview>.from(controls)..sort((a, b) {
+      final aOn = isCtrlOnline(a);
+      final bOn = isCtrlOnline(b);
+      if (aOn != bOn) return aOn ? -1 : 1;
+      final roomCmp = (a.roomName ?? '').compareTo(b.roomName ?? '');
+      if (roomCmp != 0) return roomCmp;
+      return a.id.compareTo(b.id);
+    });
+
     return SizedBox(
       height: 154,
       child: ListView(
@@ -999,9 +1068,31 @@ class _QuickControlsSection extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         children: [
           // 1. Group controls (Neat vertical stack: Room/Space -> Switch -> Label -> Status)
-          ...groupControls.map((group) {
+          ...sortedGroups.map((group) {
+            Routine? groupActiveRoutine;
+            if (effectiveCtrl != null) {
+              for (final tid in group.targetControlIds) {
+                final (tDevId, tCh) = parseTarget(tid);
+                groupActiveRoutine = effectiveCtrl.getActiveRoutineForChannel(tDevId, tCh);
+                if (groupActiveRoutine != null) break;
+              }
+            }
+            if (groupActiveRoutine != null) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: SizedBox(
+                  width: 158,
+                  height: 154,
+                  child: RoutineControlWarningOverlay(
+                    routine: groupActiveRoutine,
+                    controlTitle: group.label,
+                    isFullWidth: false,
+                  ),
+                ),
+              );
+            }
             final isOn = group.isOn;
-            final isGroupAvailable = controls.any((c) => group.targetControlIds.contains(c.id) && c.isAvailable);
+            final isGroupAvailable = controls.any((c) => group.targetControlIds.contains(c.id) && isCtrlOnline(c));
             return Padding(
               padding: const EdgeInsets.only(right: 10),
               child: InkWell(
@@ -1132,23 +1223,15 @@ class _QuickControlsSection extends StatelessWidget {
           }),
 
           // 2. Specialized Single Controls (Room -> Switch -> Label -> Status)
-          ...controls.map((ctrl) {
-            String devId = ctrl.id;
-            int chIdx = 1;
-            if (ctrl.id.contains('_ch')) {
-              final parts = ctrl.id.split('_ch');
-              devId = parts[0];
-              chIdx = int.tryParse(parts[1]) ?? 1;
-            }
-            final effectiveCtrl = homeController ?? HomeController.instance;
+          ...sortedControls.map((ctrl) {
+            final (devId, chIdx) = parseTarget(ctrl.id);
             final activeRoutine = effectiveCtrl?.getActiveRoutineForChannel(devId, chIdx);
 
             if (activeRoutine != null) {
-              final isFan = ctrl.kind == QuickControlKind.fan;
               return Padding(
                 padding: const EdgeInsets.only(right: 10),
                 child: SizedBox(
-                  width: isFan ? 250 : 158,
+                  width: 158,
                   height: 154,
                   child: RoutineControlWarningOverlay(
                     routine: activeRoutine,
@@ -1703,7 +1786,53 @@ class _FavouriteDevicesStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final favList = controls.where((c) => favouriteIds.contains(c.id)).toList();
+    final effectiveCtrl = HomeController.instance;
+    (String devId, int chIdx) parseFavTarget(String id) {
+      if (id.contains('_ch')) {
+        final parts = id.split('_ch');
+        return (parts[0], int.tryParse(parts[1]) ?? 1);
+      }
+      if (id.contains(':')) {
+        final parts = id.split(':');
+        return (parts[0], int.tryParse(parts[1]) ?? 1);
+      }
+      final lastIdx = id.lastIndexOf('_');
+      if (lastIdx > 0) {
+        final ch = int.tryParse(id.substring(lastIdx + 1));
+        if (ch != null) return (id.substring(0, lastIdx), ch);
+      }
+      if (id == 'main_light' && effectiveCtrl != null && effectiveCtrl.devices.isNotEmpty) {
+        return (effectiveCtrl.devices.first.id, 1);
+      }
+      return (id, 1);
+    }
+
+    bool isFavOnline(QuickControlPreview c) {
+      final (devId, chIdx) = parseFavTarget(c.id);
+      if (effectiveCtrl != null) {
+        if (effectiveCtrl.getActiveRoutineForChannel(devId, chIdx) != null) {
+          return true;
+        }
+        final matches = effectiveCtrl.devices.where(
+          (d) => d.id == devId || d.id.toLowerCase() == devId.toLowerCase(),
+        );
+        if (matches.isNotEmpty) {
+          return matches.first.online || LocalLanDeviceService.instance.isDeviceReachableOnLan(matches.first.id);
+        }
+        if (LocalLanDeviceService.instance.isDeviceReachableOnLan(devId)) return true;
+      }
+      return c.isAvailable;
+    }
+
+    final favList = controls.where((c) => favouriteIds.contains(c.id)).toList()
+      ..sort((a, b) {
+        final aOn = isFavOnline(a);
+        final bOn = isFavOnline(b);
+        if (aOn != bOn) return aOn ? -1 : 1;
+        final roomCmp = (a.roomName ?? '').compareTo(b.roomName ?? '');
+        if (roomCmp != 0) return roomCmp;
+        return a.id.compareTo(b.id);
+      });
 
     if (favList.isEmpty) {
       return Container(
@@ -1724,15 +1853,31 @@ class _FavouriteDevicesStrip extends StatelessWidget {
     }
 
     return SizedBox(
-      height: 120,
+      height: 132,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         itemCount: favList.length,
         itemBuilder: (context, index) {
           final item = favList[index];
-          final isAvailable = item.isAvailable;
-          final rawIsOn = item.isOn;
+          final (devId, chIdx) = parseFavTarget(item.id);
+          final activeRoutine = effectiveCtrl?.getActiveRoutineForChannel(devId, chIdx);
+          if (activeRoutine != null) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: SizedBox(
+                width: 158,
+                child: RoutineControlWarningOverlay(
+                  routine: activeRoutine,
+                  controlTitle: item.label,
+                  isFullWidth: false,
+                ),
+              ),
+            );
+          }
+
+          final isAvailable = isFavOnline(item);
+          final rawIsOn = effectiveCtrl?.getDeviceChannelPower(devId, chIdx) ?? item.isOn;
           final isOn = isAvailable && rawIsOn;
           final isLight = item.kind == QuickControlKind.light;
           final isFan = item.kind == QuickControlKind.fan;
@@ -1889,7 +2034,37 @@ class _UpcomingRoutinesStrip extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: InkWell(
-            onTap: onTapRoutine,
+            onTap: () async {
+              final ctrl = HomeController.instance;
+              final RoutineRepository repo = (ctrl != null && ctrl.repository is CloudHomeRepository)
+                  ? CloudRoutineRepository(
+                      (ctrl.repository as CloudHomeRepository).client,
+                      activeHomeId: ctrl.activeHomeId,
+                    )
+                  : const PreviewRoutineRepository();
+              final allRoutines = await const PreviewRoutineRepository().getRoutines();
+              final targetRoutine = allRoutines.cast<Routine?>().firstWhere(
+                (rt) => rt != null && (
+                  rt.id == r.id ||
+                  rt.id.toLowerCase() == r.id.toLowerCase() ||
+                  rt.name.trim().toLowerCase() == r.title.trim().toLowerCase() ||
+                  EdgeRoutineSyncService.extractCoreId(rt.id) == EdgeRoutineSyncService.extractCoreId(r.id)
+                ),
+                orElse: () => null,
+              );
+              if (targetRoutine != null && context.mounted) {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => RoutineDetailPage(
+                      routine: targetRoutine,
+                      repository: repo,
+                    ),
+                  ),
+                );
+              } else {
+                onTapRoutine();
+              }
+            },
             borderRadius: BorderRadius.circular(16),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1989,6 +2164,24 @@ class _UpcomingRoutinesStrip extends StatelessWidget {
                                   color: tokens.textSecondary,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                            if (!r.isAvailable) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: tokens.warning.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Offline',
+                                  style: TextStyle(
+                                    color: tokens.warning,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                             ],
@@ -3363,10 +3556,21 @@ class _AdaptiveQuickControlCard extends StatelessWidget {
       final parts = control.id.split('_ch');
       devId = parts[0];
       chIdx = int.tryParse(parts[1]) ?? 1;
+    } else if (control.id.contains(':')) {
+      final parts = control.id.split(':');
+      devId = parts[0];
+      chIdx = int.tryParse(parts[1]) ?? 1;
     } else {
-      final ctrl = HomeController.instance;
-      if (ctrl != null && ctrl.devices.isNotEmpty) {
-        devId = ctrl.devices.first.id;
+      final lastIdx = control.id.lastIndexOf('_');
+      final parsedCh = lastIdx > 0 ? int.tryParse(control.id.substring(lastIdx + 1)) : null;
+      if (parsedCh != null) {
+        devId = control.id.substring(0, lastIdx);
+        chIdx = parsedCh;
+      } else if (control.id == 'main_light') {
+        final ctrl = HomeController.instance;
+        if (ctrl != null && ctrl.devices.isNotEmpty) {
+          devId = ctrl.devices.first.id;
+        }
       }
     }
     final ctrl = HomeController.instance;

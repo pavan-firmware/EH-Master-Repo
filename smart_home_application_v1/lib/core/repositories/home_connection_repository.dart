@@ -170,17 +170,6 @@ class RealHomeConnectionRepository implements HomeConnectionRepository {
 class PreviewHomeConnectionRepository implements HomeConnectionRepository {
   const PreviewHomeConnectionRepository();
 
-  static const _device = ConnectedDeviceSummary(
-    id: 'SH-8EF248',
-    name: 'Smart Mist Maker',
-    model: 'SH-MIST-V1',
-    firmware: '1.0.0',
-    connectedVia: 'Wi-Fi (2.4 GHz)',
-    signalLabel: 'Strong',
-    roomName: 'Plant Corner',
-    online: true,
-  );
-
   static const _connectedSteps = [
     SetupStep(
       index: 1,
@@ -218,11 +207,20 @@ class PreviewHomeConnectionRepository implements HomeConnectionRepository {
   Future<HomeConnectionOverview> getOverview({
     HomeConnectionState? liveState,
   }) async {
-    final state = liveState ?? HomeConnectionState.connected;
-    if (state == HomeConnectionState.connected) {
+    final ctrl = HomeController.instance;
+    final realDevice = ctrl?.connectedDeviceSummary ??
+        (ctrl?.devices.isNotEmpty == true ? ctrl!.devices.first : null);
+    final state = liveState ??
+        (realDevice != null
+            ? (realDevice.online
+                ? HomeConnectionState.connected
+                : HomeConnectionState.offline)
+            : HomeConnectionState.offline);
+
+    if (state == HomeConnectionState.connected && realDevice != null) {
       return HomeConnectionOverview(
         overall: HomeConnectionState.connected,
-        title: 'Your home is connected',
+        title: '${realDevice.name} is connected',
         subtitle: 'All systems are working normally.',
         statusLabel: 'Connected',
         layers: const [
@@ -240,9 +238,11 @@ class PreviewHomeConnectionRepository implements HomeConnectionRepository {
           ),
         ],
         setupSteps: _connectedSteps,
-        primaryDevice: _device,
-        wifiSsid: 'Home Wi-Fi',
-        lastChecked: DateTime(2026, 8, 15, 9, 40),
+        primaryDevice: realDevice,
+        wifiSsid: realDevice.connectedVia.isNotEmpty
+            ? realDevice.connectedVia
+            : 'Home Wi-Fi',
+        lastChecked: DateTime.now(),
       );
     }
     return HomeConnectionOverview(

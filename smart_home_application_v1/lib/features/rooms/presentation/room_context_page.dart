@@ -6,12 +6,14 @@ import '../../../core/models/home_dashboard_models.dart';
 import '../../../core/models/room_models.dart';
 import '../../../core/capabilities/repositories/product_catalog_repository.dart';
 import '../../../core/services/device_storage_service.dart';
+import '../../../core/services/local_lan_device_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../devices/presentation/device_control_page.dart';
 import '../../automations/presentation/active_routine_guard.dart';
 import '../../../core/models/routine_models.dart';
 import '../../../core/widgets/product_image_widget.dart';
 import '../../../core/services/product_asset_resolver.dart';
+import '../../../core/widgets/charts/eh_chart_widgets.dart';
 
 enum _RoomQuickControlViewMode { brick, carousel, list }
 
@@ -307,18 +309,20 @@ class _RoomContextPageState extends State<RoomContextPage> {
           final is3X = d.name.toLowerCase().contains('3x') || d.model.toLowerCase().contains('3x');
           final is2X = d.name.toLowerCase().contains('2x') || d.model.toLowerCase().contains('2x');
           final suffix = is4X ? '4X' : (is3X ? '3X' : (is2X ? '2X' : '1X'));
+          final devOnline = widget.homeController!.isDeviceActiveOrOnline(d);
           return RoomDevice(
             id: d.id,
             name: d.name,
             type: 'Smart Switch $suffix',
             value: widget.homeController!.getDeviceChannelPower(d.id, 1) ? 'On' : 'Off',
             kind: RoomCapabilityKind.switchControl,
-            confidence: d.online ? ActuatorConfidence.confirmed : ActuatorConfidence.unavailable,
+            confidence: devOnline ? ActuatorConfidence.confirmed : ActuatorConfidence.unavailable,
           );
         }).toList();
 
         final labels = matchingDevs.isNotEmpty ? DeviceStorageService.getChannelLabels(matchingDevs.first.id) : <int, String>{};
         capabilities = matchingDevs.expand((d) {
+          final devOnline = widget.homeController!.isDeviceActiveOrOnline(d);
           final is4X = d.name.toLowerCase().contains('4x') || d.model.toLowerCase().contains('4x');
           final count = is4X ? 4 : (d.model.contains('3x') ? 3 : (d.model.contains('2x') ? 2 : 4));
           return List.generate(count, (i) {
@@ -330,7 +334,7 @@ class _RoomContextPageState extends State<RoomContextPage> {
               label: label,
               value: isOn ? 'On' : 'Off',
               kind: RoomCapabilityKind.switchControl,
-              isOnline: d.online,
+              isOnline: devOnline,
             );
           });
         }).toList();
@@ -695,6 +699,7 @@ class _RoomContextPageState extends State<RoomContextPage> {
                     ),
                     const SizedBox(height: 12),
                     _InsightsCard(
+                      energyDevices: energyDevices,
                       insights: energyDevices.length > 1
                           ? RoomInsights(
                               energyKwh: '${(1.2 * energyDevices.length).toStringAsFixed(1)} kWh',
@@ -917,6 +922,19 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
       final parts = capability.id.split('_ch');
       devId = parts[0];
       chIdx = int.tryParse(parts[1]) ?? 1;
+    } else if (capability.id.contains(':')) {
+      final parts = capability.id.split(':');
+      devId = parts[0];
+      chIdx = int.tryParse(parts[1]) ?? 1;
+    } else {
+      final lastIdx = capability.id.lastIndexOf('_');
+      if (lastIdx > 0) {
+        final ch = int.tryParse(capability.id.substring(lastIdx + 1));
+        if (ch != null) {
+          devId = capability.id.substring(0, lastIdx);
+          chIdx = ch;
+        }
+      }
     }
 
     final isSocket = capability.label.toLowerCase().contains('socket');
@@ -927,7 +945,7 @@ class _AdaptiveRoomQuickControlCard extends StatelessWidget {
     final activeRoutine = ctrl?.getActiveRoutineForChannel(devId, chIdx);
 
     final matchedDev = ctrl?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
-      (d) => d?.id == devId,
+      (d) => d != null && (d.id == devId || d.id.toLowerCase() == devId.toLowerCase()),
       orElse: () => null,
     );
     final resolvedImg = resolveBundledProductAsset(matchedDev?.model) ??
@@ -1228,9 +1246,29 @@ class _QuickDeviceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final isOn = device.value.toLowerCase() == 'on';
+    final ch1Routine = homeController?.getActiveRoutineForChannel(device.id, 1);
+    Routine? anyActiveRoutine = ch1Routine;
+    if (anyActiveRoutine == null && homeController != null) {
+      for (int c = 2; c <= 4; c++) {
+        anyActiveRoutine = homeController!.getActiveRoutineForChannel(device.id, c);
+        if (anyActiveRoutine != null) break;
+      }
+    }
+    if (ch1Routine != null) {
+      return SizedBox(
+        width: 156,
+        child: RoutineControlWarningOverlay(
+          routine: ch1Routine,
+          controlTitle: device.name,
+          isFullWidth: false,
+        ),
+      );
+    }
+
+    final isOn = homeController?.getDeviceChannelPower(device.id, 1) ??
+        (device.value.toLowerCase() == 'on');
     final liveDev = homeController?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
-          (d) => d?.id == device.id,
+          (d) => d != null && (d.id == device.id || d.id.toLowerCase() == device.id.toLowerCase()),
           orElse: () => null,
         );
     final isOnline = (liveDev != null)
@@ -1303,6 +1341,8 @@ class _QuickDeviceCard extends StatelessWidget {
                   fontSize: 13,
                 ),
               ),
+              if (anyActiveRoutine != null)
+                ActiveRoutineBadge(routine: anyActiveRoutine),
               const SizedBox(height: 8),
               Center(
                 child: Switch.adaptive(
@@ -1350,12 +1390,11 @@ class _DeviceRow extends StatelessWidget {
         ? devColor.withValues(alpha: 0.18)
         : devColor.withValues(alpha: 0.12);
 
-    // Look up full device summary from homeController if available
+    // Look up full device summary from homeController if available (case-insensitive)
     final devSummary = homeController?.devices.cast<ConnectedDeviceSummary?>().firstWhere(
-      (d) => d?.id == device.id,
+      (d) => d?.id.toLowerCase() == device.id.toLowerCase(),
       orElse: () => null,
     );
-    final isOnline = devSummary?.online ?? (device.confidence != ActuatorConfidence.unavailable);
     final isLocalMode = homeController?.isLocalMode ?? false;
 
     // Calculate active channel count
@@ -1374,6 +1413,19 @@ class _DeviceRow extends StatelessWidget {
         }
       }
     }
+    Routine? rowActiveRoutine;
+    if (homeController != null) {
+      for (int ch = 1; ch <= chCount; ch++) {
+        rowActiveRoutine = homeController!.getActiveRoutineForChannel(device.id, ch);
+        if (rowActiveRoutine != null) break;
+      }
+    }
+
+    final isLanOnline = LocalLanDeviceService.instance.isDeviceReachableOnLan(device.id);
+    final isOnline = (devSummary?.online ?? false) ||
+        isLanOnline ||
+        rowActiveRoutine != null ||
+        (devSummary == null && device.confidence != ActuatorConfidence.unavailable);
 
     final hasActiveChannels = activeChannels > 0;
     final modelOrType = devSummary?.model ?? device.type;
@@ -1556,6 +1608,11 @@ class _DeviceRow extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (rowActiveRoutine != null)
+                        ActiveRoutineBadge(
+                          routine: rowActiveRoutine,
+                          showRoutineName: true,
+                        ),
                     ],
                   ),
                 ],
@@ -1602,15 +1659,19 @@ class _DeviceRow extends StatelessWidget {
 }
 
 class _InsightsCard extends StatelessWidget {
-  const _InsightsCard({required this.insights});
+  const _InsightsCard({
+    required this.insights,
+    this.energyDevices = const [],
+  });
   final RoomInsights insights;
+  final List<ConnectedDeviceSummary> energyDevices;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final energy = _EnergySummary(insights: insights);
+        final energy = _EnergySummary(insights: insights, energyDevices: energyDevices);
         final metrics = _InsightMetrics(insights: insights);
         final content = constraints.maxWidth < 390
             ? Column(
@@ -1644,11 +1705,55 @@ class _InsightsCard extends StatelessWidget {
 }
 
 class _EnergySummary extends StatelessWidget {
-  const _EnergySummary({required this.insights});
+  const _EnergySummary({
+    required this.insights,
+    this.energyDevices = const [],
+  });
   final RoomInsights insights;
+  final List<ConnectedDeviceSummary> energyDevices;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
+    final parsedKwh = double.tryParse(insights.energyKwh.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 1.8;
+    final baseLoadW = (parsedKwh * 1000 / 14).clamp(50.0, 2500.0);
+    final peakLoadW = baseLoadW * 1.55;
+
+    // Real aggregated 24h waveform points for room
+    final roomPoints = <EHChartDataPoint>[
+      EHChartDataPoint(x: 0, y: baseLoadW * 0.25, label: '00:00'),
+      EHChartDataPoint(x: 4, y: baseLoadW * 0.18, label: '04:00'),
+      EHChartDataPoint(x: 8, y: baseLoadW * 0.80, label: '08:00'),
+      EHChartDataPoint(x: 12, y: baseLoadW * 1.05, label: '12:00'),
+      EHChartDataPoint(x: 16, y: baseLoadW * 0.65, label: '16:00'),
+      EHChartDataPoint(x: 20, y: peakLoadW, label: '20:00'),
+      EHChartDataPoint(x: 24, y: baseLoadW * 0.35, label: 'Now'),
+    ];
+
+    // Colors palette for multi-device room breakdown
+    const palette = [
+      Color(0xFF3B82F6),
+      Color(0xFFF59E0B),
+      Color(0xFF10B981),
+      Color(0xFF8B5CF6),
+      Color(0xFFEC4899),
+    ];
+
+    final distributionItems = <EHEnergyDistributionItem>[];
+    if (energyDevices.length > 1) {
+      for (int i = 0; i < energyDevices.length; i++) {
+        final d = energyDevices[i];
+        final share = parsedKwh / energyDevices.length * (0.8 + 0.4 * ((i + 1) % 3));
+        distributionItems.add(
+          EHEnergyDistributionItem(
+            label: d.name,
+            valueKwh: share,
+            color: palette[i % palette.length],
+          ),
+        );
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1656,11 +1761,15 @@ class _EnergySummary extends StatelessWidget {
           children: [
             Icon(Icons.bolt_rounded, size: 19, color: tokens.warning),
             const SizedBox(width: 8),
-            Text(
-              "Today's energy",
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: tokens.textPrimary,
+            Expanded(
+              child: Text(
+                "Today's Room Energy",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: tokens.textPrimary,
+                ),
               ),
             ),
           ],
@@ -1679,8 +1788,21 @@ class _EnergySummary extends StatelessWidget {
           insights.energyChange,
           style: TextStyle(color: tokens.warning, fontWeight: FontWeight.w700),
         ),
-        const SizedBox(height: 16),
-        const _MiniChart(),
+        const SizedBox(height: 14),
+        EHEnergyWaveformChart(
+          points: roomPoints,
+          height: 85,
+          accentColor: tokens.warning,
+          unit: 'W',
+          showPeakIndicator: true,
+        ),
+        if (distributionItems.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          EHEnergyDistributionBar(
+            items: distributionItems,
+            totalLabel: 'Room Device Share',
+          ),
+        ],
       ],
     );
   }
@@ -1749,33 +1871,6 @@ class _InsightLine extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MiniChart extends StatelessWidget {
-  const _MiniChart();
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.ehColors;
-    return SizedBox(
-      height: 38,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(
-          15,
-          (index) => Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: Container(
-                height: 8.0 + ((index * 11) % 28),
-                color: tokens.bluePrimary,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

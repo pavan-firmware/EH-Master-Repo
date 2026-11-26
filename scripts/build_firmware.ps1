@@ -19,6 +19,8 @@ param(
     [ValidateSet("1x", "2x", "3x", "4x")]
     [string]$Variant = "4x",
 
+    [string]$Version = "1.1.0",
+
     [ValidateSet("release", "debug")]
     [string]$Profile = "release",
 
@@ -126,9 +128,10 @@ $env:EH_CHANNEL_COUNT = "$channelCount"
 $env:EH_PRODUCT_TYPE = $pType
 $env:EH_PRODUCT_VARIANT = $Variant.ToUpper()
 $env:EH_MODEL_NAME = $modelName
+$env:EH_FIRMWARE_VERSION = $Version
 
-Write-Host ">>> Executing idf.py build for $Target ($modelName / $Family)..." -ForegroundColor Cyan
-& $pythonExe $idfPy -D EH_FIRMWARE_FAMILY=$Family -D EH_CHANNEL_COUNT=$channelCount -D EH_PRODUCT_TYPE=$pType -D EH_PRODUCT_VARIANT=$($Variant.ToUpper()) -D EH_MODEL_NAME=$modelName build
+Write-Host ">>> Executing idf.py build for $Target ($modelName / $Family / v$Version)..." -ForegroundColor Cyan
+& $pythonExe $idfPy -D EH_FIRMWARE_FAMILY=$Family -D EH_CHANNEL_COUNT=$channelCount -D EH_PRODUCT_TYPE=$pType -D EH_PRODUCT_VARIANT=$($Variant.ToUpper()) -D EH_MODEL_NAME=$modelName -D EH_FIRMWARE_VERSION=$Version build
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Firmware build failed with exit code $LASTEXITCODE"

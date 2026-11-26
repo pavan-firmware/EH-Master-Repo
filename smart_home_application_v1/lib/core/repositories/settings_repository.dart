@@ -2,6 +2,7 @@ import '../capabilities/repositories/product_catalog_repository.dart';
 import '../models/settings_models.dart';
 import '../models/device_models.dart';
 import 'package:flutter/foundation.dart';
+import '../../app/home_controller.dart';
 import '../../features/onboarding/ble/ble_commissioning_channel.dart';
 import '../services/ble_preflight_service.dart';
 import '../services/product_asset_resolver.dart';
@@ -173,22 +174,28 @@ class PreviewSettingsRepository implements SettingsRepository {
       SettingsOperationResult.unsupported;
 
   @override
-  Future<HomeSettingsData> getHome() async => HomeSettingsData(
-    id: 'HN-7A28F91C',
-    name: 'Pavan’s home',
-    ownerName: 'Pavan',
-    location: 'Hyderabad, Telangana, India',
-    timezone: 'Asia/Kolkata',
-    createdAt: DateTime(2026, 8, 12),
-    preferences: const HomePreferences(
-      temperatureUnit: 'Celsius (°C)',
-      notificationsEnabled: true,
-      timeFormat: '12-hour',
-    ),
-    connectionAvailability: HomeConnectionAvailability.setupRequired,
-    connectionTransport: 'Bluetooth + Wi-Fi',
-    lastChecked: null,
-  );
+  Future<HomeSettingsData> getHome() async {
+    final ctrl = HomeController.instance;
+    final homeName = (ctrl != null && ctrl.activeSpaceName.isNotEmpty && ctrl.activeSpaceName != 'My Home')
+        ? ctrl.activeSpaceName
+        : 'Pavan’s home';
+    return HomeSettingsData(
+      id: ctrl?.activeHomeId ?? 'HN-7A28F91C',
+      name: homeName,
+      ownerName: 'Pavan',
+      location: 'Hyderabad, Telangana, India',
+      timezone: 'Asia/Kolkata',
+      createdAt: DateTime(2026, 8, 12),
+      preferences: const HomePreferences(
+        temperatureUnit: 'Celsius (°C)',
+        notificationsEnabled: true,
+        timeFormat: '12-hour',
+      ),
+      connectionAvailability: HomeConnectionAvailability.setupRequired,
+      connectionTransport: 'Bluetooth + Wi-Fi',
+      lastChecked: null,
+    );
+  }
 
   @override
   Future<List<HomeMember>> getMembers() async => const [

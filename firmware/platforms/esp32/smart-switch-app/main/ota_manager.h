@@ -62,9 +62,25 @@ bool ota_validate_manifest(const eh_ota_manifest_t* manifest, const char* curren
 void ota_manager_confirm_boot_valid(void);
 
 /**
- * Start OTA update with given signed manifest over HTTPS.
+ * Get current OTA progress percentage (0..100).
+ */
+int ota_manager_get_progress(void);
+
+/**
+ * Get last OTA error description (empty string if none).
+ */
+const char* ota_manager_get_last_error(void);
+
+/**
+ * Start OTA update with given manifest synchronously.
  */
 bool ota_manager_start_update(const eh_ota_manifest_t* manifest);
+
+/**
+ * Start OTA update asynchronously in a dedicated FreeRTOS task (8KB stack).
+ * Safe to invoke from HTTP or MQTT callbacks without blocking.
+ */
+bool ota_manager_start_update_async(const eh_ota_manifest_t* manifest);
 
 #ifdef __cplusplus
 }

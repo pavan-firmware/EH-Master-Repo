@@ -17,6 +17,11 @@ import '../../../core/services/edge_routine_sync_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/carousel_page_indicator.dart';
 import '../../hub/data/hub_repository.dart';
+import '../../hub/domain/models/hub_models.dart';
+import '../../hub/presentation/hub_management_page.dart';
+import '../../../core/services/local_lan_device_service.dart';
+import '../../../core/api/api_client.dart';
+import '../../../core/config/app_config.dart';
 
 class AutomationsPage extends StatefulWidget {
   const AutomationsPage({
@@ -45,11 +50,16 @@ class _AutomationsPageState extends State<AutomationsPage> {
   _RoutineFilter _filter = _RoutineFilter.all;
   _RoutineSort _sort = _RoutineSort.recent;
   List<Routine>? _routines;
+  int _mainTab = 0; // 0: Schedules & Routines, 1: Cross-Device Automations
+  List<CrossDeviceRule> _crossDeviceRules = [];
+  bool _loadingCrossRules = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+    final ctrl = widget.homeController ?? HomeController.instance;
+    ctrl?.addListener(_onHomeStateChanged);
     if (widget.autoOpenBuilder) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openBuilder();
@@ -57,26 +67,62 @@ class _AutomationsPageState extends State<AutomationsPage> {
     }
   }
 
+  bool _isLoadingRoutines = false;
+
+  void _onHomeStateChanged() {
+    if (!mounted) return;
+    // CRITICAL: Do NOT trigger an asynchronous HTTP request to cloud repository inside the HomeController listener!
+    // Simply update local view from the in-memory cache to prevent infinite feedback loops.
+    final live = PreviewRoutineRepository.liveRoutines;
+    if (live.isNotEmpty) {
+      setState(() => _routines = live);
+    }
+  }
+
   Future<void> _load() async {
-    var routines = await widget.repository.getRoutines();
-    if (routines.isEmpty) {
-      final ctrl = HomeController.instance;
+    if (_isLoadingRoutines) return;
+    _isLoadingRoutines = true;
+    try {
+      var routines = await widget.repository.getRoutines();
+      final ctrl = widget.homeController ?? HomeController.instance;
       if (ctrl != null && ctrl.repository is CloudHomeRepository) {
         try {
           final cloudRepo = ctrl.repository as CloudHomeRepository;
           final cloudRoutines = await CloudRoutineRepository(cloudRepo.client).getRoutines();
           if (cloudRoutines.isNotEmpty) {
-            await PreviewRoutineRepository.syncWithCloudRoutines(cloudRoutines);
+            // Do NOT notify HomeController when syncing from AutomationsPage itself
+            await PreviewRoutineRepository.syncWithCloudRoutines(cloudRoutines, notifyHomeController: false);
             routines = await widget.repository.getRoutines();
           }
         } catch (_) {}
       }
+      if (mounted) setState(() => _routines = routines);
+      await _loadCrossDeviceRules();
+    } finally {
+      _isLoadingRoutines = false;
     }
-    if (mounted) setState(() => _routines = routines);
+  }
+
+  Future<void> _loadCrossDeviceRules() async {
+    if (mounted) setState(() => _loadingCrossRules = true);
+    try {
+      final isHub = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+      if (isHub) {
+        final hubHost = LiveHubRepository.activeHost ?? 'eh-hub.local';
+        final rules = await LiveHubRepository().getCrossDeviceRules(hubHostname: hubHost);
+        if (mounted) setState(() => _crossDeviceRules = rules);
+      } else {
+        final rules = await DeviceStorageService.loadStandaloneRules();
+        if (mounted) setState(() => _crossDeviceRules = rules);
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loadingCrossRules = false);
   }
 
   @override
   void dispose() {
+    final ctrl = widget.homeController ?? HomeController.instance;
+    ctrl?.removeListener(_onHomeStateChanged);
     _search.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -121,7 +167,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
     if (mounted) {
       if (deleted == true && _routines != null) {
         setState(() {
-          _routines!.removeWhere((r) => r.id == routine.id || r.name == routine.name);
+          _routines!.removeWhere((r) => r.id == routine.id);
         });
       }
       _load();
@@ -161,30 +207,34 @@ class _AutomationsPageState extends State<AutomationsPage> {
     final oldEnabled = routine.enabled;
     final newEnabled = !oldEnabled;
 
+    final updated = Routine(
+      id: routine.id,
+      name: routine.name,
+      icon: routine.icon,
+      isFavorite: routine.isFavorite,
+      enabled: newEnabled,
+      availability: routine.availability,
+      trigger: routine.trigger,
+      conditions: routine.conditions,
+      actions: routine.actions,
+      schedule: routine.schedule,
+      involvedDevices: routine.involvedDevices,
+      lastExecution: routine.lastExecution,
+      nextRun: routine.nextRun,
+      createdAt: routine.createdAt,
+      updatedAt: DateTime.now(),
+      summary: routine.summary,
+    );
+
+    // Update in-memory live routines IMMEDIATELY before notifying or triggering state change
+    await PreviewRoutineRepository.addOrUpdateRoutine(updated);
+
     // Optimistic UI update immediately (<16ms)
     setState(() {
       if (_routines != null) {
         final idx = _routines!.indexWhere((r) => r.id == routine.id);
         if (idx >= 0) {
-          final old = _routines![idx];
-          _routines![idx] = Routine(
-            id: old.id,
-            name: old.name,
-            icon: old.icon,
-            isFavorite: old.isFavorite,
-            enabled: newEnabled,
-            availability: old.availability,
-            trigger: old.trigger,
-            conditions: old.conditions,
-            actions: old.actions,
-            schedule: old.schedule,
-            involvedDevices: old.involvedDevices,
-            lastExecution: old.lastExecution,
-            nextRun: old.nextRun,
-            createdAt: old.createdAt,
-            updatedAt: DateTime.now(),
-            summary: old.summary,
-          );
+          _routines![idx] = updated;
         }
       }
     });
@@ -286,7 +336,11 @@ class _AutomationsPageState extends State<AutomationsPage> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
-    final source = _routines;
+    final source = _routines?.where((r) =>
+      r.trigger.kind != RoutineTriggerKind.deviceState &&
+      !r.id.startsWith('xrule_') &&
+      !r.name.toLowerCase().contains('cross-device')
+    ).toList();
     final visible = source == null ? const <Routine>[] : _visible(source);
     final deviceCount =
         source
@@ -347,13 +401,83 @@ class _AutomationsPageState extends State<AutomationsPage> {
                     const SizedBox(width: 8),
                     _HeaderRoundAction(
                       icon: Icons.add_rounded,
-                      tooltip: 'Create routine',
+                      tooltip: _mainTab == 0 ? 'Create routine' : 'Add rule',
                       filled: true,
-                      onTap: _openBuilder,
+                      onTap: _mainTab == 0
+                          ? _openBuilder
+                          : () {
+                              final ctrl = widget.homeController ?? HomeController.instance;
+                              final devices = ctrl?.devices ?? [];
+                              final isHub = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+                              _openAddCrossDeviceRuleDialog(context, tokens, isHub, devices);
+                            },
                     ),
                   ],
                 ),
+                const SizedBox(height: 16),
+                // Top Tab Switcher: Schedules & Routines vs Cross-Device Rules
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: tokens.surfaceCard,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: tokens.borderControl),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => setState(() => _mainTab = 0),
+                          borderRadius: BorderRadius.circular(11),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _mainTab == 0 ? tokens.bluePrimary : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Center(
+                              child: Text(
+                                'Schedules & Routines',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: _mainTab == 0 ? Colors.white : tokens.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => setState(() => _mainTab = 1),
+                          borderRadius: BorderRadius.circular(11),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _mainTab == 1 ? tokens.bluePrimary : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Center(
+                              child: Text(
+                                'Cross-Device Rules',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: _mainTab == 1 ? Colors.white : tokens.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 18),
+                if (_mainTab == 1) ...[
+                  _buildCrossDeviceTab(tokens),
+                ] else ...[
                 TextField(
                   controller: _search,
                   focusNode: _searchFocus,
@@ -505,6 +629,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
                   ),
                 const SizedBox(height: 6),
                 _CreateRoutineBanner(onTap: _openBuilder),
+                ],
               ],
             ),
           ),
@@ -514,12 +639,1254 @@ class _AutomationsPageState extends State<AutomationsPage> {
   );
   }
 
+  Widget _buildCrossDeviceTab(EHThemeTokens tokens) {
+    final isHub = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+    final ctrl = widget.homeController ?? HomeController.instance;
+    final devices = ctrl?.devices ?? [];
+    final hasMeshDevice = devices.any((d) => HomeController.isHardwareMeshSupported(d.model));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 1. Architecture Overview Banner
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: tokens.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isHub
+                  ? tokens.success.withValues(alpha: 0.35)
+                  : tokens.bluePrimary.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isHub
+                          ? tokens.successContainer
+                          : tokens.bluePrimary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isHub ? Icons.hub_rounded : Icons.bolt_rounded,
+                      color: isHub ? tokens.success : tokens.bluePrimary,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isHub
+                              ? 'Smart Hub Coordinated Rules'
+                              : 'Direct Fast-Path UDP Automations (<3ms)',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isHub
+                              ? 'Multi-router coordination via local SQLite engine'
+                              : 'Direct switch-to-switch on-chip execution without a Hub',
+                          style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isHub
+                          ? tokens.successContainer
+                          : tokens.surfaceCard,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isHub ? 'Hub Active' : '${_crossDeviceRules.length}/3 On-Chip',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: isHub ? tokens.success : tokens.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Dynamic Hardware Capability Gating
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: tokens.bgApp,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: tokens.borderSubtle),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      hasMeshDevice ? Icons.all_inclusive_rounded : Icons.wifi_rounded,
+                      size: 16,
+                      color: tokens.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        hasMeshDevice
+                            ? 'Thread Mesh Capable (ESP32-C6 / 802.15.4 multi-floor hops active)'
+                            : 'Hardware: Standard Wi-Fi (ESP32) • Fast-Path UDP active. Mesh enables automatically on ESP32-C6 devices.',
+                        style: TextStyle(fontSize: 11, color: tokens.textSecondary, height: 1.3),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Dynamic Network Capability & Protocol Matrix
+        Container(
+          margin: const EdgeInsets.only(top: 14),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: tokens.surfaceCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: tokens.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'COMMUNICATION PATHS & TOPOLOGY',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: tokens.textTertiary,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildPathMatrixRow(
+                tokens: tokens,
+                icon: Icons.flash_on_rounded,
+                title: 'Path 1: Same Router Fast-Path UDP (<3ms)',
+                subtitle: 'Direct switch-to-switch peer packets over single router. Zero cloud or Hub dependency.',
+                statusLabel: 'Active & Ready',
+                statusColor: tokens.success,
+                statusBg: tokens.successContainer,
+                isUnlocked: true,
+              ),
+              const Divider(height: 18),
+              _buildPathMatrixRow(
+                tokens: tokens,
+                icon: Icons.hub_rounded,
+                title: 'Path 2: Multi-Router & Extenders Bridge',
+                subtitle: 'Crosses separate Wi-Fi routers, extenders, or AP isolation via Smart Hub SQLite coordinator.',
+                statusLabel: isHub ? 'Active via Hub' : 'Requires Smart Hub',
+                statusColor: isHub ? tokens.success : tokens.warning,
+                statusBg: isHub ? tokens.successContainer : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                isUnlocked: isHub,
+              ),
+              const Divider(height: 18),
+              _buildPathMatrixRow(
+                tokens: tokens,
+                icon: Icons.all_inclusive_rounded,
+                title: 'Path 3: Thread / 802.15.4 Hardware Mesh',
+                subtitle: 'Autonomous switch mesh across concrete floors without Wi-Fi dependence.',
+                statusLabel: hasMeshDevice ? 'Hardware Ready' : 'Requires ESP32-C6',
+                statusColor: hasMeshDevice ? tokens.bluePrimary : tokens.textTertiary,
+                statusBg: hasMeshDevice ? tokens.bluePrimary.withValues(alpha: 0.15) : tokens.bgApp,
+                isUnlocked: hasMeshDevice,
+              ),
+            ],
+          ),
+        ),
+
+        // 2. Hub Limit Warning (when non-hub home reaches 3 rules)
+        if (!isHub && _crossDeviceRules.length >= 3) ...[
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline_rounded, color: Color(0xFFF59E0B), size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Standalone On-Chip Memory Limit Reached (3 Rules Max)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFFD97706),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Direct switch-to-switch rules are capped at 3 on-chip to protect microchip real-time performance. For unlimited cross-device automations across multiple floors, Wi-Fi extenders, and subnets, connect an EH Smart Hub.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: tokens.textSecondary,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => HubManagementPage(
+                                homeId: ctrl?.activeHomeId ?? 'home_default',
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.hub_rounded, size: 16),
+                        label: const Text('Explore Smart Hub'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFD97706),
+                          side: const BorderSide(color: Color(0xFFF59E0B)),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 18),
+
+        // Action Row & Add Rule Button
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${_crossDeviceRules.length} ${!isHub ? "Standalone Rule(s)" : "Hub Rule(s)"}',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: tokens.textSecondary,
+                ),
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: () => _openAddCrossDeviceRuleDialog(context, tokens, isHub, devices),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Add Rule'),
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        // 3. Rules List
+        if (_loadingCrossRules)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 40),
+            child: Center(child: CircularProgressIndicator.adaptive()),
+          )
+        else if (_crossDeviceRules.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderControl),
+            ),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(Icons.alt_route_rounded, size: 40, color: tokens.textTertiary),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No Cross-Device Automations Yet',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Link any switch to automatically trigger another switch in <3ms over local Wi-Fi without a Hub.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: tokens.textSecondary, height: 1.3),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ..._crossDeviceRules.map((rule) => _buildCrossDeviceRuleCard(rule, tokens, isHub)),
+      ],
+    );
+  }
+
+  Widget _buildCrossDeviceRuleCard(CrossDeviceRule rule, EHThemeTokens tokens, bool isHub) {
+    final ctrl = widget.homeController ?? HomeController.instance;
+    final trigDevName = ctrl?.devices.firstWhere(
+      (d) => d.id == rule.triggerDeviceId,
+      orElse: () => ConnectedDeviceSummary(id: rule.triggerDeviceId, name: rule.triggerDeviceId, model: '', firmware: '', connectedVia: '', signalLabel: '', roomName: '', online: true),
+    ).name ?? rule.triggerDeviceId;
+    final actDevName = ctrl?.devices.firstWhere(
+      (d) => d.id == rule.actionDeviceId,
+      orElse: () => ConnectedDeviceSummary(id: rule.actionDeviceId, name: rule.actionDeviceId, model: '', firmware: '', connectedVia: '', signalLabel: '', roomName: '', online: true),
+    ).name ?? rule.actionDeviceId;
+
+    final trigEvent = rule.triggerState == true
+        ? 'Turned ON'
+        : (rule.triggerState == false ? 'Turned OFF' : 'State Toggle');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: tokens.surfaceCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: tokens.borderControl),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  rule.name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: tokens.textPrimary,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isHub ? tokens.successContainer : tokens.bluePrimary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  isHub ? 'Hub Orchestrated (<5ms)' : 'Direct UDP (<3ms)',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: isHub ? tokens.success : tokens.bluePrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Switch.adaptive(
+                value: rule.enabled,
+                activeThumbColor: tokens.bluePrimary,
+                activeTrackColor: tokens.bluePrimary.withValues(alpha: 0.35),
+                onChanged: (val) => _toggleCrossDeviceRule(rule, val),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: tokens.bgApp,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('TRIGGER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: tokens.textTertiary)),
+                      const SizedBox(height: 2),
+                      Text('$trigDevName • CH${rule.triggerChannel}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
+                      Text(trigEvent, style: TextStyle(fontSize: 11, color: tokens.textSecondary)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_rounded, color: tokens.bluePrimary, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('ACTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: tokens.textTertiary)),
+                      const SizedBox(height: 2),
+                      Text('$actDevName • CH${rule.actionChannel}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
+                      Text(rule.actionCommand, style: TextStyle(fontSize: 11, color: tokens.textSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _testCrossDeviceRule(rule),
+                icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                label: const Text('Test Live', style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: Icon(Icons.delete_outline_rounded, color: tokens.error, size: 20),
+                onPressed: () => _deleteCrossDeviceRule(rule),
+                tooltip: 'Delete Rule',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _testCrossDeviceRule(CrossDeviceRule rule) async {
+    final ctrl = widget.homeController ?? HomeController.instance;
+    if (ctrl == null) return;
+    bool targetVal = true;
+    if (rule.actionCommand == 'OFF') {
+      targetVal = false;
+    } else if (rule.actionCommand == 'TOGGLE') {
+      final cur = ctrl.getDeviceChannelPower(rule.actionDeviceId, rule.actionChannel);
+      targetVal = !cur;
+    }
+    await ctrl.setDeviceChannelPower(
+      deviceId: rule.actionDeviceId,
+      channelIndex: rule.actionChannel,
+      value: targetVal,
+      isToggle: rule.actionCommand == 'TOGGLE',
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Tested "${rule.name}" live! Sent ${rule.actionCommand} to CH${rule.actionChannel} (<3ms).'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteCrossDeviceRule(CrossDeviceRule rule) async {
+    final isHub = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+    if (isHub) {
+      final hubHost = LiveHubRepository.activeHost ?? 'eh-hub.local';
+      await LiveHubRepository().deleteCrossDeviceRule(hubHostname: hubHost, ruleId: rule.id);
+    }
+    final lanSvc = LocalLanDeviceService.instance;
+    unawaited(lanSvc.deletePeerRuleFromDevice(deviceId: rule.triggerDeviceId, ruleId: rule.id));
+    if (rule.actionDeviceId != rule.triggerDeviceId) {
+      unawaited(lanSvc.deletePeerRuleFromDevice(deviceId: rule.actionDeviceId, ruleId: rule.id));
+    }
+    try {
+      final ctrl = widget.homeController ?? HomeController.instance;
+      final homeId = ctrl?.activeHomeId ?? 'home_default';
+      if (ctrl != null && ctrl.repository is CloudHomeRepository) {
+        final cloudRepo = ctrl.repository as CloudHomeRepository;
+        unawaited(cloudRepo.client.delete('/api/v1/homes/$homeId/automations/${rule.id}').catchError((_) {}));
+      }
+    } catch (_) {}
+    final updated = List<CrossDeviceRule>.from(_crossDeviceRules)..removeWhere((r) => r.id == rule.id);
+    await DeviceStorageService.saveStandaloneRules(updated);
+    if (mounted) {
+      setState(() => _crossDeviceRules = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Rule "${rule.name}" deleted.'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleCrossDeviceRule(CrossDeviceRule rule, bool enable) async {
+    final isHub = LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
+    final updatedRule = CrossDeviceRule(
+      id: rule.id,
+      name: rule.name,
+      enabled: enable,
+      triggerDeviceId: rule.triggerDeviceId,
+      triggerChannel: rule.triggerChannel,
+      triggerState: rule.triggerState,
+      actionDeviceId: rule.actionDeviceId,
+      actionDeviceIp: rule.actionDeviceIp,
+      actionChannel: rule.actionChannel,
+      actionCommand: rule.actionCommand,
+      createdAt: rule.createdAt,
+      updatedAt: DateTime.now(),
+    );
+    if (isHub) {
+      final hubHost = LiveHubRepository.activeHost ?? 'eh-hub.local';
+      await LiveHubRepository().saveCrossDeviceRule(hubHostname: hubHost, rule: updatedRule);
+    }
+    final lanSvc = LocalLanDeviceService.instance;
+    unawaited(lanSvc.syncPeerRuleToDevice(deviceId: updatedRule.triggerDeviceId, rule: updatedRule));
+    if (updatedRule.actionDeviceId != updatedRule.triggerDeviceId) {
+      unawaited(lanSvc.syncPeerRuleToDevice(deviceId: updatedRule.actionDeviceId, rule: updatedRule));
+    }
+    final list = List<CrossDeviceRule>.from(_crossDeviceRules);
+    final idx = list.indexWhere((r) => r.id == rule.id);
+    if (idx >= 0) {
+      list[idx] = updatedRule;
+      await DeviceStorageService.saveStandaloneRules(list);
+      if (mounted) setState(() => _crossDeviceRules = list);
+    }
+  }
+
+  void _openAddCrossDeviceRuleDialog(
+    BuildContext context,
+    EHThemeTokens tokens,
+    bool isHub,
+    List<ConnectedDeviceSummary> devices,
+  ) {
+    final ctrl = widget.homeController ?? HomeController.instance;
+    if (!isHub && _crossDeviceRules.length >= 3) {
+      showDialog(
+        context: context,
+        builder: (dCtx) => AlertDialog(
+          title: const Text('Smart Hub Required for 4+ Rules'),
+          content: const Text(
+            'Standalone direct on-chip rules are limited to 3 rules to maintain microcontroller RAM and ensure sub-3ms execution.\n\nTo create unlimited cross-device automations across multiple rooms, floors, and subnets, please connect an EH Smart Hub.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text('Close'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(dCtx);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => HubManagementPage(
+                      homeId: ctrl?.activeHomeId ?? 'home_default',
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.hub_rounded),
+              label: const Text('View Smart Hub Setup'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    if (devices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No smart devices found. Commission switches first to build cross-device automations.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final hasMeshDevice = devices.any((d) => HomeController.isHardwareMeshSupported(d.model));
+    final nameCtrl = TextEditingController(text: 'Cross-Device Rule ${_crossDeviceRules.length + 1}');
+    String trigDevId = devices.first.id;
+    int trigChannel = 1;
+    bool? trigState = true; // true = ON, false = OFF, null = Any
+    String actDevId = devices.length > 1 ? devices[1].id : devices.first.id;
+    int actChannel = devices.length > 1 ? 1 : 2;
+    String actCommand = 'TOGGLE';
+    int selectedPath = 1; // 1: Fast-Path UDP, 2: Smart Hub Bridge, 3: Thread Mesh
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(sheetCtx).viewInsets.bottom + 24),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'New Cross-Device Automation',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: tokens.textPrimary),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(sheetCtx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // Communication Path Selector (Direct UDP vs Hub Bridge vs Mesh)
+                Text(
+                  'COMMUNICATION PATH (DYNAMIC)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: tokens.textTertiary,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Option 1: Direct UDP Fast-Path
+                InkWell(
+                  onTap: () => setSheetState(() => selectedPath = 1),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: selectedPath == 1 ? tokens.bluePrimary.withValues(alpha: 0.12) : tokens.bgApp,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: selectedPath == 1 ? tokens.bluePrimary : tokens.borderSubtle,
+                        width: selectedPath == 1 ? 1.5 : 1.0,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.flash_on_rounded,
+                          color: selectedPath == 1 ? tokens.bluePrimary : tokens.textSecondary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    'Direct Wi-Fi Fast-Path (<3ms UDP)',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                      color: tokens.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: tokens.successContainer,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      'Active Subnet',
+                                      style: TextStyle(
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: tokens.success,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Direct switch-to-switch peer packet. Works offline on your current Wi-Fi router.',
+                                style: TextStyle(fontSize: 11.5, color: tokens.textSecondary),
+                              ),
+                            ],
+                          ),
+                        ),
+                        RadioGroup<int>(
+                          groupValue: selectedPath,
+                          onChanged: (v) => setSheetState(() => selectedPath = 1),
+                          child: Radio<int>(
+                            value: 1,
+                            activeColor: tokens.bluePrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Option 2: Smart Hub Bridge (Multi-Router)
+                Opacity(
+                  opacity: isHub ? 1.0 : 0.5,
+                  child: InkWell(
+                    onTap: isHub
+                        ? () => setSheetState(() => selectedPath = 2)
+                        : () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Smart Hub required to cross separate routers, extenders, or AP isolation.'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: selectedPath == 2 ? tokens.bluePrimary.withValues(alpha: 0.12) : tokens.bgApp,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selectedPath == 2 ? tokens.bluePrimary : tokens.borderSubtle,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isHub ? Icons.hub_rounded : Icons.lock_outline_rounded,
+                            color: isHub ? tokens.bluePrimary : tokens.textTertiary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Multi-Router / Extender Bridge',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: tokens.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: isHub
+                                            ? tokens.successContainer
+                                            : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        isHub ? 'Hub Linked' : 'Requires Hub',
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: isHub ? tokens.success : tokens.warning,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Routes through Smart Hub local broker when switches are on different extenders/routers.',
+                                  style: TextStyle(fontSize: 11.5, color: tokens.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          RadioGroup<int>(
+                            groupValue: selectedPath,
+                            onChanged: isHub ? (v) => setSheetState(() => selectedPath = 2) : (_) {},
+                            child: Radio<int>(
+                              value: 2,
+                              enabled: isHub,
+                              activeColor: tokens.bluePrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Option 3: Hardware Mesh (ESP32-C6)
+                Opacity(
+                  opacity: hasMeshDevice ? 1.0 : 0.45,
+                  child: InkWell(
+                    onTap: hasMeshDevice
+                        ? () => setSheetState(() => selectedPath = 3)
+                        : () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Mesh requires ESP32-C6 / 802.15.4 hardware on all participating switches.'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: selectedPath == 3 ? tokens.bluePrimary.withValues(alpha: 0.12) : tokens.bgApp,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selectedPath == 3 ? tokens.bluePrimary : tokens.borderSubtle,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            hasMeshDevice ? Icons.all_inclusive_rounded : Icons.lock_outline_rounded,
+                            color: hasMeshDevice ? tokens.bluePrimary : tokens.textTertiary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Thread / 802.15.4 Hardware Mesh',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: tokens.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: tokens.borderControl,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        hasMeshDevice ? 'Supported' : 'Requires ESP32-C6',
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: tokens.textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Sub-10ms autonomous switch mesh for multi-floor homes without Wi-Fi router dependency.',
+                                  style: TextStyle(fontSize: 11.5, color: tokens.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          RadioGroup<int>(
+                            groupValue: selectedPath,
+                            onChanged: hasMeshDevice ? (v) => setSheetState(() => selectedPath = 3) : (_) {},
+                            child: Radio<int>(
+                              value: 3,
+                              enabled: hasMeshDevice,
+                              activeColor: tokens.bluePrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Rule Name',
+                    filled: true,
+                    fillColor: tokens.bgApp,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text('Trigger Device', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: trigDevId,
+                  dropdownColor: tokens.surfaceCard,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: tokens.bgApp,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  items: devices.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+                  onChanged: (val) {
+                    if (val != null) setSheetState(() => trigDevId = val);
+                  },
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        initialValue: trigChannel,
+                        dropdownColor: tokens.surfaceCard,
+                        decoration: InputDecoration(
+                          labelText: 'Channel',
+                          filled: true,
+                          fillColor: tokens.bgApp,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('Channel 1')),
+                          DropdownMenuItem(value: 2, child: Text('Channel 2')),
+                          DropdownMenuItem(value: 3, child: Text('Channel 3')),
+                          DropdownMenuItem(value: 4, child: Text('Channel 4')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setSheetState(() => trigChannel = val);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: trigState == true ? 'ON' : (trigState == false ? 'OFF' : 'ANY'),
+                        dropdownColor: tokens.surfaceCard,
+                        decoration: InputDecoration(
+                          labelText: 'When',
+                          filled: true,
+                          fillColor: tokens.bgApp,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'ON', child: Text('Turns ON')),
+                          DropdownMenuItem(value: 'OFF', child: Text('Turns OFF')),
+                          DropdownMenuItem(value: 'ANY', child: Text('Any Change')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setSheetState(() {
+                              trigState = val == 'ON' ? true : (val == 'OFF' ? false : null);
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('Action Device (Target)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: actDevId,
+                  dropdownColor: tokens.surfaceCard,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: tokens.bgApp,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  items: devices.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+                  onChanged: (val) {
+                    if (val != null) setSheetState(() => actDevId = val);
+                  },
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        initialValue: actChannel,
+                        dropdownColor: tokens.surfaceCard,
+                        decoration: InputDecoration(
+                          labelText: 'Channel',
+                          filled: true,
+                          fillColor: tokens.bgApp,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('Channel 1')),
+                          DropdownMenuItem(value: 2, child: Text('Channel 2')),
+                          DropdownMenuItem(value: 3, child: Text('Channel 3')),
+                          DropdownMenuItem(value: 4, child: Text('Channel 4')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setSheetState(() => actChannel = val);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: actCommand,
+                        dropdownColor: tokens.surfaceCard,
+                        decoration: InputDecoration(
+                          labelText: 'Do Action',
+                          filled: true,
+                          fillColor: tokens.bgApp,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'TOGGLE', child: Text('Toggle Power')),
+                          DropdownMenuItem(value: 'ON', child: Text('Turn ON')),
+                          DropdownMenuItem(value: 'OFF', child: Text('Turn OFF')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setSheetState(() => actCommand = val);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () async {
+                      final actIp = LocalLanDeviceService.instance.getDeviceIp(actDevId) ?? '127.0.0.1';
+                      final newRule = CrossDeviceRule(
+                        id: 'xrule_${DateTime.now().millisecondsSinceEpoch}',
+                        name: nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : 'Cross-Device Rule',
+                        enabled: true,
+                        triggerDeviceId: trigDevId,
+                        triggerChannel: trigChannel,
+                        triggerState: trigState,
+                        actionDeviceId: actDevId,
+                        actionDeviceIp: actIp,
+                        actionChannel: actChannel,
+                        actionCommand: actCommand,
+                        createdAt: DateTime.now(),
+                        updatedAt: DateTime.now(),
+                      );
+                      if (isHub) {
+                        final hubHost = LiveHubRepository.activeHost ?? 'eh-hub.local';
+                        await LiveHubRepository().saveCrossDeviceRule(hubHostname: hubHost, rule: newRule);
+                      }
+                      final list = List<CrossDeviceRule>.from(_crossDeviceRules)..add(newRule);
+                      await DeviceStorageService.saveStandaloneRules(list);
+
+                      // Push directly to trigger & action ESP32 NVS over LAN for autonomous P2P execution when app is closed
+                      final lanSvc = LocalLanDeviceService.instance;
+                      unawaited(lanSvc.syncPeerRuleToDevice(deviceId: newRule.triggerDeviceId, rule: newRule));
+                      if (newRule.actionDeviceId != newRule.triggerDeviceId) {
+                        unawaited(lanSvc.syncPeerRuleToDevice(deviceId: newRule.actionDeviceId, rule: newRule));
+                      }
+
+                      // Sync cross-device rule to backend for autonomous execution when mobile app is closed
+                      try {
+                        final ctrl = widget.homeController ?? HomeController.instance;
+                        final homeId = ctrl?.activeHomeId ?? 'home_default';
+                        final upperAct = actCommand.toUpperCase();
+                        final targetActionState =
+                            (upperAct == 'OFF' || upperAct == 'TURN_OFF')
+                                ? false
+                                : true;
+                        final payload = {
+                          'id': newRule.id,
+                          'name': newRule.name,
+                          'description': 'Cross-Device Rule: $trigDevId ch$trigChannel -> $actDevId ch$actChannel',
+                          'isEnabled': true,
+                          'trigger_type': 'DEVICE_STATE',
+                          'triggerType': 'DEVICE_STATE',
+                          'trigger_config': {
+                            'kind': 'device_state',
+                            'deviceId': trigDevId,
+                            'triggerDeviceId': trigDevId,
+                            'channel': trigChannel,
+                            'channelIndex': trigChannel,
+                            'triggerChannel': trigChannel,
+                            'state': trigState,
+                            'power': trigState,
+                            'triggerState': trigState,
+                          },
+                          'triggerConfig': {
+                            'kind': 'device_state',
+                            'deviceId': trigDevId,
+                            'triggerDeviceId': trigDevId,
+                            'channel': trigChannel,
+                            'channelIndex': trigChannel,
+                            'triggerChannel': trigChannel,
+                            'state': trigState,
+                            'power': trigState,
+                            'triggerState': trigState,
+                          },
+                          'conditions': [],
+                          'actions': [
+                            {
+                              'deviceId': actDevId,
+                              'targetDeviceId': actDevId,
+                              'channel': actChannel,
+                              'channelIndex': actChannel,
+                              'action': 'setPower',
+                              'command': actCommand,
+                              'params': {'value': targetActionState, 'power': targetActionState},
+                              'parameters': {'value': targetActionState, 'enabled': targetActionState},
+                              'targetState': targetActionState,
+                              'isToggle': actCommand.toLowerCase() == 'toggle',
+                            }
+                          ]
+                        };
+
+                        if (ctrl != null && ctrl.repository is CloudHomeRepository) {
+                          final cloudRepo = ctrl.repository as CloudHomeRepository;
+                          await cloudRepo.client.post('/api/v1/homes/$homeId/automations', body: payload);
+                        } else {
+                          final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/v1/homes/$homeId/automations');
+                          final headers = <String, String>{'Content-Type': 'application/json'};
+                          final token = await ApiClient.defaultTokenProvider?.call();
+                          if (token != null && token.isNotEmpty) {
+                            headers['Authorization'] = 'Bearer $token';
+                          }
+                          await http.post(
+                            uri,
+                            headers: headers,
+                            body: jsonEncode(payload),
+                          ).timeout(const Duration(milliseconds: 1500));
+                        }
+                      } catch (err) {
+                        debugPrint('[AutomationsPage] Cloud sync error for cross-device rule: $err');
+                      }
+                      if (mounted) {
+                        setState(() => _crossDeviceRules = list);
+                        if (sheetCtx.mounted) {
+                          Navigator.pop(sheetCtx);
+                        }
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Created rule "${newRule.name}" (<3ms Fast-Path UDP)!'),
+                              behavior: SnackBarBehavior.floating,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.check_circle_rounded),
+                    label: const Text('Save Rule'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: tokens.bluePrimary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   String get _sortLabel => switch (_sort) {
     _RoutineSort.recent => 'Sort: Recent',
     _RoutineSort.nameAscending => 'Sort: A-Z',
     _RoutineSort.nameDescending => 'Sort: Z-A',
     _RoutineSort.lastRun => 'Sort: Last run',
   };
+
+  Widget _buildPathMatrixRow({
+    required EHThemeTokens tokens,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String statusLabel,
+    required Color statusColor,
+    required Color statusBg,
+    required bool isUnlocked,
+  }) {
+    return Opacity(
+      opacity: isUnlocked ? 1.0 : 0.55,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: isUnlocked ? statusBg : tokens.bgApp,
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(
+              isUnlocked ? icon : Icons.lock_outline_rounded,
+              color: isUnlocked ? statusColor : tokens.textTertiary,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: tokens.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusBg,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 11.5, color: tokens.textSecondary, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _openBuilder() async {
     final created = await Navigator.of(context).push<bool>(
@@ -551,8 +1918,8 @@ class RoutineCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final unavailable =
-        routine.availability == RoutineAvailability.unavailable ||
-        routine.availability == RoutineAvailability.partiallyAvailable;
+        routine.effectiveAvailability == RoutineAvailability.unavailable ||
+        routine.effectiveAvailability == RoutineAvailability.partiallyAvailable;
     final statusColor = unavailable
         ? tokens.warning
         : routine.enabled
@@ -678,29 +2045,13 @@ class RoutineCard extends StatelessWidget {
             ),
           ),
 
-          // Vertical divider between content and actions
-          Container(
-            width: 1,
-            height: 48,
-            color: tokens.borderSubtle.withValues(alpha: 0.6),
-          ),
-
-          // 2. Isolated Action Controls -> Switch + Delete (independent touch target)
+          // Subtle trailing indicator to open routine details
           Padding(
-            padding: const EdgeInsets.only(left: 6, right: 10),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Switch(
-                  value: routine.enabled,
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: tokens.bluePrimary,
-                  inactiveThumbColor: Colors.white,
-                  inactiveTrackColor: tokens.borderControl,
-                  onChanged: (_) => onToggle(),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ],
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Icon(
+              Icons.chevron_right_rounded,
+              color: tokens.textTertiary,
+              size: 22,
             ),
           ),
         ],
@@ -780,7 +2131,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   Widget build(BuildContext context) {
     final tokens = context.ehColors;
     final routine = _currentRoutine;
-    final unavailable = routine.availability != RoutineAvailability.available;
+    final unavailable = routine.effectiveAvailability != RoutineAvailability.available;
     return Scaffold(
       backgroundColor: tokens.bgApp,
       appBar: AppBar(
@@ -1436,6 +2787,54 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
   Future<void> _testRunActions() async {
     final ctrl = HomeController.instance;
     if (ctrl == null) return;
+
+    final routineName = _nameController.text.trim().isNotEmpty ? _nameController.text.trim() : 'Active Routine';
+    final testActions = _actions.map((item) => RoutineAction(
+      kind: item.channelIndex == 0 ? RoutineActionKind.allChannels : RoutineActionKind.switchChannel,
+      title: '${item.deviceName} • ${item.channelName}',
+      detail: '${item.isToggle ? "Toggle" : (item.targetState ? "Turn ON" : "Turn OFF")} ${item.channelName}',
+      deviceId: item.deviceId,
+      channelIndex: item.channelIndex,
+      targetState: item.targetState,
+      isToggle: item.isToggle,
+      pulseDurationMinutes: item.pulseMinutes > 0 ? item.pulseMinutes : null,
+      targetRoomName: item.roomName,
+    )).toList();
+    final testRoutine = Routine(
+      id: 'test_run_${DateTime.now().millisecondsSinceEpoch}',
+      name: routineName,
+      icon: 'auto_awesome',
+      isFavorite: false,
+      enabled: true,
+      availability: RoutineAvailability.available,
+      trigger: const RoutineTrigger(
+        kind: RoutineTriggerKind.manual,
+        title: 'Live Test Run',
+        detail: 'Triggered live',
+      ),
+      conditions: const [],
+      actions: testActions,
+      schedule: const RoutineSchedule(label: 'Instant', timezone: 'Local'),
+      involvedDevices: const [],
+      lastExecution: null,
+      nextRun: null,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      summary: 'Running live on hardware.',
+    );
+
+    int maxPulseSec = 60;
+    for (final a in _actions) {
+      if (a.pulseMinutes > 0 && a.pulseMinutes * 60 > maxPulseSec) {
+        maxPulseSec = a.pulseMinutes * 60;
+      }
+    }
+
+    EdgeRoutineSyncService.instance.registerActiveRoutineExecution(
+      testRoutine,
+      pulseDurationSeconds: maxPulseSec,
+    );
+
     for (final a in _actions) {
       bool finalVal = a.targetState;
       if (a.isToggle) {
@@ -1450,19 +2849,23 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
         await ctrl.setDeviceChannelPower(deviceId: a.deviceId, channelIndex: a.channelIndex, value: finalVal, isToggle: a.isToggle);
       }
 
-      if (a.pulseMinutes > 0 && finalVal) {
+      if (a.pulseMinutes > 0) {
         final pMins = a.pulseMinutes;
         Future.delayed(Duration(minutes: pMins), () {
           if (a.channelIndex == 0) {
             for (int ch = 1; ch <= 4; ch++) {
               ctrl.setDeviceChannelPower(deviceId: a.deviceId, channelIndex: ch, value: false);
+              EdgeRoutineSyncService.instance.clearActiveRoutineExecution(a.deviceId, ch);
             }
           } else {
             ctrl.setDeviceChannelPower(deviceId: a.deviceId, channelIndex: a.channelIndex, value: false);
+            EdgeRoutineSyncService.instance.clearActiveRoutineExecution(a.deviceId, a.channelIndex);
           }
+          ctrl.notifyListeners();
         });
       }
     }
+    ctrl.notifyListeners();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1676,35 +3079,10 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
         // HUB EQUIPPED HOME:
         // 1. Sync to Hub RAM Routine Scheduler (0 flash wear)
         try {
-          final hubHost = LiveHubRepository.activeHost ?? 'eh-hub.local';
-          final client = http.Client();
-          for (final act in routineActions) {
-            if (act.deviceId.isNotEmpty) {
-              for (final host in [hubHost, 'eh-hub.local', '192.168.0.174']) {
-                try {
-                  await client.post(
-                    Uri.parse('http://$host:4210/api/v1/routines'),
-                    headers: {'Content-Type': 'application/json'},
-                    body: jsonEncode({
-                      'id': builtRoutine.id,
-                      'name': name,
-                      'deviceId': act.deviceId,
-                      'channel': act.channelIndex,
-                      'targetState': act.targetState,
-                      'power': act.targetState,
-                      'value': act.targetState,
-                      'hour': _scheduledTime.hour,
-                      'minute': _scheduledTime.minute,
-                      'daysMask': EdgeRoutineSyncService.computeDaysMask(_formatDaysList()),
-                      'criticalHardwareFallback': _criticalHardwareFallback,
-                    }),
-                  ).timeout(const Duration(seconds: 1));
-                  break;
-                } catch (_) {}
-              }
-            }
-          }
-        } catch (_) {}
+          await EdgeRoutineSyncService.instance.syncRoutineToHub(builtRoutine);
+        } catch (err) {
+          debugPrint('[HubRoutineSync] Error syncing to Hub: $err');
+        }
 
         // 2. Hardware flash commitment strictly based on Critical priority
         if (_criticalHardwareFallback) {
@@ -3936,53 +5314,87 @@ class _RoutineBuilderPageState extends State<RoutineBuilderPage> {
           ),
         ),
         const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: tokens.surfaceCard,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: tokens.borderSubtle),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Execution Priority (Hub Connected)',
+        if (LiveHubRepository.isLinked && LiveHubRepository.isHubActive)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Execution Priority (Hub Connected)',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _criticalHardwareFallback,
+                  onChanged: (val) => setState(() => _criticalHardwareFallback = val),
+                  title: Text(
+                    'Critical Hardware Fallback',
                     style: TextStyle(
                       color: tokens.textPrimary,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       fontSize: 14,
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                value: _criticalHardwareFallback,
-                onChanged: (val) => setState(() => _criticalHardwareFallback = val),
-                title: Text(
-                  'Critical Hardware Fallback',
-                  style: TextStyle(
-                    color: tokens.textPrimary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+                  subtitle: Text(
+                    _criticalHardwareFallback
+                        ? 'Stores backup copy in switch flash. Fires on time even if Hub is unplugged.'
+                        : 'Standard routine: runs from Hub RAM with zero switch flash memory wear.',
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 12),
                   ),
                 ),
-                subtitle: Text(
-                  _criticalHardwareFallback
-                      ? 'Stores backup copy in switch flash. Fires on time even if Hub is unplugged.'
-                      : 'Standard routine: runs from Hub RAM with zero switch flash memory wear.',
-                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+              ],
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.memory_rounded, color: tokens.bluePrimary, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Execution Mode (Standalone Direct Edge)',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  'Autonomous switch memory: Routine runs directly from switch flash memory with zero Hub required.',
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12, height: 1.3),
+                ),
+              ],
+            ),
           ),
-        ),
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
@@ -4200,11 +5612,12 @@ class _DevicesSection extends StatelessWidget {
               ...resolvedDevices.map(
                 (device) {
                   final liveMatch = ctrlDevs.cast<ConnectedDeviceSummary?>().firstWhere(
-                    (d) => d?.id == device.id,
+                    (d) => d?.id.toLowerCase() == device.id.toLowerCase(),
                     orElse: () => null,
                   );
                   final isMissing = liveMatch == null;
-                  final isOnline = liveMatch != null && liveMatch.online;
+                  final isOnline = liveMatch != null &&
+                      (HomeController.instance?.isDeviceActiveOrOnline(liveMatch) ?? liveMatch.online);
                   final statusText = isMissing
                       ? '● Needs Reassignment'
                       : (isOnline ? '● Online' : '● Offline');

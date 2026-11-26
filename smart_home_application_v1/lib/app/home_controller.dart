@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -16,6 +17,7 @@ import '../core/repositories/cloud_home_repository.dart';
 import '../core/repositories/fake_home_repository.dart';
 import '../core/repositories/connection_repository.dart';
 import '../core/repositories/ble_connection_repository.dart';
+import '../core/repositories/unavailable_connection_repository.dart';
 import '../core/config/device_connection_config.dart';
 import '../core/services/realtime_event_service.dart';
 
@@ -28,11 +30,19 @@ import '../core/services/change_tracking_service.dart';
 import '../core/utils/device_name_formatter.dart';
 import '../core/utils/event_classification.dart';
 import '../features/hub/data/hub_repository.dart';
+import '../features/hub/domain/models/hub_models.dart';
 
 enum ConnectionRoutingMode {
   auto,
   localOnly,
   cloudOnly,
+}
+
+enum EffectiveConnectionMode {
+  hub,
+  lan,
+  cloud,
+  offline,
 }
 
 enum SyncMode {
@@ -84,12 +94,20 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           : '${_devices.first.name} is offline.';
       debugPrint('[HOME] SYNC_HYDRATED devices_count=${_devices.length}');
     }
+    if (_connectionRepository is UnavailableConnectionRepository) {
+      _isCloudReachable = false;
+      if (_devices.isNotEmpty && !_devices.any((d) => d.online)) {
+        _connectionState = HomeConnectionState.offline;
+        _connectionMessage = 'Disconnected';
+      }
+    }
     if (realtimeEventService != null) {
       _subscribeToRealtime(realtimeEventService);
     }
     _subscribeToLocalUdpBroadcasts();
     _hydrateFromStorage();
-    if (_routingMode == ConnectionRoutingMode.auto || _routingMode == ConnectionRoutingMode.localOnly) {
+    if (autoSync && (_routingMode == ConnectionRoutingMode.auto || _routingMode == ConnectionRoutingMode.localOnly)) {
+      unawaited(_probeKnownLanDevicesFast());
       unawaited(probeLanAndPromote());
     }
     if (autoSync) {
@@ -105,7 +123,30 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   void _subscribeToLocalUdpBroadcasts() {
     LocalLanDeviceService.instance.onStateBroadcast.listen((event) {
       final devId = event.deviceId;
-      final changed = _syncHardwareModelAndState(devId, event);
+      if (event.activeRoutines != null) {
+        EdgeRoutineSyncService.instance.ingestHardwareActiveRoutines(
+          devId,
+          event.activeRoutines,
+        );
+      }
+      final changed = _syncHardwareModelAndState(devId, event, fromRealtimeBroadcast: true);
+
+      // Immediately refresh routine warning overlays & keep device online on hardware state broadcasts
+      if (event.channels.isNotEmpty || (event.activeRoutines != null && event.activeRoutines!.isNotEmpty)) {
+        _deviceConfidences[devId] = ActuatorConfidence.confirmed;
+        _lightConfidence = ActuatorConfidence.confirmed;
+        if (_routingMode != ConnectionRoutingMode.cloudOnly) {
+          _isLocalMode = true;
+          _lanMissedPollCount = 0;
+          _connectionState = HomeConnectionState.connected;
+        }
+        unawaited(_evaluateScheduledRoutines());
+        unawaited(
+          EdgeRoutineSyncService.instance
+              .syncRoutinesFromEdgeToApp(targetDeviceId: devId)
+              .then((_) => _evaluateScheduledRoutines()),
+        );
+      }
 
       // Auto Mode: Promote immediately to Local LAN Mode on incoming UDP broadcast
       if (_routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
@@ -114,43 +155,61 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      if (changed) {
+      if (changed || (event.activeRoutines != null && event.activeRoutines!.isNotEmpty)) {
         debugPrint('[LAN-UDP] State & Model synchronized instantly from broadcast for $devId: ${event.channels} model=${event.model}');
         notifyListeners();
       }
     });
   }
 
-  bool _syncHardwareModelAndState(String devId, LanDeviceState devState) {
+  bool _syncHardwareModelAndState(String devId, LanDeviceState devState, {bool fromRealtimeBroadcast = false}) {
     bool modified = false;
     final chMap = devState.channels;
+    final cleanDevId = devId.trim().toLowerCase();
 
     _deviceMissedPolls[devId] = 0;
+    if (_deviceConfidences[devId] != ActuatorConfidence.confirmed ||
+        _lightConfidence == ActuatorConfidence.unavailable ||
+        _lightConfidence == ActuatorConfidence.failed ||
+        _lightConfidence == ActuatorConfidence.unknown) {
+      _deviceConfidences[devId] = ActuatorConfidence.confirmed;
+      _lightConfidence = ActuatorConfidence.confirmed;
+      modified = true;
+    }
+    if (_routingMode != ConnectionRoutingMode.cloudOnly) {
+      if (!_isLocalMode) {
+        _isLocalMode = true;
+        modified = true;
+      }
+      _lanMissedPollCount = 0;
+      _connectionState = HomeConnectionState.connected;
+    }
     final devChannels = _channelStates.putIfAbsent(devId, () => {});
     // Determine max channels for this device to prevent phantom channels
     int devMaxChannels = 4;
-    final knownDev = _devices.cast<ConnectedDeviceSummary?>().firstWhere((d) => d?.id == devId, orElse: () => null);
+    final knownDev = _devices.cast<ConnectedDeviceSummary?>().firstWhere(
+      (d) => d?.id.trim().toLowerCase() == cleanDevId,
+      orElse: () => null,
+    );
     if (knownDev != null) {
       final canon = MockProductCatalogRepository.resolveCanonicalProductVariant(variantId: knownDev.model, deviceName: knownDev.name);
       devMaxChannels = canon.contains('1x') ? 1 : (canon.contains('2x') ? 2 : (canon.contains('3x') ? 3 : 4));
     } else if (devState.channelCount != null && devState.channelCount! > 0) {
       devMaxChannels = devState.channelCount!;
     }
+    final suppressionMs = fromRealtimeBroadcast ? 450 : 5000;
     chMap.forEach((chIdx, pwr) {
       if (chIdx > devMaxChannels) return;
-      final cmdKey1 = '${devId}_$chIdx';
-      final cmdKey2 = '${devId.toLowerCase()}_$chIdx';
-      final cmdKey3 = '${devId}_ch$chIdx';
-      final lastCmd = _lastCommandTimestamps[cmdKey1] ?? _lastCommandTimestamps[cmdKey2] ?? _lastCommandTimestamps[cmdKey3];
-      if (lastCmd != null && DateTime.now().difference(lastCmd).inMilliseconds < 3500 && devChannels[chIdx] != pwr) {
+      if (_isChannelCommandRecent(devId, chIdx, windowMs: suppressionMs) && devChannels[chIdx] != pwr) {
         return;
       }
       if (devChannels[chIdx] != pwr) {
         devChannels[chIdx] = pwr;
         modified = true;
         _checkAndDispatchChannelAlert(devId, chIdx, pwr);
+        unawaited(_evaluateCrossDeviceRules(devId, chIdx, pwr, fromHardwareBroadcast: true));
       }
-      final isLivingRoomDev = _devices.any((d) => d.id == devId && d.roomName.toLowerCase().contains('living'));
+      final isLivingRoomDev = _devices.any((d) => d.id.trim().toLowerCase() == cleanDevId && d.roomName.toLowerCase().contains('living'));
       if (chIdx == 1 && isLivingRoomDev) {
         _livingRoomLightOn = pwr;
       }
@@ -161,14 +220,32 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     bool foundInActive = false;
     for (int i = 0; i < _devices.length; i++) {
       final d = _devices[i];
-      if (d.id == devId) {
+      if (d.id.trim().toLowerCase() == cleanDevId) {
         foundInActive = true;
         _channelStates[d.id] = Map<int, bool>.from(devChannels);
+        _deviceConfidences[d.id] = ActuatorConfidence.confirmed;
+        _deviceMissedPolls[d.id] = 0;
+        _deviceConfidences[d.id] = ActuatorConfidence.confirmed;
+        _lightConfidence = ActuatorConfidence.confirmed;
+        _deviceMissedPolls[d.id] = 0;
+        if (_routingMode != ConnectionRoutingMode.cloudOnly && !_isLocalMode) {
+          _isLocalMode = true;
+          _lanMissedPollCount = 0;
+        }
         final currentDev = _devices[i];
-        if (!currentDev.online || currentDev.signalLabel != 'Local Wi-Fi') {
+        final newFw = devState.firmwareVersion;
+        final shouldUpdateFw = newFw != null && newFw.isNotEmpty && currentDev.firmware != newFw;
+        final resolvedRssi = devState.rssiDbm ?? LocalLanDeviceService.instance.getDeviceRssi(d.id);
+        final needsViaFix = currentDev.connectedVia.trim().isEmpty ||
+            currentDev.connectedVia.trim().toLowerCase() == 'offline';
+        final needsRssiUpdate = resolvedRssi != null && currentDev.rssiDbm != resolvedRssi;
+        if (!currentDev.online || currentDev.signalLabel != 'Local Wi-Fi' || shouldUpdateFw || needsViaFix || needsRssiUpdate) {
           _devices[i] = currentDev.copyWith(
             online: true,
+            connectedVia: needsViaFix ? 'Wi-Fi (Local)' : currentDev.connectedVia,
             signalLabel: 'Local Wi-Fi',
+            firmware: shouldUpdateFw ? newFw : currentDev.firmware,
+            rssiDbm: resolvedRssi,
           );
           _storageService.saveDeviceForSpace(_activeSpaceId, _devices[i]);
           if (_connectedDeviceSummary?.id == currentDev.id) {
@@ -350,6 +427,30 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   final List<SpaceAlertItem> _activityAlerts = [];
   final Map<String, DateTime> _lastCommandTimestamps = {};
 
+  bool _isChannelCommandRecent(String devId, int channelIndex, {int windowMs = 5000}) {
+    final now = DateTime.now();
+    final cleanId = devId.toLowerCase().trim();
+    for (final entry in _lastCommandTimestamps.entries) {
+      final key = entry.key.toLowerCase().trim();
+      if ((key == '${cleanId}_$channelIndex' ||
+           key == '${cleanId}_ch$channelIndex' ||
+           (key.endsWith('_$channelIndex') && key.contains(cleanId))) &&
+          now.difference(entry.value).inMilliseconds < windowMs) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _recordCommandTimestamp(String devId, int channelIndex) {
+    final now = DateTime.now();
+    final cleanId = devId.toLowerCase().trim();
+    _lastCommandTimestamps['${cleanId}_$channelIndex'] = now;
+    _lastCommandTimestamps['${cleanId}_ch$channelIndex'] = now;
+    _lastCommandTimestamps['${devId}_$channelIndex'] = now;
+    _lastCommandTimestamps['${devId}_ch$channelIndex'] = now;
+  }
+
   final List<Map<String, dynamic>> _spaces = [
     {'id': 'home_default', 'name': 'My Home', 'icon': 'home'},
   ];
@@ -412,25 +513,95 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     return unique.values.toList();
   }
 
-  List<ConnectedDeviceSummary> get devices => List.unmodifiable(_devices);
-  bool get isLocalMode {
-    if (_routingMode == ConnectionRoutingMode.localOnly) return true;
-    if (_routingMode == ConnectionRoutingMode.cloudOnly) return false;
-    return _isLocalMode && isCurrentSpaceOnLocalLan;
+  List<ConnectedDeviceSummary> get devices => List.unmodifiable(
+    _devices.map((d) => isDeviceActiveOrOnline(d) && !d.online
+        ? d.copyWith(
+            online: true,
+            signalLabel: d.signalLabel == 'Offline' ? 'Local Wi-Fi' : d.signalLabel,
+          )
+        : d),
+  );
+
+  bool get _hasVerifiedLanDevice {
+    if (_devices.isNotEmpty) {
+      return _devices.any((d) => LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id));
+    }
+    return LocalLanDeviceService.instance.isAnyDeviceReachableOnLan();
   }
+
+  bool get isLocalMode {
+    if (_routingMode == ConnectionRoutingMode.cloudOnly) return false;
+    final hasVerifiedLan = _hasVerifiedLanDevice || (LiveHubRepository.isLinked && LiveHubRepository.isHubActive);
+    return hasVerifiedLan && isCurrentSpaceOnLocalLan;
+  }
+
   bool get isHubActive => LiveHubRepository.isLinked && LiveHubRepository.isHubActive;
   bool get isCloudReachable => _isCloudReachable;
+
+  static EffectiveConnectionMode resolveEffectiveConnectionMode({
+    required ConnectionRoutingMode routingMode,
+    required bool isHubActive,
+    required bool hasVerifiedLan,
+    required bool isLocalMode,
+    required bool isCloudReachable,
+    bool isCurrentSpaceOnLocalLan = true,
+  }) {
+    if (routingMode == ConnectionRoutingMode.cloudOnly) {
+      return isCloudReachable ? EffectiveConnectionMode.cloud : EffectiveConnectionMode.offline;
+    }
+    if (isHubActive && isCurrentSpaceOnLocalLan) {
+      return EffectiveConnectionMode.hub;
+    }
+    final lanReachable = routingMode == ConnectionRoutingMode.localOnly
+        ? hasVerifiedLan
+        : ((isLocalMode || hasVerifiedLan) && isCurrentSpaceOnLocalLan);
+    if (lanReachable) {
+      return EffectiveConnectionMode.lan;
+    }
+    if (routingMode == ConnectionRoutingMode.auto && isCloudReachable) {
+      return EffectiveConnectionMode.cloud;
+    }
+    return EffectiveConnectionMode.offline;
+  }
+
+  EffectiveConnectionMode get effectiveConnectionMode => resolveEffectiveConnectionMode(
+        routingMode: _routingMode,
+        isHubActive: isHubActive,
+        hasVerifiedLan: _hasVerifiedLanDevice,
+        isLocalMode: isLocalMode,
+        isCloudReachable: _isCloudReachable,
+        isCurrentSpaceOnLocalLan: isCurrentSpaceOnLocalLan,
+      );
+
+  /// Top-banner connection classification locked 1:1 with HomePage status badge priority:
+  /// 1) Hub -> 2) LAN Direct -> 3) Cloud -> 4) Offline
+  bool get isBannerHubMode => effectiveConnectionMode == EffectiveConnectionMode.hub;
+
+  bool get isBannerLanMode => effectiveConnectionMode == EffectiveConnectionMode.lan;
+
+  bool get isBannerCloudMode => effectiveConnectionMode == EffectiveConnectionMode.cloud;
+
+  bool get isBannerOfflineMode => effectiveConnectionMode == EffectiveConnectionMode.offline;
+
+  bool hasActiveRoutineForDevice(String deviceId) {
+    return [1, 2, 3, 4].any((ch) => getActiveRoutineForChannel(deviceId, ch) != null);
+  }
+
+  bool isDeviceActiveOrOnline(ConnectedDeviceSummary d) {
+    return d.online ||
+        LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id) ||
+        hasActiveRoutineForDevice(d.id);
+  }
+
   AuthoritativeHomeConnectionState get authoritativeConnectionState {
     final effectiveHomeId = (_activeHomeId != null && _activeHomeId!.isNotEmpty)
         ? _activeHomeId
         : (_activeSpaceId.isNotEmpty ? _activeSpaceId : DeviceStorageService.cachedActiveHomeId);
     final hasHome = (effectiveHomeId != null && effectiveHomeId.isNotEmpty) || _spaces.isNotEmpty;
     final effectiveDevices = _devices.isNotEmpty ? _devices : DeviceStorageService.cachedDevices;
-    final onlineCount = effectiveDevices.where((d) => d.online == true || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)).length;
+    final onlineCount = effectiveDevices.where(isDeviceActiveOrOnline).length;
 
-    final isCloudActive = _isCloudReachable &&
-        _connectionState != HomeConnectionState.offline &&
-        _connectionState != HomeConnectionState.notConfigured;
+    final isCloudActive = _isCloudReachable && _routingMode != ConnectionRoutingMode.localOnly;
 
     return AuthoritativeHomeConnectionState.resolve(
       isCloudReachable: isCloudActive,
@@ -482,6 +653,21 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   UpcomingRoutineSortMode _upcomingRoutineSortMode = UpcomingRoutineSortMode.currentSpaceFirst;
   UpcomingRoutineSortMode get upcomingRoutineSortMode => _upcomingRoutineSortMode;
 
+  void updateDeviceFirmwareVersion(String deviceId, String newVersion) {
+    final cleanVer = newVersion.replaceAll(RegExp(r'[^0-9.]'), '');
+    for (int i = 0; i < _devices.length; i++) {
+      if (_devices[i].id == deviceId || _devices[i].id.toLowerCase() == deviceId.toLowerCase()) {
+        _devices[i] = _devices[i].copyWith(firmware: cleanVer);
+        _storageService.saveDeviceForSpace(_activeSpaceId, _devices[i]);
+      }
+    }
+    if (_connectedDeviceSummary != null &&
+        (_connectedDeviceSummary!.id == deviceId || _connectedDeviceSummary!.id.toLowerCase() == deviceId.toLowerCase())) {
+      _connectedDeviceSummary = _connectedDeviceSummary!.copyWith(firmware: cleanVer);
+    }
+    notifyListeners();
+  }
+
   void setUpcomingRoutineSortMode(UpcomingRoutineSortMode mode) {
     if (_upcomingRoutineSortMode != mode) {
       _upcomingRoutineSortMode = mode;
@@ -495,7 +681,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       List.unmodifiable(_routines);
 
   List<UpcomingRoutineItem> get upcomingRoutines =>
-      List.unmodifiable(_routines);
+      List.unmodifiable(_routines.where((r) => r.isEnabled));
 
   Future<void> refreshUpcomingRoutines() async {
     try {
@@ -507,6 +693,16 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       final List<UpcomingRoutineItem> items = [];
 
       for (final r in allRoutines) {
+        // Do not show disabled routines in upcoming routines
+        if (!r.enabled) continue;
+        // Do not render cross-device automations in upcoming routines
+        if (r.trigger.kind == RoutineTriggerKind.deviceState ||
+            r.id.startsWith('xrule_') ||
+            r.name.toLowerCase().contains('cross-device')) {
+          continue;
+        }
+
+        final isAvailable = (r.effectiveAvailability == RoutineAvailability.available);
         String spaceId = _activeSpaceId;
         String spaceName = _activeSpaceName;
         String spaceIcon = 'home';
@@ -563,6 +759,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             timeLabel: timeLabel,
             iconKey: r.icon,
             isEnabled: r.enabled,
+            isAvailable: isAvailable,
             nextExecutionTime: nextExec,
             roomName: roomName,
             channelLabel: channelLabel,
@@ -690,6 +887,17 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void toggleRoutine(String id, bool enabled) {
+    final matchingUpcoming = _routines.cast<UpcomingRoutineItem?>().firstWhere(
+      (r) => r?.id == id,
+      orElse: () => null,
+    );
+    unawaited(
+      DeviceStorageService.savePendingRoutineToggle(
+        id,
+        enabled,
+        routineName: matchingUpcoming?.title,
+      ),
+    );
     // 1. Instant optimistic UI update in upcoming routines list (<16ms)
     final idx = _routines.indexWhere((r) => r.id == id);
     if (idx >= 0) {
@@ -703,6 +911,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         timeLabel: old.timeLabel,
         iconKey: old.iconKey,
         isEnabled: enabled,
+        isAvailable: old.isAvailable,
         nextExecutionTime: old.nextExecutionTime,
         roomName: old.roomName,
         channelLabel: old.channelLabel,
@@ -938,7 +1147,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         _devices = cleanSpaceDevs.map((d) {
           final isLanActive = (_isLocalMode || _routingMode != ConnectionRoutingMode.cloudOnly) &&
               LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
-          final isOnline = _isLocalMode ? isLanActive : (isLanActive || d.online);
+          final hasActiveRoutine = [1, 2, 3, 4].any((ch) => getActiveRoutineForChannel(d.id, ch) != null);
+          final isOnline = isLanActive || d.online || hasActiveRoutine;
           final signal = isLanActive
               ? 'Local Wi-Fi'
               : (isOnline ? (d.signalLabel != 'Offline' ? d.signalLabel : 'Cloud') : 'Offline');
@@ -969,7 +1179,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         _devices = deduped.map((d) {
           final isLanActive = (_isLocalMode || _routingMode != ConnectionRoutingMode.cloudOnly) &&
               LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
-          final isOnline = _isLocalMode ? isLanActive : (isLanActive || d.online);
+          final hasActiveRoutine = [1, 2, 3, 4].any((ch) => getActiveRoutineForChannel(d.id, ch) != null);
+          final isOnline = isLanActive || d.online || hasActiveRoutine;
           final signal = isLanActive
               ? 'Local Wi-Fi'
               : (isOnline ? (d.signalLabel != 'Offline' ? d.signalLabel : 'Cloud') : 'Offline');
@@ -1239,12 +1450,19 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// Commands are available when authenticated via cloud with active connection, or actively verified on local LAN, or using FakeHomeRepository in tests.
+  /// Commands are available when authenticated via cloud with active connection, or actively verified on local LAN/Hub, or using FakeHomeRepository in tests.
   bool get hardwareControlsAvailable {
     if (_repository is FakeHomeRepository) return true;
-    final hasActiveCloud = _cloudEnabled && _isCloudReachable;
-    final hasActiveLan = _isLocalMode && _devices.any((d) => d.online);
-    return (hasActiveCloud || hasActiveLan) && _devices.any((d) => d.online);
+    final hasActiveCloud = _cloudEnabled &&
+        _isCloudReachable &&
+        _routingMode != ConnectionRoutingMode.localOnly;
+    final hasOnlineDevice = _devices.any((d) =>
+            d.online || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)) ||
+        LocalLanDeviceService.instance.isAnyDeviceReachableOnLan();
+    final hasActiveLan = _routingMode != ConnectionRoutingMode.cloudOnly &&
+        (isLocalMode || isHubActive || _isLocalMode) &&
+        (hasOnlineDevice || isHubActive);
+    return (hasActiveCloud && _devices.any((d) => d.online)) || hasActiveLan;
   }
   DeviceConnection get cloudDeviceConnection => _cloudDeviceConnection;
 
@@ -1414,8 +1632,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
                 energyKwh: '0.0 kWh',
                 energyChange: '0.0 kWh',
                 activeWindow: 'Today',
-                averageTemperature: '24°C',
-                averageHumidity: '55%',
+                averageTemperature: '--',
+                averageHumidity: '--',
               ),
             ),
           );
@@ -1443,8 +1661,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
                 energyKwh: '0.0 kWh',
                 energyChange: '0.0 kWh',
                 activeWindow: 'Today',
-                averageTemperature: '24°C',
-                averageHumidity: '55%',
+                averageTemperature: '--',
+                averageHumidity: '--',
               ),
             ),
           );
@@ -1496,14 +1714,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     // Startup Priority in Auto Mode: launch concurrent LAN probe alongside Cloud fetch
-    if (_routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
+    if (autoSync && _routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
       unawaited(probeLanAndPromote());
     }
 
     try {
       final results = await Future.wait([
-        _repository.getDevices(homeId: targetHomeId).timeout(const Duration(milliseconds: 5000)),
-        _repository.getRooms(homeId: targetHomeId).timeout(const Duration(milliseconds: 5000)),
+        _repository.getDevices(homeId: targetHomeId).timeout(const Duration(milliseconds: 1500)),
+        _repository.getRooms(homeId: targetHomeId).timeout(const Duration(milliseconds: 1500)),
       ]);
       final rawSnapshotList = results[0] as List<DeviceSnapshot>;
       final rawDevices = rawSnapshotList.where((d) => !DeviceStorageService.isDeviceDeleted(d.id)).toList();
@@ -1551,8 +1769,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             energyKwh: '0.0 kWh',
             energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         );
       }).toList();
@@ -1575,7 +1793,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           final isReachableLan = LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
           final isLanActive = (_isLocalMode || _routingMode != ConnectionRoutingMode.cloudOnly) && isReachableLan;
           final isFakeRepo = _repository is FakeHomeRepository;
-          final isDevOnline = isLanActive || (isFakeRepo ? d.online : false);
+          final hasActiveRoutine = [1, 2, 3, 4].any((ch) => getActiveRoutineForChannel(d.id, ch) != null);
+          final isDevOnline = isLanActive || d.online || hasActiveRoutine || (isFakeRepo ? d.online : false);
           return d.copyWith(
             online: isDevOnline,
             signalLabel: isDevOnline ? (isLanActive ? 'Local Wi-Fi' : 'Strong') : 'Offline',
@@ -1586,12 +1805,20 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         _activeDisplayName = _devices.isNotEmpty ? _devices.first.name : '';
         _activeSerialNumber = _devices.isNotEmpty ? _devices.first.model : '';
         final anyOnline = _devices.any((d) => d.online);
-        _connectionState = anyOnline
-            ? HomeConnectionState.connected
-            : HomeConnectionState.offline;
-        _connectionMessage = anyOnline
-            ? '${_devices.first.name} is connected and online.'
-            : '${_devices.first.name} is offline. Cloud backend disconnected.';
+        if (_isLocalMode) {
+          _connectionState = anyOnline ? HomeConnectionState.connected : HomeConnectionState.offline;
+          _connectionMessage = anyOnline ? 'Local Wi-Fi Mode (Direct LAN)' : 'Local LAN Devices Offline';
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Cloud Mode (Remote)';
+        } else {
+          _connectionState = anyOnline
+              ? HomeConnectionState.connected
+              : HomeConnectionState.offline;
+          _connectionMessage = anyOnline
+              ? '${_devices.first.name} is connected and online.'
+              : '${_devices.first.name} is offline. Cloud backend disconnected.';
+        }
         _spaceDevicesCache[targetHomeId] = List.from(_devices);
       } else if (rawDevices.isNotEmpty) {
         final mapped = rawDevices.map((d) {
@@ -1635,6 +1862,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             signalLabel: isLanActive ? 'Local Wi-Fi' : (isOnline ? 'Strong' : 'Offline'),
             roomName: finalRoom,
             online: isOnline,
+            rssiDbm: LocalLanDeviceService.instance.getDeviceRssi(d.id) ?? localMatch?.rssiDbm,
           );
         }).toList();
         _devices = _deduplicateDevices(mapped);
@@ -1643,12 +1871,19 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         _activeDeviceId = _devices.isNotEmpty ? _devices.first.id : '';
         _activeDisplayName = _devices.isNotEmpty ? _devices.first.name : '';
         _activeSerialNumber = _devices.isNotEmpty ? _devices.first.model : '';
-        _connectionState = _devices.any((d) => d.online)
-            ? HomeConnectionState.connected
-            : HomeConnectionState.offline;
-        _connectionMessage = _devices.isNotEmpty
-            ? '${_devices.first.name} is connected and ${_devices.first.online ? 'online' : 'offline'}.'
-            : 'No devices connected.';
+        final anyDevOnline = _devices.any((d) => d.online);
+        if (_isLocalMode) {
+          _connectionState = anyDevOnline ? HomeConnectionState.connected : HomeConnectionState.offline;
+          _connectionMessage = anyDevOnline ? 'Local Wi-Fi Mode (Direct LAN)' : 'Local LAN Devices Offline';
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Cloud Mode (Remote)';
+        } else {
+          _connectionState = anyDevOnline ? HomeConnectionState.connected : HomeConnectionState.offline;
+          _connectionMessage = _devices.isNotEmpty
+              ? '${_devices.first.name} is connected and ${anyDevOnline ? 'online' : 'offline'}.'
+              : 'No devices connected.';
+        }
 
         for (final dev in _devices) {
           _storageService.saveDeviceForSpace(targetHomeId, dev);
@@ -1762,10 +1997,12 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           final deduped = _deduplicateDevices(filteredLocal);
           _devices = deduped.map((d) {
             final isReachableLan = LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id);
-            final isLanActive = (_isLocalMode || _routingMode != ConnectionRoutingMode.cloudOnly) && isReachableLan;
+            final hasActiveRoutine = hasActiveRoutineForDevice(d.id);
+            final isLanActive = (_isLocalMode || _routingMode != ConnectionRoutingMode.cloudOnly) &&
+                (isReachableLan || hasActiveRoutine);
             return d.copyWith(
-              online: isLanActive,
-              signalLabel: isLanActive ? 'Local Wi-Fi' : 'Offline',
+              online: isLanActive || hasActiveRoutine,
+              signalLabel: isLanActive ? 'Local Wi-Fi' : (hasActiveRoutine ? 'Strong' : 'Offline'),
             );
           }).toList();
           _connectedDeviceSummary = _devices.first;
@@ -1773,10 +2010,10 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           _activeDisplayName = _devices.first.name;
           _activeSerialNumber = _devices.first.model;
           final anyOnline = _devices.any((d) => d.online);
-          _connectionState = anyOnline ? HomeConnectionState.connected : HomeConnectionState.offline;
+          _connectionState = anyOnline ? HomeConnectionState.connected : (_isCloudReachable ? HomeConnectionState.connected : HomeConnectionState.offline);
           _connectionMessage = anyOnline
               ? '${_devices.first.name} is connected via Local Wi-Fi.'
-              : '${_devices.first.name} is offline. Cloud backend disconnected.';
+              : (_isCloudReachable ? 'Cloud Mode (Remote)' : '${_devices.first.name} is offline. Cloud backend disconnected.');
           _spaceDevicesCache[targetHomeId] = List.from(_devices);
 
           // Auto-claim these devices to the cloud home so backend DB is populated
@@ -1816,9 +2053,16 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             break;
           }
         }
+        if (!anyLanOnline && (LocalLanDeviceService.instance.isAnyDeviceReachableOnLan() || (LiveHubRepository.isLinked && LiveHubRepository.isHubActive))) {
+          anyLanOnline = true;
+        }
         _isLocalMode = anyLanOnline;
         if (_isLocalMode) {
+          _connectionState = HomeConnectionState.connected;
           _connectionMessage = 'Local Wi-Fi Mode (Direct LAN)';
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Cloud Mode (Remote)';
         }
       }
       // Hydrate device cache for all other spaces so cross-space summary is accurate
@@ -1833,21 +2077,23 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      if (_routingMode != ConnectionRoutingMode.cloudOnly) {
+      if (autoSync && _routingMode != ConnectionRoutingMode.cloudOnly) {
         await _probeKnownLanDevicesFast();
+        if (_routingMode == ConnectionRoutingMode.auto && (!_isLocalMode || _devices.any((d) => !d.online))) {
+          await probeLanAndPromote();
+        } else {
+          await _pollLanStateQuietly();
+        }
       }
 
       _isLoading = false;
       _startAutoSyncTimer();
       _startAutoModeLanPromotionTimer();
-      if (_routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
-        unawaited(probeLanAndPromote());
-      } else if (_routingMode != ConnectionRoutingMode.cloudOnly) {
-        _pollLanStateQuietly();
-      }
       notifyListeners();
     } catch (e) {
-      _isCloudReachable = false;
+      // Differentiate network/transport failure (including ApiException statusCode == 0) vs HTTP server error
+      final isNetworkDown = _isNetworkFailure(e);
+      _isCloudReachable = !isNetworkDown;
       _cloudDeviceConnection = DeviceConnection.offline;
       final isPrimary = isPrimarySpaceId(targetHomeId);
       final primarySpaceId = _spaces.isNotEmpty ? (_spaces.first['id'] as String) : 'home_default';
@@ -1878,12 +2124,18 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         _activeDeviceId = _devices.first.id;
         _activeDisplayName = _devices.first.name;
         _activeSerialNumber = _devices.first.model;
-        final hasOnline = _devices.any((d) => d.online);
+        final hasOnline = _devices.any((d) => d.online) || _devices.any((d) => LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)) || (LiveHubRepository.isLinked && LiveHubRepository.isHubActive);
         _isLocalMode = hasOnline;
-        _connectionState = hasOnline ? HomeConnectionState.connected : HomeConnectionState.offline;
-        _connectionMessage = hasOnline
-            ? 'Local Wi-Fi Mode'
-            : '${_devices.first.name} is offline. Cloud sync unavailable.';
+        if (hasOnline) {
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Local Wi-Fi Mode';
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Cloud Mode (Remote)';
+        } else {
+          _connectionState = HomeConnectionState.offline;
+          _connectionMessage = '${_devices.first.name} is offline. Cloud sync unavailable.';
+        }
       } else {
         _devices = [];
         _connectedDeviceSummary = null;
@@ -1915,8 +2167,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
               energyKwh: '0.0 kWh',
               energyChange: '0.0 kWh',
               activeWindow: 'Today',
-              averageTemperature: '24°C',
-              averageHumidity: '55%',
+              averageTemperature: '--',
+              averageHumidity: '--',
             ),
           );
         }).toList();
@@ -1944,6 +2196,20 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<bool> _probeKnownLanDevicesFast() async {
     try {
+      bool anySuccess = false;
+      try {
+        final hubState = await LiveHubRepository().getHubState(
+          homeId: _activeHomeId,
+          allowSubnetSweep: false,
+        );
+        if (hubState.isLinked && hubState.status == HubConnectionStatus.connected) {
+          _isLocalMode = true;
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Hub (${hubState.hostname})';
+          anySuccess = true;
+        }
+      } catch (_) {}
+
       final cachedIps = DeviceStorageService.getAllCachedDeviceIps();
       final candidates = <String, String>{};
       for (final entry in cachedIps.entries) {
@@ -1957,9 +2223,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           candidates[d.id] = ip.trim();
         }
       }
-      if (candidates.isEmpty) return false;
+      if (candidates.isEmpty) return anySuccess;
 
-      bool anySuccess = false;
       for (final entry in candidates.entries) {
         final devId = entry.key;
         final ip = entry.value;
@@ -1973,19 +2238,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           _promoteToLocalLanMode(devId, state);
           anySuccess = true;
         } else {
-          LocalLanDeviceService.instance.markDeviceOfflineOnLan(devId);
-          if (_routingMode == ConnectionRoutingMode.localOnly) {
-            final idx = _devices.indexWhere((d) => d.id == devId);
-            if (idx >= 0) {
-              _devices[idx] = _devices[idx].copyWith(
-                online: false,
-                signalLabel: 'Offline',
-              );
-            }
-          }
+          // Do not mark device offline immediately from a single startup/background fast probe miss.
+          _deviceMissedPolls[devId] = (_deviceMissedPolls[devId] ?? 0) + 1;
         }
       }
-      if (!anySuccess) {
+      if (!anySuccess && !_hasVerifiedLanDevice && !isHubActive) {
         if (_routingMode == ConnectionRoutingMode.auto) {
           _isLocalMode = false;
         }
@@ -2039,6 +2296,12 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     return null;
   }
 
+  static bool isHardwareMeshSupported(String? model) {
+    if (model == null) return false;
+    final m = model.toLowerCase();
+    return m.contains('c6') || m.contains('mesh') || m.contains('thread') || m.contains('matter') || m.contains('802.15.4');
+  }
+
   static bool? _parsePowerFromChannel(dynamic ch) {
     if (ch is! Map) return null;
     if (ch['power'] is bool) return ch['power'] as bool;
@@ -2082,33 +2345,77 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   void _startAutoSyncTimer() {
     if (!autoSync) return;
     _autoSyncTimer?.cancel();
-    _autoSyncTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+    _autoSyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _quietSyncDeviceStates();
     });
+  }
+
+  bool _isNetworkFailure(Object e) {
+    if (e is SocketException || e is TimeoutException || e is HandshakeException) {
+      return true;
+    }
+    if (e is ApiException && e.statusCode == 0) {
+      return true;
+    }
+    final msg = e.toString().toLowerCase();
+    return msg.contains('unreachable') ||
+        msg.contains('socketexception') ||
+        msg.contains('failed host lookup') ||
+        msg.contains('connection refused') ||
+        msg.contains('network is unreachable') ||
+        msg.contains('timed out') ||
+        msg.contains('clientexception');
+  }
+
+  Future<bool> _probeCloudBackendReachable() async {
+    final repo = _repository;
+    if (repo is CloudHomeRepository) {
+      final client = repo.client;
+      try {
+        final res = await client.get('/api/v1/health').timeout(const Duration(milliseconds: 2500));
+        if (res != null) {
+          return true;
+        }
+      } catch (e) {
+        if (e is! SocketException && e is! TimeoutException) {
+          return true; // Server responded with HTTP status (e.g. 401/403/404)
+        }
+      }
+    }
+    return false;
   }
 
   void _startAutoModeLanPromotionTimer() {
     if (!autoSync) return;
     _autoModeLanPromotionTimer?.cancel();
-    if (_routingMode == ConnectionRoutingMode.auto && !_isLocalMode && !_disposed) {
+    if (_routingMode == ConnectionRoutingMode.auto &&
+        !_disposed &&
+        (!_isLocalMode || _devices.any((d) => !d.online))) {
       unawaited(probeLanAndPromote());
     }
+    // Production 3-second local liveness tick enables ~6s offline detection (2-3 misses)
+    // and near-instant recovery in LAN & Hub modes without flooding Wi-Fi.
     _autoModeLanPromotionTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (_routingMode == ConnectionRoutingMode.auto && !_isLocalMode && !_disposed) {
-        probeLanAndPromote();
+      if (_disposed || _routingMode == ConnectionRoutingMode.cloudOnly) return;
+      if (_routingMode == ConnectionRoutingMode.auto &&
+          (!_isLocalMode || _devices.any((d) => !d.online))) {
+        unawaited(probeLanAndPromote());
+      } else if (_isLocalMode || isHubActive || _routingMode == ConnectionRoutingMode.localOnly) {
+        unawaited(_pollLanStateQuietly());
       }
     });
   }
 
   /// Asynchronously probes known and discovered LAN IPs and promotes Auto Mode to LAN Mode
   /// with zero user interaction as soon as at least one local device responds.
-  Future<bool> probeLanAndPromote({String? targetDeviceId}) async {
+  Future<bool> probeLanAndPromote({String? targetDeviceId, bool allowSubnetSweep = false}) async {
     if (_disposed) return false;
     if (_routingMode != ConnectionRoutingMode.auto && _routingMode != ConnectionRoutingMode.localOnly) {
       return false;
     }
-    final allDevicesOnline = _devices.isNotEmpty && _devices.every((d) => d.online);
-    if (_isLocalMode && _routingMode == ConnectionRoutingMode.auto && allDevicesOnline && targetDeviceId == null) {
+    final allDevicesVerifiedLan = _devices.isNotEmpty &&
+        _devices.every((d) => d.online && LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id));
+    if (_isLocalMode && _routingMode == ConnectionRoutingMode.auto && allDevicesVerifiedLan && targetDeviceId == null) {
       return true;
     }
     if (_isProbingLan) return false;
@@ -2117,17 +2424,18 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
     try {
       // 0. Probe Smart Home Hub Coordinator on LAN (Port 4210)
-      if (!LiveHubRepository.isHubActive) {
-        try {
-          final hubState = await LiveHubRepository().getHubState(homeId: _activeHomeId).timeout(const Duration(milliseconds: 900));
-          if (hubState.isLinked) {
-            _isLocalMode = true;
-            _connectionState = HomeConnectionState.connected;
-            _connectionMessage = 'Smart Hub Gateway Active (${hubState.hostname})';
-            anyPromoted = true;
-          }
-        } catch (_) {}
-      }
+      try {
+        final hubState = await LiveHubRepository().getHubState(
+          homeId: _activeHomeId,
+          allowSubnetSweep: allowSubnetSweep,
+        );
+        if (hubState.isLinked && hubState.status == HubConnectionStatus.connected) {
+          _isLocalMode = true;
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Hub (${hubState.hostname})';
+          anyPromoted = true;
+        }
+      } catch (_) {}
 
       // 1. Fast path: probe known / cached IPs directly (<50ms)
       final checkDevIds = targetDeviceId != null
@@ -2172,12 +2480,14 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      // 2. Concurrently run active discovery on local subnet for any still-offline devices
-      final stillOffline = _devices.where((d) => !d.online).map((d) => d.id).toList();
+      // 2. Run UDP broadcast discovery (<800ms) when any device is offline or not yet on LAN,
+      //    with full subnet TCP sweep only when explicitly requested via allowSubnetSweep.
+      final stillOffline = _devices.where((d) => !d.online || !LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)).map((d) => d.id).toList();
       if (stillOffline.isNotEmpty || !anyPromoted) {
         final discovered = await LocalLanDeviceService.instance.autoDiscoverDevices(
           expectedDeviceIds: _devices.map((d) => d.id).toList(),
-          timeout: const Duration(milliseconds: 1500),
+          timeout: const Duration(milliseconds: 900),
+          allowSubnetSweep: allowSubnetSweep,
         );
         if (discovered.isNotEmpty) {
           for (final entry in discovered.entries) {
@@ -2200,6 +2510,37 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint('[LAN-PROBE] probeLanAndPromote error: $e');
     } finally {
       _isProbingLan = false;
+    }
+    if (!anyPromoted && _routingMode == ConnectionRoutingMode.auto) {
+      final anyLanDevice = _hasVerifiedLanDevice ||
+          (LiveHubRepository.isLinked && LiveHubRepository.isHubActive) ||
+          _devices.any((d) => hasActiveRoutineForDevice(d.id));
+      if (!anyLanDevice) {
+        bool changed = false;
+        if (_isLocalMode) {
+          _isLocalMode = false;
+          changed = true;
+        }
+        if (_isCloudReachable) {
+          _connectionState = HomeConnectionState.connected;
+          _connectionMessage = 'Cloud Mode (Remote)';
+        } else {
+          if (_connectionState != HomeConnectionState.offline) {
+            _connectionState = HomeConnectionState.offline;
+            _connectionMessage = 'Devices and cloud backend unreachable.';
+            changed = true;
+          }
+          for (int i = 0; i < _devices.length; i++) {
+            if (_devices[i].online &&
+                !_isDeviceCommandRecent(_devices[i].id, windowMs: 4000) &&
+                !hasActiveRoutineForDevice(_devices[i].id)) {
+              _devices[i] = _devices[i].copyWith(online: false, signalLabel: 'Offline');
+              changed = true;
+            }
+          }
+        }
+        if (changed) notifyListeners();
+      }
     }
     return anyPromoted;
   }
@@ -2254,12 +2595,17 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           : (suffix.isNotEmpty ? 'EH Smart Switch $suffix' : 'EH Smart Switch');
       final devName = cachedMatch?.name ?? defaultName;
       final newDev = (cachedMatch != null)
-          ? cachedMatch.copyWith(online: true, signalLabel: 'Local Wi-Fi', model: canon)
+          ? cachedMatch.copyWith(
+              online: true,
+              signalLabel: 'Local Wi-Fi',
+              model: canon,
+              firmware: devState.firmwareVersion ?? cachedMatch.firmware,
+            )
           : ConnectedDeviceSummary(
               id: targetId,
               name: devName,
               model: canon,
-              firmware: '1.0.0',
+              firmware: devState.firmwareVersion ?? '1.0.0',
               connectedVia: 'Wi-Fi (Local)',
               signalLabel: 'Local Wi-Fi',
               roomName: cachedMatch?.roomName ?? 'Unassigned',
@@ -2276,47 +2622,83 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
     _syncHardwareModelAndState(targetId, devState);
     debugPrint('[LAN-PROBE] Auto Mode promoted to LAN Mode for device $devId (0 button taps required)');
+    unawaited(LocalLanDeviceService.instance.syncAllPeerRulesForDevice(targetId));
     unawaited(EdgeRoutineSyncService.instance.syncRoutinesFromEdgeToApp(targetDeviceId: devId).then((_) {
       refreshUpcomingRoutines();
     }));
     notifyListeners();
   }
 
+  int _lanRoutinePollTick = 0;
+
   Future<void> _pollLanStateQuietly() async {
     if (_devices.isEmpty || _routingMode == ConnectionRoutingMode.cloudOnly) return;
     bool localStateChanged = false;
     bool anyLocalActive = false;
+    _lanRoutinePollTick++;
+
+    if (LiveHubRepository.isLinked && (!LiveHubRepository.isHubActive || _lanRoutinePollTick % 2 == 1)) {
+      try {
+        final prevHubActive = LiveHubRepository.isHubActive;
+        final hubState = await LiveHubRepository().getHubState(
+          homeId: _activeHomeId,
+          allowSubnetSweep: false,
+        );
+        final nowHubActive = hubState.isLinked && hubState.status == HubConnectionStatus.connected;
+        if (prevHubActive != nowHubActive) {
+          localStateChanged = true;
+        }
+        if (nowHubActive) {
+          anyLocalActive = true;
+        }
+      } catch (_) {}
+    } else if (LiveHubRepository.isLinked && LiveHubRepository.isHubActive) {
+      anyLocalActive = true;
+    }
 
     for (int i = 0; i < _devices.length; i++) {
       final devId = _devices[i].id;
-      final cachedIp = LocalLanDeviceService.instance.getDeviceIp(devId);
-      if (cachedIp == null || cachedIp.isEmpty) {
-        unawaited(LocalLanDeviceService.instance.autoDiscoverDevices(
-          expectedDeviceIds: [devId],
-          timeout: const Duration(seconds: 2),
-        ));
-      }
       final devState = await LocalLanDeviceService.instance.fetchLocalDeviceState(deviceId: devId);
       if (devState != null && devState.channels.isNotEmpty) {
         anyLocalActive = true;
+        if (devState.activeRoutines != null) {
+          EdgeRoutineSyncService.instance.ingestHardwareActiveRoutines(
+            devId,
+            devState.activeRoutines,
+          );
+        }
         LocalLanDeviceService.instance.markDeviceReachableOnLan(devId);
         LocalLanDeviceService.instance.markDeviceReachableOnLan(devState.deviceId);
         _deviceMissedPolls[devId] = 0;
-        if (!_devices[i].online || _devices[i].signalLabel != 'Local Wi-Fi') {
+        final resolvedRssi = devState.rssiDbm ?? LocalLanDeviceService.instance.getDeviceRssi(devId);
+        final needsViaFix = _devices[i].connectedVia.trim().isEmpty ||
+            _devices[i].connectedVia.trim().toLowerCase() == 'offline';
+        final needsRssiUpdate = resolvedRssi != null && _devices[i].rssiDbm != resolvedRssi;
+        if (!_devices[i].online || _devices[i].signalLabel != 'Local Wi-Fi' || needsViaFix || needsRssiUpdate) {
           _devices[i] = _devices[i].copyWith(
+            connectedVia: needsViaFix ? 'Wi-Fi (Local)' : _devices[i].connectedVia,
             signalLabel: 'Local Wi-Fi',
             online: true,
+            rssiDbm: resolvedRssi,
           );
           localStateChanged = true;
         }
         if (_syncHardwareModelAndState(devId, devState)) {
           localStateChanged = true;
         }
+        await EdgeRoutineSyncService.instance.syncRoutinesFromEdgeToApp(targetDeviceId: devId);
       } else {
+        if (_isDeviceCommandRecent(devId, windowMs: 4000) || hasActiveRoutineForDevice(devId)) {
+          anyLocalActive = true;
+          continue;
+        }
         final missed = (_deviceMissedPolls[devId] ?? 0) + 1;
         _deviceMissedPolls[devId] = missed;
-        // Require at least 5 consecutive failed polls before dropping to offline
-        if (missed >= 5 && _devices[i].online) {
+        if (missed >= 2) {
+          LocalLanDeviceService.instance.markDeviceOfflineOnLan(devId);
+        }
+        // When operating on local Wi-Fi (or localOnly / cloud offline), 2 missed probes (~6s) marks the node offline
+        if (missed >= 2 && _devices[i].online && (isLocalMode || _routingMode == ConnectionRoutingMode.localOnly || !_isCloudReachable)) {
           _devices[i] = ConnectedDeviceSummary(
             id: _devices[i].id,
             name: _devices[i].name,
@@ -2326,6 +2708,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             signalLabel: 'Offline',
             roomName: _devices[i].roomName,
             online: false,
+            rssiDbm: null,
           );
           localStateChanged = true;
         }
@@ -2339,17 +2722,21 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         localStateChanged = true;
       }
       _connectionState = HomeConnectionState.connected;
-      _connectionMessage = 'Local Wi-Fi Mode (Direct LAN)';
+      _connectionMessage = (LiveHubRepository.isLinked && LiveHubRepository.isHubActive)
+          ? 'Hub (${LiveHubRepository.activeHost ?? "eh-hub.local"})'
+          : 'Local Wi-Fi Mode (Direct LAN)';
     } else {
       _lanMissedPollCount++;
-      if (_lanMissedPollCount >= 1 && _isLocalMode && _routingMode != ConnectionRoutingMode.localOnly) {
+      if ((_lanMissedPollCount >= 2 || !_hasVerifiedLanDevice) &&
+          _isLocalMode &&
+          _routingMode != ConnectionRoutingMode.localOnly) {
         _isLocalMode = false;
         localStateChanged = true;
       }
-      if (_isCloudReachable) {
+      if (_isCloudReachable && _routingMode != ConnectionRoutingMode.localOnly) {
         _connectionState = HomeConnectionState.connected;
         _connectionMessage = 'Cloud Mode (Remote)';
-      } else {
+      } else if (_lanMissedPollCount >= 2) {
         if (_connectionState != HomeConnectionState.offline) {
           _connectionState = HomeConnectionState.offline;
           _connectionMessage = _routingMode == ConnectionRoutingMode.localOnly
@@ -2369,13 +2756,55 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed || _isQuietSyncing) return;
     _isQuietSyncing = true;
     try {
-      if (_routingMode == ConnectionRoutingMode.localOnly || (_isLocalMode && _routingMode == ConnectionRoutingMode.auto)) {
+      if (_routingMode == ConnectionRoutingMode.localOnly || (isLocalMode && _routingMode == ConnectionRoutingMode.auto)) {
         await _pollLanStateQuietly();
         if (_routingMode == ConnectionRoutingMode.localOnly) return;
-        if (_isLocalMode) return;
+        if (isLocalMode) {
+          // Keep Cloud reachability indicator accurate in Smart Auto mode even while LAN/Hub is active
+          final cloudReachable = await _probeCloudBackendReachable();
+          if (_isCloudReachable != cloudReachable) {
+            _isCloudReachable = cloudReachable;
+            notifyListeners();
+          }
+          return;
+        }
+      } else if (_routingMode == ConnectionRoutingMode.auto && !isLocalMode) {
+        await probeLanAndPromote();
+        if (isLocalMode) {
+          final cloudReachable = await _probeCloudBackendReachable();
+          if (_isCloudReachable != cloudReachable) {
+            _isCloudReachable = cloudReachable;
+            notifyListeners();
+          }
+          return;
+        }
       }
 
-      if (!_cloudEnabled) return;
+      if (!_cloudEnabled) {
+        // Even if full cloud actuation isn't authenticated yet, check if backend server is reachable
+        final cloudReachable = await _probeCloudBackendReachable();
+        bool changed = false;
+        if (_isCloudReachable != cloudReachable) {
+          _isCloudReachable = cloudReachable;
+          changed = true;
+        }
+        if (cloudReachable && !_isLocalMode) {
+          if (_connectionState != HomeConnectionState.connected || _connectionMessage != 'Cloud Mode (Remote)') {
+            _connectionState = HomeConnectionState.connected;
+            _connectionMessage = 'Cloud Mode (Remote)';
+            changed = true;
+          }
+        } else if (!cloudReachable && !_isLocalMode) {
+          await _pollLanStateQuietly();
+          if (!_isLocalMode && _connectionState != HomeConnectionState.offline) {
+            _connectionState = HomeConnectionState.offline;
+            _connectionMessage = 'Devices and cloud backend unreachable.';
+            changed = true;
+          }
+        }
+        if (changed) notifyListeners();
+        return;
+      }
 
       bool stateChanged = false;
       final rawDevices = await _repository.getDevices(homeId: _activeHomeId).timeout(const Duration(milliseconds: 3000));
@@ -2414,12 +2843,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           final chIdx = _parseChannelIndex(ch) ?? 1;
           final pwr = _parsePowerFromChannel(ch);
           if (pwr != null) {
-            final cmdKey1 = '${d.id}_$chIdx';
-            final cmdKey2 = '${d.id.toLowerCase()}_$chIdx';
-            final cmdKey3 = '${d.id}_ch$chIdx';
-            final lastCmd = _lastCommandTimestamps[cmdKey1] ?? _lastCommandTimestamps[cmdKey2] ?? _lastCommandTimestamps[cmdKey3];
-            if (lastCmd != null && DateTime.now().difference(lastCmd).inMilliseconds < 3500) {
-              // User recently toggled this switch: hold optimistic state for 3500ms to allow network roundtrip + ESP32 settling timer
+            if (_isChannelCommandRecent(d.id, chIdx, windowMs: 5000)) {
+              // User recently toggled this switch: hold optimistic state for 5000ms to allow network roundtrip + ESP32 settling timer
               continue;
             }
             // If device is active on local LAN, hardware on LAN is authoritative
@@ -2438,20 +2863,27 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           }
         }
         for (int i = 0; i < _devices.length; i++) {
-          if (_devices[i].id == d.id && _devices[i].online != isOnline) {
-            _devices[i] = ConnectedDeviceSummary(
-              id: _devices[i].id,
-              name: _devices[i].name,
-              model: _devices[i].model,
-              firmware: _devices[i].firmware,
-              connectedVia: _devices[i].connectedVia,
-              signalLabel: isOnline ? 'Strong' : 'Offline',
-              roomName: _devices[i].roomName,
-              online: isOnline,
-            );
-            stateChanged = true;
-            if (isOnline && _routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
-              unawaited(probeLanAndPromote(targetDeviceId: d.id));
+          if (_devices[i].id == d.id) {
+            final effectiveOnline = isOnline ||
+                LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id) ||
+                hasActiveRoutineForDevice(d.id);
+            final needsViaFix = effectiveOnline &&
+                (_devices[i].connectedVia.trim().isEmpty ||
+                    _devices[i].connectedVia.trim().toLowerCase() == 'offline');
+            final resolvedRssi = LocalLanDeviceService.instance.getDeviceRssi(d.id);
+            if (_devices[i].online != effectiveOnline || needsViaFix) {
+              _devices[i] = _devices[i].copyWith(
+                connectedVia: needsViaFix ? 'Wi-Fi (Local)' : _devices[i].connectedVia,
+                signalLabel: effectiveOnline
+                    ? (LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id) ? 'Local Wi-Fi' : 'Strong')
+                    : 'Offline',
+                online: effectiveOnline,
+                rssiDbm: effectiveOnline ? resolvedRssi : null,
+              );
+              stateChanged = true;
+              if (effectiveOnline && _routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
+                unawaited(probeLanAndPromote(targetDeviceId: d.id));
+              }
             }
           }
         }
@@ -2464,35 +2896,70 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       _consecutiveCloudFailures++;
       bool connectivityChanged = false;
-      if (_routingMode == ConnectionRoutingMode.cloudOnly) {
-        // Explicitly locked to cloud mode: hold cloud connection active
+      if (e is ApiException && e.statusCode != 0) {
+        if (!_isCloudReachable) connectivityChanged = true;
         _isCloudReachable = true;
-        _isLocalMode = false;
-      } else {
-        if (e is ApiException && e.statusCode != 0) {
-          if (!_isCloudReachable) connectivityChanged = true;
-          _isCloudReachable = true;
-          _consecutiveCloudFailures = 0;
-        } else if (_consecutiveCloudFailures >= 1) {
-          if (_isCloudReachable) {
-            _isCloudReachable = false;
-            connectivityChanged = true;
-          }
-        }
-      }
-      await _pollLanStateQuietly();
-      if (!_isCloudReachable && !_isLocalMode) {
-        if (_connectionState != HomeConnectionState.offline) {
-          _connectionState = HomeConnectionState.offline;
-          _connectionMessage = 'Cloud unreachable • Devices offline';
+        _consecutiveCloudFailures = 0;
+      } else if (_isNetworkFailure(e) || _consecutiveCloudFailures >= 2) {
+        if (_isCloudReachable) {
+          _isCloudReachable = false;
           connectivityChanged = true;
         }
+      }
+      if (_routingMode == ConnectionRoutingMode.cloudOnly) {
+        _isLocalMode = false;
+        if (!_isCloudReachable) {
+          _connectionState = HomeConnectionState.offline;
+          _connectionMessage = 'Cloud backend unreachable.';
+          for (int i = 0; i < _devices.length; i++) {
+            if (_devices[i].online && !hasActiveRoutineForDevice(_devices[i].id)) {
+              _devices[i] = _devices[i].copyWith(online: false, signalLabel: 'Offline');
+              connectivityChanged = true;
+            }
+          }
+        }
+        if (connectivityChanged) notifyListeners();
+        return;
+      }
+      await _pollLanStateQuietly();
+      if (!_isCloudReachable && !isLocalMode) {
+        bool allOffline = true;
         for (int i = 0; i < _devices.length; i++) {
-          if (_devices[i].online) {
+          final isLan = LocalLanDeviceService.instance.isDeviceReachableOnLan(_devices[i].id) ||
+              _isDeviceCommandRecent(_devices[i].id, windowMs: 4000) ||
+              hasActiveRoutineForDevice(_devices[i].id);
+          if (isLan) {
+            allOffline = false;
+            final needsViaFix = _devices[i].connectedVia.trim().isEmpty ||
+                _devices[i].connectedVia.trim().toLowerCase() == 'offline';
+            if (!_devices[i].online || _devices[i].signalLabel != 'Local Wi-Fi' || needsViaFix) {
+              _devices[i] = _devices[i].copyWith(
+                online: true,
+                connectedVia: needsViaFix ? 'Wi-Fi (Local)' : _devices[i].connectedVia,
+                signalLabel: 'Local Wi-Fi',
+                rssiDbm: LocalLanDeviceService.instance.getDeviceRssi(_devices[i].id),
+              );
+              connectivityChanged = true;
+            }
+          } else if (_devices[i].online && !hasActiveRoutineForDevice(_devices[i].id)) {
             _devices[i] = _devices[i].copyWith(
               online: false,
               signalLabel: 'Offline',
             );
+            connectivityChanged = true;
+          }
+        }
+        if (allOffline) {
+          if (_connectionState != HomeConnectionState.offline) {
+            _connectionState = HomeConnectionState.offline;
+            _connectionMessage = 'Cloud unreachable • Devices offline';
+            connectivityChanged = true;
+          }
+        } else {
+          _isLocalMode = true;
+          if (_connectionState != HomeConnectionState.connected) {
+            _connectionState = HomeConnectionState.connected;
+            _connectionMessage = 'Local Wi-Fi Mode Active';
             connectivityChanged = true;
           }
         }
@@ -2515,7 +2982,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     }
     try {
       debugPrint('[HOME] Switching to Local LAN mode via auto-discovery...');
-      final discovered = await LocalLanDeviceService.instance.autoDiscoverDevices();
+      final discovered = await LocalLanDeviceService.instance.autoDiscoverDevices(allowSubnetSweep: true);
       bool anyFound = false;
 
       // Mark this active space as the LAN matched space
@@ -2574,7 +3041,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
                 id: targetId,
                 name: generatedName,
                 model: devState.model ?? (normModel.isNotEmpty ? normModel : 'eh_switch_4x'),
-                firmware: '1.0.0',
+                firmware: devState.firmwareVersion ?? '1.0.0',
                 connectedVia: 'Wi-Fi (Local)',
                 signalLabel: 'Local Wi-Fi',
                 roomName: 'Unassigned',
@@ -2657,13 +3124,13 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           RegExp(r'[^a-z0-9]'),
           '_',
         );
-        final anyOnline = roomDevices.any((d) => d.online);
+        final anyOnline = roomDevices.any(isDeviceActiveOrOnline);
         final roomConnectivity = anyOnline ? ConnectivityCause.online : ConnectivityCause.deviceOffline;
         final roomStatus = isUnassigned
             ? RoomStatus.attention
             : (anyOnline ? RoomStatus.normal : RoomStatus.unavailable);
         final anyChannelOnInRoom = anyOnline && roomDevices.any((d) {
-          if (!d.online) return false;
+          if (!isDeviceActiveOrOnline(d)) return false;
           for (int ch = 1; ch <= 4; ch++) {
             if (getDeviceChannelPower(d.id, ch)) {
               return true;
@@ -2746,11 +3213,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             );
           }).toList(),
           insights: const RoomInsights(
-            energyKwh: '1.2 kWh',
-            energyChange: '+0.1 kWh',
+            energyKwh: '0.0 kWh',
+            energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         );
       }));
@@ -2954,7 +3421,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   HomeDashboardData get dashboard {
-    final effectiveDevices = _deduplicateDevices(_devices.isNotEmpty ? _devices : DeviceStorageService.cachedDevices);
+    final effectiveDevices = _deduplicateDevices(_devices);
     if (effectiveDevices.isNotEmpty) {
       final Map<String, Map<int, String>> allChannelLabels = {};
       for (final d in effectiveDevices) {
@@ -2964,6 +3431,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         devices: effectiveDevices,
         lightOn: _livingRoomLightOn,
         lightConfidence: _lightConfidence,
+        deviceConfidences: _deviceConfidences,
         selectedControlIds: _selectedQuickControlIds,
         channelStates: _channelStates,
         channelLabels: allChannelLabels,
@@ -3055,9 +3523,15 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           _cloudDeviceConnection = DeviceConnection.offline;
         }
 
+        if (!isOnline && devId != null && !_isLocalMode) {
+          LocalLanDeviceService.instance.markDeviceOfflineOnLan(devId);
+        }
         // Reflect in live devices list
         for (int i = 0; i < _devices.length; i++) {
           if (devId == null || _devices[i].id == devId) {
+            if (!isOnline && LocalLanDeviceService.instance.isDeviceReachableOnLan(_devices[i].id)) {
+              continue; // Active direct LAN link supersedes delayed cloud stale status
+            }
             _devices[i] = ConnectedDeviceSummary(
               id: _devices[i].id,
               name: _devices[i].name,
@@ -3105,9 +3579,13 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
                 final chIdx = _parseChannelIndex(ch) ?? 1;
                 final pwr = _parsePowerFromChannel(ch);
                 if (pwr != null) {
+                  if (_isChannelCommandRecent(devId, chIdx, windowMs: 5000)) {
+                    continue;
+                  }
                   if (devChannels[chIdx] != pwr) {
                     devChannels[chIdx] = pwr;
                     _checkAndDispatchChannelAlert(devId, chIdx, pwr);
+        unawaited(_evaluateCrossDeviceRules(devId, chIdx, pwr));
                   }
                   if (chIdx == 1 && isLivingRoomDev) {
                     _livingRoomLightOn = pwr;
@@ -3130,9 +3608,13 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
                 pwr = val;
               }
               if (pwr != null) {
+                if (_isChannelCommandRecent(devId, chIdx, windowMs: 5000)) {
+                  return;
+                }
                 if (devChannels[chIdx] != pwr) {
                   devChannels[chIdx] = pwr;
                   _checkAndDispatchChannelAlert(devId, chIdx, pwr);
+        unawaited(_evaluateCrossDeviceRules(devId, chIdx, pwr));
                 }
                 if (chIdx == 1 && isLivingRoomDev) {
                   _livingRoomLightOn = pwr;
@@ -3147,14 +3629,17 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             final chIdx = _parseChannelIndex(state) ?? 1;
             final pwr = _parsePowerFromChannel(state);
             if (pwr != null) {
-              if (devChannels[chIdx] != pwr) {
-                devChannels[chIdx] = pwr;
-                _checkAndDispatchChannelAlert(devId, chIdx, pwr);
-              }
-              if (chIdx == 1 && isLivingRoomDev) {
-                _livingRoomLightOn = pwr;
-                _lightConfidence = ActuatorConfidence.confirmed;
-                _lightCommandPending = false;
+              if (!_isChannelCommandRecent(devId, chIdx, windowMs: 5000)) {
+                if (devChannels[chIdx] != pwr) {
+                  devChannels[chIdx] = pwr;
+                  _checkAndDispatchChannelAlert(devId, chIdx, pwr);
+        unawaited(_evaluateCrossDeviceRules(devId, chIdx, pwr));
+                }
+                if (chIdx == 1 && isLivingRoomDev) {
+                  _livingRoomLightOn = pwr;
+                  _lightConfidence = ActuatorConfidence.confirmed;
+                  _lightCommandPending = false;
+                }
               }
             }
           }
@@ -3180,6 +3665,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             if (devChannels[chIdx] != pwr) {
               devChannels[chIdx] = pwr;
               _checkAndDispatchChannelAlert(devId, chIdx, pwr);
+        unawaited(_evaluateCrossDeviceRules(devId, chIdx, pwr));
             }
             if (chIdx == 1 && isLivingRoomDev) {
               _livingRoomLightOn = pwr;
@@ -3289,7 +3775,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       _activityAlerts.addAll(savedAlerts);
     }
     await refreshUpcomingRoutines();
-    if (_routingMode == ConnectionRoutingMode.auto || _routingMode == ConnectionRoutingMode.localOnly) {
+    if (autoSync && (_routingMode == ConnectionRoutingMode.auto || _routingMode == ConnectionRoutingMode.localOnly)) {
       unawaited(probeLanAndPromote());
     }
     notifyListeners();
@@ -3379,8 +3865,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             energyKwh: '0.0 kWh',
             energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         ),
       );
@@ -3545,36 +4031,54 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
+  int _commandNonce = 0;
+  final Map<String, int> _activeCommandNonces = {};
+
+  bool _isDeviceCommandRecent(String devId, {int windowMs = 4000}) {
+    final now = DateTime.now();
+    final cleanId = devId.toLowerCase().trim();
+    if (cleanId.isEmpty) return false;
+    for (final entry in _lastCommandTimestamps.entries) {
+      if (entry.key.toLowerCase().trim().contains(cleanId) &&
+          now.difference(entry.value).inMilliseconds < windowMs) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> setDeviceChannelPower({
     required String deviceId,
     required int channelIndex,
     required bool value,
     bool isToggle = false,
+    bool evaluateCrossDevice = true,
   }) async {
-    if (!hardwareControlsAvailable) {
+    final cachedLocalIp = LocalLanDeviceService.instance.getDeviceIp(deviceId);
+    if (!hardwareControlsAvailable && (cachedLocalIp == null || _routingMode == ConnectionRoutingMode.cloudOnly)) {
       debugPrint('[DEVICE] Command rejected: hardware controls unavailable (unauthenticated or offline)');
       _deviceConfidences[deviceId] = ActuatorConfidence.unavailable;
-      _lightConfidence = ActuatorConfidence.unavailable;
+      final anyOtherOnline = _devices.any((d) =>
+          d.id != deviceId &&
+          (d.online || LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id)));
+      if (!anyOtherOnline) {
+        _lightConfidence = ActuatorConfidence.unavailable;
+      }
       _lightCommandPending = false;
       notifyListeners();
       return;
     }
 
     final dev = _devices.cast<ConnectedDeviceSummary?>().firstWhere(
-      (d) => d?.id == deviceId,
-      orElse: () => null,
+      (d) => d?.id == deviceId || d?.id.toLowerCase() == deviceId.toLowerCase(),
+      orElse: () => _devices.isNotEmpty ? _devices.first : null,
     );
     final isDevOnline = (_repository is FakeHomeRepository) ||
         (dev != null
-            ? dev.online
+            ? (dev.online || LocalLanDeviceService.instance.isDeviceReachableOnLan(dev.id) || LocalLanDeviceService.instance.isDeviceReachableOnLan(deviceId))
             : LocalLanDeviceService.instance.isDeviceReachableOnLan(deviceId));
-    if (!isDevOnline) {
-      debugPrint('[DEVICE] Command rejected: device $deviceId is OFFLINE');
-      _deviceConfidences[deviceId] = ActuatorConfidence.unavailable;
-      _lightConfidence = ActuatorConfidence.unavailable;
-      _lightCommandPending = false;
-      notifyListeners();
-      return;
+    if (!isDevOnline && !LocalLanDeviceService.instance.isDeviceReachableOnLan(deviceId)) {
+      debugPrint('[DEVICE] Command note: device $deviceId not registered online, attempting LAN command anyway');
     }
 
     final cmdKey1 = '${deviceId}_$channelIndex';
@@ -3590,12 +4094,13 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     // 0. Deterministic snapshot of verified previous state for rollback protection
     final previousChannelValue = _channelStates[deviceId]?[channelIndex] ?? !value;
     final previousLivingRoomState = _livingRoomLightOn;
+    final int commandSeq = ++_commandNonce;
+    final String nonceKey = '${deviceId.toLowerCase().trim()}_$channelIndex';
+    _activeCommandNonces[nonceKey] = commandSeq;
 
     // Optimistically update UI in pending confidence state
     _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
-    _lastCommandTimestamps[cmdKey1] = now;
-    _lastCommandTimestamps[cmdKey2] = now;
-    _lastCommandTimestamps[cmdKey3] = now;
+    _recordCommandTimestamp(deviceId, channelIndex);
     final isLivingRoomDev = _devices.any((d) => d.id == deviceId && d.roomName.toLowerCase().contains('living'));
     if (channelIndex == 1 && isLivingRoomDev) {
       _livingRoomLightOn = value;
@@ -3603,6 +4108,9 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     _deviceConfidences[deviceId] = ActuatorConfidence.pending;
     _lightCommandPending = true;
     _checkAndDispatchChannelAlert(deviceId, channelIndex, value);
+    if (evaluateCrossDevice) {
+      unawaited(_evaluateCrossDeviceRules(deviceId, channelIndex, value));
+    }
     final chName = getDeviceChannelName(deviceId, channelIndex);
     recordActivityEvent(
       title: '$chName ${value ? "Turned ON" : "Turned OFF"}',
@@ -3616,15 +4124,17 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
     // Rollback procedure to prevent any ghost states
     void rollback() {
-      // If user has since toggled another command, do not overwrite with stale rollback
-      if (_lastCommandTimestamps[cmdKey1] != now) return;
+      // Abort rollback ONLY if a newer command superseded this exact channel
+      if (_activeCommandNonces[nonceKey] != commandSeq) return;
 
       _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = previousChannelValue;
       if (channelIndex == 1 && isLivingRoomDev) {
         _livingRoomLightOn = previousLivingRoomState;
       }
       _deviceConfidences[deviceId] = ActuatorConfidence.failed;
-      _lightConfidence = ActuatorConfidence.failed;
+      if (_devices.length <= 1) {
+        _lightConfidence = ActuatorConfidence.failed;
+      }
       _lightCommandPending = false;
       debugPrint('[DEVICE] ACTUATION_FAILED_ROLLED_BACK deviceId=$deviceId channel=$channelIndex to $previousChannelValue');
       notifyListeners();
@@ -3632,14 +4142,30 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
     // Success confirmation procedure
     void confirmSuccess() {
-      final confTime = DateTime.now();
-      _lastCommandTimestamps[cmdKey1] = confTime;
-      _lastCommandTimestamps[cmdKey2] = confTime;
-      _lastCommandTimestamps[cmdKey3] = confTime;
+      _recordCommandTimestamp(deviceId, channelIndex);
+      _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
       _deviceConfidences[deviceId] = ActuatorConfidence.confirmed;
       _lightConfidence = ActuatorConfidence.confirmed;
       _lightCommandPending = false;
       notifyListeners();
+    }
+
+    void markLocalDeliveryOnline(String signalLabel) {
+      _isLocalMode = true;
+      _deviceMissedPolls[deviceId] = 0;
+      _lanMissedPollCount = 0;
+      LocalLanDeviceService.instance.markDeviceReachableOnLan(deviceId);
+      _connectionState = HomeConnectionState.connected;
+      _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
+      for (int i = 0; i < _devices.length; i++) {
+        if (_devices[i].id.toLowerCase() == deviceId.toLowerCase()) {
+          _devices[i] = _devices[i].copyWith(
+            signalLabel: signalLabel,
+            online: true,
+          );
+          _storageService.saveDeviceForSpace(_activeSpaceId, _devices[i]);
+        }
+      }
     }
 
     // 1. Cloud-Only Routing Mode: Route strictly via Cloud backend
@@ -3673,7 +4199,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    // 2. Local-LAN-Only Routing Mode: Route strictly via Direct Local Wi-Fi
+    // 2. Local-LAN-Only Routing Mode: Route strictly via Direct Local Wi-Fi (or Hub)
     if (_routingMode == ConnectionRoutingMode.localOnly) {
       final localSuccess = await LocalLanDeviceService.instance.sendLocalControl(
         deviceId: deviceId,
@@ -3682,6 +4208,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         isToggle: isToggle,
       );
       if (localSuccess) {
+        markLocalDeliveryOnline('Local Wi-Fi');
         confirmSuccess();
       } else {
         rollback();
@@ -3699,20 +4226,12 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
           channel: channelIndex,
           power: value,
           isToggle: isToggle,
-        ).timeout(const Duration(seconds: 2));
+        ).timeout(const Duration(milliseconds: 2400));
         if (hubSuccess) {
-          _isLocalMode = true;
-          _deviceMissedPolls[deviceId] = 0;
-          _lanMissedPollCount = 0;
-          _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
-          for (int i = 0; i < _devices.length; i++) {
-            if (_devices[i].id == deviceId) {
-              _devices[i] = _devices[i].copyWith(
-                signalLabel: 'Hub Mesh (<5ms)',
-                online: true,
-              );
-            }
-          }
+          final isMesh = _devices.any(
+            (d) => d.id.toLowerCase() == deviceId.toLowerCase() && isHardwareMeshSupported(d.model),
+          );
+          markLocalDeliveryOnline(isMesh ? 'Thread Mesh (<5ms)' : 'Smart Hub (<3ms)');
           confirmSuccess();
           debugPrint('[DEVICE] HUB_GATEWAY_SUCCESS deviceId=$deviceId channel=$channelIndex');
           return;
@@ -3722,28 +4241,18 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    // 3. Smart Auto Routing: Prioritize Local LAN for instant response, fall back to Cloud
+    // 3. Smart Auto Routing: Prioritize Local LAN for instant response (skip redundant Hub attempt), fall back to Cloud
     final localIp = LocalLanDeviceService.instance.getDeviceIp(deviceId);
-    if (localIp != null || _isLocalMode || !_isCloudReachable) {
+    if (localIp != null || _isLocalMode || isLocalMode || !_isCloudReachable) {
       final localSuccess = await LocalLanDeviceService.instance.sendLocalControl(
         deviceId: deviceId,
         channelIndex: channelIndex,
         power: value,
         isToggle: isToggle,
+        tryHubProxy: false,
       );
       if (localSuccess) {
-        _isLocalMode = true;
-        _deviceMissedPolls[deviceId] = 0;
-        _lanMissedPollCount = 0;
-        _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
-        for (int i = 0; i < _devices.length; i++) {
-          if (_devices[i].id == deviceId && (!_devices[i].online || _devices[i].signalLabel != 'Local Wi-Fi')) {
-            _devices[i] = _devices[i].copyWith(
-              signalLabel: 'Local Wi-Fi',
-              online: true,
-            );
-          }
-        }
+        markLocalDeliveryOnline('Local Wi-Fi');
         confirmSuccess();
         debugPrint('[DEVICE] DIRECT_LOCAL_LAN_SUCCESS deviceId=$deviceId channel=$channelIndex');
         return;
@@ -3780,26 +4289,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         deviceId: deviceId,
         channelIndex: channelIndex,
         power: value,
+        isToggle: isToggle,
+        tryHubProxy: false,
       );
       if (localSuccess) {
-        _isLocalMode = true;
-        _deviceMissedPolls[deviceId] = 0;
-        _lanMissedPollCount = 0;
-        _channelStates.putIfAbsent(deviceId, () => {})[channelIndex] = value;
-        for (int i = 0; i < _devices.length; i++) {
-          if (_devices[i].id == deviceId && (!_devices[i].online || _devices[i].signalLabel != 'Local Wi-Fi')) {
-            _devices[i] = ConnectedDeviceSummary(
-              id: _devices[i].id,
-              name: _devices[i].name,
-              model: _devices[i].model,
-              firmware: _devices[i].firmware,
-              connectedVia: _devices[i].connectedVia,
-              signalLabel: 'Local Wi-Fi',
-              roomName: _devices[i].roomName,
-              online: true,
-            );
-          }
-        }
+        markLocalDeliveryOnline('Local Wi-Fi');
         confirmSuccess();
         debugPrint('[DEVICE] LOCAL_LAN_COMMAND_SUCCESS deviceId=$deviceId channel=$channelIndex');
       } else {
@@ -3900,8 +4394,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
             energyKwh: '0.0 kWh',
             energyChange: '0.0 kWh',
             activeWindow: 'Today',
-            averageTemperature: '24°C',
-            averageHumidity: '55%',
+            averageTemperature: '--',
+            averageHumidity: '--',
           ),
         ),
       );
@@ -4732,18 +5226,35 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Returns the active routine currently executing on the specified channel, or null if none
   Routine? getActiveRoutineForChannel(String deviceId, int channelIndex) {
+    final override = EdgeRoutineSyncService.instance.getActiveOverrideRoutine(
+      deviceId,
+      channelIndex,
+    );
+    if (override != null) {
+      return override;
+    }
+
     final currentPower = getDeviceChannelPower(deviceId, channelIndex);
+    final normTarget = deviceId.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+    bool idsMatch(String a, String b) {
+      if (a == b || a.toLowerCase() == b.toLowerCase()) return true;
+      final na = a.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final nb = b.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      return na.isNotEmpty && na == nb;
+    }
 
     for (final r in PreviewRoutineRepository.liveRoutines) {
       if (!r.enabled) continue;
 
       final hasAction = r.actions.any((a) {
+        final involvedMatch = r.involvedDevices.any((d) => idsMatch(d.id, deviceId));
         final matchesDevice = a.deviceId.isEmpty ||
             a.deviceId == 'all' ||
             a.deviceId == 'all_sockets' ||
-            a.deviceId == deviceId ||
-            a.deviceId.toLowerCase() == deviceId.toLowerCase() ||
-            (a.deviceId == 'default' && (devices.length <= 1 || deviceId == _activeDeviceId));
+            idsMatch(a.deviceId, deviceId) ||
+            (normTarget.isNotEmpty && a.deviceId.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '') == normTarget) ||
+            (a.deviceId == 'default' && (devices.length <= 1 || deviceId == _activeDeviceId || involvedMatch));
         final matchesChannel = a.channelIndex == 0 ||
             a.kind == RoutineActionKind.allChannels ||
             a.channelIndex == channelIndex;
@@ -4762,10 +5273,39 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     return null;
   }
 
+  void refreshRoutineWarningState() {
+    if (_disposed) return;
+    final currentActiveKeys = <String>{};
+    bool devicePromoted = false;
+    for (int i = 0; i < _devices.length; i++) {
+      final dev = _devices[i];
+      bool devHasActiveRoutine = false;
+      for (int ch = 1; ch <= 4; ch++) {
+        if (getActiveRoutineForChannel(dev.id, ch) != null) {
+          currentActiveKeys.add('${dev.id}_$ch');
+          devHasActiveRoutine = true;
+        }
+      }
+      if (devHasActiveRoutine && !dev.online) {
+        _devices[i] = dev.copyWith(
+          online: true,
+          signalLabel: dev.signalLabel == 'Offline' ? 'Local Wi-Fi' : dev.signalLabel,
+        );
+        devicePromoted = true;
+      }
+    }
+    if (devicePromoted || !setEquals(_activeRoutineKeys, currentActiveKeys)) {
+      _activeRoutineKeys
+        ..clear()
+        ..addAll(currentActiveKeys);
+      notifyListeners();
+    }
+  }
+
   void _startRoutineScheduler() {
     _routineSchedulerTimer?.cancel();
     unawaited(EdgeRoutineSyncService.instance.reconcileAllRoutinesToEdge());
-    _routineSchedulerTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _routineSchedulerTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _evaluateScheduledRoutines();
     });
   }
@@ -4813,6 +5353,17 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
           if (timeMatches) {
             _lastRoutineExecutionMinutes[r.id] = minuteKey;
+            int maxPulseSec = 60;
+            for (final act in r.actions) {
+              if (act.pulseDurationMinutes != null && act.pulseDurationMinutes! > 0) {
+                final sec = act.pulseDurationMinutes! * 60;
+                if (sec > maxPulseSec) maxPulseSec = sec;
+              }
+            }
+            EdgeRoutineSyncService.instance.registerActiveRoutineExecution(
+              r,
+              pulseDurationSeconds: maxPulseSec,
+            );
             final hasLanDevice = r.involvedDevices.any((d) => LocalLanDeviceService.instance.isDeviceReachableOnLan(d.id));
             if (!hasLanDevice) {
               debugPrint('[ROUTINE] Cloud/App fallback firing routine: ${r.name} (${r.id}) at $now');
@@ -4867,9 +5418,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed) return;
     if (state == AppLifecycleState.resumed) {
       debugPrint('[HOME] App resumed: triggering instant quiet sync');
-      unawaited(_quietSyncDeviceStates());
-      if (_routingMode == ConnectionRoutingMode.auto || _routingMode == ConnectionRoutingMode.localOnly) {
-        unawaited(probeLanAndPromote());
+      if (autoSync) {
+        unawaited(_quietSyncDeviceStates());
+        if (_routingMode == ConnectionRoutingMode.auto || _routingMode == ConnectionRoutingMode.localOnly) {
+          unawaited(probeLanAndPromote());
+        }
       }
     }
   }
@@ -4886,5 +5439,84 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     _sseSubscription?.cancel();
     _channelAlertStreamController.close();
     super.dispose();
+  }
+
+  final Map<String, DateTime> _lastCrossRuleFireTimes = {};
+
+  Future<void> _evaluateCrossDeviceRules(
+    String triggerDevId,
+    int triggerChannel,
+    bool power, {
+    bool fromHardwareBroadcast = false,
+  }) async {
+    try {
+      final rules = await DeviceStorageService.loadStandaloneRules();
+      if (rules.isEmpty) return;
+
+      final normTrig = triggerDevId.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final now = DateTime.now();
+
+      for (final rule in rules) {
+        if (!rule.enabled) continue;
+        final normRuleTrig = rule.triggerDeviceId.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+        final trigMatch = (rule.triggerDeviceId == triggerDevId ||
+            rule.triggerDeviceId.toLowerCase() == triggerDevId.toLowerCase() ||
+            (normTrig.isNotEmpty && normTrig == normRuleTrig));
+        if (!trigMatch || rule.triggerChannel != triggerChannel) continue;
+        if (rule.triggerState != null && rule.triggerState != power) continue;
+
+        final fireKey = '${rule.id}_$power';
+        final prevFire = _lastCrossRuleFireTimes[fireKey];
+        if (prevFire != null && now.difference(prevFire).inMilliseconds < 700) {
+          continue;
+        }
+        _lastCrossRuleFireTimes[fireKey] = now;
+
+        // If trigger ESP32 already executes on-chip P2P peer-rules, skip redundant TOGGLE from app
+        // to avoid double-toggling the target back to its original state.
+        final cmdUpper = rule.actionCommand.toUpperCase();
+        if (fromHardwareBroadcast &&
+            LocalLanDeviceService.instance.hasSyncedPeerRulesOnDevice(triggerDevId) &&
+            LocalLanDeviceService.instance.isDeviceReachableOnLan(triggerDevId)) {
+          debugPrint('[CROSS-DEVICE] Skipping redundant app relay for on-chip P2P rule "${rule.name}"');
+          continue;
+        }
+
+        final currentTargetPower = _channelStates[rule.actionDeviceId]?[rule.actionChannel] ?? false;
+        final isToggle = cmdUpper == 'TOGGLE';
+        final targetPower = cmdUpper == 'ON'
+            ? true
+            : (cmdUpper == 'OFF' ? false : !currentTargetPower);
+
+        if (!isToggle && currentTargetPower == targetPower &&
+            _isChannelCommandRecent(rule.actionDeviceId, rule.actionChannel, windowMs: 1200)) {
+          continue;
+        }
+
+        debugPrint('[CROSS-DEVICE] Firing rule "${rule.name}": $triggerDevId CH$triggerChannel ($power) -> ${rule.actionDeviceId} CH${rule.actionChannel} = $targetPower');
+
+        final targetIp = LocalLanDeviceService.instance.getDeviceIp(rule.actionDeviceId) ??
+            rule.actionDeviceIp;
+
+        if (targetIp.isNotEmpty && targetIp != '127.0.0.1') {
+          unawaited(LocalLanDeviceService.instance.sendFastPathUdpActuate(
+            targetIp,
+            rule.actionChannel,
+            targetPower,
+            isToggle: isToggle,
+          ));
+        }
+
+        unawaited(setDeviceChannelPower(
+          deviceId: rule.actionDeviceId,
+          channelIndex: rule.actionChannel,
+          value: targetPower,
+          isToggle: isToggle,
+          evaluateCrossDevice: false,
+        ));
+      }
+    } catch (e) {
+      debugPrint('[CROSS-DEVICE] Rule execution error: $e');
+    }
   }
 }

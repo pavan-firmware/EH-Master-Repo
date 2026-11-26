@@ -114,9 +114,9 @@ class ConnectionRoutingSheet extends StatelessWidget {
 
               // Option 1: Auto Mode
               _RoutingOptionCard(
-                title: isHubActive ? 'Smart Hub Auto Mesh (<5ms)' : 'Smart Auto Routing',
+                title: isHubActive ? 'Smart Hub Local Orchestration (<3ms)' : 'Smart Auto Routing',
                 subtitle: isHubActive
-                    ? 'Routes commands through EH Smart Hub Gateway on LAN for <5ms execution, with seamless cloud fallback.'
+                    ? 'Routes commands through EH Smart Hub Gateway on LAN for <3ms execution, with seamless cloud fallback.'
                     : 'Automatically uses ultra-fast Local LAN on home Wi-Fi, and routes through secure Cloud when away.',
                 icon: isHubActive ? Icons.hub_rounded : Icons.bolt_rounded,
                 iconColor: isHubActive ? const Color(0xFF10B981) : tokens.bluePrimary,
@@ -142,7 +142,7 @@ class ConnectionRoutingSheet extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Local Hub Mesh Active (${LiveHubRepository.activeHost ?? "eh-hub.local"} • 3ms)',
+                          'Local Hub Active (${LiveHubRepository.activeHost ?? "eh-hub.local"} • 3ms)',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,

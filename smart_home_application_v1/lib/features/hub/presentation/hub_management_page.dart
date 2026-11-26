@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../app/home_controller.dart';
 import '../../../core/services/device_storage_service.dart';
@@ -6,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../settings/presentation/settings_ui.dart';
 import '../data/hub_repository.dart';
 import '../domain/models/hub_models.dart';
+import '../../../core/widgets/charts/eh_chart_widgets.dart';
 
 class HubManagementPage extends StatefulWidget {
   const HubManagementPage({
@@ -24,46 +26,136 @@ class HubManagementPage extends StatefulWidget {
 class _HubManagementPageState extends State<HubManagementPage> with SingleTickerProviderStateMixin {
   late final HubRepository _repo;
   late Future<HubState> _stateFuture;
+  HubState? _loadedState;
   List<Map<String, dynamic>> _hubRoutines = [];
+  List<CrossDeviceRule> _crossDeviceRules = [];
+  List<AutomationExecutionLog> _executionLogs = [];
+  Map<String, dynamic>? _localEnergySummary;
+  Map<String, dynamic>? _haStatus;
+  bool _isHaSyncing = false;
   bool _isAdopting = false;
   double _adoptionProgress = 0.0;
   String _adoptionStatusText = '';
 
   // Pairing & Discovery Wizard State
   int _wizardStep = 0; // 0: Overview/Ready, 1: Radar Scanning, 2: Identify & PIN Handshake, 3: Adoption
+  String? _scanErrorMessage;
   bool _isBeaconActive = false;
-  final TextEditingController _pinController = TextEditingController(text: '842-109');
+  final TextEditingController _pinController = TextEditingController();
   String? _pinError;
 
   late AnimationController _radarAnim;
+  Timer? _livenessTimer;
+  HubConnectionStatus? _lastStatus;
+  bool? _lastIsLinked;
 
   @override
   void initState() {
     super.initState();
     _repo = widget.repository ?? LiveHubRepository();
-    _stateFuture = _repo.getHubState(homeId: widget.homeId);
+    _stateFuture = _repo.getHubState(homeId: widget.homeId).then((state) {
+      if (mounted) {
+        _loadedState = state;
+        _lastStatus = state.status;
+        _lastIsLinked = state.isLinked;
+      }
+      return state;
+    });
     _radarAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     );
+    _startLivenessHeartbeat();
+    _stateFuture.then((state) {
+      if (!mounted) return;
+      if (state.isLinked) {
+        _loadHubSubResources(state.hostname);
+      }
+    });
+  }
+
+  void _loadHubSubResources(String hostname) {
+    _repo.getRoutines(hubHostname: hostname).then((routines) {
+      if (mounted) setState(() => _hubRoutines = routines);
+    });
+    _repo.getCrossDeviceRules(hubHostname: hostname).then((rules) {
+      if (mounted) setState(() => _crossDeviceRules = rules);
+    });
+    _repo.getExecutionLogs(hubHostname: hostname).then((logs) {
+      if (mounted) setState(() => _executionLogs = logs);
+    });
+    _repo.getHomeEnergySummary(hubHostname: hostname).then((summary) {
+      if (mounted && summary != null) setState(() => _localEnergySummary = summary);
+    });
+    _repo.getHomeAssistantStatus(hubHostname: hostname).then((ha) {
+      if (mounted && ha != null) setState(() => _haStatus = ha);
+    });
+  }
+
+  void _startLivenessHeartbeat() {
+    _livenessTimer?.cancel();
+    // Silent 5s liveness heartbeat for linked Hub so disconnects surface quickly without page flashes
+    _livenessTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!mounted) return;
+      if (_lastIsLinked != true) return;
+      try {
+        final state = await _repo.getHubState(homeId: widget.homeId);
+        if (!mounted) return;
+        if (_lastStatus != state.status ||
+            _lastIsLinked != state.isLinked ||
+            _loadedState?.connectedDevices.length != state.connectedDevices.length) {
+          _lastStatus = state.status;
+          _lastIsLinked = state.isLinked;
+          setState(() {
+            _loadedState = state;
+            _stateFuture = Future.value(state);
+          });
+        }
+      } catch (_) {
+        if (!mounted) return;
+        if (_lastStatus != HubConnectionStatus.unreachable) {
+          _lastStatus = HubConnectionStatus.unreachable;
+          const offlineState = HubState(status: HubConnectionStatus.unreachable);
+          setState(() {
+            _loadedState = offlineState;
+            _stateFuture = Future.value(offlineState);
+          });
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    _livenessTimer?.cancel();
     _radarAnim.dispose();
     _pinController.dispose();
     super.dispose();
   }
 
-  void _reload() {
-    setState(() {
-      _stateFuture = _repo.getHubState(homeId: widget.homeId);
-    });
-    _repo.getHubState(homeId: widget.homeId).then((state) {
-      if (state.isLinked && mounted) {
-        _repo.getRoutines(hubHostname: state.hostname).then((routines) {
-          if (mounted) setState(() => _hubRoutines = routines);
+  void _reload({bool forceSpinner = false}) {
+    if (forceSpinner || _loadedState == null) {
+      setState(() {
+        _stateFuture = _repo.getHubState(homeId: widget.homeId).then((state) {
+          if (mounted) {
+            _loadedState = state;
+            _lastStatus = state.status;
+            _lastIsLinked = state.isLinked;
+          }
+          return state;
         });
+      });
+    }
+    _repo.getHubState(homeId: widget.homeId).then((state) {
+      if (!mounted) return;
+      setState(() {
+        _loadedState = state;
+        _lastStatus = state.status;
+        _lastIsLinked = state.isLinked;
+        _stateFuture = Future.value(state);
+      });
+      if (state.isLinked) {
+        _loadHubSubResources(state.hostname);
       }
     });
   }
@@ -176,7 +268,12 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
           IconButton(
             icon: Icon(Icons.refresh_rounded, color: tokens.headerAction),
             tooltip: 'Refresh Status',
-            onPressed: _reload,
+            onPressed: () => _reload(forceSpinner: false),
+          ),
+          IconButton(
+            icon: Icon(Icons.help_outline_rounded, color: tokens.headerAction),
+            tooltip: 'Hub Guide & FAQ',
+            onPressed: () => _showHubGuideModal(context, tokens),
           ),
         ],
       ),
@@ -187,11 +284,18 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
             return _buildAdoptionProgressView(tokens);
           }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting && _loadedState == null) {
             return const Center(child: CircularProgressIndicator.adaptive());
           }
 
-          final state = snapshot.data ?? const HubState(status: HubConnectionStatus.notConfigured);
+          final state = snapshot.data ??
+              _loadedState ??
+              const HubState(status: HubConnectionStatus.notConfigured);
+          _loadedState = state;
+
+          if (state.isLinked && state.status == HubConnectionStatus.unreachable) {
+            return _buildHubUnreachableView(context, tokens);
+          }
 
           if (!state.isLinked) {
             return _buildUnlinkedSetupWizard(context, tokens, state);
@@ -199,6 +303,57 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
 
           return _buildHubActiveDashboard(context, tokens, state);
         },
+      ),
+    );
+  }
+
+  Widget _buildHubUnreachableView(BuildContext context, EHThemeTokens tokens) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: tokens.errorContainer.withValues(alpha: 0.25),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.hub_outlined, size: 54, color: tokens.textSecondary),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Smart Hub Offline',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: tokens.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Cannot reach EH Hub on local network.\nCheck that your Raspberry Pi is powered on and connected to the same Wi-Fi router.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: tokens.textSecondary,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Retry Discovery'),
+              style: FilledButton.styleFrom(
+                backgroundColor: tokens.bluePrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -264,6 +419,281 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
     );
   }
 
+  void _showHubGuideModal(BuildContext context, EHThemeTokens tokens) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.75,
+          minChildSize: 0.5,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (ctx, scrollCtrl) {
+            return SingleChildScrollView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(22, 16, 22, 36),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: tokens.borderControl,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: tokens.iconBgBlue,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Smart Home Hub Architecture',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close_rounded, color: tokens.textSecondary),
+                        onPressed: () => Navigator.pop(sheetCtx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'The EH Smart Hub (Raspberry Pi Platform) acts as a local coordinator and intelligence accelerator for your home.',
+                    style: TextStyle(fontSize: 13, color: tokens.textSecondary, height: 1.45),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Capabilities Card
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: tokens.bgApp,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: tokens.borderSubtle),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Optional Smart Hub',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Key Capabilities',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: tokens.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildFeatureRow(tokens, Icons.bolt_rounded, 'Sub-5ms Execution', 'Multi-room automations execute instantly over LAN.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.wifi_off_rounded, '100% Offline Autonomy', 'Routines fire on time even if internet fiber is cut.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.memory_rounded, 'Flash Memory Preservation', 'Comfort routines live on Hub RAM, saving switch flash cycles.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.touch_app_rounded, 'Zero-Touch Adoption', 'No resetting switches or re-entering Wi-Fi credentials.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.query_stats_rounded, '365-Day Local Energy', 'On-premise hourly power rollups without cloud subscriptions.'),
+                        const SizedBox(height: 12),
+                        _buildFeatureRow(tokens, Icons.access_time_rounded, 'RFC 5905 NTP Timekeeper', 'Embedded port 123 clock sync prevents schedule drift in outages.'),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // Buyer Guide Card
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: tokens.bgApp,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: tokens.borderSubtle),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.help_outline_rounded, color: tokens.bluePrimary, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Do You Need a Hub?',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: tokens.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: tokens.successContainer.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: tokens.success.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Recommended for:',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.success),
+                              ),
+                              const SizedBox(height: 6),
+                              Text('• Multi-floor homes with concrete walls or Wi-Fi extenders', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                              Text('• Large installations with 20+ devices or cross-room group automations', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                              Text('• Critical offline homes needing schedules during fiber outages', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                              Text('• Home Assistant, Matter, or local MQTT power users', style: TextStyle(fontSize: 12, color: tokens.textPrimary)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: tokens.surfaceCard,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: tokens.borderSubtle),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'NOT needed for:',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: tokens.textSecondary),
+                              ),
+                              const SizedBox(height: 6),
+                              Text('• 1-floor apartments with reliable single-router Wi-Fi coverage', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                              Text('• Direct switch-to-switch Fast-Path UDP (<3ms) is already built-in without a Hub', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                              Text('• On-chip NVS memory runs up to 16 standalone schedules per switch independently', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showManualIpDialog(BuildContext context, EHThemeTokens tokens) async {
+    final ipCtrl = TextEditingController(text: LiveHubRepository.customHost ?? '192.168.0.');
+    final confirmed = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.settings_ethernet_rounded, color: Color(0xFF2563EB)),
+            SizedBox(width: 10),
+            Text('Connect by IP Address'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the local IP address or hostname of your Raspberry Pi Smart Hub (e.g. 192.168.0.174 or eh-hub.local):',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: ipCtrl,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                labelText: 'Hub Hostname / IP',
+                hintText: '192.168.0.174',
+                prefixIcon: const Icon(Icons.lan_rounded),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ipCtrl.text.trim()),
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != null && confirmed.isNotEmpty) {
+      LiveHubRepository.customHost = confirmed;
+      LiveHubRepository.activeHost = confirmed;
+      DeviceStorageService.setPersistedHubHost(confirmed);
+      setState(() {
+        _wizardStep = 1;
+        _scanErrorMessage = null;
+      });
+      _radarAnim.repeat();
+      try {
+        final probeState = await _repo.getHubState(homeId: widget.homeId);
+        if (!mounted) return;
+        _radarAnim.stop();
+        if (probeState.status != HubConnectionStatus.unreachable) {
+          setState(() {
+            _stateFuture = Future.value(probeState);
+            _wizardStep = 2;
+          });
+        } else {
+          setState(() {
+            _wizardStep = 0;
+            _scanErrorMessage = 'Cannot connect to Hub at $confirmed. Verify device IP address and port 4210.';
+          });
+        }
+      } catch (e) {
+        if (!mounted) return;
+        _radarAnim.stop();
+        setState(() {
+          _wizardStep = 0;
+          _scanErrorMessage = 'Connection error: $e';
+        });
+      }
+    }
+  }
+
   Widget _buildUnlinkedSetupWizard(
     BuildContext context,
     EHThemeTokens tokens,
@@ -274,124 +704,158 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Benefits Card
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: tokens.surfaceCard,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: tokens.borderSubtle),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: tokens.iconBgBlue,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 28),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Optional Smart Hub',
-                            style: TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.w800,
-                              color: tokens.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Local brain & accelerator for your home',
-                            style: TextStyle(fontSize: 13, color: tokens.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                const Divider(height: 1),
-                const SizedBox(height: 16),
-                _buildFeatureRow(tokens, Icons.bolt_rounded, 'Sub-5ms Execution', 'Multi-room automations execute instantly over LAN.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.wifi_off_rounded, '100% Offline Autonomy', 'Routines fire on time even if internet fiber is cut.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.memory_rounded, 'Flash Memory Preservation', 'Comfort routines live on Hub RAM, saving switch flash cycles.'),
-                const SizedBox(height: 12),
-                _buildFeatureRow(tokens, Icons.touch_app_rounded, 'Zero-Touch Adoption', 'No resetting switches or re-entering Wi-Fi credentials.'),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // 2. Setup Step Navigation Wizard
-          const SettingsSectionTitle('Hub Discovery & Security Setup'),
-
           if (_wizardStep == 0) ...[
-            // Discovery Ready
+            // Remodeled Sleek Hub Discovery Hero Section
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
                 color: tokens.surfaceCard,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: tokens.bluePrimary.withValues(alpha: 0.35)),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: tokens.borderSubtle),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: tokens.isDark ? 0.2 : 0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.radar_rounded, color: tokens.bluePrimary, size: 22),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Ready to Discover Hub',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: tokens.textPrimary,
-                          fontSize: 16,
-                        ),
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      color: tokens.bluePrimary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: tokens.bluePrimary.withValues(alpha: 0.35),
+                        width: 2,
                       ),
-                      const Spacer(),
+                    ),
+                    child: Center(
+                      child: Icon(Icons.hub_rounded, color: tokens.bluePrimary, size: 36),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'EH Smart Hub',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: tokens.textPrimary,
+                      fontSize: 20,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Connect your Raspberry Pi Hub for local sub-5ms routing, offline schedules, and energy intelligence.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: tokens.textSecondary,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                       SettingsStatusChip(
                         label: 'LAN Ready',
                         color: tokens.success,
                         background: tokens.successContainer,
                       ),
+                      const SizedBox(width: 8),
+                      SettingsStatusChip(
+                        label: 'Port 4210',
+                        color: tokens.bluePrimary,
+                        background: tokens.bluePrimary.withValues(alpha: 0.12),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Ensure your EH Smart Hub is plugged into the same Wi-Fi router. The app will search for mDNS broadcast on port 4210.',
-                    style: TextStyle(fontSize: 13, color: tokens.textSecondary, height: 1.4),
-                  ),
-                  const SizedBox(height: 18),
+                  if (_scanErrorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: tokens.errorContainer.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: tokens.error.withValues(alpha: 0.45)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.warning_amber_rounded, color: tokens.error, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _scanErrorMessage!,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: tokens.isDark ? const Color(0xFFFCA5A5) : const Color(0xFFB91C1C),
+                                    height: 1.4,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () => _showManualIpDialog(context, tokens),
+                              icon: const Icon(Icons.settings_ethernet_rounded, size: 16),
+                              label: const Text('Connect by IP Address', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                              style: TextButton.styleFrom(
+                                foregroundColor: tokens.bluePrimary,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: () {
+                      onPressed: () async {
                         setState(() {
                           _wizardStep = 1;
+                          _scanErrorMessage = null;
                         });
                         _radarAnim.repeat();
-                        Future.delayed(const Duration(milliseconds: 800), () {
-                          if (mounted) {
-                            _radarAnim.stop();
+                        try {
+                          await LocalLanDeviceService.instance.discoverHubNow(timeout: const Duration(milliseconds: 1500));
+                          final probeState = await _repo.getHubState(homeId: widget.homeId, allowSubnetSweep: true);
+                          if (!mounted) return;
+                          _radarAnim.stop();
+                          if (probeState.status == HubConnectionStatus.unreachable) {
                             setState(() {
+                              _wizardStep = 0;
+                              _scanErrorMessage =
+                                  'No Smart Hub detected automatically on local Wi-Fi. Ensure your Raspberry Pi is powered and connected to the same Wi-Fi network.';
+                            });
+                          } else {
+                            setState(() {
+                              _stateFuture = Future.value(probeState);
                               _wizardStep = 2;
                             });
                           }
-                        });
+                        } catch (e) {
+                          if (!mounted) return;
+                          _radarAnim.stop();
+                          setState(() {
+                            _wizardStep = 0;
+                            _scanErrorMessage = 'Scan failed: $e. Verify device network connection.';
+                          });
+                        }
                       },
                       icon: const Icon(Icons.search_rounded),
                       label: const Text('Scan Local Wi-Fi for Hub'),
@@ -407,14 +871,24 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => _startZeroTouchAdoption(state.hostname),
-                      icon: const Icon(Icons.link_rounded),
-                      label: const Text('Link Hub to My Home'),
+                      onPressed: () => _showManualIpDialog(context, tokens),
+                      icon: const Icon(Icons.settings_ethernet_rounded),
+                      label: const Text('Connect by IP Address'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: tokens.bluePrimary,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        foregroundColor: tokens.textPrimary,
+                        side: BorderSide(color: tokens.borderControl),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: () => _showHubGuideModal(context, tokens),
+                    icon: Icon(Icons.help_outline_rounded, size: 16, color: tokens.bluePrimary),
+                    label: Text(
+                      'Learn about Hub capabilities & requirements',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: tokens.bluePrimary),
                     ),
                   ),
                 ],
@@ -538,7 +1012,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                         const SizedBox(height: 6),
                         _buildInfoLine('IP Address', state.ipAddress, tokens),
                         const SizedBox(height: 6),
-                        _buildInfoLine('Hardware MAC', 'B8:27:EB:27:AD:62', tokens),
+                        _buildInfoLine('Hardware Platform', state.model, tokens),
                         const SizedBox(height: 6),
                         _buildInfoLine('Port', '4210 (HTTP REST & UDP)', tokens),
                       ],
@@ -632,12 +1106,24 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
   }
 
   Widget _buildInfoLine(String label, String value, EHThemeTokens tokens) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
-        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -654,6 +1140,38 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 1. Hero Coordinator Status Card
+          if (state.isLinked && !LiveHubRepository.isHubActive)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.wifi_tethering_off_rounded, color: Color(0xFFF59E0B), size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Hub Unreachable — Operating in Autonomous LAN Mode',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFFD97706)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'All switches continue executing schedules and physical touch normally without any interruption.',
+                          style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -716,11 +1234,20 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                         ],
                       ),
                     ),
-                    SettingsStatusChip(
-                      label: '${state.latencyMs}ms Direct',
-                      color: tokens.success,
-                      background: tokens.successContainer,
-                      leading: Icon(Icons.bolt_rounded, size: 14, color: tokens.success),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        SettingsStatusChip(
+                          label: '${state.latencyMs}ms Direct',
+                          color: tokens.success,
+                          background: tokens.successContainer,
+                          leading: Icon(Icons.bolt_rounded, size: 14, color: tokens.success),
+                        ),
+                        if (state.rssiDbm != null) ...[
+                          const SizedBox(height: 6),
+                          _buildRssiPill(tokens, state.rssiDbm, state.status == HubConnectionStatus.connected),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -733,7 +1260,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     const SizedBox(width: 10),
                     _buildMetricTile(tokens, 'Scheduler', '${_hubRoutines.length} Rules', Icons.schedule_rounded),
                     const SizedBox(width: 10),
-                    _buildMetricTile(tokens, 'SD Health', 'Read-Only OK', Icons.security_rounded),
+                    _buildMetricTile(tokens, 'Storage', 'SQLite WAL', Icons.storage_rounded),
                   ],
                 ),
               ],
@@ -888,6 +1415,389 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
 
           const SizedBox(height: 24),
 
+          // 4.5 Cross-Device Automations & Fast-Path UDP (<3ms)
+          SettingsSectionTitle(
+            'Cross-Device Automations (${_crossDeviceRules.length})',
+            trailing: TextButton.icon(
+              onPressed: () => _openCreateRuleDialog(context, tokens, state),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('+ New Rule'),
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+            ),
+          ),
+
+          if (_crossDeviceRules.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: tokens.surfaceCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: tokens.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.alt_route_rounded, color: tokens.bluePrimary, size: 24),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      'No cross-device rules configured yet. Tap "+ New Rule" to link switches (e.g. Ground Floor Switch Ch1 turns ON 1st Floor Staircase Light in <3ms via Fast-Path UDP).',
+                      style: TextStyle(color: tokens.textSecondary, fontSize: 13, height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            SettingsSurface(
+              child: Column(
+                children: [
+                  for (int i = 0; i < _crossDeviceRules.length; i++) ...[
+                    if (i > 0) const Divider(height: 1),
+                    _buildCrossDeviceRuleCard(tokens, state, _crossDeviceRules[i]),
+                  ],
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 24),
+
+          // 4.6 Execution History & Microsecond Audit Log
+          SettingsSectionTitle(
+            'Fast-Path Execution Log (${_executionLogs.length})',
+            trailing: _executionLogs.isNotEmpty
+                ? TextButton(
+                    onPressed: () {
+                      _repo.getExecutionLogs(hubHostname: state.hostname).then((logs) {
+                        if (mounted) setState(() => _executionLogs = logs);
+                      });
+                    },
+                    child: const Text('Refresh'),
+                  )
+                : null,
+          ),
+
+          if (_executionLogs.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: tokens.surfaceCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: tokens.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.history_toggle_off_rounded, color: tokens.textTertiary, size: 22),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'No execution events yet. Cross-device events and test-fires are logged here with real measured latency.',
+                      style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            SettingsSurface(
+              child: Column(
+                children: [
+                  for (int i = 0; i < (_executionLogs.length > 5 ? 5 : _executionLogs.length); i++) ...[
+                    if (i > 0) const Divider(height: 1),
+                    _buildExecutionLogTile(tokens, _executionLogs[i]),
+                  ],
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 24),
+
+          // 4.8 Local 365-Day Energy Telemetry (Plan 3)
+          SettingsSectionTitle(
+            'Local 365-Day Energy Telemetry',
+            trailing: TextButton.icon(
+              onPressed: () {
+                _repo.getHomeEnergySummary(hubHostname: state.hostname).then((summary) {
+                  if (mounted && summary != null) setState(() => _localEnergySummary = summary);
+                });
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Refresh'),
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.bolt_rounded, color: const Color(0xFFF59E0B), size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Whole-Home Power Demand',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: tokens.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: tokens.successContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '100% Offline LAN Engine',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: tokens.success,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _buildMetricTile(
+                      tokens,
+                      'Live Power',
+                      '${_localEnergySummary?['currentPowerW'] ?? 0} W',
+                      Icons.speed_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Today Energy',
+                      '${_localEnergySummary?['totalEnergyKwh'] ?? 0} kWh',
+                      Icons.battery_charging_full_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Peak Load',
+                      '${_localEnergySummary?['peakPowerW'] ?? 0} W',
+                      Icons.trending_up_rounded,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '24-Hour Whole-Home Load Curve',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Sub-10ms Fast Telemetry',
+                      style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Builder(
+                  builder: (context) {
+                    final hasRealData = _localEnergySummary != null &&
+                        _localEnergySummary?['hasData'] == true &&
+                        (_localEnergySummary?['samplesCount'] as num? ?? 0) > 0;
+                    if (!hasRealData) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: tokens.bgApp,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: tokens.borderSubtle),
+                        ),
+                        child: Center(
+                          child: Column(
+                            children: [
+                              Icon(Icons.bolt_outlined, color: tokens.textTertiary, size: 32),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Energy Telemetry Standby',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: tokens.textSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Requires EH Smart Switch/Socket with BL0942 power metering hardware.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: tokens.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    final currW = (_localEnergySummary?['currentPowerW'] as num?)?.toDouble() ?? 0.0;
+                    final rawTrends = _localEnergySummary?['trends'] as List<dynamic>? ?? [];
+                    final homePoints = <EHChartDataPoint>[];
+                    for (int i = 0; i < rawTrends.length; i++) {
+                      final item = rawTrends[i];
+                      if (item is Map) {
+                        homePoints.add(EHChartDataPoint(
+                          x: i.toDouble(),
+                          y: (item['powerW'] as num?)?.toDouble() ?? 0.0,
+                          label: item['hourLabel']?.toString() ?? '$i:00',
+                        ));
+                      }
+                    }
+                    if (homePoints.isEmpty) {
+                      homePoints.add(EHChartDataPoint(x: 0, y: currW, label: 'Now'));
+                    }
+
+                    return EHEnergyWaveformChart(
+                      points: homePoints,
+                      height: 115,
+                      accentColor: const Color(0xFFF59E0B),
+                      unit: 'W',
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // 4.9 Home Assistant Auto-Discovery Bridge (Plan 4)
+          SettingsSectionTitle(
+            'Home Assistant Auto-Discovery',
+            trailing: TextButton.icon(
+              onPressed: _isHaSyncing
+                  ? null
+                  : () async {
+                      setState(() => _isHaSyncing = true);
+                      final res = await _repo.syncHomeAssistant(hubHostname: state.hostname);
+                      if (context.mounted) {
+                        setState(() => _isHaSyncing = false);
+                        final cnt = res?['discoveredEntitiesCount'] ?? (_haStatus?['entitiesCount'] ?? (devices.length * 4));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Home Assistant discovery synced: $cnt entities broadcast over MQTT / REST.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        _reload();
+                      }
+                    },
+              icon: _isHaSyncing
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.sync_alt_rounded, size: 16),
+              label: Text(_isHaSyncing ? 'Syncing...' : 'Sync Entities'),
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: tokens.surfaceCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tokens.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF03A9F4).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.home_work_rounded, color: Color(0xFF0288D1), size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Local MQTT / REST Bridge',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                  color: tokens.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              SettingsStatusChip(
+                                label: 'MQTT Active',
+                                color: const Color(0xFF0288D1),
+                                background: const Color(0xFF03A9F4).withValues(alpha: 0.12),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Exposes switches & BL0942 power metrics to Home Assistant',
+                            style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    _buildMetricTile(
+                      tokens,
+                      'Total Entities',
+                      '${_haStatus?['entitiesCount'] ?? (devices.length * 4)} Exposing',
+                      Icons.hub_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Switches',
+                      '${_haStatus?['summary']?['switches'] ?? devices.length} Units',
+                      Icons.toggle_on_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildMetricTile(
+                      tokens,
+                      'Discovery Prefix',
+                      'homeassistant',
+                      Icons.settings_input_antenna_rounded,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
           // 5. Hub Maintenance, Core Controls & Hardware Operations
           const SettingsSectionTitle('Hub Operations & Maintenance'),
           SettingsSurface(
@@ -963,6 +1873,137 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     _reload();
                   },
                 ),
+                const Divider(height: 1, indent: 56),
+                SettingsListItem(
+                  icon: Icons.settings_ethernet_rounded,
+                  title: 'Custom Hub Host / IP',
+                  subtitle: LiveHubRepository.customHost != null && LiveHubRepository.customHost!.isNotEmpty
+                      ? 'Custom Host: ${LiveHubRepository.customHost} (Active)'
+                      : 'Automatic mDNS (eh-hub.local). Tap to configure for multi-router setups.',
+                  onTap: () async {
+                    final controller = TextEditingController(text: LiveHubRepository.customHost ?? '');
+                    final newHost = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Custom Hub Host / IP'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Use this if your Hub is connected through an extender or secondary router where mDNS broadcast is blocked.',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                            const SizedBox(height: 14),
+                            TextField(
+                              controller: controller,
+                              decoration: const InputDecoration(
+                                labelText: 'Hub Hostname or IP',
+                                hintText: '192.168.1.100 or eh-hub.local',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () {
+                              LiveHubRepository.customHost = null;
+                              Navigator.pop(ctx, '');
+                            },
+                            child: const Text('Reset to Auto'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, null),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                            child: const Text('Save & Reconnect'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (newHost != null) {
+                      LiveHubRepository.customHost = newHost.isEmpty ? null : newHost;
+                      _reload();
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                SettingsListItem(
+                  icon: Icons.backup_rounded,
+                  title: 'Backup Hub Configuration',
+                  subtitle: 'Download complete SQLite WAL state snapshot (claims, routines, devices)',
+                  onTap: () async {
+                    final backup = await _repo.exportHubBackup(hubHostname: state.hostname);
+                    if (context.mounted) {
+                      if (backup != null && backup['status'] == 'ok') {
+                        final meta = backup['metadata'] as Map<String, dynamic>? ?? {};
+                        final devCount = meta['devicesCount'] ?? 0;
+                        final routCount = meta['routinesCount'] ?? 0;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Backup snapshot exported successfully ($devCount devices, $routCount routines).'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Failed to export Hub backup snapshot.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                SettingsListItem(
+                  icon: Icons.medical_services_rounded,
+                  title: 'One-Click Diagnostics Export',
+                  subtitle: 'Export hub platform telemetry, SQLite WAL health, and process stats',
+                  onTap: () async {
+                    final diag = await _repo.exportDiagnostics(hubHostname: state.hostname);
+                    if (context.mounted) {
+                      if (diag != null && diag['status'] == 'ok') {
+                        final summary = diag['summary'] as Map<String, dynamic>? ?? {};
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Hub Diagnostics Summary'),
+                            content: SingleChildScrollView(
+                              child: ListBody(
+                                children: [
+                                  Text('Database Engine: ${summary['databaseEngine'] ?? "sqlite"}'),
+                                  Text('Active Devices: ${summary['totalDevices'] ?? 0}'),
+                                  Text('Active Claims: ${summary['totalClaims'] ?? 0}'),
+                                  Text('OverlayFS Protection: ${summary['overlayFsActive'] == true ? "ACTIVE (SD Read-Only)" : "OFF"}'),
+                                  Text('NTP Time Synced: ${summary['ntpSynced'] == true ? "YES" : "NO"}'),
+                                  Text('Uptime: ${summary['uptimeSeconds'] ?? 0} seconds'),
+                                ],
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Close'),
+                              ),
+                            ],
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Failed to retrieve diagnostics.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
               ],
             ),
           ),
@@ -997,7 +2038,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 SettingsListItem(
                   icon: Icons.memory_rounded,
                   title: 'Hub Daemon Core v${state.firmwareVersion}',
-                  subtitle: 'Platform: Raspberry Pi 3B+ (Debian Linux aarch64) • Channel: Stable',
+                  subtitle: 'Platform: Raspberry Pi 3B+ (Debian Linux aarch64) • Storage: SQLite WAL',
                   onTap: () {},
                   trailing: SettingsStatusChip(
                     label: 'Up to Date',
@@ -1009,7 +2050,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 SettingsListItem(
                   icon: Icons.cached_rounded,
                   title: 'Local Device OTA Cache',
-                  subtitle: '2 production ESP32 images staged in Hub RAM for zero-WAN local flashing',
+                  subtitle: 'Production ESP32 firmware images staged in Hub memory for zero-WAN local flashing',
                   onTap: () {},
                   trailing: SettingsStatusChip(
                     label: 'Cache Active',
@@ -1168,10 +2209,13 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        Text(
-                          '${device.ipAddress} • ${device.latencyMs}ms mesh',
-                          style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                        Expanded(
+                          child: Text(
+                            '${device.ipAddress} • ${device.latencyMs}ms mesh',
+                            style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                          ),
                         ),
+                        _buildRssiPill(tokens, device.rssiDbm, device.online),
                         if (device.hasCriticalHardwareFallback) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -1195,6 +2239,11 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                   ],
                 ),
               ),
+              IconButton(
+                icon: Icon(Icons.tune_rounded, color: tokens.textSecondary, size: 20),
+                tooltip: 'Hardware Settings (Power-On & Child Lock)',
+                onPressed: () => _showDeviceHardwareSettingsDialog(context, tokens, device),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -1207,6 +2256,60 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 _buildChannelButton(tokens, state, device, ch),
               ],
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRssiPill(EHThemeTokens tokens, int? rssiDbm, bool online) {
+    final String label;
+    final Color color;
+    final int bars;
+    if (!online) {
+      label = 'Offline';
+      color = tokens.textTertiary;
+      bars = 0;
+    } else if (rssiDbm == null) {
+      label = 'LAN OK';
+      color = tokens.success;
+      bars = 3;
+    } else if (rssiDbm >= -60) {
+      label = 'High ($rssiDbm dBm)';
+      color = tokens.success;
+      bars = 3;
+    } else if (rssiDbm >= -74) {
+      label = 'Med ($rssiDbm dBm)';
+      color = const Color(0xFFF59E0B);
+      bars = 2;
+    } else {
+      label = 'Low ($rssiDbm dBm)';
+      color = const Color(0xFFEF4444);
+      bars = 1;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (int b = 1; b <= 3; b++)
+            Container(
+              width: 2.5,
+              height: 3.0 + b * 2.5,
+              margin: const EdgeInsets.only(right: 1.5),
+              decoration: BoxDecoration(
+                color: b <= bars ? color : tokens.borderSubtle,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: color),
           ),
         ],
       ),
@@ -1243,13 +2346,39 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
       ),
       onPressed: () async {
         final newPower = !isPowered;
+        // Optimistic update so channel toggle never flashes a full-page loading spinner
+        final current = _loadedState ?? state;
+        final updatedDevices = current.connectedDevices.map((d) {
+          if (d.id != device.id) return d;
+          final newChannels = Map<int, bool>.from(d.channels);
+          newChannels[channelIndex] = newPower;
+          return HubDeviceInfo(
+            id: d.id,
+            name: d.name,
+            ipAddress: d.ipAddress,
+            macAddress: d.macAddress,
+            roomName: d.roomName,
+            online: d.online,
+            activeRoutinesCount: d.activeRoutinesCount,
+            hasCriticalHardwareFallback: d.hasCriticalHardwareFallback,
+            latencyMs: d.latencyMs,
+            channelCount: d.channelCount,
+            channels: newChannels,
+            rssiDbm: d.rssiDbm,
+          );
+        }).toList();
+        final optimistic = current.copyWith(connectedDevices: updatedDevices);
+        setState(() {
+          _loadedState = optimistic;
+          _stateFuture = Future.value(optimistic);
+        });
         await _repo.sendDeviceControl(
           hubHostname: state.hostname,
           deviceId: device.id,
           channel: channelIndex,
           power: newPower,
         );
-        _reload();
+        _reload(forceSpinner: false);
       },
     );
   }
@@ -1388,6 +2517,461 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCrossDeviceRuleCard(EHThemeTokens tokens, HubState state, CrossDeviceRule rule) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: tokens.bluePrimary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.bolt_rounded, size: 18, color: tokens.bluePrimary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rule.name,
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: tokens.textPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'IF ${rule.triggerDeviceId} CH${rule.triggerChannel} -> THEN ${rule.actionDeviceId} CH${rule.actionChannel} (${rule.actionCommand})',
+                      style: TextStyle(fontSize: 11, color: tokens.textSecondary, fontFamily: 'monospace'),
+                    ),
+                  ],
+                ),
+              ),
+              SettingsStatusChip(
+                label: '<3ms UDP',
+                color: tokens.success,
+                background: tokens.successContainer,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final result = await _repo.testCrossDeviceRule(hubHostname: state.hostname, ruleId: rule.id);
+                  if (mounted && result != null) {
+                    final lat = result['execution']?['latencyMs'] ?? 3;
+                    final meth = result['execution']?['method'] ?? 'FAST_PATH_UDP';
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Test Fired: $meth dispatched in ${lat}ms!'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                    _reload();
+                  }
+                },
+                icon: const Icon(Icons.play_arrow_rounded, size: 14),
+                label: const Text('Test Fire'),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFEF4444)),
+                tooltip: 'Delete Rule',
+                onPressed: () async {
+                  await _repo.deleteCrossDeviceRule(hubHostname: state.hostname, ruleId: rule.id);
+                  _reload();
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExecutionLogTile(EHThemeTokens tokens, AutomationExecutionLog log) {
+    final isFastPath = log.status.contains('FAST_PATH_UDP');
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isFastPath ? tokens.success : tokens.bluePrimary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  log.actionSummary,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tokens.textPrimary),
+                ),
+                Text(
+                  'Trigger: ${log.triggerEvent} • ${log.timestamp.hour.toString().padLeft(2, '0')}:${log.timestamp.minute.toString().padLeft(2, '0')}:${log.timestamp.second.toString().padLeft(2, '0')}',
+                  style: TextStyle(fontSize: 10, color: tokens.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: (isFastPath ? tokens.success : tokens.bluePrimary).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '${log.latencyMs}ms',
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w800,
+                color: isFastPath ? tokens.success : tokens.bluePrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openCreateRuleDialog(BuildContext context, EHThemeTokens tokens, HubState state) async {
+    final devices = state.connectedDevices;
+    if (devices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No adopted switches yet. Adopt switches first before creating cross-device automations.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    String triggerDevId = devices.first.id;
+    int triggerCh = 1;
+    String actionDevId = devices.length > 1 ? devices[1].id : devices.first.id;
+    int actionCh = 1;
+    String actionCmd = 'TOGGLE';
+    final nameController = TextEditingController(text: 'Cross-Device Fast-Path Link');
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.bolt_rounded, color: Color(0xFF10B981)),
+              SizedBox(width: 8),
+              Text('Create Cross-Device Rule'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Rule Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                ),
+                const SizedBox(height: 14),
+                const Text('WHEN Trigger Switch & Channel:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                DropdownButtonFormField<String>(
+                  initialValue: triggerDevId,
+                  isDense: true,
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: devices.map((d) => DropdownMenuItem(value: d.id, child: Text('${d.name} (${d.ipAddress})'))).toList(),
+                  onChanged: (v) => setDlgState(() => triggerDevId = v!),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<int>(
+                  initialValue: triggerCh,
+                  isDense: true,
+                  decoration: const InputDecoration(labelText: 'Trigger Channel', border: OutlineInputBorder()),
+                  items: [1, 2, 3, 4].map((ch) => DropdownMenuItem(value: ch, child: Text('Channel $ch'))).toList(),
+                  onChanged: (v) => setDlgState(() => triggerCh = v!),
+                ),
+                const SizedBox(height: 14),
+                const Text('THEN Action Target Switch & Command:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                DropdownButtonFormField<String>(
+                  initialValue: actionDevId,
+                  isDense: true,
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: devices.map((d) => DropdownMenuItem(value: d.id, child: Text('${d.name} (${d.ipAddress})'))).toList(),
+                  onChanged: (v) => setDlgState(() => actionDevId = v!),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        initialValue: actionCh,
+                        isDense: true,
+                        decoration: const InputDecoration(labelText: 'Action Channel', border: OutlineInputBorder()),
+                        items: [1, 2, 3, 4].map((ch) => DropdownMenuItem(value: ch, child: Text('Channel $ch'))).toList(),
+                        onChanged: (v) => setDlgState(() => actionCh = v!),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: actionCmd,
+                        isDense: true,
+                        decoration: const InputDecoration(labelText: 'Action', border: OutlineInputBorder()),
+                        items: const [
+                          DropdownMenuItem(value: 'TOGGLE', child: Text('TOGGLE')),
+                          DropdownMenuItem(value: 'ON', child: Text('TURN ON')),
+                          DropdownMenuItem(value: 'OFF', child: Text('TURN OFF')),
+                        ],
+                        onChanged: (v) => setDlgState(() => actionCmd = v!),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () async {
+                final targetDev = devices.firstWhere((d) => d.id == actionDevId, orElse: () => devices.first);
+                final rule = CrossDeviceRule(
+                  id: 'rule_${DateTime.now().millisecondsSinceEpoch}',
+                  name: nameController.text.trim().isEmpty ? 'Cross-Device Fast-Path Link' : nameController.text.trim(),
+                  enabled: true,
+                  triggerDeviceId: triggerDevId,
+                  triggerChannel: triggerCh,
+                  triggerState: true,
+                  actionDeviceId: actionDevId,
+                  actionDeviceIp: targetDev.ipAddress,
+                  actionChannel: actionCh,
+                  actionCommand: actionCmd,
+                );
+                await _repo.saveCrossDeviceRule(hubHostname: state.hostname, rule: rule);
+                if (context.mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Cross-Device Fast-Path UDP rule created! Multi-room cascade active in <3ms.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+                _reload();
+              },
+              child: const Text('Save Rule'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDeviceHardwareSettingsDialog(
+    BuildContext context,
+    EHThemeTokens tokens,
+    HubDeviceInfo device,
+  ) async {
+    int powerOnMode = 2;
+    bool childLock = false;
+    bool loading = true;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: tokens.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            if (loading) {
+              _repo.getDeviceSettings(deviceIp: device.ipAddress).then((settings) {
+                if (settings != null) {
+                  setModalState(() {
+                    powerOnMode = settings['powerOnMode'] as int? ?? 2;
+                    childLock = settings['childLock'] as bool? ?? false;
+                    loading = false;
+                  });
+                } else {
+                  setModalState(() => loading = false);
+                }
+              });
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Hardware Device Settings',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: tokens.textPrimary,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(modalCtx),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '${device.name} • ${device.ipAddress}',
+                    style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                  ),
+                  const SizedBox(height: 20),
+                  if (loading)
+                    const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
+                  else ...[
+                    Text(
+                      'Power-On Behavior (After Outage)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      child: RadioGroup<int>(
+                        groupValue: powerOnMode,
+                        onChanged: (v) => setModalState(() => powerOnMode = v ?? 2),
+                        child: Column(
+                          children: [
+                            const RadioListTile<int>(
+                              title: Text('Restore Last State (Recommended)'),
+                              subtitle: Text('Restores state of relays before power failure'),
+                              value: 2,
+                            ),
+                            const Divider(height: 1),
+                            const RadioListTile<int>(
+                              title: Text('Always OFF (Safe Mode)'),
+                              subtitle: Text('All relays stay turned off when power returns'),
+                              value: 0,
+                            ),
+                            const Divider(height: 1),
+                            const RadioListTile<int>(
+                              title: Text('Always ON'),
+                              subtitle: Text('All relays immediately turn on when power returns'),
+                              value: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: tokens.borderSubtle),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.child_care_rounded, color: tokens.bluePrimary, size: 28),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Child Lock (Capacitive Touch)',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: tokens.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Physical wall touch toggles are locked. Mobile app and Hub schedules remain active.',
+                                  style: TextStyle(fontSize: 11, color: tokens.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: childLock,
+                            activeThumbColor: tokens.bluePrimary,
+                            onChanged: (v) => setModalState(() => childLock = v),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: tokens.bluePrimary,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(modalCtx);
+                          await _repo.setDevicePowerOnMode(deviceIp: device.ipAddress, mode: powerOnMode);
+                          await _repo.setDeviceChildLock(deviceIp: device.ipAddress, enabled: childLock);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Hardware settings updated for ${device.name}.'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                        child: const Text('Save Hardware Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

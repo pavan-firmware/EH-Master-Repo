@@ -664,6 +664,7 @@ class _HomeShellState extends State<HomeShell> {
       child: AnimatedBuilder(
         animation: _homeController,
         builder: (context, _) {
+          final effectiveMode = _homeController.effectiveConnectionMode;
           return Scaffold(
             extendBody: false,
             backgroundColor: tokens.bgApp,
@@ -671,12 +672,11 @@ class _HomeShellState extends State<HomeShell> {
               bottom: false,
               child: Column(
                 children: [
-                  // Global Sticky Alert Banner when Cloud/Internet is down & not in LAN mode
-                  if (!_homeController.isCloudReachable &&
-                      !_homeController.isLocalMode &&
-                      !_homeController.isLoading &&
-                      _homeController.isCurrentSpaceOnLocalLan)
+                  // Global Sticky Alert Banner when Offline (matches HomePage 'Offline' badge 1:1)
+                  if (effectiveMode == EffectiveConnectionMode.offline &&
+                      !_homeController.isLoading)
                     _GlobalOfflineAlertBar(
+                      isLocalOnly: _homeController.routingMode == ConnectionRoutingMode.localOnly,
                       onSwitchToLan: () async {
                         final ok = await _homeController.switchToLanMode();
                         if (!ok && context.mounted) {
@@ -687,10 +687,11 @@ class _HomeShellState extends State<HomeShell> {
                       },
                     ),
 
-                  // Global Status Bar when Local LAN Mode is actively running
-                  if (_homeController.isLocalMode)
+                  // Global Status Bar ONLY when Hub or Verified LAN Direct mode is active (matches HomePage badge)
+                  if (effectiveMode == EffectiveConnectionMode.hub ||
+                      effectiveMode == EffectiveConnectionMode.lan)
                     _GlobalLanActiveBar(
-                      isHubActive: _homeController.isHubActive,
+                      isHubActive: effectiveMode == EffectiveConnectionMode.hub,
                       homeId: _homeController.activeHomeId ?? 'home_01',
                       onRetryCloud: () async {
                         await _homeController.loadHomeData();
@@ -732,7 +733,7 @@ class _HomeShellState extends State<HomeShell> {
                                 devicesOnInOtherSpaces: _homeController.devicesOnInOtherSpaces,
                                 groupControls: _homeController.groupControls,
                                 favouriteControlIds: _homeController.favouriteControlIds,
-                                upcomingRoutines: _homeController.upcomingRoutinesAcrossSpaces,
+                                upcomingRoutines: _homeController.upcomingRoutines,
                                 onToggleRoutine: _homeController.toggleRoutine,
                                 onToggleGroup: _homeController.toggleControlGroup,
                                 onCreateGroup: (label, kind, targets) => _homeController.createControlGroup(
@@ -749,8 +750,10 @@ class _HomeShellState extends State<HomeShell> {
                                 onShowNotifications: _openNotificationCenter,
                                 onShowSearch: _openGlobalSearch,
                                 onRefresh: () async {
-                                  await _homeController.loadHomeData();
-                                  await _homeController.probeLanAndPromote();
+                                  if (_homeController.isLocalMode || _homeController.routingMode == ConnectionRoutingMode.localOnly) {
+                                    await _homeController.probeLanAndPromote(allowSubnetSweep: false);
+                                  }
+                                  await _homeController.loadHomeData(isBackground: true);
                                   await _homeController.refreshUpcomingRoutines();
                                 },
                                 onSwitchToLanMode: () async {
@@ -957,11 +960,15 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-/// Global Top Alert Bar displayed across all screens when cloud/internet is offline.
+/// Global Top Alert Bar displayed across all screens when Home / Cloud / LAN / Hub are offline.
 class _GlobalOfflineAlertBar extends StatefulWidget {
-  const _GlobalOfflineAlertBar({required this.onSwitchToLan});
+  const _GlobalOfflineAlertBar({
+    required this.onSwitchToLan,
+    this.isLocalOnly = false,
+  });
 
   final Future<void> Function() onSwitchToLan;
+  final bool isLocalOnly;
 
   @override
   State<_GlobalOfflineAlertBar> createState() => _GlobalOfflineAlertBarState();
@@ -1008,20 +1015,24 @@ class _GlobalOfflineAlertBarState extends State<_GlobalOfflineAlertBar> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-              children: const [
+              children: [
                 Text(
-                  'Cloud Offline / No Internet',
-                  style: TextStyle(
+                  widget.isLocalOnly
+                      ? 'Offline • Local Devices Unreachable'
+                      : 'Offline • Cloud & Devices Unreachable',
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
                     letterSpacing: -0.2,
                   ),
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 2),
                 Text(
-                  'Switch to LAN mode to control devices directly via Wi-Fi.',
-                  style: TextStyle(
+                  widget.isLocalOnly
+                      ? 'No smart devices or Hub responding on this Wi-Fi.'
+                      : 'No internet or local devices found on Wi-Fi.',
+                  style: const TextStyle(
                     color: Color(0xFFFEF3C7),
                     fontWeight: FontWeight.w500,
                     fontSize: 11,
@@ -1065,7 +1076,9 @@ class _GlobalOfflineAlertBarState extends State<_GlobalOfflineAlertBar> {
                   )
                 : const Icon(Icons.wifi_tethering_rounded, size: 15),
             label: Text(
-              _isConnecting ? 'Scanning...' : 'Switch LAN',
+              _isConnecting
+                  ? 'Scanning...'
+                  : (widget.isLocalOnly ? 'Retry Scan' : 'Switch LAN'),
               style: const TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 12,
@@ -1125,7 +1138,7 @@ class _GlobalLanActiveBar extends StatelessWidget {
           Expanded(
             child: Text(
               isHubActive
-                  ? 'Smart Hub Gateway Active • Local Mesh Orchestration (<5ms)'
+                  ? 'Smart Hub Gateway Active • Local Device Orchestration (<3ms)'
                   : 'Local Wi-Fi Mode Active • Direct Device Control',
               style: TextStyle(
                 color: textCol,
