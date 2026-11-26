@@ -138,11 +138,19 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
       final system = results[1] as _SystemSummary;
       _cachedData = (home, system);
       return (home, system);
-    } catch (_) {
+    } catch (e) {
       if (_cachedData != null) return _cachedData!;
-      try {
-        return await _buildOfflineSettingsSnapshot();
-      } catch (_) {}
+      final msg = e.toString().toLowerCase();
+      final isNetworkError = msg.contains('socketexception') ||
+          msg.contains('unreachable') ||
+          msg.contains('timed out') ||
+          msg.contains('connection refused') ||
+          (e is ApiException && e.statusCode == 0);
+      if (isNetworkError || (widget.homeController != null && !widget.homeController!.isCloudReachable)) {
+        try {
+          return await _buildOfflineSettingsSnapshot();
+        } catch (_) {}
+      }
       rethrow;
     }
   }

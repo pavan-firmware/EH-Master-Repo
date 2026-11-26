@@ -96,7 +96,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (_connectionRepository is UnavailableConnectionRepository) {
       _isCloudReachable = false;
-      if (_devices.isNotEmpty) {
+      if (_devices.isNotEmpty && !_devices.any((d) => d.online)) {
         _connectionState = HomeConnectionState.offline;
         _connectionMessage = 'Disconnected';
       }
@@ -1714,7 +1714,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     // Startup Priority in Auto Mode: launch concurrent LAN probe alongside Cloud fetch
-    if (_routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
+    if (autoSync && _routingMode == ConnectionRoutingMode.auto && !_isLocalMode) {
       unawaited(probeLanAndPromote());
     }
 
@@ -1808,7 +1808,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         if (_isLocalMode) {
           _connectionState = anyOnline ? HomeConnectionState.connected : HomeConnectionState.offline;
           _connectionMessage = anyOnline ? 'Local Wi-Fi Mode (Direct LAN)' : 'Local LAN Devices Offline';
-        } else if (_isCloudReachable) {
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
           _connectionState = HomeConnectionState.connected;
           _connectionMessage = 'Cloud Mode (Remote)';
         } else {
@@ -1875,7 +1875,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         if (_isLocalMode) {
           _connectionState = anyDevOnline ? HomeConnectionState.connected : HomeConnectionState.offline;
           _connectionMessage = anyDevOnline ? 'Local Wi-Fi Mode (Direct LAN)' : 'Local LAN Devices Offline';
-        } else if (_isCloudReachable) {
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
           _connectionState = HomeConnectionState.connected;
           _connectionMessage = 'Cloud Mode (Remote)';
         } else {
@@ -2060,7 +2060,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         if (_isLocalMode) {
           _connectionState = HomeConnectionState.connected;
           _connectionMessage = 'Local Wi-Fi Mode (Direct LAN)';
-        } else if (_isCloudReachable) {
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
           _connectionState = HomeConnectionState.connected;
           _connectionMessage = 'Cloud Mode (Remote)';
         }
@@ -2077,7 +2077,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      if (_routingMode != ConnectionRoutingMode.cloudOnly) {
+      if (autoSync && _routingMode != ConnectionRoutingMode.cloudOnly) {
         await _probeKnownLanDevicesFast();
         if (_routingMode == ConnectionRoutingMode.auto && (!_isLocalMode || _devices.any((d) => !d.online))) {
           await probeLanAndPromote();
@@ -2129,7 +2129,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         if (hasOnline) {
           _connectionState = HomeConnectionState.connected;
           _connectionMessage = 'Local Wi-Fi Mode';
-        } else if (_isCloudReachable) {
+        } else if (_isCloudReachable && _devices.isNotEmpty) {
           _connectionState = HomeConnectionState.connected;
           _connectionMessage = 'Cloud Mode (Remote)';
         } else {
@@ -3421,7 +3421,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   HomeDashboardData get dashboard {
-    final effectiveDevices = _deduplicateDevices(_devices.isNotEmpty ? _devices : DeviceStorageService.cachedDevices);
+    final effectiveDevices = _deduplicateDevices(_devices);
     if (effectiveDevices.isNotEmpty) {
       final Map<String, Map<int, String>> allChannelLabels = {};
       for (final d in effectiveDevices) {
