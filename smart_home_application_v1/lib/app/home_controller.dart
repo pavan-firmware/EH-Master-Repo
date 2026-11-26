@@ -698,7 +698,9 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         // Do not render cross-device automations in upcoming routines
         if (r.trigger.kind == RoutineTriggerKind.deviceState ||
             r.id.startsWith('xrule_') ||
-            r.name.toLowerCase().contains('cross-device')) continue;
+            r.name.toLowerCase().contains('cross-device')) {
+          continue;
+        }
 
         final isAvailable = (r.effectiveAvailability == RoutineAvailability.available);
         String spaceId = _activeSpaceId;
@@ -2383,8 +2385,6 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     return false;
   }
 
-  int _lanPromotionConsecutiveFails = 0;
-
   void _startAutoModeLanPromotionTimer() {
     if (!autoSync) return;
     _autoModeLanPromotionTimer?.cancel();
@@ -2399,13 +2399,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       if (_disposed || _routingMode == ConnectionRoutingMode.cloudOnly) return;
       if (_routingMode == ConnectionRoutingMode.auto &&
           (!_isLocalMode || _devices.any((d) => !d.online))) {
-        probeLanAndPromote().then((promoted) {
-          if (!promoted) {
-            _lanPromotionConsecutiveFails++;
-          } else {
-            _lanPromotionConsecutiveFails = 0;
-          }
-        });
+        unawaited(probeLanAndPromote());
       } else if (_isLocalMode || isHubActive || _routingMode == ConnectionRoutingMode.localOnly) {
         unawaited(_pollLanStateQuietly());
       }
@@ -2552,7 +2546,6 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _promoteToLocalLanMode(String devId, LanDeviceState devState) {
-    _lanPromotionConsecutiveFails = 0;
     if (_routingMode == ConnectionRoutingMode.cloudOnly) return;
     _isLocalMode = true;
     _lanMissedPollCount = 0;
@@ -5503,10 +5496,9 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         debugPrint('[CROSS-DEVICE] Firing rule "${rule.name}": $triggerDevId CH$triggerChannel ($power) -> ${rule.actionDeviceId} CH${rule.actionChannel} = $targetPower');
 
         final targetIp = LocalLanDeviceService.instance.getDeviceIp(rule.actionDeviceId) ??
-            rule.actionDeviceIp ??
-            DeviceStorageService.getAllCachedDeviceIps()[rule.actionDeviceId];
+            rule.actionDeviceIp;
 
-        if (targetIp != null && targetIp.isNotEmpty && targetIp != '127.0.0.1') {
+        if (targetIp.isNotEmpty && targetIp != '127.0.0.1') {
           unawaited(LocalLanDeviceService.instance.sendFastPathUdpActuate(
             targetIp,
             rule.actionChannel,

@@ -1334,11 +1334,13 @@ class _AutomationsPageState extends State<AutomationsPage> {
                             ],
                           ),
                         ),
-                        Radio<int>(
-                          value: 1,
+                        RadioGroup<int>(
                           groupValue: selectedPath,
-                          activeColor: tokens.bluePrimary,
                           onChanged: (v) => setSheetState(() => selectedPath = 1),
+                          child: Radio<int>(
+                            value: 1,
+                            activeColor: tokens.bluePrimary,
+                          ),
                         ),
                       ],
                     ),
@@ -1420,11 +1422,14 @@ class _AutomationsPageState extends State<AutomationsPage> {
                               ],
                             ),
                           ),
-                          Radio<int>(
-                            value: 2,
+                          RadioGroup<int>(
                             groupValue: selectedPath,
-                            activeColor: tokens.bluePrimary,
-                            onChanged: isHub ? (v) => setSheetState(() => selectedPath = 2) : null,
+                            onChanged: isHub ? (v) => setSheetState(() => selectedPath = 2) : (_) {},
+                            child: Radio<int>(
+                              value: 2,
+                              enabled: isHub,
+                              activeColor: tokens.bluePrimary,
+                            ),
                           ),
                         ],
                       ),
@@ -1505,11 +1510,14 @@ class _AutomationsPageState extends State<AutomationsPage> {
                               ],
                             ),
                           ),
-                          Radio<int>(
-                            value: 3,
+                          RadioGroup<int>(
                             groupValue: selectedPath,
-                            activeColor: tokens.bluePrimary,
-                            onChanged: hasMeshDevice ? (v) => setSheetState(() => selectedPath = 3) : null,
+                            onChanged: hasMeshDevice ? (v) => setSheetState(() => selectedPath = 3) : (_) {},
+                            child: Radio<int>(
+                              value: 3,
+                              enabled: hasMeshDevice,
+                              activeColor: tokens.bluePrimary,
+                            ),
                           ),
                         ],
                       ),
@@ -1530,7 +1538,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
                 Text('Trigger Device', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<String>(
-                  value: trigDevId,
+                  initialValue: trigDevId,
                   dropdownColor: tokens.surfaceCard,
                   decoration: InputDecoration(
                     filled: true,
@@ -1547,7 +1555,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<int>(
-                        value: trigChannel,
+                        initialValue: trigChannel,
                         dropdownColor: tokens.surfaceCard,
                         decoration: InputDecoration(
                           labelText: 'Channel',
@@ -1569,7 +1577,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: trigState == true ? 'ON' : (trigState == false ? 'OFF' : 'ANY'),
+                        initialValue: trigState == true ? 'ON' : (trigState == false ? 'OFF' : 'ANY'),
                         dropdownColor: tokens.surfaceCard,
                         decoration: InputDecoration(
                           labelText: 'When',
@@ -1597,7 +1605,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
                 Text('Action Device (Target)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: tokens.textPrimary)),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<String>(
-                  value: actDevId,
+                  initialValue: actDevId,
                   dropdownColor: tokens.surfaceCard,
                   decoration: InputDecoration(
                     filled: true,
@@ -1614,7 +1622,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<int>(
-                        value: actChannel,
+                        initialValue: actChannel,
                         dropdownColor: tokens.surfaceCard,
                         decoration: InputDecoration(
                           labelText: 'Channel',
@@ -1636,7 +1644,7 @@ class _AutomationsPageState extends State<AutomationsPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: actCommand,
+                        initialValue: actCommand,
                         dropdownColor: tokens.surfaceCard,
                         decoration: InputDecoration(
                           labelText: 'Do Action',
@@ -1766,14 +1774,18 @@ class _AutomationsPageState extends State<AutomationsPage> {
                       }
                       if (mounted) {
                         setState(() => _crossDeviceRules = list);
-                        Navigator.pop(sheetCtx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Created rule "${newRule.name}" (<3ms Fast-Path UDP)!'),
-                            behavior: SnackBarBehavior.floating,
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
+                        if (sheetCtx.mounted) {
+                          Navigator.pop(sheetCtx);
+                        }
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Created rule "${newRule.name}" (<3ms Fast-Path UDP)!'),
+                              behavior: SnackBarBehavior.floating,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
                       }
                     },
                     icon: const Icon(Icons.check_circle_rounded),

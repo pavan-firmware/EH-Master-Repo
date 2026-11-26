@@ -402,16 +402,13 @@ static void udp_discovery_task(void *pvParameters) {
       const char *dev_id = id ? id->device_id : "unknown";
       int rssi = get_sta_wifi_rssi();
 
-      char resp[300];
       char resp[360];
       snprintf(resp, sizeof(resp),
                "{\"cmd\":\"EH_DISCOVER_RESP\",\"deviceId\":\"%s\",\"model\":\"%"
                "s\",\"firmwareVersion\":\"%s\",\"channelCount\":%d,"
-               "\"hasEnergyMetering\":%s,\"port\":80,\"status\":\"ok\"}",
                "\"hasEnergyMetering\":%s,\"rssi\":%d,\"port\":80,\"status\":\"ok\"}",
                dev_id, EH_MODEL_NAME, EH_FIRMWARE_VERSION,
                (int)EH_RELAY_CHANNEL_COUNT,
-               (EH_FEATURE_ENERGY_MONITORING != 0) ? "true" : "false");
                (EH_FEATURE_ENERGY_MONITORING != 0) ? "true" : "false",
                rssi);
 

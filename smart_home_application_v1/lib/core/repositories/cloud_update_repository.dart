@@ -469,8 +469,8 @@ class CloudUpdateRepository implements UpdateRepository {
           'deviceId': deviceId,
           'releaseId': releaseId,
           'homeId': homeId,
-          if (downloadUrl != null) 'downloadUrl': downloadUrl,
-          if (version != null) 'version': version,
+          'downloadUrl': ?downloadUrl,
+          'version': ?version,
         },
       );
       if (res is Map<String, dynamic> &&

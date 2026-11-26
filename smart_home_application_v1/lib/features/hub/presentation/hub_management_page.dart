@@ -2698,7 +2698,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 const Text('WHEN Trigger Switch & Channel:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 DropdownButtonFormField<String>(
-                  value: triggerDevId,
+                  initialValue: triggerDevId,
                   isDense: true,
                   decoration: const InputDecoration(border: OutlineInputBorder()),
                   items: devices.map((d) => DropdownMenuItem(value: d.id, child: Text('${d.name} (${d.ipAddress})'))).toList(),
@@ -2706,7 +2706,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<int>(
-                  value: triggerCh,
+                  initialValue: triggerCh,
                   isDense: true,
                   decoration: const InputDecoration(labelText: 'Trigger Channel', border: OutlineInputBorder()),
                   items: [1, 2, 3, 4].map((ch) => DropdownMenuItem(value: ch, child: Text('Channel $ch'))).toList(),
@@ -2716,7 +2716,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                 const Text('THEN Action Target Switch & Command:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 DropdownButtonFormField<String>(
-                  value: actionDevId,
+                  initialValue: actionDevId,
                   isDense: true,
                   decoration: const InputDecoration(border: OutlineInputBorder()),
                   items: devices.map((d) => DropdownMenuItem(value: d.id, child: Text('${d.name} (${d.ipAddress})'))).toList(),
@@ -2727,7 +2727,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<int>(
-                        value: actionCh,
+                        initialValue: actionCh,
                         isDense: true,
                         decoration: const InputDecoration(labelText: 'Action Channel', border: OutlineInputBorder()),
                         items: [1, 2, 3, 4].map((ch) => DropdownMenuItem(value: ch, child: Text('Channel $ch'))).toList(),
@@ -2737,7 +2737,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                     const SizedBox(width: 8),
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: actionCmd,
+                        initialValue: actionCmd,
                         isDense: true,
                         decoration: const InputDecoration(labelText: 'Action', border: OutlineInputBorder()),
                         items: const [
@@ -2874,32 +2874,30 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: tokens.borderSubtle),
                       ),
-                      child: Column(
-                        children: [
-                          RadioListTile<int>(
-                            title: const Text('Restore Last State (Recommended)'),
-                            subtitle: const Text('Restores state of relays before power failure'),
-                            value: 2,
-                            groupValue: powerOnMode,
-                            onChanged: (v) => setModalState(() => powerOnMode = v ?? 2),
-                          ),
-                          const Divider(height: 1),
-                          RadioListTile<int>(
-                            title: const Text('Always OFF (Safe Mode)'),
-                            subtitle: const Text('All relays stay turned off when power returns'),
-                            value: 0,
-                            groupValue: powerOnMode,
-                            onChanged: (v) => setModalState(() => powerOnMode = v ?? 0),
-                          ),
-                          const Divider(height: 1),
-                          RadioListTile<int>(
-                            title: const Text('Always ON'),
-                            subtitle: const Text('All relays immediately turn on when power returns'),
-                            value: 1,
-                            groupValue: powerOnMode,
-                            onChanged: (v) => setModalState(() => powerOnMode = v ?? 1),
-                          ),
-                        ],
+                      child: RadioGroup<int>(
+                        groupValue: powerOnMode,
+                        onChanged: (v) => setModalState(() => powerOnMode = v ?? 2),
+                        child: Column(
+                          children: [
+                            const RadioListTile<int>(
+                              title: Text('Restore Last State (Recommended)'),
+                              subtitle: Text('Restores state of relays before power failure'),
+                              value: 2,
+                            ),
+                            const Divider(height: 1),
+                            const RadioListTile<int>(
+                              title: Text('Always OFF (Safe Mode)'),
+                              subtitle: Text('All relays stay turned off when power returns'),
+                              value: 0,
+                            ),
+                            const Divider(height: 1),
+                            const RadioListTile<int>(
+                              title: Text('Always ON'),
+                              subtitle: Text('All relays immediately turn on when power returns'),
+                              value: 1,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -2936,7 +2934,7 @@ class _HubManagementPageState extends State<HubManagementPage> with SingleTicker
                           ),
                           Switch(
                             value: childLock,
-                            activeColor: tokens.bluePrimary,
+                            activeThumbColor: tokens.bluePrimary,
                             onChanged: (v) => setModalState(() => childLock = v),
                           ),
                         ],
