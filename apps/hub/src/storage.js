@@ -7,6 +7,75 @@
 const fs = require('fs');
 const path = require('path');
 
+function classifyDeviceCategory(model = '', name = '', explicitCategory = '') {
+  const exp = String(explicitCategory || '').toLowerCase().trim();
+  if (['switches', 'sockets', 'fans', 'lighting', 'controllers', 'sensors', 'others'].includes(exp)) {
+    return exp;
+  }
+  const combined = `${model} ${name}`.toLowerCase();
+  if (combined.includes('sensor') || combined.includes('sn-') || combined.includes('pir') || combined.includes('temp')) {
+    return 'sensors';
+  }
+  if (combined.includes('fan') || combined.includes('fn-') || combined.includes('ceiling')) {
+    return 'fans';
+  }
+  if (combined.includes('light') || combined.includes('bulb') || combined.includes('strip') || combined.includes('dimmer')) {
+    return 'lighting';
+  }
+  if (combined.includes('socket') || combined.includes('sk-') || combined.includes('-sk') || combined.includes('plug')) {
+    return 'sockets';
+  }
+  if (combined.includes('controller') || combined.includes('ir-') || combined.includes('curtain') || combined.includes('gate')) {
+    return 'controllers';
+  }
+  if (combined.includes('switch') || combined.includes('sw-') || combined.includes('-sw') || combined.includes('sw1') || combined.includes('sw2') || combined.includes('sw3') || combined.includes('sw4')) {
+    return 'switches';
+  }
+  return 'others';
+}
+
+function isGenericAutoName(name = '') {
+  const n = String(name || '').trim();
+  if (!n) return true;
+  if (/^(EH\s+)?(Switch|Socket|Device)\s*\([a-f0-9]+\)$/i.test(n)) return true;
+  if (/^(Smart\s+)?(Switch|Socket|Device)$/i.test(n)) return true;
+  return false;
+}
+
+function formatCanonicalDeviceName(device = {}) {
+  if (!isGenericAutoName(device.name)) {
+    return String(device.name).trim();
+  }
+  const model = String(device.model || '').toUpperCase();
+  const category = classifyDeviceCategory(device.model, device.name, device.category);
+  const ch = Number(device.channelCount || 0);
+  const emSuffix = model.includes('EM') ? ' (EM)' : '';
+  const tail = device.id ? ` · ${String(device.id).slice(-4).toUpperCase()}` : '';
+
+  const matchCh = model.match(/(\d)\s*X/);
+  const gang = matchCh ? Number(matchCh[1]) : (ch > 0 ? ch : 0);
+
+  if (category === 'sockets') {
+    return `EH Smart Socket${gang ? ` ${gang}X` : ''}${emSuffix}${tail}`;
+  }
+  if (category === 'fans') {
+    return `EH Smart Fan Controller${tail}`;
+  }
+  if (category === 'sensors') {
+    return `EH Smart Sensor Node${tail}`;
+  }
+  if (category === 'lighting') {
+    return `EH Smart Lighting${gang ? ` ${gang}X` : ''}${tail}`;
+  }
+  if (category === 'controllers') {
+    return `EH Smart Controller${tail}`;
+  }
+  if (category === 'switches') {
+    return `EH Smart Switch${gang ? ` ${gang}X` : ''}${emSuffix}${tail}`;
+  }
+  return `EH Smart Device${tail}`;
+}
+
 class SQLiteWalEngine {
   constructor(dbPath) {
     this.type = 'sqlite-wal';
@@ -29,8 +98,15 @@ class SQLiteWalEngine {
         id TEXT PRIMARY KEY,
         name TEXT,
         ip_address TEXT,
+        model TEXT,
+        firmware_version TEXT,
+        category TEXT,
+        room_name TEXT,
+        rssi_dbm INTEGER,
         channel_count INTEGER,
         channels_json TEXT,
+        capabilities_json TEXT,
+        telemetry_json TEXT,
         active_routines_count INTEGER,
         has_critical_fallback INTEGER,
         online INTEGER,
@@ -44,6 +120,7 @@ class SQLiteWalEngine {
         device_id TEXT,
         channel INTEGER,
         target_state INTEGER,
+        is_toggle INTEGER DEFAULT 0,
         hour INTEGER,
         minute INTEGER,
         days_mask INTEGER,
@@ -106,7 +183,27 @@ class SQLiteWalEngine {
       );
       CREATE INDEX IF NOT EXISTS idx_energy_dev_ch_epoch ON energy_telemetry_hourly(device_id, channel, hour_epoch);
     `);
+    this.migrateColumns();
     this.migrateLegacyStateIfPresent();
+  }
+
+  migrateColumns() {
+    const ensureCol = (table, col, def) => {
+      try {
+        const cols = this.db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!cols.some(c => c.name === col)) {
+          this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def};`);
+        }
+      } catch (_) {}
+    };
+    ensureCol('devices', 'model', 'TEXT');
+    ensureCol('devices', 'firmware_version', 'TEXT');
+    ensureCol('devices', 'category', 'TEXT');
+    ensureCol('devices', 'room_name', 'TEXT');
+    ensureCol('devices', 'rssi_dbm', 'INTEGER');
+    ensureCol('devices', 'capabilities_json', 'TEXT');
+    ensureCol('devices', 'telemetry_json', 'TEXT');
+    ensureCol('routines', 'is_toggle', 'INTEGER DEFAULT 0');
   }
 
   migrateLegacyStateIfPresent() {
@@ -144,66 +241,87 @@ class SQLiteWalEngine {
     return result;
   }
 
-  getDevices() {
-    const rows = this.db.prepare('SELECT * FROM devices').all();
-    return rows.map(r => ({
+  _mapDeviceRow(r) {
+    const dev = {
       id: r.id,
       name: r.name,
       ipAddress: r.ip_address,
+      model: r.model || null,
+      firmwareVersion: r.firmware_version || null,
+      category: classifyDeviceCategory(r.model, r.name, r.category),
+      roomName: r.room_name || 'Unassigned',
+      rssiDbm: typeof r.rssi_dbm === 'number' ? r.rssi_dbm : null,
       channelCount: r.channel_count,
       channels: r.channels_json ? JSON.parse(r.channels_json) : {},
-      activeRoutinesCount: r.active_routines_count,
-      hasCriticalHardwareFallback: Boolean(r.has_critical_fallback),
-      online: Boolean(r.online),
-      latencyMs: r.latency_ms,
-      lastSeenAt: r.last_seen_at,
-    }));
-  }
-
-  getDevice(id) {
-    const r = this.db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
-    if (!r) return null;
-    return {
-      id: r.id,
-      name: r.name,
-      ipAddress: r.ip_address,
-      channelCount: r.channel_count,
-      channels: r.channels_json ? JSON.parse(r.channels_json) : {},
+      capabilities: r.capabilities_json ? JSON.parse(r.capabilities_json) : {},
+      telemetry: r.telemetry_json ? JSON.parse(r.telemetry_json) : {},
       activeRoutinesCount: r.active_routines_count,
       hasCriticalHardwareFallback: Boolean(r.has_critical_fallback),
       online: Boolean(r.online),
       latencyMs: r.latency_ms,
       lastSeenAt: r.last_seen_at,
     };
+    dev.name = formatCanonicalDeviceName(dev);
+    return dev;
+  }
+
+  getDevices() {
+    const rows = this.db.prepare('SELECT * FROM devices').all();
+    return rows.map(r => this._mapDeviceRow(r));
+  }
+
+  getDevice(id) {
+    const r = this.db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
+    if (!r) return null;
+    return this._mapDeviceRow(r);
   }
 
   upsertDevice(device) {
+    const existing = this.getDevice(device.id);
+    const merged = { ...(existing || {}), ...device };
+    const category = classifyDeviceCategory(merged.model, merged.name, merged.category);
+    const canonicalName = formatCanonicalDeviceName({ ...merged, category });
     this.db.prepare(`
       INSERT INTO devices (
-        id, name, ip_address, channel_count, channels_json,
+        id, name, ip_address, model, firmware_version, category, room_name,
+        rssi_dbm, channel_count, channels_json, capabilities_json, telemetry_json,
         active_routines_count, has_critical_fallback, online, latency_ms, last_seen_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         ip_address = excluded.ip_address,
+        model = excluded.model,
+        firmware_version = excluded.firmware_version,
+        category = excluded.category,
+        room_name = excluded.room_name,
+        rssi_dbm = excluded.rssi_dbm,
         channel_count = excluded.channel_count,
         channels_json = excluded.channels_json,
+        capabilities_json = excluded.capabilities_json,
+        telemetry_json = excluded.telemetry_json,
         active_routines_count = excluded.active_routines_count,
         has_critical_fallback = excluded.has_critical_fallback,
         online = excluded.online,
         latency_ms = excluded.latency_ms,
         last_seen_at = excluded.last_seen_at
     `).run(
-      device.id,
-      device.name || `Switch (${device.id.slice(-4)})`,
-      device.ipAddress || '',
-      device.channelCount || 3,
-      JSON.stringify(device.channels || {}),
-      device.activeRoutinesCount || 0,
-      device.hasCriticalHardwareFallback ? 1 : 0,
-      device.online !== false ? 1 : 0,
-      device.latencyMs || 3,
-      device.lastSeenAt || new Date().toISOString()
+      merged.id,
+      canonicalName,
+      merged.ipAddress || '',
+      merged.model || null,
+      merged.firmwareVersion || null,
+      category,
+      merged.roomName || 'Unassigned',
+      typeof merged.rssiDbm === 'number' ? Math.round(merged.rssiDbm) : null,
+      merged.channelCount || 3,
+      JSON.stringify(merged.channels || {}),
+      JSON.stringify(merged.capabilities || {}),
+      JSON.stringify(merged.telemetry || {}),
+      merged.activeRoutinesCount || 0,
+      merged.hasCriticalHardwareFallback ? 1 : 0,
+      merged.online !== false ? 1 : 0,
+      merged.latencyMs || 3,
+      merged.lastSeenAt || new Date().toISOString()
     );
   }
 
@@ -223,6 +341,7 @@ class SQLiteWalEngine {
       deviceId: r.device_id,
       channel: r.channel,
       targetState: Boolean(r.target_state),
+      isToggle: Boolean(r.is_toggle),
       hour: r.hour,
       minute: r.minute,
       daysMask: r.days_mask,
@@ -243,6 +362,7 @@ class SQLiteWalEngine {
       deviceId: r.device_id,
       channel: r.channel,
       targetState: Boolean(r.target_state),
+      isToggle: Boolean(r.is_toggle),
       hour: r.hour,
       minute: r.minute,
       daysMask: r.days_mask,
@@ -257,14 +377,15 @@ class SQLiteWalEngine {
   upsertRoutine(routine) {
     this.db.prepare(`
       INSERT INTO routines (
-        id, name, device_id, channel, target_state, hour, minute,
+        id, name, device_id, channel, target_state, is_toggle, hour, minute,
         days_mask, duration_sec, enabled, critical_hardware_fallback, trigger_type, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         device_id = excluded.device_id,
         channel = excluded.channel,
         target_state = excluded.target_state,
+        is_toggle = excluded.is_toggle,
         hour = excluded.hour,
         minute = excluded.minute,
         days_mask = excluded.days_mask,
@@ -279,6 +400,7 @@ class SQLiteWalEngine {
       routine.deviceId,
       routine.channel ?? 1,
       routine.targetState ? 1 : 0,
+      routine.isToggle || routine.toggle ? 1 : 0,
       routine.hour ?? 6,
       routine.minute ?? 0,
       routine.daysMask ?? 0x7F,
@@ -821,7 +943,27 @@ class AtomicWalEngine {
         console.warn('[Storage:WAL] Failed replaying WAL file:', e.message);
       }
     }
+    this.migrateColumns();
     this.migrateLegacyStateIfPresent();
+  }
+
+  migrateColumns() {
+    const ensureCol = (table, col, def) => {
+      try {
+        const cols = this.db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!cols.some(c => c.name === col)) {
+          this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def};`);
+        }
+      } catch (_) {}
+    };
+    ensureCol('devices', 'model', 'TEXT');
+    ensureCol('devices', 'firmware_version', 'TEXT');
+    ensureCol('devices', 'category', 'TEXT');
+    ensureCol('devices', 'room_name', 'TEXT');
+    ensureCol('devices', 'rssi_dbm', 'INTEGER');
+    ensureCol('devices', 'capabilities_json', 'TEXT');
+    ensureCol('devices', 'telemetry_json', 'TEXT');
+    ensureCol('routines', 'is_toggle', 'INTEGER DEFAULT 0');
   }
 
   migrateLegacyStateIfPresent() {
@@ -876,27 +1018,42 @@ class AtomicWalEngine {
     return { ...this.state.metadata };
   }
 
+  _normalizeAtomicDevice(d) {
+    const dev = {
+      id: d.id,
+      name: d.name,
+      ipAddress: d.ipAddress || '',
+      model: d.model || null,
+      firmwareVersion: d.firmwareVersion || null,
+      category: classifyDeviceCategory(d.model, d.name, d.category),
+      roomName: d.roomName || 'Unassigned',
+      rssiDbm: typeof d.rssiDbm === 'number' ? Math.round(d.rssiDbm) : null,
+      channelCount: d.channelCount || 3,
+      channels: d.channels || {},
+      capabilities: d.capabilities || {},
+      telemetry: d.telemetry || {},
+      activeRoutinesCount: d.activeRoutinesCount || 0,
+      hasCriticalHardwareFallback: Boolean(d.hasCriticalHardwareFallback),
+      online: d.online !== false,
+      latencyMs: d.latencyMs || 3,
+      lastSeenAt: d.lastSeenAt || new Date().toISOString(),
+    };
+    dev.name = formatCanonicalDeviceName(dev);
+    return dev;
+  }
+
   getDevices() {
-    return Object.values(this.state.devices);
+    return Object.values(this.state.devices).map(d => this._normalizeAtomicDevice(d));
   }
 
   getDevice(id) {
-    return this.state.devices[id] || null;
+    const d = this.state.devices[id];
+    return d ? this._normalizeAtomicDevice(d) : null;
   }
 
   upsertDevice(device) {
-    const d = {
-      id: device.id,
-      name: device.name || `Switch (${device.id.slice(-4)})`,
-      ipAddress: device.ipAddress || '',
-      channelCount: device.channelCount || 3,
-      channels: device.channels || {},
-      activeRoutinesCount: device.activeRoutinesCount || 0,
-      hasCriticalHardwareFallback: Boolean(device.hasCriticalHardwareFallback),
-      online: device.online !== false,
-      latencyMs: device.latencyMs || 3,
-      lastSeenAt: device.lastSeenAt || new Date().toISOString(),
-    };
+    const existing = this.state.devices[device.id] || {};
+    const d = this._normalizeAtomicDevice({ ...existing, ...device });
     this.state.devices[d.id] = d;
     this.appendWal('SET', 'devices', d.id, d);
     this.checkpoint();
@@ -915,11 +1072,15 @@ class AtomicWalEngine {
   }
 
   getRoutines() {
-    return Object.values(this.state.routines);
+    return Object.values(this.state.routines).map(r => ({
+      ...r,
+      isToggle: Boolean(r.isToggle || r.toggle),
+    }));
   }
 
   getRoutine(id) {
-    return this.state.routines[id] || null;
+    const r = this.state.routines[id];
+    return r ? { ...r, isToggle: Boolean(r.isToggle || r.toggle) } : null;
   }
 
   upsertRoutine(routine) {
@@ -929,6 +1090,7 @@ class AtomicWalEngine {
       deviceId: routine.deviceId,
       channel: routine.channel ?? 1,
       targetState: Boolean(routine.targetState),
+      isToggle: Boolean(routine.isToggle || routine.toggle),
       hour: routine.hour ?? 6,
       minute: routine.minute ?? 0,
       daysMask: routine.daysMask ?? 0x7F,
@@ -1369,4 +1531,6 @@ module.exports = {
   createStorageEngine,
   SQLiteWalEngine,
   AtomicWalEngine,
+  classifyDeviceCategory,
+  formatCanonicalDeviceName,
 };

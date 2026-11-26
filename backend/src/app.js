@@ -158,6 +158,8 @@ const { RecoveryApiRouter } = require('./api/recovery.router');
 const { OperationalReadinessRouter } = require('./api/operational-readiness.router');
 const { FleetAdminApiRouter } = require('./api/fleet-admin.router');
 const { ObservabilityApiRouter } = require('./api/observability.router');
+const { HubGatewayService } = require('./services/hub-gateway.service');
+const { HubApiRouter } = require('./api/hub.router');
 const { DeviceTrustService } = require('./services/device-trust.service');
 const { RecoveryService } = require('./services/recovery.service');
 const { OperationalReadinessService } = require('./services/operational-readiness.service');
@@ -220,8 +222,17 @@ function isPublicRoute(method, pathname) {
     pathname.startsWith('/api/v1/product-variants/') ||
     pathname.startsWith('/api/v1/capabilities/') ||
     pathname.startsWith('/api/v1/ota/manifests/') ||
-    pathname.startsWith('/api/v1/ota/binaries/')
+    pathname.startsWith('/api/v1/ota/binaries/') ||
+    (pathname.startsWith('/api/v1/hubs/') && pathname.endsWith('/stream'))
   )) {
+    return true;
+  }
+  if (method === 'POST' && (
+    pathname === '/api/v1/hubs/register' ||
+    (pathname.startsWith('/api/v1/hubs/') && pathname.endsWith('/sync'))
+  )) {
+    return true;
+  }
     return true;
   }
   if (method === 'POST' && pathname === '/api/v1/ota/releases') {
@@ -1003,6 +1014,12 @@ function createApp(options = {}) {
   });
 
   const commandHandlers = buildCommandRouteHandlers({ commandService, deviceStateRepo, commandRepo });
+  const hubGatewayService = options.hubGatewayService || new HubGatewayService({
+    eventBus,
+    deviceStateRepo,
+    firmwareRepo,
+  });
+  const hubApiRouter = new HubApiRouter(hubGatewayService);
 
   /**
    * Main Request Handler
@@ -1481,6 +1498,18 @@ function createApp(options = {}) {
       }
     }
 
+    // 8.95. Route to Cloud <-> Smart Hub Gateway Router
+    if (pathname === '/api/v1/hubs' || pathname.startsWith('/api/v1/hubs/')) {
+      const streamMatch = pathname.match(/^\/api\/v1\/hubs\/([^/]+)\/stream$/);
+      if (method === 'GET' && streamMatch) {
+        return hubApiRouter.handleStream(req, res, decodeURIComponent(streamMatch[1]));
+      }
+      const hubResult = await hubApiRouter.handle(method, pathname, body, query, req.user);
+      if (hubResult) {
+        return sendJsonResponse(res, hubResult.status, hubResult.body);
+      }
+    }
+
     // 9. Route to Home & Device Domain Router
     if (
       pathname.startsWith('/api/v1/homes') ||
@@ -1570,6 +1599,7 @@ function createApp(options = {}) {
       incidentService,
       redisStateCacheService,
       telemetryBatchWorker,
+      hubGatewayService,
       logger: structuredLogger,
       db
     },

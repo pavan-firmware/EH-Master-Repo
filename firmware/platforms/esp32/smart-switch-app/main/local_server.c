@@ -2,6 +2,7 @@
 #include "board_config.h"
 #include "cJSON.h"
 #include "edge_routine_engine.h"
+#include "esp_http_client.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -393,7 +394,23 @@ static void udp_discovery_task(void *pvParameters) {
                                      "UDP_DISCOVERY");
     }
 
-    if (strcmp(cmd_str, "EH_DISCOVER") == 0) {
+    if (strcmp(cmd_str, "EH_HUB_ANNOUNCE") == 0 ||
+        strcmp(cmd_str, "EH_HUB_DISCOVER_RESP") == 0) {
+      if (source_addr.ss_family == AF_INET) {
+        char hub_ip_str[64] = {0};
+        const struct sockaddr_in *sin = (const struct sockaddr_in *)&source_addr;
+        inet_ntoa_r(sin->sin_addr, hub_ip_str, sizeof(hub_ip_str));
+        if (hub_ip_str[0] != '\0') {
+          cJSON *hp_item = cJSON_GetObjectItem(rx_json, "port");
+          int hp = (hp_item && cJSON_IsNumber(hp_item) && hp_item->valueint > 0)
+                       ? hp_item->valueint
+                       : 4210;
+          extern void local_server_set_discovered_hub(const char *ip, int port);
+          local_server_set_discovered_hub(hub_ip_str, hp);
+          time_sync_manager_set_hub_ntp_server(hub_ip_str);
+        }
+      }
+    } else if (strcmp(cmd_str, "EH_DISCOVER") == 0) {
       if (source_addr.ss_family == AF_INET) {
         memcpy(&s_last_client_addr, &source_addr, sizeof(struct sockaddr_in));
         s_has_client_addr = true;
@@ -1960,3 +1977,80 @@ void local_server_stop(void) {
 }
 
 bool local_server_is_running(void) { return s_server != NULL; }
+
+static char s_discovered_hub_ip[64] = {0};
+static int s_discovered_hub_port = 4210;
+static int64_t s_last_hub_energy_post_us = 0;
+
+void local_server_set_discovered_hub(const char *ip, int port) {
+  if (!ip || ip[0] == '\0') return;
+  strncpy(s_discovered_hub_ip, ip, sizeof(s_discovered_hub_ip) - 1);
+  s_discovered_hub_ip[sizeof(s_discovered_hub_ip) - 1] = '\0';
+  s_discovered_hub_port = port > 0 ? port : 4210;
+}
+
+typedef struct {
+  char url[128];
+  char body[256];
+} hub_energy_post_job_t;
+
+static volatile bool s_hub_energy_task_busy = false;
+
+static void hub_energy_post_task(void *arg) {
+  hub_energy_post_job_t *job = (hub_energy_post_job_t *)arg;
+  if (job) {
+    esp_http_client_config_t cfg = {
+        .url = job->url,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 800,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (client) {
+      esp_http_client_set_header(client, "Content-Type", "application/json");
+      esp_http_client_set_post_field(client, job->body, (int)strlen(job->body));
+      esp_err_t err = esp_http_client_perform(client);
+      if (err != ESP_OK) {
+        ESP_LOGD(TAG, "Hub energy telemetry post skipped: %s", esp_err_to_name(err));
+      }
+      esp_http_client_cleanup(client);
+    }
+    free(job);
+  }
+  s_hub_energy_task_busy = false;
+  vTaskDelete(NULL);
+}
+
+void local_server_push_energy_to_hub(uint32_t voltage_mv, uint32_t current_ma,
+                                     int32_t power_mw) {
+#if EH_FEATURE_ENERGY_MONITORING
+  if (s_discovered_hub_ip[0] == '\0' || s_hub_energy_task_busy) return;
+  int64_t now_us = esp_timer_get_time();
+  if ((now_us - s_last_hub_energy_post_us) < 10000000LL) return;
+  s_last_hub_energy_post_us = now_us;
+
+  const factory_identity_v2_t *id = factory_identity_v2_get();
+  const char *dev_id = id ? id->device_id : "unknown";
+  hub_energy_post_job_t *job = calloc(1, sizeof(hub_energy_post_job_t));
+  if (!job) return;
+
+  snprintf(job->url, sizeof(job->url),
+           "http://%s:%d/api/v1/hub/energy/samples", s_discovered_hub_ip,
+           s_discovered_hub_port);
+  double v = (double)voltage_mv / 1000.0;
+  double i = (double)current_ma / 1000.0;
+  double p = (double)(power_mw > 0 ? power_mw : 0) / 1000.0;
+  snprintf(job->body, sizeof(job->body),
+           "{\"deviceId\":\"%s\",\"channel\":1,\"powerW\":%.2f,\"voltageV\":%.1f,\"currentA\":%.3f}",
+           dev_id, p, v, i);
+
+  s_hub_energy_task_busy = true;
+  if (xTaskCreate(hub_energy_post_task, "eh_hub_energy", 4096, job, 3, NULL) != pdPASS) {
+    s_hub_energy_task_busy = false;
+    free(job);
+  }
+#else
+  (void)voltage_mv;
+  (void)current_ma;
+  (void)power_mw;
+#endif
+}

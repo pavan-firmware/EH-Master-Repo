@@ -27,9 +27,12 @@ const child = spawn(process.execPath, [serverScript], {
 child.stdout.on('data', (d) => process.stdout.write(`[Server stdout] ${d}`));
 child.stderr.on('data', (d) => process.stderr.write(`[Server stderr] ${d}`));
 
-function request(method, path, body = null) {
+let hubAuthToken = null;
+
+function request(method, path, body = null, { skipAuth = false, customToken = null } = {}) {
   return new Promise((resolve, reject) => {
     const postData = body ? JSON.stringify(body) : null;
+    const tok = skipAuth ? null : (customToken || hubAuthToken);
     const req = http.request({
       hostname: '127.0.0.1',
       port: PORT,
@@ -37,6 +40,7 @@ function request(method, path, body = null) {
       method,
       headers: {
         'Content-Type': 'application/json',
+        ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
         ...(postData ? { 'Content-Length': Buffer.byteLength(postData) } : {}),
       },
     }, res => {
@@ -80,14 +84,21 @@ async function runTests() {
   assert(infoRes.body.storageEngine === 'sqlite-wal' || infoRes.body.storageEngine === 'atomic-wal');
   console.log(`  ✓ GET /api/v1/hub/info passed (Storage Engine: ${infoRes.body.storageEngine})`);
 
-  console.log('[Test 2] Testing POST /api/v1/hub/link (Rule 1: Claim Token)...');
+  console.log('[Test 2] Testing POST /api/v1/hub/link (Rule 1: Claim Token + Access Token)...');
   const linkRes = await request('POST', '/api/v1/hub/link', {
     homeId: 'home_test_01',
     token: 'test_token_123',
   });
   assert.strictEqual(linkRes.statusCode, 200);
   assert.strictEqual(linkRes.body.homeId, 'home_test_01');
+  assert.ok(linkRes.body.hubAccessToken, 'Hub link must issue hubAccessToken');
+  hubAuthToken = linkRes.body.hubAccessToken;
   console.log('  ✓ POST /api/v1/hub/link passed');
+
+  console.log('[Test 2b] Verifying Hub LAN Auth rejects unauthorized mutations with 401...');
+  const unauthRes = await request('POST', '/api/v1/control', { deviceId: 'test_dev_01', channelIndex: 1, power: true }, { skipAuth: true });
+  assert.strictEqual(unauthRes.statusCode, 401);
+  console.log('  ✓ Hub LAN Bearer auth enforcement verified');
 
   console.log('[Test 3] Testing GET /api/v1/hub/devices...');
   const devRes = await request('GET', '/api/v1/hub/devices');
@@ -197,12 +208,13 @@ async function runTests() {
   assert(typeof timeRes.body.epoch === 'number');
   console.log('  ✓ POST /api/v1/hub/time/sync passed');
 
-  console.log('[Test 8] Testing GET /api/v1/hub/updates...');
+  console.log('[Test 8] Testing GET /api/v1/hub/updates (zero hardcoded fake cache before staging)...');
   const updateRes = await request('GET', '/api/v1/hub/updates');
   assert.strictEqual(updateRes.statusCode, 200);
   assert.strictEqual(updateRes.body.hub.currentVersion, '1.1.0-plan1-sqlite');
   assert.strictEqual(updateRes.body.deviceOtaCache.enabled, true);
-  console.log('  ✓ GET /api/v1/hub/updates passed');
+  assert.strictEqual(updateRes.body.deviceOtaCache.cachedFirmwares.length, 0);
+  console.log('  ✓ GET /api/v1/hub/updates passed (no hardcoded fake cache)');
 
   console.log('[Test 9] Testing 404 for unknown endpoint...');
   const notFoundRes = await request('GET', '/api/v1/unknown');
@@ -475,14 +487,61 @@ async function runTests() {
   assert.strictEqual(rebootRes.statusCode, 200);
   console.log('  ✓ POST /api/v1/hub/reboot passed');
 
+  console.log('[Test 33] Testing Multi-Category Devices, Canonical Naming & Device Edit/Delete CRUD...');
+  await request('POST', '/api/v1/hub/adopt', {
+    devices: [
+      { id: '4184a5de-a3ec-46f4-bcfb-41d13d91b699', name: 'EH Socket (b699)', ipAddress: '192.168.0.168', model: 'eh-smart-socket-2x', channelCount: 2 },
+      { id: 'fan_001', name: '', ipAddress: '192.168.0.199', model: 'eh-smart-fan-1x', channelCount: 1 },
+      { id: 'sens_001', name: '', ipAddress: '192.168.0.200', model: 'eh-sensor-node', channelCount: 0, telemetry: { temperature: 24.5, humidity: 58 } },
+    ]
+  });
+  const devsCatRes = await request('GET', '/api/v1/hub/devices');
+  const sock = devsCatRes.body.devices.find(d => d.id === '4184a5de-a3ec-46f4-bcfb-41d13d91b699');
+  const fan = devsCatRes.body.devices.find(d => d.id === 'fan_001');
+  const sens = devsCatRes.body.devices.find(d => d.id === 'sens_001');
+  assert.strictEqual(sock.category, 'sockets');
+  assert(sock.name.includes('EH Smart Socket 2X'), `Expected canonical socket name, got: ${sock.name}`);
+  assert.strictEqual(fan.category, 'fans');
+  assert.strictEqual(sens.category, 'sensors');
+
+  const patchDev = await request('PATCH', `/api/v1/hub/devices/${sock.id}`, { name: 'Kitchen Kettle Socket', roomName: 'Kitchen' });
+  assert.strictEqual(patchDev.statusCode, 200);
+  assert.strictEqual(patchDev.body.device.name, 'Kitchen Kettle Socket');
+  assert.strictEqual(patchDev.body.device.roomName, 'Kitchen');
+
+  const delDev = await request('DELETE', `/api/v1/hub/devices/${sens.id}`);
+  assert.strictEqual(delDev.statusCode, 200);
+  console.log('  ✓ Multi-Category Devices, Canonical Naming & Edit/Delete CRUD passed');
+
+  console.log('[Test 34] Testing Saved Backups & Local Webhooks Full CRUD...');
+  const createBk = await request('POST', '/api/v1/hub/backups', { label: 'Pre-Upgrade Snapshot' });
+  assert.strictEqual(createBk.statusCode, 200);
+  const bkId = createBk.body.backup.id;
+  const listBk = await request('GET', '/api/v1/hub/backups');
+  assert(listBk.body.backups.some(b => b.id === bkId));
+  const restoreBk = await request('POST', `/api/v1/hub/backups/${bkId}/restore`);
+  assert.strictEqual(restoreBk.statusCode, 200);
+  const delBk = await request('DELETE', `/api/v1/hub/backups/${bkId}`);
+  assert.strictEqual(delBk.statusCode, 200);
+
+  const createWh = await request('POST', '/api/v1/hub/webhooks', { name: 'Evening Voice Trigger', event: 'voice.evening', deviceId: sock.id, channel: 1, state: true });
+  assert.strictEqual(createWh.statusCode, 200);
+  const whId = createWh.body.webhook.id;
+  const listWh = await request('GET', '/api/v1/hub/webhooks');
+  assert(listWh.body.webhooks.some(w => w.id === whId));
+  const delWh = await request('DELETE', `/api/v1/hub/webhooks/${whId}`);
+  assert.strictEqual(delWh.statusCode, 200);
+  console.log('  ✓ Saved Backups & Webhooks Full CRUD passed');
+
   console.log('[Test 32] Testing POST /api/v1/hub/factory-reset...');
   const factoryRes = await request('POST', '/api/v1/hub/factory-reset');
   assert.strictEqual(factoryRes.statusCode, 200);
-  const infoAfterReset = await request('GET', '/api/v1/hub/info');
+  hubAuthToken = null; // wiped after factory reset
+  const infoAfterReset = await request('GET', '/api/v1/hub/info', null, { skipAuth: true });
   assert.strictEqual(infoAfterReset.body.isLinked, false);
   console.log('  ✓ POST /api/v1/hub/factory-reset passed');
 
-  console.log('\n[PASS] All 32 Hub Core Daemon, Home Assistant Discovery, Backup & Diagnostics Tests Succeeded!\n');
+  console.log('\n[PASS] All 36 Hub Core Daemon, Auth, Multi-Category CRUD, HA Discovery, Backup & Diagnostics Tests Succeeded!\n');
 }
 
 runTests()

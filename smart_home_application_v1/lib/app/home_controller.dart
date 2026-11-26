@@ -2654,6 +2654,9 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {}
     } else if (LiveHubRepository.isLinked && LiveHubRepository.isHubActive) {
       anyLocalActive = true;
+      if (autoSync) {
+        unawaited(EdgeRoutineSyncService.instance.syncHubTimersToApp(this));
+      }
     }
 
     for (int i = 0; i < _devices.length; i++) {

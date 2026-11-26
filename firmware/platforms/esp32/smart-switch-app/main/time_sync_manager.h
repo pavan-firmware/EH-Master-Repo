@@ -27,6 +27,12 @@ void time_sync_manager_init(void);
 void time_sync_manager_start_sntp(void);
 
 /**
+ * Configure the local Smart Hub IP as fallback SNTP server (index 2, UDP :123)
+ * so schedules sync even when WAN internet is down.
+ */
+void time_sync_manager_set_hub_ntp_server(const char *hub_ip);
+
+/**
  * Check if the internal RTC has been successfully synchronized
  * (via NTP or passive local phone app epoch injection).
  * @return true if valid epoch >= 2025-01-01 is loaded.

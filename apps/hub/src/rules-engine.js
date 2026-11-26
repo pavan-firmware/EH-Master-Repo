@@ -141,9 +141,13 @@ class RulesEngine {
     const t0 = performance.now();
     const isToggle = rule.actionCommand === 'TOGGLE';
     const targetPower = rule.actionCommand === 'ON' ? true : rule.actionCommand === 'OFF' ? false : true;
+    const liveTarget = this.storage && typeof this.storage.getDevice === 'function'
+      ? this.storage.getDevice(rule.actionDeviceId)
+      : null;
+    const targetIp = (liveTarget && liveTarget.ipAddress) ? liveTarget.ipAddress : rule.actionDeviceIp;
 
     let dispatchResult = await this.sendFastPathUdp(
-      rule.actionDeviceIp,
+      targetIp,
       rule.actionChannel,
       targetPower,
       isToggle
@@ -154,7 +158,7 @@ class RulesEngine {
     if (!dispatchResult.success) {
       // Step 2: Fallback to HTTP POST
       dispatchResult = await this.sendHttpFallback(
-        rule.actionDeviceIp,
+        targetIp,
         rule.actionChannel,
         targetPower,
         isToggle

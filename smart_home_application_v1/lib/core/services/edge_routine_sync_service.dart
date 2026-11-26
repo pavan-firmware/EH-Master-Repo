@@ -501,6 +501,44 @@ class EdgeRoutineSyncService {
       }
     }
 
+    // Also mirror every routine create / edit / enable / disable directly to active Smart Hub
+    if (LiveHubRepository.isLinked && LiveHubRepository.isHubActive) {
+      final hubHost = LiveHubRepository.activeHost ??
+          DeviceStorageService.persistedHubHost ??
+          'eh-hub.local';
+      final hubRepo = LiveHubRepository();
+      for (int i = 0; i < routine.actions.length; i++) {
+        final action = routine.actions[i];
+        final pulseSec = (action.pulseDurationMinutes ?? 0) * 60;
+        final channelsToSync = action.channelIndex == 0
+            ? [1, 2, 3, 4]
+            : [action.channelIndex.clamp(1, 4)];
+        for (final ch in channelsToSync) {
+          final edgeId = buildEdgeRoutineId(routine.id, i, ch);
+          final ok = await hubRepo.upsertHubRoutine(
+            hubHostname: hubHost,
+            routinePayload: {
+              'id': edgeId,
+              'name': routine.name,
+              'deviceId': action.deviceId,
+              'channel': ch,
+              'targetState': action.targetState,
+              'isToggle': action.isToggle,
+              'toggle': action.isToggle,
+              'hour': hour,
+              'minute': minute,
+              'daysMask': daysMask,
+              'durationSec': pulseSec,
+              'enabled': isEnabled,
+              'criticalHardwareFallback': routine.isCritical,
+              'triggerType': (pulseSec > 0 && triggerType != 2) ? 1 : triggerType,
+            },
+          );
+          if (ok) anySuccess = true;
+        }
+      }
+    }
+
     return anySuccess;
   }
 
@@ -557,6 +595,43 @@ class EdgeRoutineSyncService {
             explicitIp: ip,
           );
         }
+      }
+    }
+
+    // Also remove from active Smart Hub so non-critical Hub routines never stay armed
+    if (LiveHubRepository.isLinked && LiveHubRepository.isHubActive) {
+      final hubHost = LiveHubRepository.activeHost ??
+          DeviceStorageService.persistedHubHost ??
+          'eh-hub.local';
+      final hubRepo = LiveHubRepository();
+      try {
+        final existingOnHub = await hubRepo.getRoutines(hubHostname: hubHost);
+        final normName = routine.name.trim().toLowerCase();
+        for (final hRt in existingOnHub) {
+          final hId = hRt['id']?.toString() ?? '';
+          final hName = hRt['name']?.toString().trim().toLowerCase() ?? '';
+          if (hId == routine.id ||
+              hId.contains(routineCore) ||
+              hId.startsWith('rt_$routineCore') ||
+              (normName.isNotEmpty && hName == normName)) {
+            if (await hubRepo.deleteHubRoutine(hubHostname: hubHost, routineId: hId)) {
+              anySuccess = true;
+            }
+          }
+        }
+      } catch (_) {}
+      for (int i = 0; i < routine.actions.length; i++) {
+        final action = routine.actions[i];
+        final channelsToSync = action.channelIndex == 0 ? [1, 2, 3, 4] : [action.channelIndex.clamp(1, 4)];
+        for (final ch in channelsToSync) {
+          final edgeId = buildEdgeRoutineId(routine.id, i, ch);
+          if (await hubRepo.deleteHubRoutine(hubHostname: hubHost, routineId: edgeId)) {
+            anySuccess = true;
+          }
+        }
+      }
+      if (await hubRepo.deleteHubRoutine(hubHostname: hubHost, routineId: routine.id)) {
+        anySuccess = true;
       }
     }
 
@@ -909,5 +984,44 @@ class EdgeRoutineSyncService {
       debugPrint('[EDGE-SYNC] syncRoutinesFromEdgeToApp error: $e');
       return 0;
     }
+  }
+
+  /// Fetches active Auto-Off countdown timers from the local Pi Hub so non-critical
+  /// Hub-managed lock warnings stay synchronized in the Flutter UI across refreshes.
+  Future<void> syncHubTimersToApp(HomeController? ctrl) async {
+    if (!LiveHubRepository.isLinked || !LiveHubRepository.isHubActive) return;
+    final hubHost = LiveHubRepository.activeHost ?? DeviceStorageService.persistedHubHost;
+    if (hubHost == null || hubHost.isEmpty) return;
+
+    try {
+      final timers = await LiveHubRepository().getActiveHubTimers(hubHostname: hubHost);
+      if (timers.isEmpty) return;
+      final existingRoutines = PreviewRoutineRepository.liveRoutines;
+      bool registered = false;
+
+      for (final timer in timers) {
+        if (timer.remainingSec <= 0 || timer.deviceId.isEmpty) continue;
+        final matched = existingRoutines.cast<Routine?>().firstWhere(
+              (r) =>
+                  r != null &&
+                  (r.id == timer.routineId ||
+                      extractCoreId(r.id) == extractCoreId(timer.routineId) ||
+                      r.name.trim().toLowerCase() == timer.routineName.trim().toLowerCase()),
+              orElse: () => null,
+            );
+        if (matched != null && matched.enabled) {
+          registerActiveRoutineExecution(
+            matched,
+            targetChannel: timer.channel,
+            pulseDurationSeconds: timer.remainingSec,
+          );
+          registered = true;
+        }
+      }
+      if (registered && ctrl != null) {
+        ctrl.refreshRoutineWarningState();
+        ctrl.notifyListeners();
+      }
+    } catch (_) {}
   }
 }
