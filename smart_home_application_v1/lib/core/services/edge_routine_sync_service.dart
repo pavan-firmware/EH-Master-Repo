@@ -627,14 +627,10 @@ class EdgeRoutineSyncService {
     if (currentPower != null && maxPulseSec > 0 && targetChannel != null) {
       final act = relevantActions.first;
       if (!act.isToggle) {
-        final (h, m) = parseTimeOfDay(routine.trigger, routine.schedule);
-        final scheduleStart = DateTime(now.year, now.month, now.day, h, m);
-        final elapsedFromSchedule = now.difference(scheduleStart).inSeconds;
         final elapsedFromExec = routine.lastExecution != null
             ? now.difference(routine.lastExecution!.completedAt).inSeconds
             : 9999;
         final withinSettlingGrace =
-            (elapsedFromSchedule >= 0 && elapsedFromSchedule < 10) ||
             (elapsedFromExec >= 0 && elapsedFromExec < 10);
         if (!withinSettlingGrace && currentPower != act.targetState) {
           return false;
