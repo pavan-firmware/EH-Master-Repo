@@ -14,6 +14,17 @@ abstract class HubRepository {
     required List<String> switchIds,
     List<Map<String, dynamic>>? devices,
   });
+  Future<bool> updateHubDevice({
+    required String hubHostname,
+    required String deviceId,
+    String? name,
+    String? roomName,
+    HubDeviceCategory? category,
+  });
+  Future<bool> removeHubDevice({
+    required String hubHostname,
+    required String deviceId,
+  });
   Future<bool> sendDeviceControl({
     required String hubHostname,
     required String deviceId,
@@ -22,16 +33,28 @@ abstract class HubRepository {
     bool isToggle = false,
   });
   Future<List<Map<String, dynamic>>> getRoutines({required String hubHostname});
+  Future<bool> upsertHubRoutine({
+    required String hubHostname,
+    required Map<String, dynamic> routinePayload,
+  });
+  Future<bool> deleteHubRoutine({
+    required String hubHostname,
+    required String routineId,
+  });
   Future<bool> triggerRoutine({required String hubHostname, required String routineId});
+  Future<List<HubActiveTimer>> getActiveHubTimers({required String hubHostname});
+  Future<bool> cancelHubTimer({required String hubHostname, required String timerId});
   Future<bool> syncAutomations({required String hubHostname});
   Future<bool> syncTimeBroadcast({required String hubHostname});
   Future<bool> restartHubCore({required String hubHostname});
   Future<bool> identifyHub({required String hubHostname});
   Future<bool> verifyHubPin({required String hubHostname, required String pin});
+  Future<String?> rotateHubToken({required String hubHostname});
   Future<bool> resetMeshNetwork({required String hubHostname});
   Future<bool> factoryResetHub({required String hubHostname});
   Future<Map<String, dynamic>> getHubUpdates({required String hubHostname});
   Future<bool> checkForUpdates({required String hubHostname});
+  Future<bool> deleteStagedOtaBinary({required String hubHostname, required String filename});
   Future<List<CrossDeviceRule>> getCrossDeviceRules({required String hubHostname});
   Future<bool> saveCrossDeviceRule({required String hubHostname, required CrossDeviceRule rule});
   Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId});
@@ -43,10 +66,26 @@ abstract class HubRepository {
   Future<bool> setDevicePowerOnMode({required String deviceIp, required int mode});
   Future<bool> setDeviceChildLock({required String deviceIp, required bool enabled});
   Future<Map<String, dynamic>?> getHomeAssistantStatus({required String hubHostname});
+  Future<Map<String, dynamic>?> saveHomeAssistantConfig({
+    required String hubHostname,
+    required String host,
+    int port = 1883,
+    String username = '',
+    String password = '',
+    String discoveryPrefix = 'homeassistant',
+  });
   Future<Map<String, dynamic>?> syncHomeAssistant({required String hubHostname});
   Future<Map<String, dynamic>?> getHomeAssistantManifest({required String hubHostname});
   Future<Map<String, dynamic>?> exportHubBackup({required String hubHostname});
   Future<bool> restoreHubBackup({required String hubHostname, required Map<String, dynamic> backup});
+  Future<List<HubBackupSummary>> listSavedBackups({required String hubHostname});
+  Future<HubBackupSummary?> createSavedBackup({required String hubHostname, required String label});
+  Future<bool> restoreSavedBackupById({required String hubHostname, required String backupId});
+  Future<bool> deleteSavedBackup({required String hubHostname, required String backupId});
+  Future<List<HubWebhookRule>> getWebhooks({required String hubHostname});
+  Future<HubWebhookRule?> saveWebhook({required String hubHostname, required HubWebhookRule webhook});
+  Future<bool> deleteWebhook({required String hubHostname, required String webhookId});
+  Future<bool> testWebhook({required String hubHostname, required String webhookId});
   Future<Map<String, dynamic>?> exportDiagnostics({required String hubHostname});
 }
 
@@ -62,6 +101,16 @@ class LiveHubRepository implements HubRepository {
   static bool isHubActive = false;
   static String? activeHost;
   static String? customHost;
+
+  Map<String, String> _headers({bool jsonContent = true, bool closeConn = false}) {
+    final token = DeviceStorageService.persistedHubToken;
+    return {
+      if (jsonContent) 'Content-Type': 'application/json',
+      if (closeConn) 'Connection': 'close',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      if (token != null && token.isNotEmpty) 'X-Hub-Token': token,
+    };
+  }
 
   static List<String> getCandidateHosts([String? overrideHost]) {
     final list = <String>[];
@@ -90,13 +139,12 @@ class LiveHubRepository implements HubRepository {
 
   Future<HubState?> _probeSingleHost(String host) async {
     try {
-      // Fast TCP pre-check (350ms) when using real sockets so dead LAN IPs never stall auto-promotion.
       if (!_hasInjectedClient) {
         final s = await Socket.connect(host, 4210, timeout: const Duration(milliseconds: 350));
         s.destroy();
       }
       final uri = Uri.parse('http://$host:4210/api/v1/hub/info');
-      final res = await _client.get(uri).timeout(const Duration(milliseconds: 1200));
+      final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(milliseconds: 1200));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final linked = data['isLinked'] as bool? ?? false;
@@ -104,7 +152,7 @@ class LiveHubRepository implements HubRepository {
         List<HubDeviceInfo> devices = [];
         try {
           final devUri = Uri.parse('http://$host:4210/api/v1/hub/devices');
-          final devRes = await _client.get(devUri).timeout(const Duration(milliseconds: 500));
+          final devRes = await _client.get(devUri, headers: _headers(jsonContent: false)).timeout(const Duration(milliseconds: 500));
           if (devRes.statusCode == 200) {
             final devJson = jsonDecode(devRes.body) as Map<String, dynamic>;
             final rawList = devJson['devices'] as List<dynamic>? ?? [];
@@ -117,15 +165,17 @@ class LiveHubRepository implements HubRepository {
           hubId: data['hubId'] as String? ?? 'eh-hub-pi3b',
           hostname: host,
           ipAddress: data['ipAddress'] as String? ?? host,
-          model: data['model'] as String? ?? 'EH-HUB-V1-PI (Raspberry Pi 3B+ Platform)',
-          firmwareVersion: data['version'] as String? ?? 'v1.1.0-sqlite',
-          uptime: data['uptime'] as String? ?? 'Active',
-          latencyMs: (data['latencyMs'] as num?)?.toInt() ?? 3,
+          model: data['model'] as String? ?? 'EH Smart Hub',
+          firmwareVersion: data['version'] as String? ?? '',
+          uptime: data['uptime'] as String? ?? '—',
+          latencyMs: (data['latencyMs'] as num?)?.toInt() ?? 0,
           connectedDevices: devices,
           standardRoutinesCount: (data['standardRoutinesCount'] as num?)?.toInt() ?? 0,
           criticalRoutinesCount: (data['criticalRoutinesCount'] as num?)?.toInt() ?? 0,
-          sdCardOverlayFsActive: data['overlayFs'] as bool? ?? true,
-          localNtpSynced: data['ntpSynced'] as bool? ?? true,
+          activeTimersCount: (data['activeTimersCount'] as num?)?.toInt() ?? 0,
+          storageEngine: data['storageEngine'] as String? ?? 'atomic-wal',
+          sdCardOverlayFsActive: data['overlayFs'] as bool? ?? false,
+          localNtpSynced: data['ntpSynced'] as bool? ?? false,
           rssiDbm: (data['rssiDbm'] as num?)?.toInt() ?? (data['rssi'] as num?)?.toInt(),
         );
       }
@@ -175,7 +225,6 @@ class LiveHubRepository implements HubRepository {
       } catch (_) {}
     }
 
-    // Dynamic fallback: only scan the full 254-IP subnet when explicitly requested (e.g. Hub Setup Scan).
     if (allowSubnetSweep) {
       final sweptHost = await _findHubOnSubnet();
       if (sweptHost != null) {
@@ -264,12 +313,25 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/link');
+        final claimNonce = 'eh_claim_${DateTime.now().millisecondsSinceEpoch}';
+        final cloudUrl = DeviceStorageService.backendUrl;
         final res = await _client.post(
           uri,
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'homeId': homeId, 'token': 'eh_claim_token_phase51'}),
+          body: jsonEncode({
+            'homeId': homeId,
+            'token': claimNonce,
+            if (cloudUrl != null && cloudUrl.isNotEmpty) 'cloudUrl': cloudUrl,
+          }),
         ).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
+          try {
+            final body = jsonDecode(res.body) as Map<String, dynamic>;
+            final issuedToken = (body['hubAccessToken'] ?? body['accessToken'])?.toString();
+            if (issuedToken != null && issuedToken.isNotEmpty) {
+              await DeviceStorageService.setPersistedHubToken(issuedToken);
+            }
+          } catch (_) {}
           isLinked = true;
           isHubActive = true;
           activeHost = host;
@@ -285,9 +347,10 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/unlink');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           isLinked = false;
+          await DeviceStorageService.setPersistedHubToken(null);
           return true;
         }
       } catch (_) {}
@@ -310,7 +373,7 @@ class LiveHubRepository implements HubRepository {
         };
         final res = await _client.post(
           uri,
-          headers: {'Content-Type': 'application/json'},
+          headers: _headers(),
           body: jsonEncode(payload),
         ).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
@@ -321,6 +384,47 @@ class LiveHubRepository implements HubRepository {
       } catch (_) {}
     }
     return const [];
+  }
+
+  @override
+  Future<bool> updateHubDevice({
+    required String hubHostname,
+    required String deviceId,
+    String? name,
+    String? roomName,
+    HubDeviceCategory? category,
+  }) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/devices/${Uri.encodeComponent(deviceId)}');
+        final res = await _client.patch(
+          uri,
+          headers: _headers(),
+          body: jsonEncode({
+            'name': ?name,
+            'roomName': ?roomName,
+            if (category != null) 'category': category.name,
+          }),
+        ).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> removeHubDevice({
+    required String hubHostname,
+    required String deviceId,
+  }) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/devices/${Uri.encodeComponent(deviceId)}');
+        final res = await _client.delete(uri, headers: _headers()).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
   }
 
   @override
@@ -353,10 +457,7 @@ class LiveHubRepository implements HubRepository {
         final res = await _client
             .post(
               uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Connection': 'close',
-              },
+              headers: _headers(closeConn: true),
               body: jsonEncode(payload),
             )
             .timeout(const Duration(milliseconds: 1600));
@@ -386,7 +487,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body) as Map<String, dynamic>;
           final list = data['routines'] as List<dynamic>? ?? [];
@@ -398,15 +499,77 @@ class LiveHubRepository implements HubRepository {
   }
 
   @override
+  Future<bool> upsertHubRoutine({
+    required String hubHostname,
+    required Map<String, dynamic> routinePayload,
+  }) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/routines');
+        final res = await _client.post(
+          uri,
+          headers: _headers(),
+          body: jsonEncode(routinePayload),
+        ).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> deleteHubRoutine({
+    required String hubHostname,
+    required String routineId,
+  }) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/routines?id=${Uri.encodeQueryComponent(routineId)}');
+        final res = await _client.delete(uri, headers: _headers()).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
   Future<bool> triggerRoutine({required String hubHostname, required String routineId}) async {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines/trigger');
         final res = await _client.post(
           uri,
-          headers: {'Content-Type': 'application/json'},
+          headers: _headers(),
           body: jsonEncode({'id': routineId}),
         ).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<List<HubActiveTimer>> getActiveHubTimers({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/routines/timers');
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final list = data['activeTimers'] as List<dynamic>? ?? [];
+          return list.map((t) => HubActiveTimer.fromJson(Map<String, dynamic>.from(t as Map))).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
+  }
+
+  @override
+  Future<bool> cancelHubTimer({required String hubHostname, required String timerId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/routines/timers?id=${Uri.encodeQueryComponent(timerId)}');
+        final res = await _client.delete(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
@@ -418,7 +581,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/time/sync');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
@@ -430,11 +593,11 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/routines');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
-    return true;
+    return false;
   }
 
   @override
@@ -442,12 +605,11 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/reboot');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
-    await Future.delayed(const Duration(milliseconds: 600));
-    return true;
+    return false;
   }
 
   @override
@@ -455,11 +617,11 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/identify');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
-    return true;
+    return false;
   }
 
   @override
@@ -482,15 +644,34 @@ class LiveHubRepository implements HubRepository {
   }
 
   @override
+  Future<String?> rotateHubToken({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/auth/rotate-token');
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final tok = (data['hubAccessToken'] ?? data['accessToken'])?.toString();
+          if (tok != null && tok.isNotEmpty) {
+            await DeviceStorageService.setPersistedHubToken(tok);
+            return tok;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
   Future<bool> resetMeshNetwork({required String hubHostname}) async {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/network/reset');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
-    return true;
+    return false;
   }
 
   @override
@@ -498,15 +679,15 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/factory-reset');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           isLinked = false;
+          await DeviceStorageService.setPersistedHubToken(null);
           return true;
         }
       } catch (_) {}
     }
-    isLinked = false;
-    return true;
+    return false;
   }
 
   @override
@@ -514,35 +695,19 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/updates');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           return jsonDecode(res.body) as Map<String, dynamic>;
         }
       } catch (_) {}
     }
     return {
-      'status': 'ok',
-      'hub': {
-        'currentVersion': '1.1.0-sqlite',
-        'latestVersion': '1.1.0-sqlite',
-        'updateAvailable': false,
-        'platform': 'Raspberry Pi 3B+ (Debian aarch64)',
-        'channel': 'stable',
-      },
+      'status': 'unreachable',
+      'hub': {'updateAvailable': false},
       'deviceOtaCache': {
-        'enabled': true,
-        'cachedFirmwares': [
-          {
-            'model': 'eh-smart-switch-3x',
-            'version': '2.1.0-freertos',
-            'status': 'Ready on Local LAN',
-          },
-          {
-            'model': 'eh-smart-socket-2x',
-            'version': '2.1.0-freertos',
-            'status': 'Ready on Local LAN',
-          },
-        ],
+        'enabled': false,
+        'cachedCount': 0,
+        'cachedFirmwares': const [],
       },
     };
   }
@@ -552,11 +717,23 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/updates/check');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
-    return true;
+    return false;
+  }
+
+  @override
+  Future<bool> deleteStagedOtaBinary({required String hubHostname, required String filename}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/ota/manifest/${Uri.encodeComponent(filename)}');
+        final res = await _client.delete(uri, headers: _headers()).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
   }
 
   @override
@@ -564,7 +741,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/rules');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body) as Map<String, dynamic>;
           final raw = data['rules'] as List<dynamic>? ?? [];
@@ -582,7 +759,7 @@ class LiveHubRepository implements HubRepository {
         final uri = Uri.parse('http://$host:4210/api/v1/rules');
         final res = await _client.post(
           uri,
-          headers: {'Content-Type': 'application/json'},
+          headers: _headers(),
           body: jsonEncode(rule.toJson()),
         ).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
@@ -595,8 +772,8 @@ class LiveHubRepository implements HubRepository {
   Future<bool> deleteCrossDeviceRule({required String hubHostname, required String ruleId}) async {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
-        final uri = Uri.parse('http://$host:4210/api/v1/rules?id=$ruleId');
-        final res = await _client.delete(uri).timeout(const Duration(seconds: 2));
+        final uri = Uri.parse('http://$host:4210/api/v1/rules?id=${Uri.encodeQueryComponent(ruleId)}');
+        final res = await _client.delete(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
@@ -607,8 +784,8 @@ class LiveHubRepository implements HubRepository {
   Future<Map<String, dynamic>?> testCrossDeviceRule({required String hubHostname, required String ruleId}) async {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
-        final uri = Uri.parse('http://$host:4210/api/v1/rules/test?id=$ruleId');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 2));
+        final uri = Uri.parse('http://$host:4210/api/v1/rules/test?id=${Uri.encodeQueryComponent(ruleId)}');
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           return jsonDecode(res.body) as Map<String, dynamic>;
         }
@@ -622,7 +799,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/rules/logs?limit=$limit');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body) as Map<String, dynamic>;
           final raw = data['logs'] as List<dynamic>? ?? [];
@@ -638,7 +815,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/energy/home/summary?period=$period');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body) as Map<String, dynamic>;
           return data['summary'] as Map<String, dynamic>?;
@@ -658,7 +835,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/energy/devices/$deviceId/history?channel=$channel&period=$period');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body) as Map<String, dynamic>;
           return data['summary'] as Map<String, dynamic>?;
@@ -713,7 +890,38 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/status');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>?;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> saveHomeAssistantConfig({
+    required String hubHostname,
+    required String host,
+    int port = 1883,
+    String username = '',
+    String password = '',
+    String discoveryPrefix = 'homeassistant',
+  }) async {
+    for (final h in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$h:4210/api/v1/integrations/homeassistant/config');
+        final res = await _client.post(
+          uri,
+          headers: _headers(),
+          body: jsonEncode({
+            'host': host,
+            'port': port,
+            'username': username,
+            'password': password,
+            'discoveryPrefix': discoveryPrefix,
+          }),
+        ).timeout(const Duration(seconds: 4));
         if (res.statusCode == 200) {
           return jsonDecode(res.body) as Map<String, dynamic>?;
         }
@@ -727,7 +935,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/sync');
-        final res = await _client.post(uri).timeout(const Duration(seconds: 3));
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 4));
         if (res.statusCode == 200) {
           return jsonDecode(res.body) as Map<String, dynamic>?;
         }
@@ -741,7 +949,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/integrations/homeassistant/manifest');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 2));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) {
           return jsonDecode(res.body) as Map<String, dynamic>?;
         }
@@ -755,7 +963,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/backup');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 4));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 4));
         if (res.statusCode == 200) {
           return jsonDecode(res.body) as Map<String, dynamic>?;
         }
@@ -771,9 +979,131 @@ class LiveHubRepository implements HubRepository {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/restore');
         final res = await _client.post(
           uri,
-          headers: {'Content-Type': 'application/json'},
+          headers: _headers(),
           body: jsonEncode(backup),
         ).timeout(const Duration(seconds: 5));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<List<HubBackupSummary>> listSavedBackups({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/backups');
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final list = data['backups'] as List<dynamic>? ?? [];
+          return list.map((b) => HubBackupSummary.fromJson(Map<String, dynamic>.from(b as Map))).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
+  }
+
+  @override
+  Future<HubBackupSummary?> createSavedBackup({required String hubHostname, required String label}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/backups');
+        final res = await _client.post(
+          uri,
+          headers: _headers(),
+          body: jsonEncode({'label': label}),
+        ).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          if (data['backup'] is Map) {
+            return HubBackupSummary.fromJson(Map<String, dynamic>.from(data['backup'] as Map));
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<bool> restoreSavedBackupById({required String hubHostname, required String backupId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/backups/${Uri.encodeComponent(backupId)}/restore');
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> deleteSavedBackup({required String hubHostname, required String backupId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/backups/${Uri.encodeComponent(backupId)}');
+        final res = await _client.delete(uri, headers: _headers()).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<List<HubWebhookRule>> getWebhooks({required String hubHostname}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/webhooks');
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final list = data['webhooks'] as List<dynamic>? ?? [];
+          return list.map((w) => HubWebhookRule.fromJson(Map<String, dynamic>.from(w as Map))).toList();
+        }
+      } catch (_) {}
+    }
+    return const [];
+  }
+
+  @override
+  Future<HubWebhookRule?> saveWebhook({required String hubHostname, required HubWebhookRule webhook}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/webhooks');
+        final res = await _client.post(
+          uri,
+          headers: _headers(),
+          body: jsonEncode(webhook.toJson()),
+        ).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          if (data['webhook'] is Map) {
+            return HubWebhookRule.fromJson(Map<String, dynamic>.from(data['webhook'] as Map));
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  @override
+  Future<bool> deleteWebhook({required String hubHostname, required String webhookId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/webhooks/${Uri.encodeComponent(webhookId)}');
+        final res = await _client.delete(uri, headers: _headers()).timeout(const Duration(seconds: 2));
+        if (res.statusCode == 200) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> testWebhook({required String hubHostname, required String webhookId}) async {
+    for (final host in getCandidateHosts(hubHostname)) {
+      try {
+        final uri = Uri.parse('http://$host:4210/api/v1/hub/webhooks/${Uri.encodeComponent(webhookId)}/test');
+        final res = await _client.post(uri, headers: _headers()).timeout(const Duration(seconds: 2));
         if (res.statusCode == 200) return true;
       } catch (_) {}
     }
@@ -785,7 +1115,7 @@ class LiveHubRepository implements HubRepository {
     for (final host in getCandidateHosts(hubHostname)) {
       try {
         final uri = Uri.parse('http://$host:4210/api/v1/hub/diagnostics/export');
-        final res = await _client.get(uri).timeout(const Duration(seconds: 3));
+        final res = await _client.get(uri, headers: _headers(jsonContent: false)).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
           return jsonDecode(res.body) as Map<String, dynamic>?;
         }

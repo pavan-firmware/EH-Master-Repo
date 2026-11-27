@@ -29,6 +29,7 @@ class DeviceStorageService {
   static const String _keyPendingRoutineToggles = 'eh_pending_routine_toggles_v1';
   static const String _keyActivityAlerts = 'eh_activity_alerts_v2';
   static const String _keyPersistedHubHost = 'eh_persisted_hub_host_v1';
+  static const String _keyPersistedHubToken = 'eh_persisted_hub_token_v1';
   static const String _keySavedEmail = 'eh_saved_login_email_v1';
   static const String _keySavedPassword = 'eh_saved_login_password_v1';
   static const String _keyRememberMe = 'eh_remember_me_v1';
@@ -36,6 +37,7 @@ class DeviceStorageService {
   // In-memory cache for synchronous reads and instant startup
   static String? _cachedBackendUrl;
   static String? _cachedPersistedHubHost;
+  static String? _cachedPersistedHubToken;
   static String? _cachedSavedEmail;
   static String? _cachedSavedPassword;
   static bool _cachedRememberMe = true;
@@ -161,12 +163,25 @@ class DeviceStorageService {
   }
 
   static String? get persistedHubHost => _cachedPersistedHubHost;
+  static String? get persistedHubToken => _cachedPersistedHubToken;
 
   static Future<void> setPersistedHubHost(String host) async {
     _cachedPersistedHubHost = host;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyPersistedHubHost, host);
+    } catch (_) {}
+  }
+
+  static Future<void> setPersistedHubToken(String? token) async {
+    _cachedPersistedHubToken = token;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (token == null || token.isEmpty) {
+        await prefs.remove(_keyPersistedHubToken);
+      } else {
+        await prefs.setString(_keyPersistedHubToken, token);
+      }
     } catch (_) {}
   }
 
@@ -189,6 +204,7 @@ class DeviceStorageService {
       final prefs = await SharedPreferences.getInstance();
       _cachedBackendUrl = prefs.getString(_keyBackendUrl);
       _cachedPersistedHubHost = prefs.getString(_keyPersistedHubHost);
+      _cachedPersistedHubToken = prefs.getString(_keyPersistedHubToken);
       _cachedSavedEmail = prefs.getString(_keySavedEmail);
       _cachedSavedPassword = prefs.getString(_keySavedPassword);
       _cachedRememberMe = prefs.getBool(_keyRememberMe) ?? true;

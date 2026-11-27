@@ -445,6 +445,9 @@ static void on_telemetry_ready(const bl0942_data_t *data) {
            (int)data->power_mw, (unsigned int)data->energy_tot_wh,
            (unsigned int)data->frequency_mhz);
 
+  local_server_push_energy_to_hub(data->voltage_mv, data->current_ma,
+                                  data->power_mw);
+
   if (s_mqtt_client && eh_mqtt_client_is_connected(s_mqtt_client)) {
     uint32_t p_mw = (uint32_t)(data->power_mw > 0 ? data->power_mw : 0);
     eh_mqtt_publish_telemetry(s_mqtt_client,

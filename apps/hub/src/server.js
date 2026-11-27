@@ -21,11 +21,16 @@ const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { createStorageEngine } = require('./storage');
+const {
+  createStorageEngine,
+  classifyDeviceCategory,
+  formatCanonicalDeviceName,
+} = require('./storage');
 const { HubScheduler } = require('./scheduler');
 const { RulesEngine } = require('./rules-engine');
 const { SntpTimeServer } = require('./time-server');
 const HomeAssistantBridge = require('./homeassistant-bridge');
+const { CloudHubBridge } = require('./cloud-bridge');
 
 const PORT = parseInt(process.env.HUB_PORT || '4210', 10);
 const UDP_PORT = 4210;
@@ -52,6 +57,33 @@ const haBridge = new HomeAssistantBridge(storage, {
 const timeServer = new SntpTimeServer(parseInt(process.env.NTP_PORT || '123', 10));
 timeServer.start();
 
+// Initialize Outbound Cloud <-> Hub Sync Bridge
+const cloudBridge = new CloudHubBridge({
+  storage,
+  firmwareDir: FIRMWARE_DIR,
+  onCommand: (cmd) => {
+    const dev = storage.getDevice(cmd.deviceId);
+    if (dev && dev.ipAddress) {
+      rulesEngine.sendHttpFallback(dev.ipAddress, cmd.channel || 1, Boolean(cmd.state ?? cmd.power), Boolean(cmd.toggle)).catch(() => {});
+    }
+  },
+  onRoutineUpsert: (r) => {
+    if (r && r.id) {
+      storage.upsertRoutine(r);
+      if (r.criticalHardwareFallback) pushRoutineToSwitchHardware(r);
+    }
+  },
+  onRoutineDelete: (r) => {
+    if (r && r.id) storage.deleteRoutine(r.id);
+  },
+  onRuleUpsert: (ru) => {
+    if (ru && ru.id) storage.saveRule(ru);
+  },
+  onRuleDelete: (ru) => {
+    if (ru && ru.id) storage.deleteRule(ru.id);
+  },
+});
+
 // Ensure essential metadata keys exist in storage
 if (!storage.getMetadata('hubId')) storage.setMetadata('hubId', HUB_ID);
 if (!storage.getMetadata('hostname')) storage.setMetadata('hostname', HOSTNAME);
@@ -77,11 +109,93 @@ function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Hub-Token',
     'Content-Length': Buffer.byteLength(payload),
   });
   res.end(payload);
+}
+
+function getBackupDir() {
+  const dir = path.join(DATA_DIR, 'backups');
+  if (!fs.existsSync(dir)) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+  }
+  return dir;
+}
+
+function listStagedFirmwareEntries(hostHeader = `${HOSTNAME}:${PORT}`) {
+  const entries = [];
+  if (!fs.existsSync(FIRMWARE_DIR)) return entries;
+  let relMeta = [];
+  const relPath = path.join(FIRMWARE_DIR, 'releases.json');
+  if (fs.existsSync(relPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(relPath, 'utf8'));
+      if (Array.isArray(parsed)) relMeta = parsed;
+    } catch (_) {}
+  }
+  const files = fs.readdirSync(FIRMWARE_DIR).filter(f => f.endsWith('.bin'));
+  for (const file of files) {
+    const fullPath = path.join(FIRMWARE_DIR, file);
+    try {
+      const stat = fs.statSync(fullPath);
+      const m = file.match(/^(.+?)[-_]v?(\d+\.\d+\.\d+(?:[-.\w]+)?)\.bin$/i);
+      const model = m ? m[1].toLowerCase().replace(/_/g, '-') : file.replace(/\.bin$/, '');
+      const version = m ? m[2] : 'unknown';
+      const meta = relMeta.find(r =>
+        (r.filename && r.filename === file) ||
+        ((r.productVariantId || r.model || '').toLowerCase().replace(/_/g, '-') === model && r.version === version)
+      );
+      entries.push({
+        filename: file,
+        model: meta?.productVariantId || model,
+        version: meta?.version || version,
+        sizeBytes: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+        downloadUrl: `/api/v1/ota/firmware/${file}`,
+        fullUrl: `http://${hostHeader}/api/v1/ota/firmware/${file}`,
+        sha256: meta?.sha256 || null,
+        status: 'Ready on Local LAN',
+      });
+    } catch (_) {}
+  }
+  return entries;
+}
+
+function extractRequestToken(req) {
+  const auth = req.headers.authorization || '';
+  if (auth.toLowerCase().startsWith('bearer ')) {
+    return auth.slice(7).trim();
+  }
+  const xTok = req.headers['x-hub-token'];
+  return typeof xTok === 'string' ? xTok.trim() : '';
+}
+
+function verifyHubAuth(req, res) {
+  const configuredToken = storage.getMetadata('hubAccessToken', null);
+  if (!configuredToken) return true; // Unlinked / legacy pre-token migration
+  const supplied = extractRequestToken(req);
+  if (!supplied || supplied !== configuredToken) {
+    sendJson(res, 401, {
+      status: 'error',
+      error: 'Unauthorized: Valid Hub access token required',
+    });
+    return false;
+  }
+  return true;
+}
+
+function requiresHubAuth(method, pathname) {
+  if (method === 'OPTIONS') return false;
+  if (pathname === '/api/v1/hub/info' || pathname === '/api/v1/hub/link' || pathname === '/api/v1/hub/auth/verify' || pathname === '/api/v1/hub/register-device') {
+    return false;
+  }
+  if (pathname.startsWith('/api/v1/ota/firmware/')) return false; // ESP32 OTA binary pull
+  if (method === 'GET') {
+    return pathname === '/api/v1/hub/backup' || pathname === '/api/v1/hub/backups' || pathname === '/api/v1/hub/diagnostics/export';
+  }
+  return true; // All mutating POST/PUT/PATCH/DELETE endpoints on linked Hub
 }
 
 const server = http.createServer((req, res) => {
@@ -91,10 +205,14 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Hub-Token',
     });
     return res.end();
+  }
+
+  if (requiresHubAuth(req.method, pathname) && !verifyHubAuth(req, res)) {
+    return;
   }
 
   // GET /api/v1/hub/info - Telemetry & Diagnostics
@@ -172,13 +290,20 @@ const server = http.createServer((req, res) => {
           return sendJson(res, 400, { error: 'homeId is required' });
         }
         storage.setMetadata('homeId', payload.homeId);
-        storage.setMetadata('claimToken', payload.token || crypto.randomBytes(16).toString('hex'));
+        const claimToken = payload.token || crypto.randomBytes(16).toString('hex');
+        const hubAccessToken = payload.accessToken || payload.hubAccessToken || crypto.randomBytes(24).toString('hex');
+        storage.setMetadata('claimToken', claimToken);
+        storage.setMetadata('hubAccessToken', hubAccessToken);
         storage.setMetadata('linkedAt', new Date().toISOString());
+        if (payload.cloudUrl) storage.setMetadata('cloudUrl', payload.cloudUrl);
+        if (payload.cloudHubSecret) storage.setMetadata('cloudHubSecret', payload.cloudHubSecret);
         console.log(`[Hub] Successfully linked to Home: ${payload.homeId} (Storage: ${storage.type})`);
         return sendJson(res, 200, {
           status: 'ok',
           message: 'Hub successfully linked to Home',
           homeId: payload.homeId,
+          accessToken: hubAccessToken,
+          hubAccessToken: hubAccessToken,
         });
       } catch (err) {
         return sendJson(res, 400, { error: 'Invalid JSON payload' });
@@ -193,6 +318,49 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { status: 'ok', devices: list });
   }
 
+  // PATCH/PUT/DELETE /api/v1/hub/devices/:id - Edit or remove an adopted device
+  const deviceItemMatch = pathname.match(/^\/api\/v1\/hub\/devices\/([^/]+)$/);
+  if (deviceItemMatch) {
+    const targetId = decodeURIComponent(deviceItemMatch[1]);
+    if (req.method === 'DELETE') {
+      const existing = storage.getDevice(targetId);
+      if (!existing) {
+        return sendJson(res, 404, { error: 'Device not found' });
+      }
+      storage.removeDevice(targetId);
+      return sendJson(res, 200, { status: 'ok', deleted: true, deviceId: targetId });
+    }
+    if (req.method === 'PATCH' || req.method === 'PUT') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const existing = storage.getDevice(targetId);
+          if (!existing) {
+            return sendJson(res, 404, { error: 'Device not found' });
+          }
+          const updated = {
+            ...existing,
+            ...(payload.name !== undefined ? { name: String(payload.name).trim() } : {}),
+            ...(payload.roomName !== undefined ? { roomName: String(payload.roomName).trim() || 'Unassigned' } : {}),
+            ...(payload.category !== undefined ? { category: classifyDeviceCategory(existing.model, payload.name || existing.name, payload.category) } : {}),
+            ...(payload.model !== undefined ? { model: payload.model } : {}),
+            ...(payload.firmwareVersion !== undefined ? { firmwareVersion: payload.firmwareVersion } : {}),
+            ...(payload.capabilities !== undefined ? { capabilities: payload.capabilities } : {}),
+            ...(payload.hasCriticalHardwareFallback !== undefined ? { hasCriticalHardwareFallback: Boolean(payload.hasCriticalHardwareFallback) } : {}),
+          };
+          updated.name = formatCanonicalDeviceName(updated);
+          storage.upsertDevice(updated);
+          return sendJson(res, 200, { status: 'ok', device: storage.getDevice(targetId) });
+        } catch (err) {
+          return sendJson(res, 400, { error: 'Invalid device update payload' });
+        }
+      });
+      return;
+    }
+  }
+
   // POST /api/v1/hub/adopt - Trigger zero-touch discovery & adopt real devices
   if (req.method === 'POST' && pathname === '/api/v1/hub/adopt') {
     let body = '';
@@ -203,17 +371,26 @@ const server = http.createServer((req, res) => {
         if (payload.devices && Array.isArray(payload.devices)) {
           for (const d of payload.devices) {
             if (d.id && d.ipAddress) {
-              storage.upsertDevice({
+              const category = classifyDeviceCategory(d.model, d.name, d.category);
+              const normalized = {
                 id: d.id,
-                name: d.name || `Switch (${d.id.slice(-4)})`,
+                name: formatCanonicalDeviceName({ ...d, category }),
                 ipAddress: d.ipAddress,
-                online: true,
-                channelCount: d.channelCount || 3,
+                model: d.model || null,
+                firmwareVersion: d.firmwareVersion || null,
+                category,
+                roomName: d.roomName || 'Unassigned',
+                rssiDbm: typeof d.rssiDbm === 'number' ? d.rssiDbm : (typeof d.rssi === 'number' ? d.rssi : null),
+                online: d.online !== false,
+                channelCount: d.channelCount || (category === 'sockets' ? 2 : 3),
                 channels: d.channels || { 1: false, 2: false, 3: false },
+                capabilities: d.capabilities || {},
+                telemetry: d.telemetry || {},
                 activeRoutinesCount: d.activeRoutinesCount || 0,
                 hasCriticalHardwareFallback: Boolean(d.hasCriticalHardwareFallback),
                 latencyMs: 3,
-              });
+              };
+              storage.upsertDevice(normalized);
             }
           }
         }
@@ -246,20 +423,33 @@ const server = http.createServer((req, res) => {
         const remoteIp = (req.socket.remoteAddress || '').replace(/^.*:/, '') || '127.0.0.1';
         const ipAddress = payload.ipAddress || remoteIp;
 
+        const category = classifyDeviceCategory(payload.model, payload.name, payload.category);
         const deviceRecord = {
           id: deviceId,
-          name: payload.name || `Switch (${deviceId.slice(-4)})`,
+          name: formatCanonicalDeviceName({
+            id: deviceId,
+            name: payload.name,
+            model: payload.model,
+            category,
+            channelCount: payload.channelCount || (payload.channels ? Object.keys(payload.channels).length : 3),
+          }),
           ipAddress: ipAddress,
           online: true,
+          category,
+          roomName: payload.roomName || 'Unassigned',
           channelCount: payload.channelCount || (payload.channels ? Object.keys(payload.channels).length : 3),
           channels: payload.channels || { 1: false, 2: false, 3: false },
           model: payload.model || 'EH-SW3',
+          firmwareVersion: payload.firmwareVersion || null,
+          rssiDbm: typeof payload.rssi === 'number' ? payload.rssi : (typeof payload.rssiDbm === 'number' ? payload.rssiDbm : null),
+          capabilities: payload.capabilities || {},
+          telemetry: payload.telemetry || {},
           macAddress: payload.macAddress || null,
           activeRoutinesCount: payload.activeRoutinesCount || 0,
           hasCriticalHardwareFallback: Boolean(payload.hasCriticalHardwareFallback),
           latencyMs: payload.latencyMs || 2,
           registeredVia: 'unicast',
-          lastSeen: new Date().toISOString(),
+          lastSeenAt: new Date().toISOString(),
         };
 
         storage.upsertDevice(deviceRecord);
@@ -344,10 +534,90 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { status: 'ok', epoch, message: 'Time broadcast dispatched to all switches' });
   }
 
+  // Saved Webhook Rules Full CRUD (/api/v1/hub/webhooks)
+  const webhookItemMatch = pathname.match(/^\/api\/v1\/hub\/webhooks\/([^/]+?)(?:\/(test))?$/);
+  if (req.method === 'GET' && pathname === '/api/v1/hub/webhooks') {
+    const webhooks = storage.getMetadata('webhookRules', []);
+    return sendJson(res, 200, { status: 'ok', webhooks: Array.isArray(webhooks) ? webhooks : [] });
+  }
+  if ((req.method === 'POST' || req.method === 'PUT') && pathname === '/api/v1/hub/webhooks') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const list = Array.isArray(storage.getMetadata('webhookRules', [])) ? [...storage.getMetadata('webhookRules', [])] : [];
+        const id = payload.id || `wh_${crypto.randomBytes(5).toString('hex')}`;
+        const hook = {
+          id,
+          name: String(payload.name || 'Local Webhook Trigger').trim(),
+          event: String(payload.event || 'voice.command').trim(),
+          targetType: payload.routineId ? 'routine' : 'device',
+          routineId: payload.routineId || null,
+          deviceId: payload.deviceId || null,
+          channel: Number(payload.channel || 1),
+          state: payload.state !== undefined ? Boolean(payload.state) : true,
+          enabled: payload.enabled !== false,
+          updatedAt: new Date().toISOString(),
+        };
+        const idx = list.findIndex(w => w.id === id);
+        if (idx >= 0) list[idx] = { ...list[idx], ...hook };
+        else list.push(hook);
+        storage.setMetadata('webhookRules', list);
+        return sendJson(res, 200, { status: 'ok', webhook: hook });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid webhook rule payload' });
+      }
+    });
+    return;
+  }
+  if (webhookItemMatch) {
+    const whId = decodeURIComponent(webhookItemMatch[1]);
+    const action = webhookItemMatch[2];
+    const list = Array.isArray(storage.getMetadata('webhookRules', [])) ? [...storage.getMetadata('webhookRules', [])] : [];
+    const idx = list.findIndex(w => w.id === whId);
+    if (req.method === 'DELETE') {
+      if (idx < 0) return sendJson(res, 404, { error: 'Webhook not found' });
+      list.splice(idx, 1);
+      storage.setMetadata('webhookRules', list);
+      return sendJson(res, 200, { status: 'ok', deleted: true, id: whId });
+    }
+    if (req.method === 'POST' && action === 'test') {
+      if (idx < 0) return sendJson(res, 404, { error: 'Webhook not found' });
+      const hook = list[idx];
+      if (hook.routineId) {
+        const rt = storage.getRoutine(hook.routineId);
+        if (rt) scheduler.dispatchRoutine(rt);
+      } else if (hook.deviceId) {
+        const target = storage.getDevice(hook.deviceId);
+        if (target) {
+          target.channels = target.channels || {};
+          target.channels[hook.channel || 1] = Boolean(hook.state);
+          storage.upsertDevice(target);
+        }
+        rulesEngine.evaluateStateChange(hook.deviceId, hook.channel || 1, Boolean(hook.state)).catch(() => {});
+      }
+      return sendJson(res, 200, { status: 'ok', executed: true, webhook: hook });
+    }
+  }
+
+  // POST /api/v1/hub/auth/rotate-token - Rotate Hub LAN access token
+  if (req.method === 'POST' && pathname === '/api/v1/hub/auth/rotate-token') {
+    const newToken = crypto.randomBytes(24).toString('hex');
+    storage.setMetadata('hubAccessToken', newToken);
+    return sendJson(res, 200, {
+      status: 'ok',
+      accessToken: newToken,
+      hubAccessToken: newToken,
+      rotatedAt: new Date().toISOString(),
+    });
+  }
+
   // POST /api/v1/hub/unlink - Unlink Hub from current home
   if (req.method === 'POST' && pathname === '/api/v1/hub/unlink') {
     storage.setMetadata('homeId', null);
     storage.setMetadata('claimToken', null);
+    storage.setMetadata('hubAccessToken', null);
     storage.setMetadata('linkedAt', null);
     return sendJson(res, 200, { status: 'ok', message: 'Hub unlinked successfully' });
   }
@@ -360,7 +630,17 @@ const server = http.createServer((req, res) => {
 
   // GET /api/v1/routines/timers - List active auto-off countdown timers
   if (req.method === 'GET' && pathname === '/api/v1/routines/timers') {
-    const timers = storage.getActiveTimers();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const timers = storage.getActiveTimers()
+      .filter(t => t.fireAtEpoch > nowSec)
+      .map(t => {
+        const rt = t.routineId ? storage.getRoutine(t.routineId) : null;
+        return {
+          ...t,
+          routineName: rt?.name || 'Auto-Off Timer',
+          remainingSec: Math.max(0, t.fireAtEpoch - nowSec),
+        };
+      });
     return sendJson(res, 200, { status: 'ok', activeTimers: timers });
   }
 
@@ -394,8 +674,39 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // POST /api/v1/routines - Save/Update routine on Hub (Zero flash wear or Dual-sync)
-  if (req.method === 'POST' && pathname === '/api/v1/routines') {
+  // POST/PUT/PATCH /api/v1/routines - Create or edit routine on Hub (Zero flash wear or Dual-sync)
+  const routineItemMatch = pathname.match(/^\/api\/v1\/routines\/([^/]+)$/);
+  if (routineItemMatch && routineItemMatch[1] !== 'timers' && routineItemMatch[1] !== 'trigger') {
+    const targetRoutineId = decodeURIComponent(routineItemMatch[1]);
+    if (req.method === 'DELETE') {
+      storage.deleteRoutine(targetRoutineId);
+      return sendJson(res, 200, { status: 'ok', message: `Routine ${targetRoutineId} deleted` });
+    }
+    if (req.method === 'PATCH' || req.method === 'PUT') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const existing = storage.getRoutine(targetRoutineId);
+          if (!existing) return sendJson(res, 404, { error: 'Routine not found' });
+          const updated = {
+            ...existing,
+            ...payload,
+            id: targetRoutineId,
+            updatedAt: new Date().toISOString(),
+          };
+          storage.upsertRoutine(updated);
+          if (updated.criticalHardwareFallback) pushRoutineToSwitchHardware(updated);
+          return sendJson(res, 200, { status: 'ok', routine: storage.getRoutine(targetRoutineId) });
+        } catch (err) {
+          return sendJson(res, 400, { error: 'Invalid routine payload' });
+        }
+      });
+      return;
+    }
+  }
+  if ((req.method === 'POST' || req.method === 'PUT') && pathname === '/api/v1/routines') {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -497,9 +808,49 @@ const server = http.createServer((req, res) => {
               .catch(() => {
                 if (responded) return;
                 responded = true;
+                target.online = false;
+                target.rssiDbm = null;
+                storage.upsertDevice(target);
                 return sendJson(res, 502, { error: 'Device unreachable', detail });
               });
           };
+          const markOfflineAndFallback = (detail) => {
+            rulesEngine
+              .sendFastPathUdp(target.ipAddress, channel, state, Boolean(payload.toggle))
+              .then(udpRes => {
+                if (responded) return;
+                responded = true;
+                if (udpRes && udpRes.success) {
+                  target.online = true;
+                  target.lastSeenAt = new Date().toISOString();
+                  target.channels = target.channels || {};
+                  target.channels[channel] = Boolean(payload.toggle)
+                    ? !(target.channels[channel] === true)
+                    : state;
+                  storage.upsertDevice(target);
+                  rulesEngine.evaluateStateChange(target.id || deviceId, channel, target.channels[channel]).catch(() => {});
+                  return sendJson(res, 200, {
+                    status: 'udp_fallback_ok',
+                    target: target.id || deviceId,
+                    channel,
+                    state: target.channels[channel],
+                  });
+                }
+                target.online = false;
+                target.rssiDbm = null;
+                storage.upsertDevice(target);
+                return sendJson(res, 502, { error: 'Device unreachable', detail });
+              })
+              .catch(() => {
+                if (responded) return;
+                responded = true;
+                target.online = false;
+                target.rssiDbm = null;
+                storage.upsertDevice(target);
+                return sendJson(res, 502, { error: 'Device unreachable', detail });
+              });
+          };
+          void finishViaUdpFallback;
           const forwardReq = http.request({
             hostname: target.ipAddress,
             port: 80,
@@ -515,9 +866,11 @@ const server = http.createServer((req, res) => {
             forwardRes.resume();
             if (responded) return;
             if ((forwardRes.statusCode || 200) >= 500) {
-              return finishViaUdpFallback(`HTTP ${forwardRes.statusCode}`);
+              return markOfflineAndFallback(`HTTP ${forwardRes.statusCode}`);
             }
             responded = true;
+            target.online = true;
+            target.lastSeenAt = new Date().toISOString();
             target.channels = target.channels || {};
             target.channels[channel] = Boolean(payload.toggle)
               ? !(target.channels[channel] === true)
@@ -536,7 +889,7 @@ const server = http.createServer((req, res) => {
             forwardReq.destroy(new Error('ESP32 HTTP timeout'));
           });
           forwardReq.on('error', err => {
-            finishViaUdpFallback(err.message);
+            markOfflineAndFallback(err.message);
           });
           forwardReq.write(postData);
           forwardReq.end();
@@ -558,8 +911,33 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { status: 'ok', rules });
   }
 
-  // POST /api/v1/rules - Create or update a cross-device automation rule
-  if (req.method === 'POST' && pathname === '/api/v1/rules') {
+  // POST/PUT/PATCH /api/v1/rules - Create, edit or toggle a cross-device automation rule
+  const ruleItemMatch = pathname.match(/^\/api\/v1\/rules\/([^/]+)$/);
+  if (ruleItemMatch && ruleItemMatch[1] !== 'test' && ruleItemMatch[1] !== 'logs') {
+    const targetRuleId = decodeURIComponent(ruleItemMatch[1]);
+    if (req.method === 'DELETE') {
+      storage.deleteRule(targetRuleId);
+      return sendJson(res, 200, { status: 'ok', message: `Rule ${targetRuleId} deleted` });
+    }
+    if (req.method === 'PATCH' || req.method === 'PUT') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const existing = storage.getRule(targetRuleId);
+          if (!existing) return sendJson(res, 404, { error: 'Rule not found' });
+          const updated = { ...existing, ...payload, id: targetRuleId, updatedAt: new Date().toISOString() };
+          storage.saveRule(updated);
+          return sendJson(res, 200, { status: 'ok', rule: storage.getRule(targetRuleId) });
+        } catch (err) {
+          return sendJson(res, 400, { error: 'Invalid rule payload' });
+        }
+      });
+      return;
+    }
+  }
+  if ((req.method === 'POST' || req.method === 'PUT') && pathname === '/api/v1/rules') {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -796,44 +1174,41 @@ const server = http.createServer((req, res) => {
     });
   }
 
-  // GET /api/v1/hub/updates - Firmware & System Update Center for Hub and Devices
+  // GET /api/v1/hub/updates - Firmware & System Update Center for Hub and Devices (Real Staged Manifest Only)
   if (req.method === 'GET' && pathname === '/api/v1/hub/updates') {
+    const currentVersion = storage.getMetadata('version', '1.1.0-plan1-sqlite');
+    const latestVersion = storage.getMetadata('latestHubVersion', currentVersion);
+    const cachedFirmwares = listStagedFirmwareEntries(req.headers.host || `${HOSTNAME}:${PORT}`);
     return sendJson(res, 200, {
       status: 'ok',
       hub: {
-        currentVersion: storage.getMetadata('version', '1.1.0-plan1-sqlite'),
-        latestVersion: storage.getMetadata('version', '1.1.0-plan1-sqlite'),
-        updateAvailable: false,
-        platform: 'Raspberry Pi 3B+ (Debian aarch64)',
+        currentVersion,
+        latestVersion,
+        updateAvailable: latestVersion !== currentVersion,
+        platform: `${os.platform()} ${os.arch()}`,
         channel: 'stable',
-        lastChecked: new Date().toISOString(),
+        lastChecked: storage.getMetadata('lastUpdateCheckAt', new Date().toISOString()),
       },
       deviceOtaCache: {
         enabled: true,
-        cachedFirmwares: [
-          {
-            model: 'eh-smart-switch-3x',
-            version: '2.1.0-freertos',
-            sizeBytes: 1482912,
-            status: 'Ready on Local LAN',
-          },
-          {
-            model: 'eh-smart-socket-2x',
-            version: '2.1.0-freertos',
-            sizeBytes: 1474560,
-            status: 'Ready on Local LAN',
-          },
-        ],
+        cachedCount: cachedFirmwares.length,
+        cachedFirmwares,
       },
     });
   }
 
   // POST /api/v1/hub/updates/check - Trigger check for Hub & Device firmware updates
   if (req.method === 'POST' && pathname === '/api/v1/hub/updates/check') {
+    const checkedAt = new Date().toISOString();
+    storage.setMetadata('lastUpdateCheckAt', checkedAt);
+    const cachedFirmwares = listStagedFirmwareEntries(req.headers.host || `${HOSTNAME}:${PORT}`);
     return sendJson(res, 200, {
       status: 'ok',
-      message: 'Firmware update check completed. All components up to date.',
-      timestamp: new Date().toISOString(),
+      message: cachedFirmwares.length > 0
+        ? `Update scan complete: ${cachedFirmwares.length} local firmware image(s) staged.`
+        : 'Update scan complete. No newer local firmware staged.',
+      cachedCount: cachedFirmwares.length,
+      timestamp: checkedAt,
     });
   }
 
@@ -980,26 +1355,24 @@ const server = http.createServer((req, res) => {
 
   // GET /api/v1/ota/manifest - List all staged firmware binaries
   if (req.method === 'GET' && pathname === '/api/v1/ota/manifest') {
-    try {
-      const files = fs.readdirSync(FIRMWARE_DIR);
-      const manifest = files.map(file => {
-        const filePath = path.join(FIRMWARE_DIR, file);
-        const stats = fs.statSync(filePath);
-        return {
-          filename: file,
-          sizeBytes: stats.size,
-          modifiedAt: stats.mtime.toISOString(),
-          downloadUrl: `/api/v1/ota/firmware/${file}`,
-        };
-      });
-      return sendJson(res, 200, {
-        status: 'ok',
-        manifest,
-        firmwareCount: manifest.length,
-      });
-    } catch (err) {
-      return sendJson(res, 500, { error: 'Failed scanning staged firmwares' });
+    const manifest = listStagedFirmwareEntries(req.headers.host || `${HOSTNAME}:${PORT}`);
+    return sendJson(res, 200, {
+      status: 'ok',
+      manifest,
+      firmwareCount: manifest.length,
+    });
+  }
+
+  // DELETE /api/v1/ota/manifest/:filename - Delete a staged firmware binary
+  const otaDelMatch = pathname.match(/^\/api\/v1\/ota\/manifest\/([^/]+)$/);
+  if (req.method === 'DELETE' && otaDelMatch) {
+    const filename = path.basename(decodeURIComponent(otaDelMatch[1]));
+    const filePath = path.join(FIRMWARE_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return sendJson(res, 404, { error: `Staged firmware ${filename} not found` });
     }
+    fs.unlinkSync(filePath);
+    return sendJson(res, 200, { status: 'ok', deleted: true, filename });
   }
 
   // GET /api/v1/ota/firmware/:filename - High-speed binary delivery over local LAN
@@ -1239,19 +1612,58 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  // POST /api/v1/integrations/homeassistant/config - Save MQTT broker settings for Home Assistant
+  if (req.method === 'POST' && pathname === '/api/v1/integrations/homeassistant/config') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const cfg = {
+          host: String(payload.host || '').trim(),
+          port: Number(payload.port || 1883),
+          username: String(payload.username || '').trim(),
+          password: String(payload.password || ''),
+          discoveryPrefix: String(payload.discoveryPrefix || 'homeassistant').trim() || 'homeassistant',
+          updatedAt: new Date().toISOString(),
+        };
+        storage.setMetadata('homeAssistantMqtt', cfg);
+        const manifest = haBridge.generateDiscoveryManifest();
+        const mqttRes = cfg.host ? await haBridge.publishDiscoveryViaMqtt(manifest) : { mqttPublished: false, reason: 'MQTT_CLEARED', publishedCount: 0 };
+        return sendJson(res, 200, {
+          status: 'ok',
+          mqtt: haBridge.getMqttStatus(),
+          ...mqttRes,
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid Home Assistant config payload' });
+      }
+    });
+    return;
+  }
+
   // GET /api/v1/integrations/homeassistant/status - Integration readiness and metrics
   if (req.method === 'GET' && pathname === '/api/v1/integrations/homeassistant/status') {
     const manifest = haBridge.generateDiscoveryManifest();
     const entities = haBridge.getRestEntities();
+    const devices = storage.getDevices();
+    const byCategory = {};
+    for (const d of devices) {
+      const cat = d.category || 'switches';
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+    }
+    const mqttStatus = haBridge.getMqttStatus();
     return sendJson(res, 200, {
       status: 'ok',
       integration: 'Home Assistant MQTT & REST Bridge',
       active: true,
-      prefix: haBridge.discoveryPrefix,
+      prefix: mqttStatus.discoveryPrefix,
       entitiesCount: manifest.entitiesCount,
       switchesCount: entities.length,
       sensorsCount: manifest.entities.filter(e => e.component === 'sensor').length,
       binarySensorsCount: manifest.entities.filter(e => e.component === 'binary_sensor').length,
+      categories: byCategory,
+      mqtt: mqttStatus,
       configurationUrl: `http://${haBridge.hubHostname}:${haBridge.hubPort}`,
     });
   }
@@ -1259,13 +1671,91 @@ const server = http.createServer((req, res) => {
   // POST /api/v1/integrations/homeassistant/sync - Refresh discovery and broadcast status
   if (req.method === 'POST' && pathname === '/api/v1/integrations/homeassistant/sync') {
     const manifest = haBridge.generateDiscoveryManifest();
-    console.log(`[Hub Home Assistant] Synced ${manifest.entitiesCount} entities across ${storage.getDevices().length} devices`);
-    return sendJson(res, 200, {
-      status: 'ok',
-      message: `Home Assistant discovery manifest synchronized (${manifest.entitiesCount} entities)`,
-      entitiesCount: manifest.entitiesCount,
-      timestamp: new Date().toISOString(),
+    haBridge.publishDiscoveryViaMqtt(manifest).then(mqttRes => {
+      console.log(`[Hub Home Assistant] Synced ${manifest.entitiesCount} entities across ${storage.getDevices().length} devices (MQTT: ${mqttRes.mqttPublished})`);
+      return sendJson(res, 200, {
+        status: 'ok',
+        message: mqttRes.mqttPublished
+          ? `Published ${mqttRes.publishedCount} Home Assistant entities to MQTT broker`
+          : `REST manifest refreshed (${manifest.entitiesCount} entities). MQTT broker not configured.`,
+        entitiesCount: manifest.entitiesCount,
+        mqttPublished: mqttRes.mqttPublished,
+        mqttReason: mqttRes.reason || null,
+        mqtt: haBridge.getMqttStatus(),
+        timestamp: new Date().toISOString(),
+      });
     });
+    return;
+  }
+
+  // Saved Backups Collection CRUD (/api/v1/hub/backups)
+  const backupItemMatch = pathname.match(/^\/api\/v1\/hub\/backups\/([^/]+?)(?:\/(restore))?$/);
+  if (req.method === 'GET' && pathname === '/api/v1/hub/backups') {
+    const dir = getBackupDir();
+    const backups = [];
+    for (const file of fs.readdirSync(dir)) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const raw = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+        const id = file.replace(/\.json$/, '');
+        backups.push({
+          id,
+          label: raw.label || id,
+          createdAt: raw.exportedAt || fs.statSync(path.join(dir, file)).mtime.toISOString(),
+          devicesCount: Array.isArray(raw.devices) ? raw.devices.length : 0,
+          routinesCount: Array.isArray(raw.routines) ? raw.routines.length : 0,
+          rulesCount: Array.isArray(raw.rules) ? raw.rules.length : 0,
+        });
+      } catch (_) {}
+    }
+    backups.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return sendJson(res, 200, { status: 'ok', backups });
+  }
+  if (req.method === 'POST' && pathname === '/api/v1/hub/backups') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const id = `bk_${Date.now()}`;
+        const snapshot = storage.exportSnapshot();
+        snapshot.label = String(payload.label || `Snapshot ${new Date().toLocaleString()}`).trim();
+        fs.writeFileSync(path.join(getBackupDir(), `${id}.json`), JSON.stringify(snapshot, null, 2), 'utf8');
+        return sendJson(res, 200, {
+          status: 'ok',
+          backup: {
+            id,
+            label: snapshot.label,
+            createdAt: snapshot.exportedAt,
+            devicesCount: snapshot.devices.length,
+            routinesCount: snapshot.routines.length,
+            rulesCount: snapshot.rules.length,
+          },
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Failed creating backup snapshot' });
+      }
+    });
+    return;
+  }
+  if (backupItemMatch) {
+    const bkId = path.basename(decodeURIComponent(backupItemMatch[1]));
+    const action = backupItemMatch[2];
+    const filePath = path.join(getBackupDir(), `${bkId}.json`);
+    if (!fs.existsSync(filePath)) return sendJson(res, 404, { error: 'Backup not found' });
+    if (req.method === 'DELETE') {
+      fs.unlinkSync(filePath);
+      return sendJson(res, 200, { status: 'ok', deleted: true, id: bkId });
+    }
+    if (req.method === 'POST' && action === 'restore') {
+      try {
+        const snapshot = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        storage.restoreSnapshot(snapshot);
+        return sendJson(res, 200, { status: 'ok', restored: true, id: bkId });
+      } catch (err) {
+        return sendJson(res, 400, { error: 'Invalid backup snapshot' });
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1465,23 +1955,35 @@ function performNonDisruptiveStateSync(deviceId, ipAddress) {
             if (ch && ch.channelIndex != null) channelMap[ch.channelIndex] = Boolean(ch.power);
           }
         }
+        const modelStr = state.model || (deviceId.includes('sk') ? 'EH-SK-2X' : 'EH-SW3');
+        const category = classifyDeviceCategory(modelStr, state.name, state.category);
+        const existingDev = storage.getDevice(deviceId);
         storage.upsertDevice({
           id: deviceId,
-          name: state.name || (state.model && state.model.includes('SK') ? `EH Socket (${deviceId.slice(-4)})` : `EH Switch (${deviceId.slice(-4)})`),
+          name: existingDev?.name || formatCanonicalDeviceName({
+            id: deviceId,
+            name: state.name,
+            model: modelStr,
+            category,
+            channelCount: state.channelCount || (Object.keys(channelMap).length || 2),
+          }),
           ipAddress: ipAddress,
-          model: state.model || (deviceId.includes('sk') ? 'EH-SK-2X' : 'EH-SW3'),
+          model: modelStr,
+          category,
           firmwareVersion: state.firmwareVersion || '1.1.0',
           channelCount: state.channelCount || (Object.keys(channelMap).length || 2),
           channels: channelMap,
           online: true,
+          lastSeenAt: new Date().toISOString(),
           activeRoutinesCount: state.routinesCount || 0,
           hasCriticalHardwareFallback: Boolean(state.hasCriticalRoutines),
           latencyMs: 3,
+          ...(state.telemetry && typeof state.telemetry === 'object' ? { telemetry: state.telemetry } : {}),
           ...(typeof state.rssi === 'number' && state.rssi < 0 && state.rssi > -115
             ? { rssiDbm: Math.round(state.rssi) }
             : {}),
         });
-        console.log(`[Hub Zero-Touch] Adopted device ${deviceId} at ${ipAddress} (Model: ${state.model}, Firmware: ${state.firmwareVersion}, saved in ${storage.type})`);
+        console.log(`[Hub Zero-Touch] Adopted device ${deviceId} at ${ipAddress} (Model: ${modelStr}, Category: ${category}, Firmware: ${state.firmwareVersion}, saved in ${storage.type})`);
       } catch (_) {}
     });
   });
@@ -1562,6 +2064,76 @@ function pushRoutineToSwitchHardware(routine) {
 }
 
 // ---------------------------------------------------------------------------
+// 3b. Stale-Device Offline Watchdog (~8s timeout, active probe verify)
+// ---------------------------------------------------------------------------
+const DEVICE_STALE_PROBE_MS = 7000;
+const DEVICE_OFFLINE_THRESHOLD_MS = 8500;
+let deviceWatchdogTimer = null;
+const activeProbesInFlight = new Set();
+
+function runStaleDeviceWatchdog() {
+  const now = Date.now();
+  const devices = storage.getDevices();
+  for (const dev of devices) {
+    if (!dev.ipAddress || !dev.online) continue;
+    const lastMs = dev.lastSeenAt ? Date.parse(dev.lastSeenAt) : 0;
+    const ageMs = Number.isNaN(lastMs) ? DEVICE_OFFLINE_THRESHOLD_MS + 1 : (now - lastMs);
+    if (ageMs < DEVICE_STALE_PROBE_MS || activeProbesInFlight.has(dev.id)) continue;
+
+    activeProbesInFlight.add(dev.id);
+    const req = http.get({
+      hostname: dev.ipAddress,
+      port: 80,
+      path: '/api/v1/state',
+      timeout: 800,
+    }, (res) => {
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => {
+        activeProbesInFlight.delete(dev.id);
+        if (res.statusCode === 200) {
+          try {
+            const st = JSON.parse(body || '{}');
+            const latestDev = storage.getDevice(dev.id) || dev;
+            latestDev.online = true;
+            latestDev.lastSeenAt = new Date().toISOString();
+            if (typeof st.rssi === 'number' && st.rssi < 0 && st.rssi > -115) {
+              latestDev.rssiDbm = Math.round(st.rssi);
+            }
+            if (Array.isArray(st.channels)) {
+              latestDev.channels = latestDev.channels || {};
+              for (const ch of st.channels) {
+                if (ch && ch.channelIndex != null && ch.power != null) {
+                  latestDev.channels[ch.channelIndex] = Boolean(ch.power);
+                }
+              }
+            }
+            storage.upsertDevice(latestDev);
+            return;
+          } catch (_) {}
+        }
+        const latestDev = storage.getDevice(dev.id) || dev;
+        latestDev.online = false;
+        latestDev.rssiDbm = null;
+        storage.upsertDevice(latestDev);
+      });
+    });
+    const markOffline = () => {
+      activeProbesInFlight.delete(dev.id);
+      const cur = storage.getDevice(dev.id);
+      if (cur && cur.online) {
+        cur.online = false;
+        cur.rssiDbm = null;
+        storage.upsertDevice(cur);
+        console.log(`[Hub Watchdog] Marked stale/powered-off device ${dev.id} (${dev.ipAddress}) offline.`);
+      }
+    };
+    req.on('timeout', () => { req.destroy(); markOffline(); });
+    req.on('error', markOffline);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 4. Server Startup & Scheduler Activation
 // ---------------------------------------------------------------------------
 
@@ -1575,8 +2147,11 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  OverlayFS Safe  : 100% RAM Scheduler + Power-Cut WAL`);
   console.log(`=======================================================`);
 
-  // Activate Resilient Scheduler
+  // Activate Resilient Scheduler & 3s Stale-Device Watchdog
   scheduler.start();
+  cloudBridge.start();
+  deviceWatchdogTimer = setInterval(runStaleDeviceWatchdog, 3000);
+  if (typeof deviceWatchdogTimer.unref === 'function') deviceWatchdogTimer.unref();
 
   udpSocket.bind(UDP_PORT, () => {
     try {
@@ -1591,6 +2166,8 @@ server.listen(PORT, '0.0.0.0', () => {
 
 process.on('SIGTERM', () => {
   console.log('[Hub] Shutting down gracefully...');
+  if (deviceWatchdogTimer) clearInterval(deviceWatchdogTimer);
+  cloudBridge.stop();
   scheduler.stop();
   rulesEngine.close();
   timeServer.stop();

@@ -40,6 +40,7 @@ static uint32_t s_last_retry_tick_sec = 0;
 #ifdef ESP_PLATFORM
 static bool s_sntp_initialized = false;
 #endif
+static char s_hub_ntp_ip[64] = {0};
 static char s_current_tz[32] = DEFAULT_TIMEZONE;
 
 void time_sync_manager_init(void)
@@ -68,9 +69,27 @@ void time_sync_manager_start_sntp(void)
         esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
         esp_sntp_setservername(0, DEFAULT_NTP_SERVER_1);
         esp_sntp_setservername(1, DEFAULT_NTP_SERVER_2);
+        if (s_hub_ntp_ip[0] != '\0') {
+            esp_sntp_setservername(2, s_hub_ntp_ip);
+        }
         esp_sntp_init();
         s_sntp_initialized = true;
         ESP_LOGI(TAG, "SNTP client initialized with %s, %s", DEFAULT_NTP_SERVER_1, DEFAULT_NTP_SERVER_2);
+    }
+#endif
+}
+
+void time_sync_manager_set_hub_ntp_server(const char *hub_ip)
+{
+    if (!hub_ip || strlen(hub_ip) == 0) return;
+    if (strcmp(s_hub_ntp_ip, hub_ip) == 0) return;
+    strncpy(s_hub_ntp_ip, hub_ip, sizeof(s_hub_ntp_ip) - 1);
+    s_hub_ntp_ip[sizeof(s_hub_ntp_ip) - 1] = '\0';
+#ifdef ESP_PLATFORM
+    esp_sntp_setservername(2, s_hub_ntp_ip);
+    ESP_LOGI(TAG, "Configured Smart Hub local SNTP fallback server: %s", s_hub_ntp_ip);
+    if (s_sntp_initialized && !s_is_time_synced) {
+        esp_sntp_restart();
     }
 #endif
 }

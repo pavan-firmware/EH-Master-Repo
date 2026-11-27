@@ -49,6 +49,12 @@ bool local_server_send_p2p_actuate(const char* target_ip, uint8_t target_channel
  */
 bool local_server_send_p2p_actuate_target(const char* target_ip, const char* target_device_id, uint8_t target_channel, bool power, bool is_toggle);
 
+/**
+ * Push periodic BL0942 energy telemetry samples to the local Smart Hub (:4210)
+ * when discovered on LAN (throttled every ~10 seconds).
+ */
+void local_server_push_energy_to_hub(uint32_t voltage_mv, uint32_t current_ma, int32_t power_mw);
+
 #ifdef __cplusplus
 }
 #endif
