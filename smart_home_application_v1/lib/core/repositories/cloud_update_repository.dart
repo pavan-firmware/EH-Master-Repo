@@ -5,6 +5,7 @@ import '../models/update_models.dart';
 import '../services/device_storage_service.dart';
 import '../services/check_timestamp_service.dart';
 import '../services/local_lan_device_service.dart';
+import '../../features/hub/data/hub_repository.dart';
 import 'update_repository.dart';
 
 class CloudUpdateRepository implements UpdateRepository {
@@ -267,6 +268,47 @@ class CloudUpdateRepository implements UpdateRepository {
       }
     }
 
+    // Query local Pi Hub OTA cache when a Hub is configured/reachable so:
+    //  1) Updates work 100% offline even without Cloud Backend / internet, and
+    //  2) LAN OTA binaries are served from the Pi Hub (:4210) instead of WAN.
+    final hubManifestByModel = <String, Map<String, dynamic>>{};
+    bool hasHubOtaCache = false;
+    final hubHostCandidate = LiveHubRepository.activeHost ??
+        LocalLanDeviceService.instance.cachedHubHost ??
+        DeviceStorageService.persistedHubHost ??
+        '';
+    if (LiveHubRepository.isLinked ||
+        LiveHubRepository.isHubActive ||
+        hubHostCandidate.isNotEmpty) {
+      try {
+        final hubRepo = LiveHubRepository();
+        final hubUpdates = await hubRepo
+            .getHubUpdates(hubHostname: hubHostCandidate)
+            .timeout(const Duration(milliseconds: 1200));
+        final otaCache = hubUpdates['deviceOtaCache'] as Map<String, dynamic>?;
+        final cachedList = otaCache?['cachedFirmwares'] as List<dynamic>? ?? const [];
+        if (hubUpdates['status'] == 'ok') {
+          hasHubOtaCache = true;
+          hasNetworkSuccess = true;
+        }
+        for (final item in cachedList) {
+          if (item is Map) {
+            final m = Map<String, dynamic>.from(item);
+            final canon = _resolveCanonicalVariantId(m['model']?.toString() ?? '');
+            final ver = m['version']?.toString() ?? '';
+            if (canon.isEmpty || ver.isEmpty) continue;
+            final prev = hubManifestByModel[canon];
+            if (prev == null ||
+                _compareSemver(ver, prev['version']?.toString() ?? '0.0.0') > 0) {
+              hubManifestByModel[canon] = m;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[CloudUpdateRepository] Hub OTA cache query skipped: $e');
+      }
+    }
+
     // Now query /api/v1/ota/check for EACH unique hardware device!
     for (final entry in knownDeviceMap.values) {
       final devId = entry['id'] as String;
@@ -282,6 +324,7 @@ class CloudUpdateRepository implements UpdateRepository {
       String? downloadUrl;
       String? sha256;
       int? binarySizeBytes;
+      String cloudVer = curVer;
 
       try {
         final checkRes = await apiClient.get(
@@ -293,7 +336,8 @@ class CloudUpdateRepository implements UpdateRepository {
           final rel = dataMap['release'] as Map<String, dynamic>?;
           if (rel != null) {
             status = UpdateTargetStatus.updateAvailable;
-            targetVersion = 'Version ${rel['version']}';
+            cloudVer = rel['version']?.toString() ?? curVer;
+            targetVersion = 'Version $cloudVer';
             releaseNotes = rel['releaseNotes']?.toString();
             releaseId = rel['releaseId']?.toString();
             downloadUrl = rel['downloadUrl']?.toString();
@@ -306,6 +350,29 @@ class CloudUpdateRepository implements UpdateRepository {
       } catch (e) {
         debugPrint('[CloudUpdateRepository] Device OTA check error for $model: $e');
         lastNetworkError = e;
+      }
+
+      // Prefer or fall back to local Pi Hub staged OTA image if newer than curVer
+      final hubEntry = hubManifestByModel[model];
+      if (hubEntry != null) {
+        final hubVer = hubEntry['version']?.toString() ?? '';
+        final hubUrl = hubEntry['fullUrl']?.toString() ?? '';
+        if (hubVer.isNotEmpty &&
+            hubUrl.isNotEmpty &&
+            _compareSemver(hubVer, curVer) > 0 &&
+            _compareSemver(hubVer, cloudVer) >= 0) {
+          status = UpdateTargetStatus.updateAvailable;
+          targetVersion = 'Version $hubVer (Hub LAN)';
+          downloadUrl = hubUrl;
+          releaseId ??= 'hub_${model}_$hubVer';
+          releaseNotes = hasHubOtaCache
+              ? 'Staged locally on Smart Hub ($hubHostCandidate) for offline LAN flashing.'
+              : releaseNotes;
+          sha256 ??= hubEntry['sha256']?.toString();
+          if (hubEntry['sizeBytes'] is num) {
+            binarySizeBytes = (hubEntry['sizeBytes'] as num).toInt();
+          }
+        }
       }
 
       targets.add(UpdateTarget(
@@ -483,6 +550,18 @@ class CloudUpdateRepository implements UpdateRepository {
     }
 
     return lanStarted || cloudStarted;
+  }
+
+  static int _compareSemver(String a, String b) {
+    final pa = a.replaceAll(RegExp(r'[^0-9.]'), '').split('.').map((s) => int.tryParse(s) ?? 0).toList();
+    final pb = b.replaceAll(RegExp(r'[^0-9.]'), '').split('.').map((s) => int.tryParse(s) ?? 0).toList();
+    final len = pa.length > pb.length ? pa.length : pb.length;
+    for (int i = 0; i < len; i++) {
+      final va = i < pa.length ? pa[i] : 0;
+      final vb = i < pb.length ? pb[i] : 0;
+      if (va != vb) return va.compareTo(vb);
+    }
+    return 0;
   }
 }
 
