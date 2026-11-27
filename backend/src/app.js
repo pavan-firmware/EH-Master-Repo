@@ -233,8 +233,6 @@ function isPublicRoute(method, pathname) {
   )) {
     return true;
   }
-    return true;
-  }
   if (method === 'POST' && pathname === '/api/v1/ota/releases') {
     return true;
   }
